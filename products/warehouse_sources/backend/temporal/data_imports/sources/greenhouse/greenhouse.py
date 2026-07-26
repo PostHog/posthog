@@ -2,13 +2,19 @@ import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-from requests.auth import HTTPBasicAuth
+import requests
+from requests import Request
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    HttpBasicAuth,
+    OAuth2Auth,
+    OAuth2AuthRequestError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     HeaderLinkPaginator,
@@ -17,13 +23,28 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.settings import (
     GREENHOUSE_ENDPOINTS,
+    GREENHOUSE_V3,
     GreenhouseEndpointConfig,
 )
 
-GREENHOUSE_BASE_URL = "https://harvest.greenhouse.io/v1"
-# Harvest's documented maximum page size. Fewer requests keeps us comfortably under the
-# per-10-second rate limit advertised via the `X-RateLimit-*` response headers.
+GREENHOUSE_BASE_HOST = "https://harvest.greenhouse.io"
+# v3 mints short-lived JWTs from the customer's own OAuth2 client credentials; v1 has no
+# token exchange (the API key is sent directly as HTTP Basic on every request).
+GREENHOUSE_TOKEN_URL = "https://auth.greenhouse.io/token"
+# Harvest's documented maximum page size, on both v1 and v3. Fewer requests keeps us comfortably
+# under the per-10-second rate limit advertised via the `X-RateLimit-*` response headers.
 PAGE_SIZE = 500
+
+MISSING_V3_CREDENTIALS_ERROR = (
+    "Greenhouse Harvest v3 requires OAuth client credentials. "
+    "In Greenhouse, go to Configure → Dev Center → API Credential Management, create a "
+    "**Harvest V3 (OAuth)** credential, and enter its client ID and client secret."
+)
+MISSING_V1_CREDENTIALS_ERROR = "Greenhouse Harvest v1 requires an API key."
+
+
+def _base_url(api_version: str) -> str:
+    return f"{GREENHOUSE_BASE_HOST}/{api_version}"
 
 
 @dataclasses.dataclass
@@ -46,35 +67,96 @@ def _format_datetime(value: Any) -> str:
 
 def _build_initial_params(
     config: GreenhouseEndpointConfig,
+    api_version: str,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {"per_page": PAGE_SIZE}
 
-    if should_use_incremental_field and incremental_field and db_incremental_field_last_value is not None:
-        filter_param = config.incremental_filter_params.get(incremental_field)
-        if filter_param:
-            # Harvest's `*_after` filters are inclusive — merge dedupes the boundary rows.
-            params[filter_param] = _format_datetime(db_incremental_field_last_value)
+    if not (should_use_incremental_field and incremental_field and db_incremental_field_last_value is not None):
+        return params
+
+    cursor = _format_datetime(db_incremental_field_last_value)
+
+    if api_version == GREENHOUSE_V3:
+        # v3 filters on the timestamp field itself with a pipe-delimited operator
+        # (`updated_at=gte|<iso>`) instead of v1's separate `*_after` params.
+        if any(field["field"] == incremental_field for field in config.incremental_fields):
+            params[incremental_field] = f"gte|{cursor}"
+        return params
+
+    filter_param = config.incremental_filter_params.get(incremental_field)
+    if filter_param:
+        # Both versions filter inclusively (`*_after` on v1, `gte` on v3) — merge dedupes the
+        # boundary rows.
+        params[filter_param] = cursor
 
     return params
 
 
-def validate_credentials(
-    api_key: str, path: str = "/candidates", accept_forbidden: bool = True
-) -> tuple[bool, str | None]:
-    """Probe a Harvest endpoint to confirm the API key is genuine.
+def _build_auth(
+    api_version: str, api_key: str | None, client_id: str | None, client_secret: str | None
+) -> HttpBasicAuth | OAuth2Auth:
+    """Build the per-version request auth.
 
-    Harvest keys are scoped per-resource: a valid key may still 403 on an endpoint it wasn't
+    v1 sends the Harvest API key as HTTP Basic (key as username, blank password). v3 rejects Basic
+    entirely and requires a Bearer JWT minted from the customer's OAuth2 client credentials, so the
+    two versions take different secrets. Supplied via framework auth either way, so the credential
+    is redacted from logs and error messages.
+    """
+    if api_version == GREENHOUSE_V3:
+        if not client_id or not client_secret:
+            raise ValueError(MISSING_V3_CREDENTIALS_ERROR)
+        return OAuth2Auth(
+            token_url=GREENHOUSE_TOKEN_URL,
+            client_id=client_id,
+            client_secret=client_secret,
+            grant_type="client_credentials",
+            # Greenhouse takes the client credentials as HTTP Basic on the token request, not in
+            # the body. Its response carries `expires_at` (an absolute ISO 8601 string) rather than
+            # `expires_in`, in an unpinned format — leave the expiry hint unparsed and let the
+            # framework's conservative default TTL drive re-minting.
+            client_auth_method="basic",
+        )
+
+    if not api_key:
+        raise ValueError(MISSING_V1_CREDENTIALS_ERROR)
+    return HttpBasicAuth(api_key, "")
+
+
+def validate_credentials(
+    api_version: str,
+    api_key: str | None = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    path: str = "/candidates",
+    accept_forbidden: bool = True,
+) -> tuple[bool, str | None]:
+    """Probe a Harvest endpoint on ``api_version`` to confirm the credentials are genuine.
+
+    Harvest credentials are scoped per-resource: a valid one may still 403 on an endpoint it wasn't
     granted. At source-create time (``accept_forbidden=True``) we treat 403 as success so users
-    can connect with keys scoped only to the endpoints they want; per-schema checks pass
+    can connect with credentials scoped only to the endpoints they want; per-schema checks pass
     ``accept_forbidden=False`` to surface a missing-scope error for that specific endpoint.
     """
+    try:
+        auth = _build_auth(api_version, api_key, client_id, client_secret)
+    except ValueError as e:
+        return False, str(e)
+
+    if isinstance(auth, OAuth2Auth):
+        # Mint up front so a bad client credential reports itself instead of surfacing as an
+        # unreachable probe — `validate_via_probe` swallows the exception into `(False, None)`.
+        try:
+            auth(Request(method="GET", url=_base_url(api_version)).prepare())
+        except (OAuth2AuthRequestError, requests.RequestException):
+            return False, "Invalid Greenhouse client credentials. Please check them and try again."
+
     _ok, status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key,)),
-        f"{GREENHOUSE_BASE_URL}{path}?per_page=1",
-        auth=HTTPBasicAuth(api_key, ""),
+        lambda: make_tracked_session(redact_values=tuple(v for v in (api_key, client_secret) if v)),
+        f"{_base_url(api_version)}{path}?per_page=1",
+        auth=auth,
     )
 
     if status == 200:
@@ -83,10 +165,10 @@ def validate_credentials(
     if status == 403:
         if accept_forbidden:
             return True, None
-        return False, "Your Greenhouse API key does not have permission to access this endpoint."
+        return False, "Your Greenhouse credentials do not have permission to access this endpoint."
 
     if status == 401:
-        return False, "Invalid Greenhouse API key. Please check your key and try again."
+        return False, "Invalid Greenhouse credentials. Please check them and try again."
 
     if status is None:
         return False, "Could not reach the Greenhouse API. Please try again."
@@ -95,11 +177,14 @@ def validate_credentials(
 
 
 def greenhouse_source(
-    api_key: str,
     endpoint: str,
     team_id: int,
     job_id: str,
+    api_version: str,
     resumable_source_manager: ResumableSourceManager[GreenhouseResumeConfig],
+    api_key: str | None = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
@@ -107,24 +192,29 @@ def greenhouse_source(
     config = GREENHOUSE_ENDPOINTS[endpoint]
 
     params = _build_initial_params(
-        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+        config, api_version, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
 
     rest_config: RESTAPIConfig = {
         "client": {
-            "base_url": GREENHOUSE_BASE_URL,
-            # Harvest uses HTTP Basic auth with the API key as the username and a blank password.
-            # Supplied via framework auth so the key is redacted from logs and error messages.
-            "auth": {"type": "http_basic", "username": api_key, "password": ""},
-            # Harvest paginates with RFC 5988 `Link` headers; the paginator follows the
-            # `rel="next"` URL verbatim (it already encodes per_page + filters).
+            "base_url": _base_url(api_version),
+            "auth": _build_auth(api_version, api_key, client_id, client_secret),
+            # Both versions paginate with RFC 5988 `Link` headers; the paginator follows the
+            # `rel="next"` URL verbatim. v1's carries per_page + filters, v3's carries an opaque
+            # cursor that must travel alone — following it verbatim satisfies both.
             "paginator": HeaderLinkPaginator(),
+            # Because that next URL is followed verbatim, pin every request (paginator and seeded
+            # resume URLs included) to the base host and reject cross-host redirects: a spoofed
+            # link must not be able to replay the credential — v3's minted Bearer token especially
+            # — to another origin. `allowed_hosts=[]` means "same host as base_url only".
+            "allowed_hosts": [],
+            "allow_redirects": False,
         },
         "resources": [
             {
                 "name": endpoint,
                 "endpoint": {
-                    "path": config.path,
+                    "path": config.path_for_version(api_version),
                     "params": params,
                 },
             }

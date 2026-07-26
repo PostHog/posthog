@@ -90,8 +90,6 @@ _LAZY = {
     "get_direct_query_engine": "direct_query_engines",
     "get_namespaced_resource_adapter": "namespaced_resources",
     "reconcile_refresh_name_substitutions": "postgres_warehouse_migration",
-    "github_repositories_for_job_inputs": "github_warehouse_repos",
-    "reconcile_github_repositories": "github_warehouse_repos",
     "apply_on_refresh": "sql_warehouse_migration",
     "apply_on_schema_clear": "sql_warehouse_migration",
     "detect_schema_clear_transition": "sql_warehouse_migration",

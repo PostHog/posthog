@@ -31,7 +31,7 @@ jobs:
         name: Verify dev sandbox profile
         # sandbox-exec (Seatbelt) is macOS-only. Depot macOS is a fixed FIFO pool
         # (Startup+ plan); if it's unavailable, swap runs-on for `macos-14`.
-        runs-on: depot-macos-latest
+        runs-on: depot-macos-15
         timeout-minutes: 15
         permissions:
             contents: read

@@ -13,12 +13,29 @@ export function getChannelThreadUrl(ticket: Ticket | null): string | undefined {
     return undefined
 }
 
-const channelIcon: Record<TicketChannel, JSX.Element> = {
+export const channelIcon: Record<TicketChannel, JSX.Element> = {
     widget: <IconComment />,
     slack: <IconSlack />,
     teams: <IconMicrosoftTeams />,
     email: <IconLetter />,
     github: <IconGithub />,
+}
+
+// Channels a team member replies back into externally, branded on the composer
+// (placeholder text + send-button logo). Others fall back to the generic composer.
+const replyChannelLabel: Partial<Record<TicketChannel, string>> = {
+    slack: 'Slack',
+    teams: 'Microsoft Teams',
+    github: 'GitHub',
+}
+
+export function getReplyPlaceholder(channel?: TicketChannel): string {
+    const label = channel ? replyChannelLabel[channel] : undefined
+    return label ? `Reply in ${label}...` : 'Type your message...'
+}
+
+export function hasReplyChannelBranding(channel?: TicketChannel): channel is TicketChannel {
+    return !!channel && channel in replyChannelLabel
 }
 
 const channelDetailLabel: Record<TicketChannelDetail, string> = {

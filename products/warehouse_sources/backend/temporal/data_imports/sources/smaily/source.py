@@ -110,6 +110,7 @@ Create an API user in [Smaily](https://smaily.com) under **Account preferences â
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only â€” Smaily's list endpoints expose no server-side
         # timestamp filter, so there is no incremental cursor to advance.
@@ -128,7 +129,11 @@ Create an API user in [Smaily](https://smaily.com) under **Account preferences â
         return schemas
 
     def validate_credentials(
-        self, config: SmailySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SmailySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API user is account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.subdomain, config.username, config.password)

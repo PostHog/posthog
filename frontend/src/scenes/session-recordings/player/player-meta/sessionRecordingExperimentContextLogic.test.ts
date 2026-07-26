@@ -75,13 +75,16 @@ describe('sessionRecordingExperimentContextLogic', () => {
         })
     })
 
-    it('does not fetch when the feature flag is off', async () => {
+    it('does not start a load when the feature flag is off', async () => {
         setFlagEnabled(false)
         logic = sessionRecordingExperimentContextLogic({ sessionRecordingId: 'session-3' })
         logic.mount()
 
-        await expectLogic(logic).toDispatchActions(['loadExperimentContextSuccess']).toMatchValues({
+        // No load may even start: a vacuous load would flip `experimentContextLoading` true
+        // for a beat, flashing the sidebar's loading placeholder for flag-disabled viewers.
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadExperimentContext']).toMatchValues({
             experimentContext: null,
+            experimentContextLoading: false,
             hasExperimentContext: false,
         })
     })
@@ -150,7 +153,7 @@ describe('sessionRecordingExperimentContextLogic', () => {
         logic = sessionRecordingExperimentContextLogic({ sessionRecordingId: 'session-1' })
         logic.mount()
 
-        await expectLogic(logic).toDispatchActions(['loadExperimentContextSuccess']).toMatchValues({
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadExperimentContext']).toMatchValues({
             experimentContext: null,
         })
 

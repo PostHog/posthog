@@ -13,10 +13,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     DELETED_COLUMN,
     SCD2_VALID_FROM_COLUMN,
     SCD2_VALID_TO_COLUMN,
+    TOAST_OMITTED_COLUMN,
     ChangeEventBatcher,
     build_scd2_table,
     deduplicate_table,
     enrich_delete_rows,
+    enrich_toast_omitted_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 
@@ -28,6 +30,7 @@ def _make_event(
     columns: dict | None = None,
     timestamp: datetime | None = None,
     column_types: Mapping[str, pa.DataType] | None = None,
+    omitted_columns: frozenset[str] = frozenset(),
 ) -> ChangeEvent:
     return ChangeEvent(
         operation=op,
@@ -36,6 +39,7 @@ def _make_event(
         timestamp=timestamp or datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC),
         columns=columns or {"id": 1, "name": "Alice"},
         column_types=column_types,
+        omitted_columns=omitted_columns,
     )
 
 
@@ -186,6 +190,31 @@ class TestChangeEventBatcher:
 
         batcher.flush()  # type: ignore[unreachable]
         assert batcher.should_flush is False  # noqa: E712
+
+    def test_toast_omitted_columns_materialized_with_marker(self):
+        # An UPDATE whose TOASTed column was unchanged carries no value for it. The
+        # batch must still materialize the column (null) plus a per-row marker —
+        # without the column, the load path aligns the batch to the target schema
+        # with a plain null column and merges NULL over the real value.
+        batcher = ChangeEventBatcher()
+        batcher.add(
+            _make_event(
+                op="U",
+                columns={"id": 1, "name": "renamed"},
+                column_types={"id": pa.int64(), "name": pa.string(), "big": pa.string()},
+                omitted_columns=frozenset({"big"}),
+            )
+        )
+        table = batcher.flush()["users"]
+
+        assert table.column("big").to_pylist() == [None]
+        assert table.column("big").type == pa.string()
+        assert table.column(TOAST_OMITTED_COLUMN).to_pylist() == [["big"]]
+
+        # A flush without omissions must not carry the marker column.
+        batcher.add(_make_event(op="U", columns={"id": 1, "name": "again"}))
+        table = batcher.flush()["users"]
+        assert TOAST_OMITTED_COLUMN not in table.column_names
 
     def test_should_flush_byte_threshold(self):
         batcher = ChangeEventBatcher(max_bytes=500)
@@ -533,3 +562,87 @@ class TestEnrichDeleteRows:
         result = enrich_delete_rows(table, ["id"], existing_rows=existing)
         # The DELETE row should be enriched — exact type may be coerced to string
         assert result.column("amount")[1].as_py() is not None
+
+
+class TestEnrichToastOmittedRows:
+    def _make_raw_table(self, events):
+        batcher = ChangeEventBatcher()
+        for ev in events:
+            batcher.add(ev)
+        return batcher.flush()["users"]
+
+    def _omitted_update(self, columns: dict, omitted: set[str]) -> ChangeEvent:
+        return _make_event(op="U", columns=columns, omitted_columns=frozenset(omitted))
+
+    @parameterized.expand(
+        [
+            # (name, first event (op, columns), expected fill for the omitted row)
+            ("from_insert", ("I", {"id": 1, "big": "v1"}), "v1"),
+            ("from_update", ("U", {"id": 1, "big": "v2"}), "v2"),
+            # An explicit NULL set by a prior event is a real value: it must
+            # propagate, not be resurrected from any older state.
+            ("real_null_propagates", ("I", {"id": 1, "big": None}), None),
+        ]
+    )
+    def test_fills_from_last_batch_row_and_clears_marker(self, _name, first_event, expected):
+        op, columns = first_event
+        events = [
+            _make_event(op=op, columns=columns),
+            self._omitted_update({"id": 1, "name": "renamed"}, {"big"}),
+        ]
+        table = self._make_raw_table(events)
+        result = enrich_toast_omitted_rows(table, ["id"])
+
+        assert result.column("big")[1].as_py() == expected
+        assert result.column(TOAST_OMITTED_COLUMN)[1].as_py() is None
+
+    def test_filled_value_chains_to_later_omitted_rows(self):
+        events = [
+            _make_event(op="I", columns={"id": 1, "big": "v1"}),
+            self._omitted_update({"id": 1, "name": "a"}, {"big"}),
+            self._omitted_update({"id": 1, "name": "b"}, {"big"}),
+        ]
+        table = self._make_raw_table(events)
+        result = enrich_toast_omitted_rows(table, ["id"])
+
+        assert result.column("big").to_pylist() == ["v1", "v1", "v1"]
+        assert result.column(TOAST_OMITTED_COLUMN).to_pylist() == [None, None, None]
+
+    def test_fills_from_existing_rows_when_not_in_batch(self):
+        table = self._make_raw_table([self._omitted_update({"id": 1, "name": "renamed"}, {"big"})])
+        existing = pa.table(
+            {
+                "id": pa.array([1], type=pa.int64()),
+                "big": pa.array(["persisted"], type=pa.string()),
+            }
+        )
+        result = enrich_toast_omitted_rows(table, ["id"], existing_rows=existing)
+
+        assert result.column("big")[0].as_py() == "persisted"
+        assert result.column(TOAST_OMITTED_COLUMN)[0].as_py() is None
+
+    def test_batch_value_beats_existing_rows(self):
+        events = [
+            _make_event(op="U", columns={"id": 1, "big": "fresh"}),
+            self._omitted_update({"id": 1, "name": "renamed"}, {"big"}),
+        ]
+        table = self._make_raw_table(events)
+        existing = pa.table(
+            {
+                "id": pa.array([1], type=pa.int64()),
+                "big": pa.array(["stale"], type=pa.string()),
+            }
+        )
+        result = enrich_toast_omitted_rows(table, ["id"], existing_rows=existing)
+
+        assert result.column("big")[1].as_py() == "fresh"
+
+    def test_unresolvable_row_keeps_marker(self):
+        # PK absent from both batch and existing state: value unknowable at this
+        # stage — the marker must survive so a later stage (or the final drop in
+        # the load processor) makes the call, not a silent NULL.
+        table = self._make_raw_table([self._omitted_update({"id": 1, "name": "renamed"}, {"big"})])
+        result = enrich_toast_omitted_rows(table, ["id"])
+
+        assert result.column("big")[0].as_py() is None
+        assert result.column(TOAST_OMITTED_COLUMN)[0].as_py() == ["big"]

@@ -320,12 +320,44 @@ def provision(
     )
     if status.is_success(resp.status_code) and isinstance(resp.data, dict):
         _persist_duckgres_server(organization_id, database_name, resp.data)
+        # Complete the row BEFORE registering the team: registration kicks off the
+        # SQL-editor reader handshake, whose namespace grants derive from this row.
+        _complete_provisioning_team_row(organization_id, team_id, schema_name, require_enabled=require_enabled)
         _register_provisioning_team(organization_id, team_id, schema_name)
         # The bucket is internal infra detail, persisted above and consumed by the
         # backfill via cp_bucket_for — not part of the UI-facing ProvisionWarehouseResponse
         # schema. Strip it so the response matches its OpenAPI contract.
         _strip_bucket_fields(resp.data)
     return resp
+
+
+def _complete_provisioning_team_row(
+    organization_id: UUID | str, team_id: int, schema_name: str, *, require_enabled: bool
+) -> None:
+    """Pin the first team's legacy table names onto the row duckgres just created.
+
+    The provision body cannot carry them, and without them the team's SQL-editor reader is
+    granted only the derived schemas no data lands in yet (see onboard_team). Best-effort:
+    the warehouse is already provisioned, so a transient failure must not fail the provision —
+    re-running onboarding (or the grandfather upsert) completes the row later.
+    """
+    legacy = _grandfathered_team_fields(team_id, schema_name)
+    resp = create_team(
+        organization_id,
+        team_id,
+        schema_name,
+        events_table_name=legacy["events_table_name"],
+        persons_table_name=legacy["persons_table_name"],
+        schema_data_imports_name=legacy["schema_data_imports_name"],
+        require_enabled=require_enabled,
+    )
+    if not status.is_success(resp.status_code):
+        logger.warning(
+            "Provisioned warehouse team row could not be completed with legacy table names",
+            organization_id=str(organization_id),
+            team_id=team_id,
+            status_code=resp.status_code,
+        )
 
 
 def _strip_bucket_fields(body: dict) -> None:
@@ -573,7 +605,21 @@ def onboard_team(
     except DucklingBackfillEnableError as exc:
         return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-    resp = create_team(organization_id, team_id, schema_name, require_enabled=require_enabled)
+    # Pin the legacy table names the duckling DAG writes today (posthog.events_<suffix>,
+    # posthog_data_imports_<suffix>): the suffix for a newly onboarded team IS its schema
+    # name. A row without them describes the derived layout no data lands in yet, which
+    # grants the project's SQL-editor reader nothing (the EU placeholder-row bug). Drop
+    # this once the duckling DAG writes the derived <schema_name>.events layout for real.
+    legacy = _grandfathered_team_fields(team_id, schema_name)
+    resp = create_team(
+        organization_id,
+        team_id,
+        schema_name,
+        events_table_name=legacy["events_table_name"],
+        persons_table_name=legacy["persons_table_name"],
+        schema_data_imports_name=legacy["schema_data_imports_name"],
+        require_enabled=require_enabled,
+    )
     if resp.status_code == status.HTTP_409_CONFLICT:
         return Response(
             {"error": f"The schema name '{schema_name}' is already used by another project in this organization."},

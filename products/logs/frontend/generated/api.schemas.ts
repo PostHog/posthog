@@ -1365,9 +1365,10 @@ export interface _LogsPatternsDiffRequestApi {
  * * `gone` - gone
  * * `unchanged` - unchanged
  */
-export type ClassificationEnumApi = (typeof ClassificationEnumApi)[keyof typeof ClassificationEnumApi]
+export type _LogPatternDiffEntryClassificationEnumApi =
+    (typeof _LogPatternDiffEntryClassificationEnumApi)[keyof typeof _LogPatternDiffEntryClassificationEnumApi]
 
-export const ClassificationEnumApi = {
+export const _LogPatternDiffEntryClassificationEnumApi = {
     New: 'new',
     RateShift: 'rate_shift',
     Gone: 'gone',
@@ -1381,7 +1382,7 @@ export interface _LogPatternDiffEntryApi {
      * * `rate_shift` - rate_shift
      * * `gone` - gone
      * * `unchanged` - unchanged */
-    classification: ClassificationEnumApi
+    classification: _LogPatternDiffEntryClassificationEnumApi
     /**
      * Current-window rate divided by baseline rate, both normalized per second so windows of different lengths compare fairly. 4.0 means 4x faster now; 0.25 means quartered. Null when the pattern is missing from either window.
      * @nullable

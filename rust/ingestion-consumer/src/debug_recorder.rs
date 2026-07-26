@@ -69,7 +69,8 @@ pub enum DebugEventKind {
         distinct_ids: usize,
         cleared_deferral: bool,
     },
-    /// Messages were stashed rather than sent (`reason`: drain/unroutable/send_failed).
+    /// Messages were stashed rather than sent
+    /// (`reason`: drain/queued_behind_deferral/unroutable/send_failed).
     Deferred {
         batch_id: String,
         reason: &'static str,

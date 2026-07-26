@@ -110,6 +110,7 @@ You can create an API key and secret under **Settings → API credentials** in t
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — SendOwl's list endpoints expose no reliable
         # server-side timestamp filter for a genuine incremental cursor (INCREMENTAL_FIELDS is empty,
@@ -117,7 +118,11 @@ You can create an API key and secret under **Settings → API credentials** in t
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: SendowlSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SendowlSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key pair is account-wide, so a single probe validates access to every schema;
         # there is no per-endpoint scope to check.

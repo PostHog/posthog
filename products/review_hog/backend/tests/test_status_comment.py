@@ -92,7 +92,7 @@ class TestRenderFinalBody:
                 0,
                 IssuePriority.SHOULD_FIX,
                 None,
-                ["Nothing worth raising this time, so here's a calming gif instead:", "![", "pr-assets"],
+                ["Nothing worth raising this time, so here's a calming picture instead:", "![", "pr-assets"],
                 ["Published", "stayed below"],
             ),
             # Posted on a prior crashed attempt (marker skip): published, but no link to render.
@@ -123,6 +123,47 @@ class TestRenderFinalBody:
         for fragment in absent:
             assert fragment not in body, f"unexpected {fragment!r} in:\n{body}"
         assert status_marker("rid") in body
+
+    @parameterized.expand(
+        [
+            # Whose settings gated the run must be named truthfully: blaming "the author's" settings
+            # for a requester-gated run is the exact misattribution this wording exists to fix, and
+            # the defensive default variant has no settings page to point at.
+            ("author", 'the author\'s "Should fix" urgency threshold in their ReviewHog settings'),
+            ("override", 'the requester\'s "Should fix" urgency threshold in their ReviewHog settings'),
+            ("default", 'the default "Should fix" urgency threshold,'),
+            # An unknown future value must degrade to the author wording, not crash the comment.
+            ("mystery", 'the author\'s "Should fix" urgency threshold in their ReviewHog settings'),
+        ]
+    )
+    def test_held_back_sentence_attributes_the_gating_threshold(self, resolved_from: str, expected: str) -> None:
+        body = render_final_body(
+            "rid",
+            counts={IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 2},
+            published_count=0,
+            held_back_count=2,
+            threshold=IssuePriority.SHOULD_FIX,
+            review_url=None,
+            resolved_from=resolved_from,
+            report_url="https://ph.test/project/1/code_review?review=rid",
+        )
+        assert f"2 findings stayed below {expected}" in body, body
+        # Held-back findings are otherwise invisible to the author — the comment must not dead-end.
+        assert "[View them in PostHog](https://ph.test/project/1/code_review?review=rid)" in body
+
+    @patch(f"{_MODULE}.random.choice", return_value=("https://example.test/dog.png", "A happy dog"))
+    def test_uses_the_randomly_selected_clean_review_media(self, mock_choice: MagicMock) -> None:
+        body = render_final_body(
+            "rid",
+            counts={IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
+            published_count=0,
+            held_back_count=0,
+            threshold=IssuePriority.SHOULD_FIX,
+            review_url=None,
+        )
+
+        assert "![A happy dog](https://example.test/dog.png)" in body
+        mock_choice.assert_called_once()
 
 
 def _pr_metadata(pr_number: int = 123) -> PRMetadata:
@@ -317,6 +358,9 @@ class TestFinalizeStatusComment(BaseTest):
         assert "Found **1 must fix**, **0 should fix**, **2 consider**" in body
         assert "Published 1 finding ([view the review](https://g/review))" in body
         assert '2 findings stayed below the author\'s "Should fix" urgency threshold' in body
+        # The held-back link into the app. `?review=<report id>` is a permanent public contract
+        # (baked into GitHub comments) — the frontend's URL sync accepts exactly this param.
+        assert f"/project/{self.team.id}/code_review?review={report_id})" in body
 
     def test_failed_edit_rewrites_the_comment_as_failed(
         self, mock_request: MagicMock, mock_integration: MagicMock

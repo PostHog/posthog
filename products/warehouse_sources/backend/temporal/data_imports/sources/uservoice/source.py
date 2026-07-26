@@ -109,11 +109,16 @@ Create a trusted API client under **Settings → Channels → Add API Client** i
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: UservoiceSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: UservoiceSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             ok, status_code = validate_uservoice_credentials(config.subdomain, config.api_key)

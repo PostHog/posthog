@@ -479,7 +479,7 @@ class CreatedTaskDTO:
 
 @dataclass(frozen=True)
 class CodeInviteRedeemResult:
-    """Outcome of attempting to redeem a PostHog Code invite.
+    """Outcome of attempting to redeem a PostHog Desktop invite.
 
     ``outcome`` is one of ``redeemed`` (or ``already_redeemed``), ``invalid_code``, or
     ``not_redeemable``. The presentation layer maps it to the success/error HTTP response;
@@ -518,102 +518,6 @@ class TaskAutomationDTO:
     last_error: str | None
     created_at: datetime
     updated_at: datetime
-
-
-@dataclass(frozen=True)
-class CodeWorkflowConfigDTO:
-    """A user's per-team code-workflow binding configuration.
-
-    Mirrors exactly the JSON shape the code-workflow endpoints emit: ``id`` and
-    ``updatedAt`` are stringified, ``version`` powers optimistic locking, and
-    ``bindings`` is the situation-id → ordered action-list mapping.
-    """
-
-    id: str
-    version: int
-    updated_at: datetime
-    bindings: dict
-
-
-@dataclass(frozen=True)
-class CodeWorkflowDiagnosticDTO:
-    """One binding-validation diagnostic.
-
-    Mirrors a ``ValidationDiagnostic``; ``situation_id`` / ``action_id`` are present only
-    when the diagnostic is scoped to a specific situation or action.
-    """
-
-    severity: str
-    code: str
-    message: str
-    situation_id: str | None = None
-    action_id: str | None = None
-
-
-@dataclass(frozen=True)
-class CodeWorkflowSaveResult:
-    """Outcome of attempting to save code-workflow bindings.
-
-    ``outcome`` is one of ``saved`` (bindings persisted, version bumped), ``conflict``
-    (``expected_version`` did not match the stored version), or ``invalid`` (validation
-    failed). ``config`` is always the resulting/current config; ``diagnostics`` is only
-    populated on the ``invalid`` outcome.
-    """
-
-    outcome: str
-    config: CodeWorkflowConfigDTO
-    diagnostics: list[CodeWorkflowDiagnosticDTO] = Field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class CodeHomeWorkstreamTaskDTO:
-    """One grouped task inside a workstream card."""
-
-    id: str | None
-    title: str | None
-    status: str | None
-    is_generating: bool = False
-    needs_permission: bool = False
-    quick_action: str | None = None
-
-
-@dataclass(frozen=True)
-class CodeHomeWorkstreamDTO:
-    """A persisted workstream card for the code-home board."""
-
-    id: str
-    repo_name: str | None
-    repo_full_path: str | None
-    branch: str | None
-    pr_url: str | None
-    pr: dict | None
-    primary_situation: str | None
-    last_activity_at: int
-    tasks: list[CodeHomeWorkstreamTaskDTO] = Field(default_factory=list)
-    situations: list = Field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class CodeHomeActiveAgentDTO:
-    """A live, in-flight agent run shown on the code-home board."""
-
-    task_id: str
-    title: str
-    repo_name: str | None
-    branch: str | None
-    status: str
-    last_activity_at: int
-    needs_permission: bool = False
-    cloud_pr_url: str | None = None
-
-
-@dataclass(frozen=True)
-class CodeHomeDTO:
-    """The full code-home board: live agents plus persisted workstreams by column."""
-
-    active_agents: list[CodeHomeActiveAgentDTO] = Field(default_factory=list)
-    needs_attention: list[CodeHomeWorkstreamDTO] = Field(default_factory=list)
-    in_progress: list[CodeHomeWorkstreamDTO] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)

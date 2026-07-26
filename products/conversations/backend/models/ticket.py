@@ -108,6 +108,9 @@ class Ticket(UUIDTModel):
     # Customer's PostHog org group key, resolved once at creation or on a later message
     # (local org pk, cross-region analytics key, or the person's organization_id property).
     organization_id = models.CharField(max_length=400, null=True, blank=True)
+    # How organization_id was resolved: "person" (the requester's identity) or
+    # "slack_channel_account" (inferred from the customer analytics account linked to the Slack channel).
+    organization_id_source = models.CharField(max_length=32, null=True, blank=True)
 
     # Zendesk import dedup — set when a ticket is imported from Zendesk Support.
     # No standalone index: the partial unique constraint below covers the dedup lookup

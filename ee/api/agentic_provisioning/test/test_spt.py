@@ -1,3 +1,4 @@
+# TODO(migration): Stripe-only coverage - remove once Stripe traffic has fully moved to /api/partners/stripe/ (equivalent tests live in ee/partners/stripe/api/provisioning/test/).
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache

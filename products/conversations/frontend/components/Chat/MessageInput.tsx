@@ -7,7 +7,8 @@ import { LemonButton, LemonCheckbox, LemonSwitch, Tooltip } from '@posthog/lemon
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
-import type { TicketStatus } from '../../types'
+import type { TicketChannel, TicketStatus } from '../../types'
+import { channelIcon, getReplyPlaceholder, hasReplyChannelBranding } from '../Channels/ChannelsTag'
 import { SupportEditor, serializeToMarkdown } from '../Editor'
 
 export interface MessageInputProps {
@@ -20,6 +21,8 @@ export interface MessageInputProps {
     ) => void
     messageSending: boolean
     placeholder?: string
+    /** Channel the ticket came from; drives the default placeholder and the send-button logo */
+    channel?: TicketChannel
     buttonText?: string
     minRows?: number
     /** Whether to show the "Send as private" checkbox */
@@ -51,7 +54,8 @@ export interface MessageInputProps {
 export function MessageInput({
     onSendMessage,
     messageSending,
-    placeholder = 'Type your message...',
+    placeholder,
+    channel,
     buttonText = 'Send',
     minRows = 3,
     showPrivateOption = false,
@@ -80,6 +84,8 @@ export function MessageInput({
     const isPrivate = controlledIsPrivate ?? localIsPrivate
     const setIsPrivate = onPrivateChange ?? setLocalIsPrivate
 
+    const resolvedPlaceholder = placeholder ?? (isPrivate ? 'Type your private note...' : getReplyPlaceholder(channel))
+    const showChannelLogo = !isPrivate && hasReplyChannelBranding(channel)
     const sendVerb = isPrivate ? 'Attach' : 'Send'
 
     const handleSubmit = (statusAfterSend?: TicketStatus): void => {
@@ -167,7 +173,7 @@ export function MessageInput({
         <div>
             <SupportEditor
                 initialContent={draftContent}
-                placeholder={placeholder}
+                placeholder={resolvedPlaceholder}
                 onCreate={(editor) => {
                     editorRef.current = editor
                     if (draftContent) {
@@ -250,7 +256,16 @@ export function MessageInput({
                                 : undefined
                         }
                     >
-                        {isPrivate ? 'Attach' : buttonText}
+                        {isPrivate ? (
+                            'Attach'
+                        ) : showChannelLogo ? (
+                            <span className="inline-flex items-center gap-1.5">
+                                {buttonText}
+                                <span className="text-sm dark:grayscale">{channelIcon[channel]}</span>
+                            </span>
+                        ) : (
+                            buttonText
+                        )}
                     </LemonButton>
                 </div>
             </div>

@@ -173,6 +173,10 @@ export type IngestionConsumerConfig = {
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
+    // Merge-event ($identify, $create_alias, $merge_dangerously) overflow rate,
+    // per token:distinct_id. A capacity of 0 disables the condition.
+    MERGE_EVENT_OVERFLOW_BUCKET_CAPACITY: number
+    MERGE_EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
 
     // Stateful overflow config
     INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
@@ -207,6 +211,21 @@ export type IngestionConsumerConfig = {
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
+
+    // AI blob offload: content-addressed S3 storage for multimodal payloads.
+    // Empty bucket or empty teams list disables the offload step entirely.
+    AI_BLOB_S3_BUCKET: string
+    AI_BLOB_S3_PREFIX: string
+    AI_BLOB_S3_ENDPOINT: string
+    AI_BLOB_S3_REGION: string
+    AI_BLOB_S3_ACCESS_KEY_ID: string
+    AI_BLOB_S3_SECRET_ACCESS_KEY: string
+    AI_BLOB_S3_TIMEOUT_MS: number
+    AI_BLOB_OFFLOAD_TEAMS: string
+    AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: number
+    AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: number
+    AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY: number
+    AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: number
 
     // Cookieless server hash mode config
     COOKIELESS_DISABLED: boolean
@@ -290,6 +309,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         // Event overflow config
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
+        MERGE_EVENT_OVERFLOW_BUCKET_CAPACITY: 0,
+        MERGE_EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
 
         // Stateful overflow config
         INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300,
@@ -320,6 +341,26 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+
+        // AI blob offload: content-addressed S3 storage for multimodal payloads.
+        // Empty bucket or empty teams list disables the offload step entirely.
+        AI_BLOB_S3_BUCKET: '',
+        // Bucket+prefix are a shared contract with the Django read side (posthog/settings/
+        // object_storage.py) — defaults must agree or reads 404 while writes succeed.
+        AI_BLOB_S3_PREFIX: 'aio/',
+        AI_BLOB_S3_ENDPOINT: '',
+        AI_BLOB_S3_REGION: 'us-east-1',
+        AI_BLOB_S3_ACCESS_KEY_ID: '',
+        AI_BLOB_S3_SECRET_ACCESS_KEY: '',
+        AI_BLOB_S3_TIMEOUT_MS: 30000,
+        AI_BLOB_OFFLOAD_TEAMS: '',
+        // Keep the floor above base64-packed embedding vectors so logged embeddings stay inline as text.
+        AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: 20480,
+        AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: 50,
+        // Chunk-wide cap on concurrent blob uploads, so blob-heavy traffic
+        // can't monopolize the S3 socket pool.
+        AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY: 8,
+        AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: 20,
 
         // Cookieless server hash mode config
         COOKIELESS_DISABLED: false,

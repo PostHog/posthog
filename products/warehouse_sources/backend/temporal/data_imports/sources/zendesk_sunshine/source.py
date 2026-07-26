@@ -81,13 +81,18 @@ class ZendeskSunshineSource(ResumableSource[ZendeskSunshineSourceConfig, Zendesk
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The query endpoint's `_updated_at.start` filter is inclusive, so boundary rows are
         # re-fetched on every sync; only merge mode dedupes them, hence no append support.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=("object_records",))
 
     def validate_credentials(
-        self, config: ZendeskSunshineSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ZendeskSunshineSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         subdomain = normalize_subdomain(config.subdomain)
         if not re.match(r"^[a-zA-Z0-9-]+$", subdomain):

@@ -1,6 +1,6 @@
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -9,6 +9,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.ai_observability.backend.models.clustering_job import ClusteringJob
 from products.ai_observability.backend.models.datasets import Dataset
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -98,6 +99,14 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             queue=self.review_queue,
             trace_id="trace_pending",
             created_by=self.user,
+        )
+
+        self.clustering_job = ClusteringJob.objects.create(
+            team=self.team,
+            name="Test Clustering Job",
+            analysis_level="trace",
+            event_filters=[],
+            enabled=True,
         )
 
     def _set_access_level(self, user: User, resource: str = "llm_analytics", access_level: str = "viewer") -> None:
@@ -243,6 +252,29 @@ class TestAIObservabilityAccessControl(APIBaseTest):
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/llm_analytics/review_queue_items/{self.review_queue_item.id}/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_viewer_can_list_clustering_config(self):
+        self._set_access_level(self.viewer_user, resource="ai_observability_clusters", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/clustering_config/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_viewer_can_list_clustering_jobs(self):
+        self._set_access_level(self.viewer_user, resource="ai_observability_clusters", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/clustering_jobs/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_viewer_can_retrieve_clustering_job(self):
+        self._set_access_level(self.viewer_user, resource="ai_observability_clusters", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/clustering_jobs/{self.clustering_job.id}/"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -405,6 +437,62 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_analytics/review_queue_items/{self.review_queue_item.id}/",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_viewer_cannot_create_clustering_job(self):
+        self._set_access_level(self.viewer_user, resource="ai_observability_clusters", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/clustering_jobs/",
+            {"name": "New Job", "analysis_level": "trace", "event_filters": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_viewer_cannot_update_clustering_job(self):
+        self._set_access_level(self.viewer_user, resource="ai_observability_clusters", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_analytics/clustering_jobs/{self.clustering_job.id}/",
+            {"name": "Renamed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_viewer_cannot_delete_clustering_job(self):
+        self._set_access_level(self.viewer_user, resource="ai_observability_clusters", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/clustering_jobs/{self.clustering_job.id}/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_viewer_cannot_set_clustering_config_event_filters(self):
+        self._set_access_level(self.viewer_user, resource="ai_observability_clusters", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/clustering_config/set_event_filters/",
+            {"event_filters": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.ai_observability.backend.api.clustering.sync_connect")
+    def test_viewer_cannot_trigger_clustering_run(self, mock_connect, _mock_flag):
+        self._set_access_level(self.viewer_user, resource="ai_observability_clusters", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/clustering_runs/",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_connect.assert_not_called()
 
     # -- Editor can create/update/delete --
 
@@ -591,6 +679,65 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
+    def test_editor_can_create_clustering_job(self):
+        self._set_access_level(self.editor_user, resource="ai_observability_clusters", access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/clustering_jobs/",
+            {"name": "Editor Job", "analysis_level": "trace", "event_filters": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_editor_can_update_clustering_job(self):
+        self._set_access_level(self.editor_user, resource="ai_observability_clusters", access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_analytics/clustering_jobs/{self.clustering_job.id}/",
+            {"name": "Renamed by editor"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_editor_can_delete_clustering_job(self):
+        self._set_access_level(self.editor_user, resource="ai_observability_clusters", access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/clustering_jobs/{self.clustering_job.id}/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_editor_can_set_clustering_config_event_filters(self):
+        self._set_access_level(self.editor_user, resource="ai_observability_clusters", access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/clustering_config/set_event_filters/",
+            {"event_filters": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.ai_observability.backend.api.clustering.sync_connect")
+    def test_editor_can_trigger_clustering_run(self, mock_connect, _mock_flag):
+        mock_client = AsyncMock()
+        mock_client.start_workflow = AsyncMock(return_value=AsyncMock(id="wf-1", result_run_id="run-1"))
+        mock_connect.return_value = mock_client
+
+        self._set_access_level(self.editor_user, resource="ai_observability_clusters", access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/clustering_runs/",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+
     # -- None access blocks everything --
 
     @parameterized.expand(
@@ -604,6 +751,19 @@ class TestAIObservabilityAccessControl(APIBaseTest):
     )
     def test_none_access_blocks_list(self, endpoint):
         self._set_access_level(self.no_access_user, access_level="none")
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
+            ("llm_analytics/clustering_jobs",),
+            ("llm_analytics/clustering_config",),
+        ]
+    )
+    def test_none_ai_observability_clusters_access_blocks_list(self, endpoint):
+        self._set_access_level(self.no_access_user, resource="ai_observability_clusters", access_level="none")
         self.client.force_login(self.no_access_user)
 
         response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
@@ -647,6 +807,27 @@ class TestAIObservabilityAccessControl(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    # -- ai_observability_clusters is independent from llm_analytics (not a child resource) --
+
+    def test_llm_analytics_editor_does_not_grant_clustering_access(self):
+        self._set_access_level(self.editor_user, resource="llm_analytics", access_level="editor")
+        self._set_access_level(self.editor_user, resource="ai_observability_clusters", access_level="none")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/clustering_jobs/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_ai_observability_clusters_editor_without_llm_analytics_access(self):
+        self._set_access_level(self.editor_user, resource="llm_analytics", access_level="none")
+        self._set_access_level(self.editor_user, resource="ai_observability_clusters", access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        clustering_response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/clustering_jobs/")
+        self.assertEqual(clustering_response.status_code, status.HTTP_200_OK)
+
+        evaluations_response = self.client.get(f"/api/environments/{self.team.id}/evaluations/")
+        self.assertEqual(evaluations_response.status_code, status.HTTP_403_FORBIDDEN)
 
     # -- Org admin has full access without explicit permissions --
 

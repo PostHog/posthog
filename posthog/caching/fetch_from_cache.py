@@ -2,13 +2,15 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
+from django.core.cache import caches
+
 import structlog
 from prometheus_client import Counter
 
 from posthog.schema import QueryTiming
 
 from posthog.cache_utils import OrjsonJsonSerializer
-from posthog.caching.query_cache_routing import get_query_cache
+from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
 
 logger = structlog.get_logger(__name__)
 
@@ -89,7 +91,7 @@ def split_cached_response_bytes(cached_response_bytes: bytes) -> SplitCachedResp
 
 
 def fetch_split_cached_response_by_key(cache_key: str, team_id: int) -> Optional[SplitCachedResponse]:
-    query_cache = get_query_cache()
+    query_cache = caches[QUERY_CACHE_ALIAS]
     try:
         cached_response_bytes = query_cache.get(cache_key)
     except Exception:

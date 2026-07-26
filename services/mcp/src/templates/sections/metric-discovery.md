@@ -1,6 +1,8 @@
 #### Metric discovery (semantic layer)
 
-Catalog-first for business measures (revenue, MRR, activation, retention), including rankings/breakdowns/comparisons. Raw event/property exploration stays schema-first.
+Catalog-first for any named business measure or KPI (revenue-, growth-, engagement-, conversion-shaped numbers, e.g. MRR, activation, retention), including rankings/breakdowns/comparisons. Synonyms and derived forms (e.g. an annualized variant of a stored metric) still route here; label derivations noncanonical. Raw event/property exploration stays schema-first.
+
+This takes precedence over 'Retrieving data' below: for metric/KPI questions, check the catalog before any `query-*` or `execute-sql` call, even when the question maps to a supported insight type.
 
 Before data calls, search `name`, `display_name`, and `description` with terms/synonyms. `exec search` finds tools, not catalog rows.
 

@@ -75,9 +75,7 @@ class TestResolveEagerAudience:
         assert team_ids == []
         assert reason == "not_cloud"
 
-    @override_settings(
-        WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[], WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[]
-    )
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
     def test_returns_empty_when_no_teams_configured(self, _is_cloud):
         team_ids, reason, _diag = _resolve_eager_audience()
         assert team_ids == []
@@ -85,16 +83,13 @@ class TestResolveEagerAudience:
 
     @parameterized.expand(
         [
-            ("unrestricted_only", [], [5], [5]),
-            ("union_with_overlap", [2, 7], [7, 9], [2, 7, 9]),
-            ("restricted_only", [2, 7], [], [2, 7]),
+            ("single", [5], [5]),
+            ("dedupes_repeats", [2, 7, 7], [2, 7]),
+            ("preserves_order", [7, 2], [7, 2]),
         ]
     )
-    def test_audience_unions_restricted_and_unrestricted(self, _is_cloud, _name, restricted, unrestricted, expected):
-        with override_settings(
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=restricted,
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=unrestricted,
-        ):
+    def test_audience_is_the_enrollment_list(self, _is_cloud, _name, enrolled, expected):
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=enrolled):
             team_ids, reason, diag = _resolve_eager_audience()
         assert team_ids == expected
         assert reason == "ok"
@@ -110,9 +105,7 @@ class TestResolveEagerAudience:
     )
     def test_active_audience_pct_appends_after_static_lists(self, _is_cloud, _name, pct, expected, expected_active):
         with (
-            override_settings(
-                WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[2, 7], WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[]
-            ),
+            override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[2, 7]),
             patch(
                 f"{_EAGER_MODULE}._fetch_active_wa_team_ids",
                 return_value=[7, 31, 42, 55],

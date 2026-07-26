@@ -293,16 +293,21 @@ def _is_timeout_error(response: Response) -> bool:
         return False
 
 
-# Meta flags momentary server-side failures with ``error.is_transient`` and asks callers to retry
-# (the dominant case is code 2, "An unexpected error has occurred. Please retry your request later.").
-# The request itself is fine, so a couple of immediate retries with a short backoff usually clears
-# it — keeping a self-recovering blip from failing the whole activity (and surfacing as error-tracking
-# noise) while still letting it propagate, and Temporal retry from saved resume state, if it persists.
+# Meta's error-code reference documents code 1 ("API Unknown" — an unexplained backend hiccup
+# that usually clears in 1-2 retries) and code 2 ("API Service" — temporary downtime/overload) as
+# retry-recommended: https://developers.facebook.com/docs/graph-api/guides/error-handling. Meta
+# also flags some of these transient via ``error.is_transient``, but that flag isn't set
+# consistently — code 2 "Service temporarily unavailable" has been observed with
+# ``is_transient: false`` — so the documented codes are trusted over the flag. The request itself
+# is fine, so a couple of immediate retries with a short backoff usually clears it — keeping a
+# self-recovering blip from failing the whole activity (and surfacing as error-tracking noise)
+# while still letting it propagate, and Temporal retry from saved resume state, if it persists.
 META_TRANSIENT_ERROR_MAX_ATTEMPTS = 4
+META_TRANSIENT_ERROR_CODES = {1, 2}
 
 
 def _is_transient_error(response: Response) -> bool:
-    """Return True for Meta errors Meta itself flags transient via ``error.is_transient``.
+    """Return True for Meta errors that are momentary backend blips worth retrying immediately.
 
     Distinct from the too-much-data timeout (``_is_timeout_error``), which has its own
     limit-shrinking recovery; a transient error is retried with the request unchanged.
@@ -311,7 +316,7 @@ def _is_transient_error(response: Response) -> bool:
         error = response.json().get("error", {})
     except (ValueError, AttributeError):
         return False
-    return error.get("is_transient") is True
+    return error.get("is_transient") is True or error.get("code") in META_TRANSIENT_ERROR_CODES
 
 
 # Meta's connection occasionally resets mid-response — `requests` raises these while decoding the
@@ -418,11 +423,18 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
 
     Permanent auth/permission failures raise a clean, user-actionable message
     that ``MetaAdsSource.get_non_retryable_errors`` matches on, so the job fails
-    fast instead of burning retries. The raw response is appended for debugging.
+    fast instead of burning retries. A momentary backend blip (see
+    ``_is_transient_error``) that has already exhausted its in-process retries is
+    tagged so ``MetaAdsSource.get_retryable_errors`` can keep the self-recovering
+    failure out of error tracking once Temporal retries the activity — excluding
+    the too-much-data timeout, which has its own non-retryable classification since
+    plain retries never resolve it. The raw response is appended for debugging.
     Everything else raises the raw response and stays retryable.
     """
     if _is_permanent_auth_error(response):
         raise Exception(f"{META_AUTH_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+    if _is_transient_error(response) and not _is_timeout_error(response):
+        raise Exception(f"Meta API request failed (retryable): {response.status_code} - {response.text}")
     raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
 
 

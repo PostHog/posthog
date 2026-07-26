@@ -46,7 +46,7 @@ export const OBSERVATION_LIST_FILTER_KEYS: readonly (keyof VisionObservationsRet
 
 export type EnabledFilter = 'enabled' | 'disabled'
 
-export type IneligibleKind = 'no_recording' | 'too_short' | 'too_inactive' | 'too_long' | 'no_events'
+export type IneligibleKind = 'no_recording' | 'too_short' | 'too_inactive' | 'too_long' | 'no_events' | 'no_ai_consent'
 
 const INELIGIBLE_KINDS: Record<IneligibleKind, { label: string; description: string }> = {
     no_recording: { label: 'No recording', description: 'No recording was found for this session.' },
@@ -54,6 +54,10 @@ const INELIGIBLE_KINDS: Record<IneligibleKind, { label: string; description: str
     too_inactive: { label: 'Too inactive', description: 'The session had too little active interaction to analyze.' },
     too_long: { label: 'Too long', description: 'The session was too long to analyze.' },
     no_events: { label: 'No events', description: 'The session had no events to analyze.' },
+    no_ai_consent: {
+        label: 'AI analysis not allowed',
+        description: 'AI data processing is turned off for this organization, so this recording was not analyzed.',
+    },
 }
 
 export type FailureKind =
@@ -134,7 +138,7 @@ export function ineligibleKindDescription(kind: IneligibleKind): string {
 }
 
 export const DEFAULT_PROVIDER = 'google'
-export const DEFAULT_MODEL: ScannerModelEnumApi = ScannerModelEnumApi.Gemini36Flash
+export const DEFAULT_MODEL: ScannerModelEnumApi = ScannerModelEnumApi.Gemini3FlashPreview
 
 export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
     { value: 'enabled', label: 'Enabled' },
@@ -145,11 +149,13 @@ export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
 // the picker needs a price per model before anything is saved, so it can't come from a per-instance response.
 export const OBSERVATION_CREDITS_BY_MODEL: Record<ScannerModelEnumApi, number> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 2,
+    [ScannerModelEnumApi.Gemini3FlashPreview]: 5,
     [ScannerModelEnumApi.Gemini36Flash]: 15,
 }
 
 const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 'Gemini 3.5 Flash Lite',
+    [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash (preview)',
     [ScannerModelEnumApi.Gemini36Flash]: 'Gemini 3.6 Flash',
 }
 
@@ -239,18 +245,18 @@ export type SamplingMode = 'focused' | 'balanced' | 'comprehensive'
 export const SAMPLING_MODE_OPTIONS: { value: SamplingMode; label: string; description: string }[] = [
     {
         value: 'focused',
-        label: 'Focused',
-        description: 'Only the most eventful sessions. Skips routine ones.',
+        label: 'Highest activity only',
+        description: 'Only scans the recordings with the most going on.',
     },
     {
         value: 'balanced',
-        label: 'Balanced',
-        description: 'Skips the quietest sessions, keeps a broad mix.',
+        label: 'Skip lowest activity',
+        description: 'Skips the lowest-activity recordings, scans everything else.',
     },
     {
         value: 'comprehensive',
-        label: 'Comprehensive',
-        description: 'Every session that matches your filters.',
+        label: 'All recordings',
+        description: 'Scans every recording that matches your filters, regardless of activity.',
     },
 ]
 

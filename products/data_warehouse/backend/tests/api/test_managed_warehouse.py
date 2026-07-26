@@ -274,6 +274,39 @@ def test_provision_sends_team_id_and_schema_name_to_control_plane(mock_request: 
     assert json_body["schema_name"] == "prod_events"
     assert "default_team_id" not in json_body
 
+    # The provision body cannot carry legacy table names, so the first team's row is
+    # completed with a follow-up org-teams upsert — same fields onboard_team writes.
+    method, org_id, path = mock_request.call_args_list[1].args
+    assert (method, org_id, path) == ("POST", org.id, "/teams")
+    teams_body = mock_request.call_args_list[1].kwargs["json_body"]
+    assert teams_body == {
+        "team_id": team.id,
+        "schema_name": "prod_events",
+        "events_table_name": "events_prod_events",
+        "persons_table_name": "persons_prod_events",
+        "schema_data_imports_name": "posthog_data_imports_prod_events",
+    }
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_provision_succeeds_even_when_the_team_row_completion_fails(mock_request: MagicMock) -> None:
+    # The follow-up upsert is best-effort: the warehouse is already provisioned, so a
+    # transient teams-API failure must not fail the provision response.
+    org = Organization.objects.create(name="Org")
+    team = Team.objects.create(organization=org)
+    mock_request.side_effect = [
+        Response(
+            {"status": "provisioning started", "org": str(org.id), "username": "root", "password": "secret"},
+            status=202,
+        ),
+        Response({"error": "store unavailable"}, status=500),
+    ]
+
+    resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "prod_events")
+
+    assert resp.status_code == 202
+
 
 @parameterized.expand(
     [
@@ -601,12 +634,20 @@ def test_onboard_team_dual_writes_duckgres_and_django(mock_request: MagicMock, _
     assert resp.status_code == 200
     assert resp.data == {"onboarded": True, "schema_name": "my_events"}
 
-    # duckgres team row created via the org-teams upsert, without legacy table names
-    # (NULL legacy fields mean the derived <schema>.events layout).
+    # duckgres team row created via the org-teams upsert WITH the legacy table names the
+    # duckling DAG actually writes today (posthog.events_<suffix> + posthog_data_imports_<suffix>).
+    # A row without them grants the project reader only nonexistent derived schemas — the
+    # empty-SQL-editor-sidebar bug the EU placeholder rows hit.
     method, org_id, path = mock_request.call_args_list[0].args
     assert (method, org_id, path) == ("POST", org.id, "/teams")
     json_body = mock_request.call_args_list[0].kwargs["json_body"]
-    assert json_body == {"team_id": team.id, "schema_name": "my_events"}
+    assert json_body == {
+        "team_id": team.id,
+        "schema_name": "my_events",
+        "events_table_name": "events_my_events",
+        "persons_table_name": "persons_my_events",
+        "schema_data_imports_name": "posthog_data_imports_my_events",
+    }
 
     link = DuckgresServerTeam.objects.get(server=server, team_id=team.id)
     assert link.backfill_enabled is True

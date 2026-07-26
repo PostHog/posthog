@@ -116,7 +116,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
-    const qualityEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_QUALITY]
     const [recordingExpanded, setRecordingExpanded] = useState(false)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
 
@@ -417,12 +416,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     </Link>
                                 </LabeledRow>
                             )}
-                            {qualityEnabled && (
-                                <ObservationLabelControl
-                                    observationId={observation.id}
-                                    initialLabel={observation.label}
-                                />
-                            )}
+                            <ObservationLabelControl observationId={observation.id} initialLabel={observation.label} />
                         </div>
                     )}
 

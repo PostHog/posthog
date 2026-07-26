@@ -76,13 +76,14 @@ class PlunkSource(ResumableSource[PlunkSourceConfig, PlunkResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # No Plunk list endpoint accepts a server-side timestamp filter, so every
         # endpoint is full-refresh only (INCREMENTAL_FIELDS is empty per endpoint).
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: PlunkSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: PlunkSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_plunk_credentials(config.base_url, config.api_key, schema_name, team_id)
 

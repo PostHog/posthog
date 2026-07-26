@@ -784,9 +784,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     tickedTaskIds.add(id)
                 }
             }
-            if (setup && tickedTaskIds.size > 0) {
-                setup.actions.markTaskAsCompleted(Array.from(tickedTaskIds))
-            }
             for (const productKey of visitedProducts) {
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
             }
@@ -802,6 +799,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     completed_snippet_onboarding: true,
                     has_completed_onboarding_for: completedMap,
                 })
+                // Tick setup tasks only after the completion PATCH has committed. Firing this
+                // concurrently raced two team PATCHes against each other, and the stale
+                // onboarding_tasks write could erase the just-saved completion fields.
+                if (setup && tickedTaskIds.size > 0) {
+                    setup.actions.markTaskAsCompleted(Array.from(tickedTaskIds))
+                }
                 setQuickstartAsDefaultHomepageOnce(previouslyOnboardedMap)
             } catch {
                 // The completion update failed, so leave the user's homepage untouched
