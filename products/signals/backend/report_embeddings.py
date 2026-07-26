@@ -22,6 +22,11 @@ EMBEDDING_DOCUMENT_TYPE = "report"
 # excerpts of the strongest signals). `rendering` is part of the table's ORDER BY, so bumping this to
 # a v2 lets both compositions sit in the table at once and be compared, rather than v2 rows silently
 # replacing the v1 row for the same report.
+#
+# That coexistence has a consequence for whoever adds a v2: a retraction must tombstone EVERY rendering
+# a report may already have, not just the current one. Because `rendering` is part of the key, emitting
+# a v2 tombstone alone would retract the v2 row and leave the v1 content live until TTL. Turn this into
+# a tuple of renderings and have the retraction path emit one tombstone per entry.
 EMBEDDING_RENDERING = "title_summary_v1"
 
 # Tombstones carry this fixed text instead of the report's own, which is what makes it safe to write

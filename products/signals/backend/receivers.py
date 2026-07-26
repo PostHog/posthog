@@ -234,6 +234,10 @@ def emit_report_embedding_on_document_change(
     # stale approval, retract whatever vector the report has and leave it unindexed until the pipeline
     # writes judged text again on its next research run.
     if getattr(instance, "_unreviewed_edit", False):
+        # Consumed here: the marker describes the one save it was set for. Leaving it attached would
+        # make every later save of the same in-memory instance retract again, so the judged rewrite
+        # that should restore the report would tombstone it instead.
+        instance._unreviewed_edit = False  # type: ignore[attr-defined]
         _schedule_tombstone(team_id=team_id, report_id=report_id, created_at=created_at, reason="unreviewed edit")
         return
 
@@ -256,7 +260,11 @@ def emit_report_embedding_on_document_change(
     # is a tombstone. Skipping there would leave the report retracted forever. A judged write always
     # carries `status`, and re-emitting on it is cheap because it happens once per research run, unlike
     # the per-joining-signal title rewrite this shortcut exists for.
-    carries_status_transition = update_fields is None or "status" in update_fields
+    #
+    # `update_fields=None` deliberately does NOT count. Every pipeline write names its fields, while a
+    # bare `save()` is what Django admin does, so treating it as judged would let re-saving a report in
+    # admin republish text an edit had retracted, under a verdict that predates it.
+    carries_status_transition = update_fields is not None and "status" in update_fields
     if not carries_status_transition and getattr(instance, "_prior_document", None) == content:
         return
 
@@ -339,28 +347,26 @@ def _reconcile_report_embedding_with_verdict(instance: SignalReportArtefact) -> 
     if instance.type != SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT:
         return
 
-    # Team-scoped: an artefact and the report it judges always belong to the same team, so filtering on
-    # it keeps this lookup from reaching across tenants.
-    report = (
-        SignalReport.objects.using("default")
-        .filter(pk=instance.report_id, team_id=instance.team_id)
-        .values("created_at")
-        .first()
-    )
-    if report is None:
-        return
-
     team_id = instance.team_id
     report_id = str(instance.report_id)
-    created_at = report["created_at"]
 
     def _emit() -> None:
         try:
-            # Evaluated post-commit: only then is the canonical verdict settled, whether this change was
-            # an append, an in-place edit, or a delete that promoted an older row.
+            # Both reads happen post-commit rather than in the receiver body. Only then is the canonical
+            # verdict settled, whether this change was an append, an in-place edit, or a delete that
+            # promoted an older row — and a cascade that removed the report along with its artefacts
+            # exits on the first query instead of paying for two per deleted verdict.
+            #
+            # Team-scoped: an artefact and the report it judges always belong to the same team, so
+            # filtering on it keeps this lookup from reaching across tenants.
+            report = (
+                SignalReport.objects.using("default").filter(pk=report_id, team_id=team_id).values("created_at").first()
+            )
+            if report is None:
+                return
             if not _is_safety_suppressed(report_id, team_id):
                 return
-            emit_report_tombstone(team_id=team_id, report_id=report_id, created_at=created_at)
+            emit_report_tombstone(team_id=team_id, report_id=report_id, created_at=report["created_at"])
         except Exception:
             logger.exception(
                 "Failed to tombstone signal report embedding", report_id=report_id, tombstone_reason="unsafe verdict"

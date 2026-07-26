@@ -243,6 +243,22 @@ class TestReportEmbeddingReceiver(BaseTest):
         assert self.embed.call_count == 1
         assert self.embed.call_args.kwargs["content"] == REPORT_DOCUMENT
 
+    def test_full_save_does_not_republish_retracted_text(self):
+        # Django admin saves the whole model with no update_fields. Treating that as a judged write
+        # would republish text an edit had retracted, under a verdict that predates it.
+        with self.captureOnCommitCallbacks(execute=True):
+            report = self._create_report(title=REPORT_TITLE, summary=REPORT_SUMMARY)
+        with self.captureOnCommitCallbacks(execute=True):
+            report.title = INJECTION_TITLE
+            report._unreviewed_edit = True  # type: ignore[attr-defined]
+            report.save(update_fields=["title", "updated_at"])
+        assert self.tombstone.call_count == 1
+        self.embed.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            report.save()
+        assert self.embed.call_count == 0
+
     def test_editing_a_superseded_verdict_does_not_retract(self):
         # Only the latest verdict is canonical, so flipping an older row to unsafe must not retract a
         # report the current verdict still approves.
