@@ -1,4 +1,4 @@
-import { Message, TopicPartitionOffset } from 'node-rdkafka'
+import { LibrdKafkaError, Message, TopicPartitionOffset } from 'node-rdkafka'
 
 import { findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
@@ -7,11 +7,14 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 import { parseImageRef } from './content-ref'
 import { ImageShardStore, ScrubbedImage } from './image-shard-store'
 import { ImageScrubConsumerMetrics } from './metrics'
-import { ScrubClient } from './scrub-client'
+import { ScrubClient, ScrubUnavailable } from './scrub-client'
 
 export interface OffsetStore {
     offsetsStore(offsets: TopicPartitionOffset[]): void
 }
+
+/** librdkafka's RD_KAFKA_RESP_ERR__STATE, which offsetsStore raises for a partition we no longer hold. */
+const ERR__STATE = -172
 
 /** The batch index is what lets offsets advance across the messages planning skipped. */
 interface PlannedScrub {
@@ -104,6 +107,11 @@ export class ImageBatcher {
         // the sidecar.
         const controller = new AbortController()
         let scrubBudgetMs = this.options.maxBatchScrubMs
+        // Set by the deadline rather than inferred from the error, because the abort surfaces as
+        // whatever the concurrency controller rejects with and not as a scrub error at all. Reading
+        // it back off the error is how the deadline stayed fatal while every other capacity failure
+        // was made survivable, which would have moved the crash rather than removed it.
+        let deadlineExpired = false
         let spanStart = 0
         let nextToSubmit = 0
         let retired = 0
@@ -133,7 +141,10 @@ export class ImageBatcher {
             }
 
             const waitStartMs = performance.now()
-            const timer = setTimeout(() => controller.abort(), scrubBudgetMs)
+            const timer = setTimeout(() => {
+                deadlineExpired = true
+                controller.abort()
+            }, scrubBudgetMs)
             let done: SettledScrub
             try {
                 done = await Promise.race(inFlight.values())
@@ -143,9 +154,16 @@ export class ImageBatcher {
             }
             inFlight.delete(done.slot)
             if (done.error !== undefined) {
-                controller.abort() // one failure dooms the batch, so cancel the siblings still in flight
-                ImageScrubConsumerMetrics.incBatchFailed('scrub')
-                throw done.error
+                if (!deadlineExpired && !(done.error instanceof ScrubUnavailable)) {
+                    controller.abort() // one failure dooms the batch, so cancel the siblings still in flight
+                    ImageScrubConsumerMetrics.incBatchFailed('scrub')
+                    throw done.error
+                }
+                // The sidecar could not take this image. Losing it costs one frame from a best-effort
+                // mirror, and the ref is deliberately left unmarked so a later copy still gets a turn.
+                // Failing the batch instead costs the pod, because the Kafka loop exits the process on
+                // any throw, and the partitions it was holding land on pods that are already as busy.
+                ImageScrubConsumerMetrics.incDropped()
             }
             if (done.scrubbed) {
                 staged[done.slot] = done.scrubbed
@@ -288,8 +306,27 @@ export class ImageBatcher {
             this.bufferBytes = 0
         }
         if (this.pendingOffsets.size > 0) {
-            this.offsetStore.offsetsStore([...this.pendingOffsets.values()])
+            this.storeOffsetsUnlessRevoked([...this.pendingOffsets.values()])
             this.pendingOffsets.clear()
+        }
+    }
+
+    /**
+     * librdkafka refuses to store an offset for a partition this consumer no longer holds, raising
+     * ERR__STATE. A rebalance during a batch is ordinary, and the shard is already on S3 by this
+     * point, so the only thing lost is the record of how far we got: whoever picks the partition up
+     * rescrubs from the last committed offset, which is the at-least-once behaviour a restart has
+     * always had. Letting it propagate exited the process instead, and since a pod exiting triggers
+     * the next rebalance, the condition kept producing itself.
+     */
+    private storeOffsetsUnlessRevoked(offsets: TopicPartitionOffset[]): void {
+        try {
+            this.offsetStore.offsetsStore(offsets)
+        } catch (error) {
+            if ((error as LibrdKafkaError | undefined)?.code !== ERR__STATE) {
+                throw error
+            }
+            ImageScrubConsumerMetrics.incOffsetsDiscarded(offsets.length)
         }
     }
 }
