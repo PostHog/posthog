@@ -234,7 +234,7 @@ jobs:
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         # Tests fit comfortably in 30, but a rust change misses the turbo cache and cold-builds the
-        # replay-anonymizer addon's whole dependency tree first (no rust caching in this job yet).
+        # replay-anonymizer addon first, which sccache and the rust cache below only partly absorb.
         timeout-minutes: 45
         strategy:
             fail-fast: false

@@ -43,6 +43,9 @@
             "dependsOn": ["^build"],
             "inputs": ["src", "Cargo.toml", "!**/*.pyc"],
             "outputs": ["dist", "index.node", ".turbo"],
+            // Replayed cargo output on a cache hit reads as a live compile, so consumers of the
+            // dependency graph (CI test steps especially) look like they are building the world.
+            "outputLogs": "new-only",
             "env": ["RUST_VERSION", "SHARD_INDEX", "SHARD_COUNT"],
             "passThroughEnv": [
                 "RUSTUP_HOME",
