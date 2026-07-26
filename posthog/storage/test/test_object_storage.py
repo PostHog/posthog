@@ -285,6 +285,7 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         ):
             storage = object_storage_client()
 
+        assert isinstance(storage, ObjectStorage)
         assert storage.mutation_client is mutation_client
         read_config = patched_client.call_args_list[0].kwargs["config"]
         mutation_config = patched_client.call_args_list[1].kwargs["config"]
