@@ -65,6 +65,22 @@ const POISON_MIN_FAILURES = 12
  */
 export const POISON_MIN_OTHER_SUCCESSES = 3
 
+/**
+ * Accumulated wait after which a sidecar that keeps answering is taken at its word.
+ *
+ * The success test cannot be satisfied when nothing else is succeeding, and the images in a batch
+ * are chosen by whoever produced them: fill one with content the sidecar rejects and no peer is left
+ * to prove it works, so the gate never opens and the partition stalls for every team sharing it.
+ * This is the way out. It only applies while the sidecar is still returning considered answers, so a
+ * full or unreachable one still waits forever, and half an hour of rejections on a single image is
+ * far outside anything ordinary load produces.
+ *
+ * The trade is deliberate. A sidecar genuinely broken for this long would park images rather than
+ * hold them, which is loud in the dead-letter counter and keeps every byte, against a silent stall
+ * that holds a shared partition hostage and keeps nothing moving.
+ */
+export const POISON_MAX_WAITED_MS = 30 * 60_000
+
 const BACKOFF_BASE_MS = 100
 /**
  * Ceilings on the wait, by what the failure says about the sidecar.
@@ -209,10 +225,12 @@ export class ScrubClient {
             if (reason === 'rejected') {
                 blamableFailures += 1
             }
+            const sidecarProvenHealthy = this.successes - successesAtStart >= POISON_MIN_OTHER_SUCCESSES
+            const waitedTooLong = waitedMs >= POISON_MAX_WAITED_MS
             if (
                 this.deadLetters &&
                 blamableFailures >= POISON_MIN_FAILURES &&
-                this.successes - successesAtStart >= POISON_MIN_OTHER_SUCCESSES
+                (sidecarProvenHealthy || waitedTooLong)
             ) {
                 throw new ScrubPoisoned(`sidecar cannot process this image: ${detail}`, {
                     reason,

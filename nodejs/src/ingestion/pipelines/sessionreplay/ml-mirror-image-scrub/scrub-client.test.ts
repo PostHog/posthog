@@ -100,12 +100,24 @@ describe('ScrubClient', () => {
         await expect(client(true).scrub(Buffer.from('image'))).resolves.toEqual(Buffer.from('scrubbed'))
     })
 
-    it('never dead-letters while the sidecar is failing everything, even on non-503 errors', async () => {
-        // A wedged sidecar 500s on every image. That is the sidecar, not the content, and parking
-        // images for it would quarantine the whole stream for a bug that has nothing to do with them.
-        replies = Array.from({ length: 400 }, () => ({ status: 500, body: '' }))
+    it('holds an image through a sidecar failing everything, rather than parking it for the outage', async () => {
+        // A sidecar 500ing on every image is the sidecar, not the content, and parking images for it
+        // would quarantine the whole stream for a bug that has nothing to do with them. It must ride
+        // out an outage far longer than any real one before it concedes.
+        replies = Array.from({ length: 60 }, () => ({ status: 500, body: '' }))
 
         await expect(client(true).scrub(Buffer.from('image'))).resolves.toEqual(Buffer.from('scrubbed'))
+    })
+
+    it('parks an image eventually even with no peers to prove the sidecar works', async () => {
+        // The success test cannot pass when nothing else is succeeding, and the images in a batch are
+        // chosen by whoever produced them: fill one with content the sidecar rejects and no peer is
+        // left to vouch for it. Without a way out, that stalls a partition shared by every team whose
+        // records hash to it, which is worse than parking for an outage — parking keeps the bytes and
+        // is loud, a stall keeps nothing moving and is silent.
+        replies = Array.from({ length: 5000 }, () => ({ status: 500, body: '' }))
+
+        await expect(client(true).scrub(Buffer.from('image'), undefined, 'ref-1')).rejects.toThrow(ScrubPoisoned)
     })
 
     /**

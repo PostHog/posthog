@@ -511,6 +511,38 @@ describe('ImageBatcher', () => {
         expect(offsets.received.flat().map((o) => o.offset)).toEqual([2])
     })
 
+    it('preserves the replay count when re-parking, so round trips accumulate', async () => {
+        // The cap that stops an image cycling between the two topics only binds if the count comes
+        // back out with it. Dropped here, every replay run starts the image at zero and it can be
+        // pushed at a sidecar that still cannot take it forever.
+        const parked: Record<string, unknown>[] = []
+        const poisonClient = {
+            scrub: () =>
+                Promise.reject(
+                    new ScrubPoisoned('cannot process', {
+                        reason: 'rejected',
+                        lastError: 'sidecar responded 500',
+                        attempts: 12,
+                        waitedMs: 60_000,
+                    })
+                ),
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            new FakeStore() as unknown as ImageShardStore,
+            new FakeOffsets(),
+            poisonClient,
+            options,
+            0,
+            { park: (image) => Promise.resolve(void parked.push(image.detail)) }
+        )
+
+        const replayed = msg(0, 0, pt(1), Buffer.from('poison'))
+        ;(replayed as unknown as { headers: unknown[] }).headers = [{ replayCount: Buffer.from('1') }]
+        await batcher.handleBatch([replayed], 1)
+
+        expect(parked[0].replayCount).toBe(1)
+    })
+
     it('refuses to start when concurrency is too low for dead-lettering to be reachable', () => {
         // The poison gate can only ever count successes from slots running alongside the image it is
         // judging: the batch holding that image cannot finish, and the pod cannot poll for more work

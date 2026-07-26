@@ -454,6 +454,9 @@ export class ImageBatcher {
                         sourceTopic: planned.sourceTopic,
                         sourcePartition: planned.sourcePartition,
                         sourceOffset: planned.sourceOffset,
+                        // Carried back out, or the count restarts on every pass and the cap that
+                        // bounds replay round trips never binds.
+                        [REPLAY_COUNT_HEADER]: planned.replayCount,
                     },
                 })
                 return
