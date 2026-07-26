@@ -28,19 +28,21 @@ const BACKOFF_BASE_MS = 100
  */
 const BACKOFF_MAX_MS: Record<ScrubWaitReason, number> = { busy: 30_000, timeout: 5_000, transport: 5_000 }
 
-/** Attempts between repeats of the stuck signal, once the first has fired. */
-const STUCK_REPEAT_ATTEMPTS = 20
-
 /**
- * Attempts on one image before it is called out by ref.
+ * Backoff time on one image before it is called out by ref, and the interval between repeats.
  *
- * At the capped backoff this is a couple of minutes, which no healthy sidecar spends on a single
- * image, so crossing it means either a sidecar that is down or an image it cannot process. The
- * second is the one that needs naming: the bytes are user-controlled, and an image that fails the
- * same way forever holds the head of its partition, which is a stall shared by every team whose
- * records hash to it. Waiting is still better than discarding, but it must not be silent.
+ * Measured in time rather than attempts because the per-reason caps differ by six times, so a fixed
+ * attempt count means three minutes on the busy path and forty seconds on the others. Two minutes is
+ * far longer than any healthy sidecar spends on one image, so crossing it means either a sidecar
+ * that is down or an image it cannot process. The second is the one that needs naming: the bytes are
+ * user-controlled, and an image that fails the same way forever holds the head of its partition,
+ * which is a stall shared by every team whose records hash to it. Waiting still beats discarding,
+ * but it must not be silent.
+ *
+ * Accumulated from the backoffs rather than read off a clock, so it measures time spent waiting on
+ * the sidecar rather than time the process spent descheduled, and so tests can drive it.
  */
-const STUCK_AFTER_ATTEMPTS = 20
+const STUCK_AFTER_WAITED_MS = 120_000
 
 /** Full jitter, so a pod's eight in-flight images do not all re-post to a busy sidecar in lockstep. */
 function backoffMs(attempt: number, reason: ScrubWaitReason, random: () => number): number {
@@ -66,8 +68,11 @@ export class ScrubClient {
     constructor(
         baseUrl: string,
         private readonly timeoutMs: number,
+        // unref'd: an abort stops the wait but leaves this timer scheduled, and a referenced one
+        // holds the event loop open for the rest of its interval, which on the busy path is half a
+        // minute of a process that has already finished shutting down.
         private readonly sleep: (ms: number) => Promise<void> = (ms) =>
-            new Promise((resolve) => setTimeout(resolve, ms)),
+            new Promise((resolve) => setTimeout(resolve, ms).unref()),
         private readonly random: () => number = Math.random
     ) {
         this.url = new URL('/scrub', baseUrl)
@@ -87,6 +92,8 @@ export class ScrubClient {
      * The caller hanging up raises [[ScrubAborted]], which belongs to shutdown rather than to load.
      */
     public async scrub(bytes: Buffer, signal?: AbortSignal, ref?: string): Promise<Buffer | null> {
+        let waitedMs = 0
+        let stuckReports = 0
         for (let attempt = 0; ; attempt++) {
             if (signal?.aborted) {
                 throw new ScrubAborted('scrub batch aborted')
@@ -119,10 +126,13 @@ export class ScrubClient {
                 throw new ScrubAborted('scrub batch aborted')
             }
             ImageScrubConsumerMetrics.incScrubWait(reason)
+            const delayMs = backoffMs(attempt, reason, this.random)
+            waitedMs += delayMs
             // Repeated rather than emitted once: a single increment lets a rate() alert fire and then
             // resolve itself while the partition is still stalled, which is the opposite of what a
             // head-of-line block should look like.
-            if (attempt >= STUCK_AFTER_ATTEMPTS && (attempt - STUCK_AFTER_ATTEMPTS) % STUCK_REPEAT_ATTEMPTS === 0) {
+            if (waitedMs >= STUCK_AFTER_WAITED_MS * (stuckReports + 1)) {
+                stuckReports += 1
                 ImageScrubConsumerMetrics.incStuckImage()
                 // The error text exists nowhere else: the caller sees a counter, and telling a
                 // misdirected URL apart from genuine saturation needs the message, not the label.
@@ -131,10 +141,11 @@ export class ScrubClient {
                     reason,
                     detail,
                     attempts: attempt + 1,
+                    waitedMs,
                     bytes: bytes.length,
                 })
             }
-            await this.waitOrAbort(backoffMs(attempt, reason, this.random), signal)
+            await this.waitOrAbort(delayMs, signal)
         }
     }
 
