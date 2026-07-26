@@ -137,6 +137,8 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$event_count_map": DatabaseField(name="$event_count_map"),
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
+    # V1 sessions don't track screen events; exposed as a constant 0 so queries shared with V2/V3 resolve
+    "$screen_count": IntegerDatabaseField(name="$screen_count"),
     # Derived
     "$channel_type": StringDatabaseField(
         name="$channel_type",
@@ -267,6 +269,8 @@ def select_from_sessions_table_v1(
         ),
         "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
         "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
+        # V1 raw sessions have no screen data; return 0 so filters like `$screen_count > 0` degrade cleanly
+        "$screen_count": ast.Constant(value=0),
     }
     # Some fields are calculated from others. It'd be good to actually deduplicate common sub expressions in SQL, but
     # for now just remove the duplicate definitions from the code
@@ -453,6 +457,8 @@ def get_lazy_session_table_properties_v1(search: Optional[str]):
         "$urls",
         "duration",
         "$num_uniq_urls",
+        # always 0 on v1 (no screen data); only exposed so queries shared with v2/v3 resolve
+        "$screen_count",
         # aliases for people reverting from v2 to v1
         "$end_current_url",
         "$end_pathname",

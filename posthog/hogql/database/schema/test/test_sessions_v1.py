@@ -307,6 +307,31 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
             (0, 0, "https://example.com/pathname", "https://example.com/pathname", "/pathname", "/pathname")
         ]
 
+    def test_screen_count_resolves_to_zero(self):
+        # V1 sessions have no screen data, but web analytics filters on `$screen_count` (only present on V2/V3).
+        # It must resolve to 0 here rather than raising `Field not found: $screen_count`.
+        session_id = "session_test_screen_count"
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$current_url": "https://example.com", "$session_id": session_id},
+        )
+
+        response = self.__execute(
+            parse_select(
+                """
+                select $screen_count
+                from sessions
+                where session_id = {session_id} and or($pageview_count > 0, $screen_count > 0)
+                """,
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        assert response.results == [(0,)]
+
 
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
