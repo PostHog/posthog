@@ -43,7 +43,7 @@ from .agentsh import (
     generate_env_wrapper,
     generate_policy_yaml,
 )
-from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache, bundled_skills_disabled
+from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
 from .sandbox import (
     WORKING_DIR,
     AgentServerResult,
@@ -164,9 +164,9 @@ class DockerSandbox(SandboxBase):
     @staticmethod
     def _get_local_posthog_code_packages() -> tuple[str, str, str, str] | None:
         """
-        Get paths to local PostHog Code packages for development builds.
+        Get paths to local PostHog Desktop packages for development builds.
 
-        Configure via LOCAL_POSTHOG_CODE_MONOREPO_ROOT pointing to the PostHog Code monorepo root.
+        Configure via LOCAL_POSTHOG_CODE_MONOREPO_ROOT pointing to the PostHog Desktop monorepo root.
         Returns tuple of (agent_path, shared_path, git_path, enricher_path) or None if not configured.
         """
         monorepo_root = os.environ.get(
@@ -252,8 +252,8 @@ class DockerSandbox(SandboxBase):
 
     @staticmethod
     def _build_local_image(agent_path: str, shared_path: str, git_path: str, enricher_path: str) -> None:
-        """Build the local sandbox image with local PostHog Code packages."""
-        logger.info("Building posthog-sandbox-base-local image with local PostHog Code packages...")
+        """Build the local sandbox image with local PostHog Desktop packages."""
+        logger.info("Building posthog-sandbox-base-local image with local PostHog Desktop packages...")
         dockerfile_path = os.path.join(
             settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-local"
         )
@@ -441,11 +441,7 @@ class DockerSandbox(SandboxBase):
             # the baked-in rendered skills in the image stay visible — only
             # the specific skills the user has on disk get overlaid.
             local_skills_host = os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
-            if (
-                not bundled_skills_disabled(config.environment_variables)
-                and local_skills_host
-                and os.path.isdir(local_skills_host)
-            ):
+            if local_skills_host and os.path.isdir(local_skills_host):
                 for entry in sorted(os.listdir(local_skills_host)):
                     if entry.startswith(".") or entry == "__pycache__":
                         continue
@@ -913,8 +909,6 @@ class DockerSandbox(SandboxBase):
 
         if self._host_port is None:
             raise RuntimeError("Sandbox was not created with port exposure.")
-
-        self.clear_bundled_skills_if_disabled()
 
         repo_path: str | None = None
         if repository:

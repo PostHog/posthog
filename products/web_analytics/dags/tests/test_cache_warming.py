@@ -1,3 +1,6 @@
+import gzip
+import json
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -213,12 +216,70 @@ class TestFleetQuerySelection(BaseTest):
         self.assertIn("LIKE '%Web%'", rendered)
         self.assertIn("system.query_log", rendered)
 
+    @patch("products.web_analytics.dags.cache_warming._read_cached_warmable_queries", return_value=None)
+    @patch("products.web_analytics.dags.cache_warming._write_cached_warmable_queries")
     @patch("products.web_analytics.dags.cache_warming.sync_execute", return_value=[])
-    def test_op_reads_instance_settings(self, _mock_exec: MagicMock) -> None:
+    def test_op_reads_instance_settings(
+        self, _mock_exec: MagicMock, _mock_write: MagicMock, _mock_read: MagicMock
+    ) -> None:
         # Runs the op against the real instance-setting machinery so a renamed or
-        # unregistered setting key fails here instead of at the hourly run.
+        # unregistered setting key fails here instead of at the hourly run. Cache
+        # forced to miss so the assertion doesn't depend on Redis state.
         result = get_warmable_queries_op(dagster.build_op_context())
         self.assertEqual(result, [])
+
+
+class _FakeObjectStorage:
+    def __init__(self) -> None:
+        self.store: dict[str, bytes] = {}
+
+    def read_bytes(self, key: str, bucket: str | None = None, *, missing_ok: bool = False) -> bytes | None:
+        return self.store.get(key)
+
+    def write(self, key: str, content: bytes, extras: dict | None = None, bucket: str | None = None) -> None:
+        self.store[key] = content
+
+
+class TestWarmableQueriesCaching(BaseTest):
+    @patch("products.web_analytics.dags.cache_warming.object_storage", new_callable=_FakeObjectStorage)
+    @patch("products.web_analytics.dags.cache_warming.sync_execute")
+    def test_second_run_reuses_cached_selection(self, mock_exec: MagicMock, _storage: _FakeObjectStorage) -> None:
+        # The whole reason this cache exists: the fleet-wide query_log scan is
+        # terabytes. If the cache read regresses, the scan runs every warming run
+        # again — this fails when the second run re-hits ClickHouse.
+        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 123)]
+
+        first = get_warmable_queries_op(dagster.build_op_context())
+        second = get_warmable_queries_op(dagster.build_op_context())
+
+        self.assertEqual(mock_exec.call_count, 1)
+        self.assertEqual(first, second)
+        self.assertEqual(first[0]["team_id"], 101)
+
+    @patch("products.web_analytics.dags.cache_warming.object_storage")
+    @patch("products.web_analytics.dags.cache_warming.sync_execute")
+    def test_storage_failure_falls_back_to_scan(self, mock_exec: MagicMock, mock_storage: MagicMock) -> None:
+        # Object storage being unavailable must degrade to a fresh scan, not break warming.
+        mock_storage.read_bytes.side_effect = Exception("storage unavailable")
+        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 123)]
+
+        result = get_warmable_queries_op(dagster.build_op_context())
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(mock_exec.call_count, 1)
+
+    @patch("products.web_analytics.dags.cache_warming.object_storage")
+    @patch("products.web_analytics.dags.cache_warming.sync_execute")
+    def test_malformed_cache_payload_falls_back_to_scan(self, mock_exec: MagicMock, mock_storage: MagicMock) -> None:
+        # A decodable-but-malformed blob (missing the expected fields) must miss
+        # and trigger a fresh scan, not raise out of the op and skip warming.
+        mock_storage.read_bytes.return_value = gzip.compress(json.dumps({"unexpected": "shape"}).encode())
+        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 123)]
+
+        result = get_warmable_queries_op(dagster.build_op_context())
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(mock_exec.call_count, 1)
 
 
 class TestWarmQueriesOp(BaseTest):

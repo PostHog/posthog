@@ -3994,6 +3994,7 @@ dependencies = [
  "common-kafka",
  "common-metrics",
  "envconfig",
+ "hdrhistogram",
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
@@ -7671,20 +7672,24 @@ name = "personhog-common"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "chrono",
  "flate2",
  "futures",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
  "metrics",
+ "personhog-proto",
  "pin-project",
  "rstest",
  "serde_json",
  "sqlx",
+ "thiserror 2.0.18",
  "tokio",
  "tonic 0.12.3",
  "tower 0.4.13",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -7706,6 +7711,30 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "personhog-identity"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum 0.7.9",
+ "chrono",
+ "common-alloc",
+ "common-database",
+ "common-metrics",
+ "envconfig",
+ "futures",
+ "lifecycle",
+ "personhog-common",
+ "personhog-proto",
+ "rand 0.8.5",
+ "sqlx",
+ "tokio",
+ "tonic 0.12.3",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -7775,7 +7804,6 @@ dependencies = [
  "rstest",
  "serde_json",
  "sqlx",
- "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
  "tonic 0.12.3",
@@ -7844,6 +7872,7 @@ dependencies = [
  "hdrhistogram",
  "humantime",
  "metrics",
+ "personhog-common",
  "personhog-coordination",
  "personhog-proto",
  "rand 0.8.5",
@@ -8184,12 +8213,13 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
  "base64 0.22.1",
  "flate2",
+ "hmac",
  "image",
  "jpeg-decoder",
  "libdeflater",
@@ -8197,6 +8227,7 @@ dependencies = [
  "memchr",
  "serde",
  "serde_json",
+ "sha2",
  "simd-json",
  "url",
  "zstd",

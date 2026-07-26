@@ -34,6 +34,13 @@ from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_
 from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
 from products.signals.backend.scout_harness.tools.runs import DEFAULT_FINDINGS_WINDOW_HOURS, MAX_FINDINGS_WINDOW_HOURS
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
+from products.skills.backend.api.skill_serializers import (
+    MAX_SKILL_FILE_COUNT,
+    LLMSkillFileInputSerializer,
+    validate_skill_body_size,
+    validate_skill_name_value,
+)
+from products.skills.backend.models.skills import LLMSkill
 
 # --- Run history -----------------------------------------------------------
 
@@ -1061,6 +1068,64 @@ class EmitEligibilitySerializer(serializers.Serializer):
     )
 
 
+class ScoutFleetEntrySerializer(serializers.Serializer):
+    """One scout in either bucket of `inventory.scout_fleet`."""
+
+    skill_name = serializers.CharField(help_text="The `signals-scout-*` skill this config schedules.")
+    run_interval_minutes = serializers.IntegerField(
+        help_text="Minutes between runs when no cron schedule is set (default 1440, every 24 hours).",
+    )
+    run_cron_schedule = serializers.CharField(
+        allow_null=True,
+        help_text="Optional cron expression, evaluated in the project timezone. Takes precedence over the interval.",
+    )
+    emit = serializers.BooleanField(
+        help_text=(
+            "Whether this scout's findings actually reach the inbox. False means dry-run: it runs and "
+            "logs but emits nothing, so its silence says nothing about the surface it watches."
+        ),
+    )
+    last_run_at = serializers.CharField(
+        allow_null=True,
+        help_text="ISO-8601 timestamp the coordinator last dispatched this scout, or null if it has never run.",
+    )
+    last_emitted_at = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "ISO-8601 timestamp this scout last produced output on either channel (a finding, or an "
+            "authored/edited report), within `emitted_lookback_days`. Null means quiet for at least "
+            "that window, not never."
+        ),
+    )
+    not_running_reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or "
+            "`skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it "
+            "never dispatches). Null for scouts that actually run."
+        ),
+    )
+
+
+class ScoutFleetSerializer(serializers.Serializer):
+    """`inventory.scout_fleet` — the other scouts running on this project, split by enablement."""
+
+    enabled = serializers.ListField(
+        child=ScoutFleetEntrySerializer(),
+        help_text="Scouts that actually run on this team: enabled, with a live skill the coordinator dispatches.",
+    )
+    disabled = serializers.ListField(
+        child=ScoutFleetEntrySerializer(),
+        help_text=(
+            "Scouts that do not run, each carrying a `not_running_reason` — turned off, or left on with a "
+            "skill that can't dispatch. Different from a surface no scout ever covered."
+        ),
+    )
+    emitted_lookback_days = serializers.IntegerField(
+        help_text="The window `last_emitted_at` was resolved over, so a null reads as 'quiet', not 'never'.",
+    )
+
+
 class InboxReportStatusBucketSerializer(serializers.Serializer):
     """One bucket in `inventory.existing_inbox_reports.by_status`."""
 
@@ -1474,6 +1539,13 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
             "remediation pointer. Read at cold start to quick-close before doing throwaway work."
         ),
     )
+    scout_fleet = ScoutFleetSerializer(
+        help_text=(
+            "The other scouts configured on this project, split into enabled / disabled, each with its "
+            "cadence, dry-run posture, last run, and last emit. Read it to see who else is watching "
+            "this project before investigating a surface a sibling already covers."
+        ),
+    )
     existing_inbox_reports = ExistingInboxReportsSerializer(
         help_text="Counts of reports already in the inbox, grouped by status.",
     )
@@ -1855,20 +1927,9 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         fields = ["enabled", "emit", "run_interval_minutes", "run_cron_schedule", "output_destinations"]
 
 
-class SignalScoutConfigCreateSerializer(serializers.Serializer):
-    """Request body for registering a scout config without waiting for the coordinator tick.
+class SignalScoutConfigOptionsSerializer(serializers.Serializer):
+    """Schedule, enablement, and delivery options accepted while creating a scout."""
 
-    Upsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already
-    registered the row, the provided tunables are applied to it instead.
-    """
-
-    skill_name = serializers.CharField(
-        max_length=200,
-        help_text=(
-            "The `signals-scout-*` skill to register a config for. The skill must already "
-            "exist on this project — author it via the skills store first."
-        ),
-    )
     enabled = serializers.BooleanField(
         required=False,
         help_text="Whether this scout runs on its schedule. Defaults to true.",
@@ -1904,6 +1965,29 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
 
+    def validate_output_destinations(self, value: dict) -> dict:
+        context = self.context
+        if not isinstance(context.get("project_id"), int):
+            team = context.get("team")
+            context = {**context, "project_id": getattr(team, "project_id", None)}
+        return _validate_output_destinations(value, context)
+
+
+class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
+    """Request body for registering a scout config without waiting for the coordinator tick.
+
+    Upsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already
+    registered the row, the provided tunables are applied to it instead.
+    """
+
+    skill_name = serializers.CharField(
+        max_length=200,
+        help_text=(
+            "The `signals-scout-*` skill to register a config for. The skill must already "
+            "exist on this project — author it via the skills store first."
+        ),
+    )
+
     def validate_skill_name(self, value: str) -> str:
         # A config for a non-scout skill would never dispatch (the coordinator only considers
         # `signals-scout-*` names), so reject it here instead of minting an invisible orphan.
@@ -1911,8 +1995,78 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(f"Scout skill names must start with '{SIGNALS_SCOUT_SKILL_PREFIX}'.")
         return value
 
-    def validate_output_destinations(self, value: dict) -> dict:
-        return _validate_output_destinations(value, self.context)
+
+class SignalScoutCreateSerializer(serializers.Serializer):
+    """Create a runnable custom scout and its config in one atomic request."""
+
+    name = serializers.CharField(
+        max_length=64,
+        help_text=(
+            "Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, "
+            "numbers, and hyphens."
+        ),
+    )
+    description = serializers.CharField(
+        max_length=4096,
+        help_text="Short description of the signal or behavior this scout investigates.",
+    )
+    body = serializers.CharField(
+        trim_whitespace=False,
+        help_text=(
+            "Complete markdown prompt executed on every scout run. Include any project-specific signal names, "
+            "thresholds, investigation steps, and report criteria here."
+        ),
+    )
+    files = LLMSkillFileInputSerializer(
+        many=True,
+        required=False,
+        help_text="Optional reference files bundled with the scout prompt.",
+    )
+    config = SignalScoutConfigOptionsSerializer(
+        required=False,
+        help_text=(
+            "Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, "
+            "emitting scout on the daily interval with no external destination."
+        ),
+    )
+
+    def validate_name(self, value: str) -> str:
+        value = validate_skill_name_value(value)
+        if not value.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
+            raise serializers.ValidationError(f"Scout names must start with '{SIGNALS_SCOUT_SKILL_PREFIX}'.")
+        return value
+
+    def validate_body(self, value: str) -> str:
+        return validate_skill_body_size(value)
+
+    def validate_files(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
+        if len(value) > MAX_SKILL_FILE_COUNT:
+            raise serializers.ValidationError(f"A scout may contain at most {MAX_SKILL_FILE_COUNT} files.")
+        paths = [file["path"] for file in value]
+        if len(paths) != len(set(paths)):
+            raise serializers.ValidationError("Duplicate file paths are not allowed.")
+        return value
+
+
+class SignalScoutSkillSummarySerializer(serializers.ModelSerializer):
+    allowed_tools = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Server-managed report tools granted to this scout.",
+    )
+
+    class Meta:
+        model = LLMSkill
+        fields = ["id", "name", "description", "version", "allowed_tools"]
+        read_only_fields = fields
+
+
+class SignalScoutCreateResponseSerializer(serializers.Serializer):
+    created = serializers.BooleanField(
+        help_text="True when this request created the missing scout skill or config; false when both already existed."
+    )
+    skill = SignalScoutSkillSummarySerializer()
+    config = SignalScoutConfigSerializer()
 
 
 class SignalScoutManualRunSerializer(serializers.Serializer):

@@ -99,6 +99,7 @@ export class EmailReputationWorkerService {
             targetVolume: this.config.EMAIL_REPUTATION_TARGET_VOLUME,
             minWindowHours: this.config.EMAIL_REPUTATION_MIN_WINDOW_HOURS,
             lookbackDays: this.config.EMAIL_REPUTATION_LOOKBACK_DAYS,
+            representativeVolumeMultiplier: this.config.EMAIL_REPUTATION_VOLUME_MULTIPLIER,
             thresholds: {
                 minSends: this.config.EMAIL_REPUTATION_MIN_SENDS,
                 bounceWarning: this.config.EMAIL_REPUTATION_BOUNCE_WARNING_RATE,

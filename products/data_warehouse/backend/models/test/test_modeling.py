@@ -579,22 +579,14 @@ class TestBoundedResolver(BaseTest):
             },
         )
 
-    @parameterized.expand(
-        [
-            # the branch that reads `b` is walked before the WITH on the leading branch is in scope
-            ("plain_caller", "select 1 from unioned", {"events", "leaf"}),
-            # the caller defines its own `b`, which the view's `b` must not resolve against
-            (
-                "caller_defines_colliding_cte",
-                "with b as (select id from persons) select 1 from unioned u join b bb on 1=1",
-                {"events", "leaf", "persons"},
-            ),
-        ],
-    )
-    def test_ctes_inside_union_bodied_view_are_not_parents(self, _name: str, query: str, expected_parents: set[str]):
+    def test_ctes_inside_union_body_are_not_parents_when_walking_the_body(self):
+        # When a union body is walked directly (syncing the union view itself), its branch
+        # CTEs must not leak as parents — the branch that reads `b` is otherwise walked before
+        # the leading WITH is in scope. The real sources (events, leaf) are the parents.
         self._make_union_bodied_view_with_ctes()
 
-        assert get_parents_from_model_query(self.team, "caller", query) == expected_parents
+        body = "with a as (select event from events), b as (select event from leaf) select event from a union all select event from b"
+        assert get_parents_from_model_query(self.team, "unioned", body) == {"events", "leaf"}
 
     def test_cycle_through_union_bodied_view_raises(self):
         # `view_name` is only stamped on ast.SelectQuery, so a view whose body is a top-level
@@ -615,6 +607,71 @@ class TestBoundedResolver(BaseTest):
             get_parents_from_model_query(self.team, "caller", "select * from u")
 
         assert exc_info.value.view_name == "u"
+
+    def test_union_bodied_view_registers_as_parent_under_its_own_name(self):
+        # A regular view registers as a parent under its own name (the resolver stamps
+        # view_name on the SelectQuery body). A union-bodied view must behave the same way:
+        # the DAG edge should point at the view, not skip past it to the view's own sources.
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="leaf",
+            query={"query": "select event from events"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="regular_view",
+            query={"query": "select event from leaf"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="union_view",
+            query={"query": "select event from leaf union all select event from events"},
+        )
+
+        # baseline: a regular view is its consumer's parent
+        assert get_parents_from_model_query(self.team, "caller", "select * from regular_view") == {"regular_view"}
+
+        # a union-bodied view must be too — not replaced by {leaf, events}
+        assert get_parents_from_model_query(self.team, "caller", "select * from union_view") == {"union_view"}
+
+    def test_values_join_after_view_does_not_crash(self):
+        # bug 2's fix walks past the first view instead of breaking, so a VALUES/PIVOT/UNPIVOT
+        # join positioned after a view is now reached. VALUES carries no parent — it must be
+        # skipped, not raise "No handler".
+        self._make_diamond()
+
+        parents = get_parents_from_model_query(
+            self.team, "caller", "select 1 from shared s join (select 1 as n) v on 1=1"
+        )
+        assert parents == {"shared"}
+
+        # the actual crash shape: a real VALUES clause joined after a view
+        parents = get_parents_from_model_query(
+            self.team, "caller", "select n from shared s cross join (values (1), (2)) as v(n)"
+        )
+        assert parents == {"shared"}
+
+    def test_pivot_over_join_keeps_its_sources_as_parents(self):
+        # PIVOT/UNPIVOT wrap their source in `.table`, which can be a whole join — its tables
+        # are real parents and must not be dropped or crash the walk.
+        parents = get_parents_from_model_query(
+            self.team,
+            "caller",
+            "select 1 from events e join persons p on 1=1 pivot (count() for e.event in ('x'))",
+        )
+        assert parents == {"events", "persons"}
+
+    def test_nested_non_initial_union_branch_with_own_cte(self):
+        # A WITH on a parenthesized sub-union sitting in a *non-initial* branch must scope only
+        # that sub-union's branches. Walking this body (syncing the view itself), `y` must
+        # resolve as a CTE, not leak as a parent — its source `events` is the parent.
+        body = (
+            "select event from events "
+            "union all "
+            "(with y as (select event from events) select event from y union all select event from y)"
+        )
+
+        assert get_parents_from_model_query(self.team, "nested_union", body) == {"events"}
 
     def test_depth_limit_raises_when_chain_too_deep(self):
         self._make_chain(length=4)  # v0 → v1 → v2 → v3

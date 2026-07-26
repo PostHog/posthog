@@ -1,6 +1,7 @@
 import re
 import json
 import uuid as uuid_mod
+import hashlib
 import dataclasses
 from datetime import timedelta
 from typing import Any, Optional, cast
@@ -188,6 +189,41 @@ def _first_error_string(detail: Any) -> Optional[str]:
     return None
 
 
+# The literal template_id each fixed-template node type requires. A saved library template
+# (from workflows-list-email-templates) is referenced via config.template_uuid, never here -
+# putting its UUID in template_id is the dominant authoring mistake on these nodes.
+_FIXED_TEMPLATE_IDS = {
+    "function_email": "template-email",
+    "function_sms": "template-twilio",
+    "function_push": "template-native-push",
+}
+
+
+def _looks_like_uuid(value: str) -> bool:
+    try:
+        uuid_mod.UUID(value)
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
+def _describe_unknown_template(action: dict, template_id: str) -> str:
+    fixed_id = _FIXED_TEMPLATE_IDS.get(action.get("type", ""))
+    if fixed_id and _looks_like_uuid(template_id):
+        return (
+            f"Template not found. template_id must be the literal '{fixed_id}' for this step type. "
+            "To use a saved template from the library, set config.template_uuid to its UUID instead."
+        )
+    if fixed_id:
+        return f"Template not found. template_id must be the literal '{fixed_id}' for this step type."
+    if _looks_like_uuid(template_id):
+        return (
+            "Template not found. Function steps reference a destination template id like "
+            "'template-webhook' (discover them with the template catalog), not a UUID."
+        )
+    return "Template not found"
+
+
 def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
     # The many=True error list mirrors the actions list, with {} entries for valid actions. Raising it
     # as-is gets flattened by the exception handler to that first empty dict, so the client sees "{}".
@@ -245,6 +281,12 @@ class BlastRadiusSerializer(serializers.Serializer):
         choices=list(SUPPORTED_DEDUPE_KEYS),
         allow_null=True,
         help_text="The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.",
+    )
+    confirm_token = serializers.CharField(
+        help_text=(
+            "Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after "
+            "echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes."
+        ),
     )
 
 
@@ -586,7 +628,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
                 if strict:
-                    raise serializers.ValidationError({"template_id": "Template not found"})
+                    raise serializers.ValidationError({"template_id": _describe_unknown_template(data, template_id)})
             else:
                 input_schema = template.inputs_schema
                 inputs = data.get("config", {}).get("inputs", {})
@@ -1381,6 +1423,13 @@ class HogFlowGraphOperationSerializer(serializers.Serializer):
 
 
 class HogFlowGraphUpdateSerializer(serializers.Serializer):
+    base_updated_at = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored "
+            "graph is newer, the patch is rejected with 409 instead of clobbering a concurrent edit."
+        ),
+    )
     operations = serializers.ListField(
         child=HogFlowGraphOperationSerializer(),
         allow_empty=False,
@@ -1608,6 +1657,38 @@ def mint_publish_confirm_token(hog_flow: HogFlow) -> str:
     return TimestampSigner(salt=_PUBLISH_CONFIRM_SALT).sign(_publish_confirm_value(hog_flow))
 
 
+# Same structural-unskippability pattern for batch dispatch: only the blast-radius preview mints
+# this token, and it signs the exact audience filters it sized - so a valid token proves the
+# caller saw the recipient count for the filters being dispatched. Short max-age keeps it fresh.
+AUDIENCE_CONFIRM_TOKEN_MAX_AGE = timedelta(minutes=15)
+_AUDIENCE_CONFIRM_SALT = "hogflow-batch-audience"
+
+# Surfaces where an LLM drives the request through a managed channel (classification is stamped by
+# the harness, not self-reported by the model). These get the audience-confirm gate; the web builder
+# has its own confirm UI, and headless callers (raw API keys, Terraform) dispatch in one call.
+AGENT_EVENT_SOURCES = frozenset(
+    {EventSource.MCP, EventSource.POSTHOG_CODE, EventSource.WIZARD, EventSource.CLI, EventSource.POSTHOG_AI}
+)
+
+
+def _audience_confirm_value(
+    team_id: int, filters: dict, group_type_index: Optional[int] = None, dedupe_key: Optional[str] = None
+) -> str:
+    # group_type_index and dedupe_key change the previewed count, so they're part of what the
+    # caller confirmed. Dispatch always runs person-scope without a caller-chosen dedupe, so
+    # tokens minted under other semantics must not authorize it.
+    canonical = json.dumps(filters, sort_keys=True, separators=(",", ":"))
+    return f"{team_id}:{group_type_index}:{dedupe_key}:{hashlib.sha256(canonical.encode()).hexdigest()[:32]}"
+
+
+def mint_audience_confirm_token(
+    team_id: int, filters: dict, group_type_index: Optional[int] = None, dedupe_key: Optional[str] = None
+) -> str:
+    return TimestampSigner(salt=_AUDIENCE_CONFIRM_SALT).sign(
+        _audience_confirm_value(team_id, filters, group_type_index, dedupe_key)
+    )
+
+
 @extend_schema(extensions={"x-product": "workflows"})
 class HogFlowViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
@@ -1654,7 +1735,12 @@ class HogFlowViewSet(
         # lists above can't distinguish GET (read) from POST (write) on the same action. Without
         # this, these actions declare no scope and reject all personal-API-key (MCP) access.
         if self.action in ("batch_jobs", "schedules"):
-            return ["hog_flow:read"] if request.method in ("GET", "HEAD", "OPTIONS") else ["hog_flow:write"]
+            # Dispatching (or scheduling) fans out to persons and renders person properties into
+            # outbound messages, so it's person-data access on top of the workflow write - same
+            # rationale as user_blast_radius. Listing jobs/schedules stays workflow-read.
+            if request.method in ("GET", "HEAD", "OPTIONS"):
+                return ["hog_flow:read"]
+            return ["hog_flow:write", "person:read"]
         # Sizing an audience runs a person/group count over caller-supplied filters — that's person-data
         # access, so require person:read on top of workflow read. Without it a hog_flow:read-only token
         # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
@@ -1846,6 +1932,16 @@ class HogFlowViewSet(
                 raise exceptions.ValidationError(
                     "Status changes via MCP must use workflows-enable / workflows-disable / "
                     "workflows-archive — they can't be combined with other field updates."
+                )
+
+            # Whole-graph replacement through a plain update wipes any step the payload omits - a
+            # partial actions list has destroyed live graphs. MCP edits the graph exclusively through
+            # the id-addressed patch endpoint; the web builder keeps full-save semantics.
+            if keys & {"actions", "edges"}:
+                raise exceptions.ValidationError(
+                    "actions/edges can't be replaced via workflows-update - a partial list silently "
+                    "drops every step it omits. Edit the graph with workflows-patch-graph instead; it "
+                    "changes steps by id and leaves the rest of the graph untouched."
                 )
 
             # Content edits on an active workflow stage a draft when the revisions cycle is on for the
@@ -2042,6 +2138,20 @@ class HogFlowViewSet(
                     raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
                 route_to_draft = True
 
+            # Optimistic concurrency, mirroring perform_update: the graph endpoint is the only MCP
+            # path that writes graph content, so it carries the base_updated_at staleness contract.
+            # Draft edits race against other draft edits, so the baseline is the draft's timestamp
+            # once one exists.
+            base_updated_at_raw = request.data.get("base_updated_at")
+            base_updated_at = parse_datetime(base_updated_at_raw) if base_updated_at_raw else None
+            if base_updated_at is not None and timezone.is_naive(base_updated_at):
+                base_updated_at = timezone.make_aware(base_updated_at)
+            guard_timestamp = locked.updated_at
+            if route_to_draft and locked.draft_updated_at:
+                guard_timestamp = locked.draft_updated_at
+            if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
+                raise StaleWorkflowUpdateError()
+
             # Draft edits compose on the staged draft, not on live — a second patch must see the first.
             if route_to_draft and locked.draft:
                 base_actions = list(locked.draft.get("actions") or [])
@@ -2118,6 +2228,45 @@ class HogFlowViewSet(
         transaction.on_commit(
             lambda: reschedule_hog_flow_timing.delay(team_id=team_id, hog_flow_id=hog_flow_id, action_ids=action_ids)
         )
+
+    def _require_audience_confirm_token(self, request: Request, hog_flow: HogFlow) -> None:
+        confirm_token = request.data.get("confirm_token")
+        if not confirm_token:
+            raise exceptions.ValidationError(
+                {
+                    "confirm_token": (
+                        "Required: preview the audience with workflows-blast-radius first - its response "
+                        "carries the recipient count to confirm with the user and the confirm_token for "
+                        "this dispatch."
+                    )
+                }
+            )
+        try:
+            previewed = TimestampSigner(salt=_AUDIENCE_CONFIRM_SALT).unsign(
+                confirm_token, max_age=AUDIENCE_CONFIRM_TOKEN_MAX_AGE
+            )
+        except SignatureExpired:
+            raise exceptions.ValidationError(
+                {"confirm_token": "Expired - preview the audience again with workflows-blast-radius."}
+            )
+        except BadSignature:
+            raise exceptions.ValidationError(
+                {"confirm_token": "Invalid - get one from a workflows-blast-radius preview."}
+            )
+        # The dispatch always fans out to the flow's stored trigger audience (the resolver reads the
+        # trigger's filters; request filters are never forwarded), so the token must sign exactly
+        # that - a token minted for other filters, or for an audience edited since the preview,
+        # forces a re-preview of the real recipient set.
+        filters = (hog_flow.trigger or {}).get("filters") or {}
+        if previewed != _audience_confirm_value(self.team_id, filters):
+            raise exceptions.ValidationError(
+                {
+                    "confirm_token": (
+                        "The audience changed since the preview - run workflows-blast-radius again with "
+                        "the current filters and confirm the new count with the user."
+                    )
+                }
+            )
 
     def _get_in_flight_counts(self, hog_flow: HogFlow) -> Optional[dict]:
         # Best-effort: publish must not fail because the counting service is unreachable — the counts
@@ -2442,6 +2591,9 @@ class HogFlowViewSet(
                     "total": total,
                     "limit": get_hogflow_batch_trigger_limit(self.team_id),
                     "dedupe_key": applied_dedupe_key,
+                    "confirm_token": mint_audience_confirm_token(
+                        self.team_id, filters, group_type_index, applied_dedupe_key
+                    ),
                 }
             ).data
         )
@@ -2784,13 +2936,23 @@ class HogFlowViewSet(
             if hog_flow.status != HogFlow.State.ACTIVE:
                 raise exceptions.ValidationError("Workflow must be active to run a batch. Enable it first.")
 
+            # A batch run is an irreversible mass send: interactive agent surfaces must prove they
+            # previewed the audience, because only the blast-radius preview mints this token and it
+            # signs the exact filters being dispatched. The web builder has its own confirmation UI,
+            # and headless callers (raw API keys, Terraform) are professional surfaces where the
+            # two-step would be ceremony with no human to read the count - they stay token-free.
+            if get_event_source(request) in AGENT_EVENT_SOURCES:
+                self._require_audience_confirm_token(request, hog_flow)
+
             serializer = HogFlowBatchJobSerializer(
                 data={**request.data, "hog_flow": hog_flow.id}, context={**self.get_serializer_context()}
             )
             if not serializer.is_valid():
                 return Response(serializer.errors, status=400)
 
-            batch_job = serializer.save()
+            # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
+            # caller-supplied filters are never what actually runs.
+            batch_job = serializer.save(filters=(hog_flow.trigger or {}).get("filters") or {})
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
@@ -2807,6 +2969,21 @@ class HogFlowViewSet(
         hog_flow = self.get_object()
 
         if request.method == "POST":
+            # A schedule is a recurring batch dispatch - without this, an agent could sidestep the
+            # batch_jobs token gate by scheduling the send instead. Same scoping: the web builder
+            # keeps its own confirm UI, headless callers stay token-free.
+            if get_event_source(request) in AGENT_EVENT_SOURCES:
+                # A draft's trigger can still be edited after the audience was sized, so a schedule
+                # staged on a draft could fire on a broadened audience once enabled. Same rule the
+                # MCP tool enforces, applied at the API boundary.
+                if hog_flow.status != HogFlow.State.ACTIVE:
+                    raise exceptions.ValidationError(
+                        "Workflow must be active before scheduling - a draft's audience can still be "
+                        "edited after previewing. Enable it with workflows-enable, then preview and "
+                        "schedule."
+                    )
+                self._require_audience_confirm_token(request, hog_flow)
+
             serializer = HogFlowScheduleSerializer(data=request.data, context=self.get_serializer_context())
             serializer.is_valid(raise_exception=True)
             schedule = serializer.save(team=self.team, hog_flow=hog_flow)

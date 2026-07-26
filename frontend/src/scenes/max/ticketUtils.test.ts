@@ -1,5 +1,5 @@
 import { ThreadMessage } from './maxLogic'
-import { getTicketSummaryData, parseTicketTargetArea } from './ticketUtils'
+import { appendTicketMetadata, composeTicketBody, getTicketSummaryData, parseTicketTargetArea } from './ticketUtils'
 
 const human = (content: string): ThreadMessage => ({ type: 'human', content }) as unknown as ThreadMessage
 const ai = (content: string): ThreadMessage => ({ type: 'ai', content }) as unknown as ThreadMessage
@@ -46,6 +46,44 @@ describe('ticketUtils', () => {
                 messageIndex: 3,
                 targetArea: 'session_replay',
             })
+        })
+    })
+
+    describe('composeTicketBody', () => {
+        it.each([
+            [
+                'note leads with summary attached',
+                'It still repros in prod',
+                SUMMARY,
+                `It still repros in prod\n\n----\nPostHog AI's analysis:\n${SUMMARY}`,
+            ],
+            ['summary alone when note is empty', '', SUMMARY, SUMMARY],
+            ['summary alone when note is whitespace', '   ', SUMMARY, SUMMARY],
+            ['note alone when no summary', 'Recordings are missing', undefined, 'Recordings are missing'],
+            ['empty when neither note nor summary', '  ', undefined, ''],
+        ])('%s', (_name, note, summary, expected) => {
+            expect(composeTicketBody({ note, summary })).toBe(expected)
+        })
+    })
+
+    describe('appendTicketMetadata', () => {
+        const ids = { conversationId: 'conv-1', traceId: 'trace-1' }
+
+        it('returns empty string for an empty body so metadata alone is never submitted', () => {
+            expect(appendTicketMetadata('', ids)).toBe('')
+            expect(appendTicketMetadata('   ', ids)).toBe('')
+        })
+
+        it('appends conversation and trace ids to a non-empty body', () => {
+            expect(appendTicketMetadata('My issue', ids)).toBe(
+                'My issue\n\n----\nConversation ID: conv-1\nTrace ID: trace-1'
+            )
+        })
+
+        it('omits the trace line when there is no trace id', () => {
+            expect(appendTicketMetadata('My issue', { conversationId: 'conv-1', traceId: null })).toBe(
+                'My issue\n\n----\nConversation ID: conv-1'
+            )
         })
     })
 

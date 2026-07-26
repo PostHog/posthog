@@ -2234,7 +2234,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.soft_delete(dashboard_id, "dashboards")
 
         insight_json = self.dashboard_api.get_insight(insight_id=insight_id)
-        self.assertEqual(insight_json["dashboards"], [])
+        self.assertEqual(insight_json["dashboard_tiles"], [])
 
         self.dashboard_api.soft_delete(insight_id, "insights")
 
@@ -2289,11 +2289,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         insight_one_json = self.dashboard_api.get_insight(insight_id=insight_one_id)
         assert [t["dashboard_id"] for t in insight_one_json["dashboard_tiles"]] == [other_dashboard_id]
-        assert insight_one_json["dashboards"] == [other_dashboard_id]
         assert insight_one_json["deleted"] is False
         insight_two_json = self.dashboard_api.get_insight(insight_id=insight_two_id)
         assert [t["dashboard_id"] for t in insight_two_json["dashboard_tiles"]] == []
-        assert insight_two_json["dashboards"] == []
         assert insight_two_json["deleted"] is False
 
     def test_can_copy_tile_between_dashboards(self) -> None:
@@ -2615,10 +2613,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.soft_delete(dashboard_one_id, "dashboards")
 
         insight_after_dashboard_deletion = self.dashboard_api.get_insight(insight_id)
-        assert insight_after_dashboard_deletion["dashboards"] == [dashboard_two_id]
+        assert [t["dashboard_id"] for t in insight_after_dashboard_deletion["dashboard_tiles"]] == [dashboard_two_id]
 
         dashboard_two_json = self.dashboard_api.get_dashboard(dashboard_two_id)
-        expected_dashboards_on_insight = dashboard_two_json["tiles"][0]["insight"]["dashboards"]
+        expected_dashboards_on_insight = [
+            t["dashboard_id"] for t in dashboard_two_json["tiles"][0]["insight"]["dashboard_tiles"]
+        ]
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
@@ -2835,7 +2835,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                             "id": ANY,
                         }
                     ],
-                    "dashboards": [response.json()["id"]],
                     "deleted": False,
                     "derived_name": None,
                     "description": None,
@@ -4136,7 +4135,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["dashboards"], [dashboard1.pk])
+        self.assertEqual([t["dashboard_id"] for t in response.json()["dashboard_tiles"]], [dashboard1.pk])
         self.assertTrue(DashboardTile.objects.filter(dashboard=dashboard1, insight=insight).exists())
 
         # Append to second dashboard — must include both IDs (full replacement)
@@ -4146,7 +4145,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertCountEqual(response.json()["dashboards"], [dashboard1.pk, dashboard2.pk])
+        self.assertCountEqual(
+            [t["dashboard_id"] for t in response.json()["dashboard_tiles"]], [dashboard1.pk, dashboard2.pk]
+        )
         self.assertTrue(DashboardTile.objects.filter(dashboard=dashboard1, insight=insight).exists())
         self.assertTrue(DashboardTile.objects.filter(dashboard=dashboard2, insight=insight).exists())
 
@@ -4164,6 +4165,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["dashboards"], [dashboard1.pk])
+        self.assertEqual([t["dashboard_id"] for t in response.json()["dashboard_tiles"]], [dashboard1.pk])
         self.assertTrue(DashboardTile.objects.filter(dashboard=dashboard1, insight=insight).exists())
         self.assertFalse(DashboardTile.objects.filter(dashboard=dashboard2, insight=insight, deleted=False).exists())

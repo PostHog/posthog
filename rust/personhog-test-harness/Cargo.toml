@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
+personhog-common = { path = "../personhog-common" }
 personhog-proto = { path = "../personhog-proto" }
 common-metrics = { path = "../common/metrics" }
 personhog-coordination = { path = "../personhog-coordination" }

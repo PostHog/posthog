@@ -369,6 +369,10 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 child_exprs.append(self._build_step_query(child, table_entity))
             if step_entity.operator == FilterLogicalOperator.OR_:
                 event_expr = ast.Or(exprs=child_exprs)
+            else:
+                raise ValidationError(
+                    f"Funnel step event groups only support the OR operator, got {step_entity.operator}"
+                )
         elif step_entity.event is None:
             # all events
             if isinstance(table_entity, FunnelsDataWarehouseNode):
