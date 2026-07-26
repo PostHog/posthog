@@ -30,8 +30,15 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   opted into the report channel gets the report persona + report-authoring guidance
   (search the inbox first, edit before authoring a duplicate, set `suggested_reviewers`
   to route the report); every other scout gets the signal persona that fires weak
-  `emit_signal` findings. The bootstrap, scratchpad, recency, and close-out sections
-  are shared between both. The report persona is further gated per-tool: it names only
+  `emit_signal` findings. The bootstrap, scratchpad, fleet-seams, recency, and close-out
+  sections are shared between both. Cross-scout discipline lives here rather than in each
+  SKILL.md, because a seam is bilateral: run step 2 sends every scout through the fleet-wide
+  `scout-runs-list` for the entities it is about to investigate (gated on a match, so a scout
+  doesn't spend its budget reading the fleet's whole output), the scratchpad section teaches
+  searching by entity identity rather than only the scout's own key prefix, and `_FLEET_SEAMS`
+  states the overlap rule in both directions — don't restate a sibling's finding, but don't
+  defer a finding you hold evidence for either, since an uncovered surface is invisible where
+  a duplicate is not. Skills keep their own domain ownership map. The report persona is further gated per-tool: it names only
   the report tool(s) actually in `allowed_tools` (emit-only, edit-only, or both), and
   drops the author-time sections for an edit-only scout — the report endpoints fail
   closed on the exact tool, so the prompt must never steer a scout toward one it lacks.
@@ -64,9 +71,13 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   resolved server-side), which the escalation guidance points `suggested_reviewers` at (owner
   first, via `scout-members-list`) — without it a scout only sees its pinned version's
   `created_by`, i.e. the last editor, and would route ownership to whoever most recently touched
-  the skill. This prompt line is advisory; the deterministic backstop is the owner guardrail in
-  `tools/report.py._build_suggested_reviewers`, which places the skill's owners ahead of the
-  model's picks regardless of what it wrote. The line is gated on the report channel: a
+  the skill. The scout owns routing: this line is context, not a rule, so a skill body can steer
+  `suggested_reviewers` elsewhere (a named reviewer, a team convention) or say "don't route to me"
+  and be honoured — `tools/report.py._build_suggested_reviewers` injects nothing, it only takes
+  the scout's picks. Owners feed exactly one code rule there — a picked reviewer who is a current
+  owner is stamped `is_skill_owner=True` so autostart never mints its session under an
+  editor-controlled owner (`auto_start._resolve_autostart_assignee`); the stamp changes identity
+  eligibility, never who reviews. The line is gated on the report channel: a
   signal-channel scout has no `suggested_reviewers` field, so member names/emails (PII) must not
   reach its prompt.
 - `skill_loader.py`
@@ -81,7 +92,7 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   then editors by last-edit recency, capped). Both paths are restricted to
   `team.all_users_with_access()` so a revoked user's profile stops flowing into a privileged prompt.
   `resolve_skill_owner_user_uuids` exposes the owner set (seed-creator first) to the report tools'
-  reviewer guardrail. Author resolution is opt-in via `load_skill_for_run(..., include_authors=True)`
+  reviewer provenance stamp (`is_skill_owner`). Author resolution is opt-in via `load_skill_for_run(..., include_authors=True)`
   — only the runner's prompt-building path pays for it; the report-authorization gate in `views.py`
   loads the skill per report write just to check `allowed_tools` and skips it.
 - `lazy_seed.py`
@@ -130,7 +141,7 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   - `builders.py` — deterministic builders that compute the inventory payload for
     `SignalProjectProfile`. Sections fall into three layers: capability / configured
     (sticky — `products_in_use`, `integrations`, `external_data_sources`,
-    `signal_source_configs`, …), aggregated recency (`recent_activity` — per-scope
+    `signal_source_configs`, `scout_fleet`, …), aggregated recency (`recent_activity` — per-scope
     counts off the activity log, cross-cutting orientation across every entity type),
     and per-entity recent inventory (`recent_surveys`, `recent_feature_flags`,
     `recent_experiments`, `recent_alerts`, `recent_hog_functions`, `recent_hog_flows`,

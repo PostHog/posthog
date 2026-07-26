@@ -1068,6 +1068,64 @@ class EmitEligibilitySerializer(serializers.Serializer):
     )
 
 
+class ScoutFleetEntrySerializer(serializers.Serializer):
+    """One scout in either bucket of `inventory.scout_fleet`."""
+
+    skill_name = serializers.CharField(help_text="The `signals-scout-*` skill this config schedules.")
+    run_interval_minutes = serializers.IntegerField(
+        help_text="Minutes between runs when no cron schedule is set (default 1440, every 24 hours).",
+    )
+    run_cron_schedule = serializers.CharField(
+        allow_null=True,
+        help_text="Optional cron expression, evaluated in the project timezone. Takes precedence over the interval.",
+    )
+    emit = serializers.BooleanField(
+        help_text=(
+            "Whether this scout's findings actually reach the inbox. False means dry-run: it runs and "
+            "logs but emits nothing, so its silence says nothing about the surface it watches."
+        ),
+    )
+    last_run_at = serializers.CharField(
+        allow_null=True,
+        help_text="ISO-8601 timestamp the coordinator last dispatched this scout, or null if it has never run.",
+    )
+    last_emitted_at = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "ISO-8601 timestamp this scout last produced output on either channel (a finding, or an "
+            "authored/edited report), within `emitted_lookback_days`. Null means quiet for at least "
+            "that window, not never."
+        ),
+    )
+    not_running_reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or "
+            "`skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it "
+            "never dispatches). Null for scouts that actually run."
+        ),
+    )
+
+
+class ScoutFleetSerializer(serializers.Serializer):
+    """`inventory.scout_fleet` — the other scouts running on this project, split by enablement."""
+
+    enabled = serializers.ListField(
+        child=ScoutFleetEntrySerializer(),
+        help_text="Scouts that actually run on this team: enabled, with a live skill the coordinator dispatches.",
+    )
+    disabled = serializers.ListField(
+        child=ScoutFleetEntrySerializer(),
+        help_text=(
+            "Scouts that do not run, each carrying a `not_running_reason` — turned off, or left on with a "
+            "skill that can't dispatch. Different from a surface no scout ever covered."
+        ),
+    )
+    emitted_lookback_days = serializers.IntegerField(
+        help_text="The window `last_emitted_at` was resolved over, so a null reads as 'quiet', not 'never'.",
+    )
+
+
 class InboxReportStatusBucketSerializer(serializers.Serializer):
     """One bucket in `inventory.existing_inbox_reports.by_status`."""
 
@@ -1479,6 +1537,13 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
             "Whether scout findings can actually reach the inbox for this team — the org-level AI "
             "data-processing consent gate and the `signals_scout` source toggle, plus a one-line "
             "remediation pointer. Read at cold start to quick-close before doing throwaway work."
+        ),
+    )
+    scout_fleet = ScoutFleetSerializer(
+        help_text=(
+            "The other scouts configured on this project, split into enabled / disabled, each with its "
+            "cadence, dry-run posture, last run, and last emit. Read it to see who else is watching "
+            "this project before investigating a surface a sibling already covers."
         ),
     )
     existing_inbox_reports = ExistingInboxReportsSerializer(
