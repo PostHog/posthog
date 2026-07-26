@@ -88,6 +88,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
     IdentityMatching: () => import('../../products/growth/frontend/IdentityMatchingScene'),
+    ScoreLab: () => import('../../products/growth/frontend/scoreLab/ScoreLabScene'),
     LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
     LegalDocumentNew: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentNewScene'),
     Links: () => import('../../products/links/frontend/LinksScene'),

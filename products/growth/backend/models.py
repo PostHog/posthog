@@ -161,7 +161,7 @@ class EnrichmentPromptConfig(UUIDModel):
 
     # Everything that changes the classifier's behavior. An edit to any of these is a new
     # version (new row), never an in-place change — see save().
-    FROZEN_FIELDS = ("name", "version", "prompt_text", "model", "input_fields")
+    FROZEN_FIELDS = ("name", "version", "prompt_text", "model", "input_fields", "input_query", "output_fields")
 
     # Label this config computes, e.g. "ai_pilled".
     name = models.CharField(max_length=128)
@@ -171,6 +171,15 @@ class EnrichmentPromptConfig(UUIDModel):
     model = models.CharField(max_length=128)
     # Dotted paths into the archived Harmonic payload fed to the prompt, e.g. ["name", "funding.fundingStage"].
     input_fields = models.JSONField(default=list)
+    # A HogQL SELECT defining the classifier's input rows, an alternative to input_fields. When
+    # set, each result row becomes one classification input (see enrichment/input_query.py);
+    # when null, the input_fields path against the archived Harmonic payload applies as before.
+    input_query = models.TextField(null=True, blank=True)
+    # Configurable output schema: list of {"key", "type" ("boolean"|"number"|"string"),
+    # "description"}. Empty (the default) means the legacy output shape
+    # ({<name>: boolean, "confidence": number 0-1, "reasoning": string}) — see
+    # enrichment/labels.py's build_messages / _call_and_parse.
+    output_fields = models.JSONField(default=list)
     # The version the batch runner computes; at most one active row per label (enforced below).
     is_active = models.BooleanField(default=False)
     created_by = models.ForeignKey(
@@ -202,6 +211,8 @@ class EnrichmentPromptConfig(UUIDModel):
                 "prompt_text": self.prompt_text,
                 "model": self.model,
                 "input_fields": self.input_fields,
+                "input_query": self.input_query,
+                "output_fields": self.output_fields,
             },
             sort_keys=True,
         )
@@ -273,6 +284,10 @@ class EnrichmentLabelResult(UUIDModel):
     model = models.CharField(max_length=128)
     # {"ai_pilled": true|false|"unknown", "confidence": float, "reasoning": str}
     output = models.JSONField(default=dict)
+    # The rendered classifier inputs (extracted payload fields + signup domain) at compute
+    # time: the domain derives from current org membership and drifts as members leave, so
+    # this is the only durable record of what was actually sent to the LLM.
+    inputs = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

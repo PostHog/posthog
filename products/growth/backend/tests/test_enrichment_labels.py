@@ -1,6 +1,6 @@
 import json
-import asyncio
 import datetime as dt
+from io import StringIO
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -15,7 +15,8 @@ from parameterized import parameterized
 # Admin registration is import-time, and under settings.TEST there is no autodiscover —
 # without this the admin POSTs below 404 in catch_all_view and pass vacuously.
 import products.growth.backend.admin  # noqa: F401
-from products.growth.backend.enrichment.labels import UNKNOWN, classify_payload
+from products.growth.backend.enrichment.input_query import InputQueryError, parse_input_query, rows_from_query_result
+from products.growth.backend.enrichment.labels import UNKNOWN, build_messages, classify_payload, classify_row
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 _BATCH_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_batch"
@@ -54,7 +55,132 @@ class TestClassifyPayloadMissingInput(SimpleTestCase):
 
         # Missing data must never come back as a confident false verdict.
         assert result["test_label"] == UNKNOWN
+        assert result["inputs"] == {"signup_domain": "example.com", "fields": {}}
         client.chat.completions.create.assert_not_called()
+
+
+class TestClassifyRow(SimpleTestCase):
+    def _config(self, **overrides) -> EnrichmentPromptConfig:
+        defaults = {
+            "name": "test_label",
+            "version": "test-v1",
+            "prompt_text": "judge it. Email: {email}",
+            "model": "gpt-5-mini",
+        }
+        defaults.update(overrides)
+        return EnrichmentPromptConfig(**defaults)
+
+    def test_uses_domain_column_and_passes_every_column_as_inputs(self):
+        config = self._config()
+        client = _mock_llm_client()
+        row = {"company": "RowCo", "domain": "rowco.com", "headcount": 50}
+
+        result = classify_row(config, row, client)
+
+        assert result["test_label"] is True
+        assert result["inputs"] == {"signup_domain": "rowco.com", "fields": row}
+        sent_system = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        assert "rowco.com" in sent_system
+
+    def test_missing_domain_column_falls_back_to_unknown_domain_in_prompt(self):
+        config = self._config()
+        client = _mock_llm_client()
+
+        classify_row(config, {"company": "RowCo"}, client)
+
+        sent_system = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        assert "unknown" in sent_system
+
+
+class TestConfigurableOutputFields(SimpleTestCase):
+    def _config(self, output_fields: list[dict]) -> EnrichmentPromptConfig:
+        return EnrichmentPromptConfig(
+            name="test_label",
+            version="test-v1",
+            prompt_text="judge it.",
+            model="gpt-5-mini",
+            output_fields=output_fields,
+        )
+
+    def test_build_messages_lists_configured_keys_types_and_descriptions(self):
+        config = self._config(
+            [
+                {"key": "is_enterprise", "type": "boolean", "description": "Enterprise flag"},
+                {"key": "notes", "type": "string", "description": ""},
+            ]
+        )
+
+        messages = build_messages(config, {"company": "Acme"}, None)
+
+        user_content = messages[1]["content"]
+        assert "is_enterprise" in user_content
+        assert "notes" in user_content
+        assert "Enterprise flag" in user_content
+        # The legacy instruction (verdict/confidence/reasoning) must not leak into a custom schema.
+        assert "confidence" not in user_content
+
+    def test_parses_and_coerces_exactly_the_configured_keys(self):
+        config = self._config(
+            [
+                {"key": "is_enterprise", "type": "boolean", "description": ""},
+                {"key": "employee_estimate", "type": "number", "description": ""},
+                {"key": "notes", "type": "string", "description": ""},
+            ]
+        )
+        client = MagicMock()
+        response = MagicMock()
+        response.choices[0].message.content = json.dumps(
+            {"is_enterprise": "true", "employee_estimate": "500", "notes": 42, "extra_ignored": "x"}
+        )
+        client.chat.completions.create.return_value = response
+
+        output = classify_row(config, {"company": "Acme"}, client)
+
+        assert output["is_enterprise"] is True
+        assert output["employee_estimate"] == 500.0
+        assert output["notes"] == "42"
+        assert "extra_ignored" not in output
+        assert "test_label" not in output
+
+    def test_raises_when_a_configured_key_is_missing_from_the_response(self):
+        config = self._config([{"key": "is_enterprise", "type": "boolean", "description": ""}])
+        client = MagicMock()
+        response = MagicMock()
+        response.choices[0].message.content = json.dumps({"something_else": True})
+        client.chat.completions.create.return_value = response
+
+        with self.assertRaises(ValueError):
+            classify_row(config, {"company": "Acme"}, client)
+
+
+class TestInputQueryParsing(SimpleTestCase):
+    def test_valid_select_parses(self):
+        node = parse_input_query("SELECT event, timestamp FROM events LIMIT 10")
+        assert node is not None
+
+    def test_syntax_error_raises_input_query_error(self):
+        with self.assertRaises(InputQueryError):
+            parse_input_query("SELEC nonsense !!! FRM")
+
+    def test_non_select_statement_raises_input_query_error(self):
+        with self.assertRaises(InputQueryError):
+            parse_input_query("INSERT INTO events (event) VALUES ('x')")
+
+
+class TestRowsFromQueryResult(SimpleTestCase):
+    def test_maps_columns_to_row_dicts(self):
+        rows = rows_from_query_result(["company", "domain"], [["Acme", "acme.com"], ["Widgets", None]])
+        assert rows == [{"company": "Acme", "domain": "acme.com"}, {"company": "Widgets", "domain": None}]
+
+    @parameterized.expand(
+        [
+            ("no_columns", None, [["a"]]),
+            ("no_results", ["a"], None),
+            ("empty_results", ["a"], []),
+        ]
+    )
+    def test_empty_input_returns_no_rows(self, _name, columns, results):
+        assert rows_from_query_result(columns, results) == []
 
 
 class TestEnrichmentLabelBatch(BaseTest):
@@ -109,12 +235,39 @@ class TestEnrichmentLabelBatch(BaseTest):
         output = EnrichmentLabelResult.objects.get(label_name="test_label").output
         assert output["test_label"] is True
         assert "ai_pilled" not in output
+        assert "inputs" not in output
         assert output["meta"] == {
             "response_model": "gpt-5-mini-2026-07-01",
             "system_fingerprint": "fp_abc",
             "prompt_tokens": 900,
             "completion_tokens": 40,
         }
+
+    def test_batch_run_stores_the_rendered_inputs_snapshot(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        result = EnrichmentLabelResult.objects.get(label_name="test_label")
+        assert result.inputs == {"signup_domain": "posthog.com", "fields": {"name": "Acme"}}
+        assert "inputs" not in result.output
+
+    def test_batch_run_snapshots_an_empty_unknown_verdict(self):
+        self._config()
+        self._fetch(payload={})
+        client = _mock_llm_client()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        result = EnrichmentLabelResult.objects.get(label_name="test_label")
+        assert result.output["test_label"] == UNKNOWN
+        assert result.inputs == {"signup_domain": "posthog.com", "fields": {}}
+        assert "inputs" not in result.output
+        client.chat.completions.create.assert_not_called()
 
     def test_rerun_is_idempotent_and_makes_no_further_llm_calls(self):
         self._config()
@@ -174,6 +327,33 @@ class TestEnrichmentLabelBatch(BaseTest):
         capture_mock.assert_called_once()
         assert EnrichmentLabelResult.objects.count() == 0
 
+    def test_unknown_accounting_uses_first_boolean_output_field_when_configured(self):
+        # Without routing through verdict_field_key, `output.get(label)` would be None for a
+        # custom output schema (whose keys are never the label name), so an unknown verdict
+        # would silently vanish from the summary counts printed below.
+        EnrichmentPromptConfig.objects.create(
+            name="test_label",
+            version="v1",
+            prompt_text="... Email: {email}",
+            model="gpt-5-mini",
+            is_active=True,
+            output_fields=[
+                {"key": "flag", "type": "boolean", "description": ""},
+                {"key": "notes", "type": "string", "description": ""},
+            ],
+        )
+        self._fetch(payload={})
+        client = MagicMock()
+        out = StringIO()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
+
+        assert "unknown 1" in out.getvalue()
+        client.chat.completions.create.assert_not_called()
+        result = EnrichmentLabelResult.objects.get(label_name="test_label")
+        assert result.output.get("flag") == UNKNOWN
+
     def test_version_bump_recomputes_and_keeps_old_version_rows_intact(self):
         v1 = self._config(version="ai-pilled-clay-v1")
         self._fetch()
@@ -225,6 +405,8 @@ class TestEnrichmentPromptConfigImmutability(BaseTest):
             ("prompt_text", "a completely different prompt"),
             ("model", "gpt-5-nano"),
             ("input_fields", ["name", "description"]),
+            ("input_query", "SELECT 1 as x"),
+            ("output_fields", [{"key": "custom_field", "type": "boolean", "description": ""}]),
         ]
     )
     def test_editing_a_frozen_field_with_stored_results_raises(self, field, new_value):
@@ -317,40 +499,3 @@ class TestEnrichmentLabelDryRun(BaseTest):
 
         assert resp.status_code == 403
         assert EnrichmentPromptConfig.objects.filter(pk=config.pk).exists()
-
-    def test_admin_dry_run_action_renders_verdicts_and_persists_nothing(self):
-        config = EnrichmentPromptConfig.objects.create(
-            name="test_label",
-            version="test-v1",
-            prompt_text="... Email: {email}",
-            model="gpt-5-mini",
-            input_fields=["name"],
-        )
-        OrganizationEnrichmentFetch.objects.create(
-            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
-        )
-        self.user.is_staff = True
-        self.user.save()
-        self.client.force_login(self.user)
-
-        with patch("products.growth.backend.admin.get_llm_client", return_value=_mock_llm_client()):
-            options_page = self.client.post(
-                "/admin/growth/enrichmentpromptconfig/",
-                {"action": "dry_run_selected", "_selected_action": [str(config.pk)]},
-            )
-            results_page = self.client.post(
-                "/admin/growth/enrichmentpromptconfig/",
-                {"action": "dry_run_selected", "_selected_action": [str(config.pk)], "apply": "1", "sample": "5"},
-            )
-
-        assert options_page.status_code == 200
-        assert b"Sample size" in options_page.content
-        assert results_page.status_code == 200
-
-        async def _drain(agen):
-            return b"".join([chunk async for chunk in agen])
-
-        streamed = asyncio.run(_drain(results_page.streaming_content))  # type: ignore[attr-defined]
-        assert b"Acme" in streamed
-        assert b"true" in streamed
-        assert EnrichmentLabelResult.objects.count() == 0

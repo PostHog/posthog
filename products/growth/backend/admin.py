@@ -1,42 +1,22 @@
-import asyncio
-from collections.abc import AsyncIterator
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
 
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
-from django.db.models import Q
 from django.db.models.fields import BLANK_CHOICE_DASH
 from django.http import HttpRequest
-from django.http.response import HttpResponseBase
-from django.shortcuts import render
-from django.template.loader import render_to_string
 from django.urls import reverse
-from django.utils.html import escape, format_html
+from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
 import structlog
 
 from posthog.admin.inline_registry import register_admin_inline
-from posthog.api.streaming import streaming_response
-from posthog.llm.gateway_client import get_llm_client
 from posthog.models.organization import Organization
 from posthog.schema_enums import ProductKey
 
-from products.growth.backend.enrichment.labels import (
-    UNKNOWN,
-    classify_payload,
-    recent_latest_fetches_qs,
-    signup_domain_for_organization,
-)
-from products.growth.backend.models import (
-    EnrichmentLabelResult,
-    EnrichmentPromptConfig,
-    OrganizationEnrichmentFetch,
-    ProductPushCampaign,
-)
+from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, ProductPushCampaign
 from products.growth.backend.product_push.selection import select_next_product
 from products.growth.backend.product_push.service import cancel_campaigns, get_eligible_organization_queryset
 
@@ -376,12 +356,6 @@ class EnrichmentPromptConfigForm(forms.ModelForm):
             self.fields["is_active"].help_text = "The version the batch runner computes. One active version per label."
 
 
-# Bounded so the synchronous admin dry-run stays a short page load, not a batch job.
-_DRY_RUN_SAMPLE = 10
-_DRY_RUN_MAX_SAMPLE = 100
-_DRY_RUN_WORKERS = 5
-
-
 @admin.register(EnrichmentPromptConfig)
 class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
     form = EnrichmentPromptConfigForm
@@ -391,110 +365,6 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
     show_full_result_count = False
     list_select_related = ("created_by",)
-    actions = ("dry_run_selected",)
-
-    @admin.action(description="Dry run on recent archived orgs (persists nothing)")
-    def dry_run_selected(self, request: HttpRequest, queryset: Any) -> HttpResponseBase | None:
-        config = queryset.first()
-        if config is None or queryset.count() != 1:
-            self.message_user(request, "Select exactly one config to dry-run.", level=messages.WARNING)
-            return None
-
-        # First POST comes from the changelist action; show the options page. The options
-        # page posts back with apply=1 (standard admin intermediate-page pattern).
-        if "apply" not in request.POST:
-            return render(
-                request,
-                "admin/growth/enrichment_dry_run_form.html",
-                {"config": config, "max_sample": _DRY_RUN_MAX_SAMPLE},
-            )
-
-        try:
-            sample = min(max(int(request.POST.get("sample") or _DRY_RUN_SAMPLE), 1), _DRY_RUN_MAX_SAMPLE)
-        except ValueError:
-            sample = _DRY_RUN_SAMPLE
-        contains = (request.POST.get("contains") or "").strip()
-
-        candidates = recent_latest_fetches_qs()
-        if contains:
-            candidates = candidates.filter(
-                Q(payload__name__icontains=contains) | Q(organization__name__icontains=contains)
-            )
-        fetches = list(candidates.select_related("organization")[:sample])
-
-        # All ORM work happens here on the request thread; workers only make LLM calls.
-        inputs = [(fetch, signup_domain_for_organization(fetch.organization)) for fetch in fetches]
-        client = get_llm_client(product="growth")
-
-        def _classify(pair: tuple[OrganizationEnrichmentFetch, str | None]) -> dict[str, Any]:
-            fetch, signup_domain = pair
-            company = fetch.payload.get("name") or fetch.organization.name
-            try:
-                verdict = classify_payload(config, fetch.payload, signup_domain, client)
-            except Exception as e:
-                return {
-                    "company": company,
-                    "domain": signup_domain,
-                    "verdict": "ERROR",
-                    "confidence": "-",
-                    "reasoning": str(e)[:200],
-                }
-            return {
-                "company": company,
-                "domain": signup_domain,
-                "verdict": str(verdict.get(config.name)).lower(),
-                "confidence": f"{verdict.get('confidence', 0.0):.2f}",
-                "reasoning": verdict.get("reasoning", ""),
-            }
-
-        # Stream the results page: shell first, then one row per verdict as each LLM call
-        # completes, then the summary — a 100-org run shows progress instead of a blank wait.
-        shell = render_to_string(
-            "admin/growth/enrichment_dry_run.html",
-            {"config": config, "total": len(inputs), "contains": contains},
-            request=request,
-        )
-        head, rest = shell.split("<!--ROWS-->")
-        mid, tail = rest.split("<!--SUMMARY-->")
-
-        def _row_html(row: dict[str, Any]) -> str:
-            return format_html(
-                "<tr><td>{}</td><td>{}</td>"
-                '<td><span class="verdict verdict-{}">{}</span></td>'
-                "<td>{}</td><td>{}</td></tr>\n",
-                row["company"],
-                row["domain"] or "-",
-                row["verdict"].lower(),
-                row["verdict"],
-                row["confidence"],
-                row["reasoning"],
-            )
-
-        # Async iterator on purpose: under ASGI, Django fully buffers a *sync* iterator
-        # before sending anything, which silently defeats the streaming.
-        async def _stream() -> AsyncIterator[str]:
-            yield head
-            unknown = errors = 0
-            if not inputs:
-                yield '<tr><td colspan="5">No archived orgs matched.</td></tr>'
-            else:
-                loop = asyncio.get_running_loop()
-                pool = ThreadPoolExecutor(max_workers=_DRY_RUN_WORKERS)
-                try:
-                    for task in asyncio.as_completed([loop.run_in_executor(pool, _classify, pair) for pair in inputs]):
-                        row = await task
-                        unknown += row["verdict"] == UNKNOWN
-                        errors += row["verdict"] == "ERROR"
-                        yield _row_html(row)
-                finally:
-                    pool.shutdown(wait=False)
-            yield mid
-            yield escape(f"classified {len(inputs) - unknown - errors}, unknown {unknown}, errors {errors}")
-            yield tail
-
-        # No ORM work happens inside the stream (inputs are prefetched above), so the
-        # request-thread connections can be released before streaming starts.
-        return streaming_response(_stream(), content_type="text/html; charset=utf-8")
 
     def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, Any]:
         # A new version is almost always a tweak of the newest one: prefill everything

@@ -1914,6 +1914,11 @@ export namespace Schemas {
       hideAggregation?: boolean | null;
     }
 
+    export interface ActivateRequest {
+      /** Prompt config id to activate for its label. */
+      config_id: string;
+    }
+
     export interface ActivateVersionRequest {
       /** Version number to activate. Must reference an existing version of this app. */
       version_number: number;
@@ -14954,6 +14959,65 @@ export namespace Schemas {
       StoppedEarly: 'stopped_early',
       Invalid: 'invalid',
     } as const;
+
+    /**
+     * Value type the LLM must return for this key.
+     */
+    export type ConfigVersionOutputFieldsItemType = typeof ConfigVersionOutputFieldsItemType[keyof typeof ConfigVersionOutputFieldsItemType];
+
+
+    export const ConfigVersionOutputFieldsItemType = {
+      Boolean: 'boolean',
+      Number: 'number',
+      String: 'string',
+    } as const;
+
+    export type ConfigVersionOutputFieldsItem = {
+      /** Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance). */
+      key: string;
+      /** Value type the LLM must return for this key. */
+      type: ConfigVersionOutputFieldsItemType;
+      /** Shown to the LLM to describe what this key means. Optional. */
+      description?: string;
+    };
+
+    export interface ConfigVersion {
+      /** Prompt config row id. */
+      id: string;
+      /** Label this config computes, e.g. ai_pilled. */
+      name: string;
+      /** Human-readable classifier version, e.g. ai-pilled-clay-v1. */
+      version: string;
+      /** System prompt; {email} is replaced with the signup email domain at runtime. */
+      prompt_text: string;
+      /** Gateway model id this version was authored against. */
+      model: string;
+      /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set. */
+      input_fields: string[];
+      /**
+         * HogQL SELECT defining classifier input rows, an alternative to input_fields. Null when input_fields is used instead. Each result row becomes one classification input; a 'company' or 'domain' column (if present) is used for display, and every column is passed to the prompt as the Company data JSON keyed by column name.
+         * @nullable
+         */
+      input_query: string | null;
+      /** Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<name>: boolean, confidence: number 0-1, reasoning: string}). */
+      output_fields: ConfigVersionOutputFieldsItem[];
+      /** Whether the batch runner currently computes this version. */
+      is_active: boolean;
+      /**
+         * Email of the staff user who created this version, or null for system-seeded rows.
+         * @nullable
+         */
+      readonly created_by_email: string | null;
+      /** When this version was created. */
+      created_at: string;
+      /** Whether any EnrichmentLabelResult rows reference this version. Once true the version is frozen - prompt_text, model, input_fields, input_query, and output_fields can never change (FROZEN_FIELDS immutability). */
+      readonly has_results: boolean;
+    }
+
+    export interface ConfigListResponse {
+      /** Versions for the requested label, newest first. */
+      results: ConfigVersion[];
+    }
 
     /**
      * * `posthog_code` - posthog_code
@@ -31382,6 +31446,16 @@ export namespace Schemas {
       readonly updated: number;
     }
 
+    export interface GatewayModel {
+      /** Gateway model id, usable as `model` on run/save. */
+      id: string;
+    }
+
+    export interface GatewayModelListResponse {
+      /** Models the gateway currently lists (cached for 5 minutes), or the curated fallback list if the gateway is unreachable. */
+      results: GatewayModel[];
+    }
+
     /**
      * * `last_n_days` - last_n_days
      * * `since_last_run` - since_last_run
@@ -36777,6 +36851,23 @@ export namespace Schemas {
          * @nullable
          */
       max_tags?: number | null;
+    }
+
+    export interface LabelSummary {
+      /** Label name computed by one or more prompt config versions. */
+      label: string;
+      /** Number of prompt config versions saved for this label. */
+      version_count: number;
+      /**
+         * Version string the batch runner currently computes for this label, or null.
+         * @nullable
+         */
+      active_version: string | null;
+    }
+
+    export interface LabelListResponse {
+      /** Distinct labels, alphabetical. */
+      results: LabelSummary[];
     }
 
     /**
@@ -59678,6 +59769,59 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    /**
+     * Value type the LLM must return for this key.
+     */
+    export type RunRequestOutputFieldsItemType = typeof RunRequestOutputFieldsItemType[keyof typeof RunRequestOutputFieldsItemType];
+
+
+    export const RunRequestOutputFieldsItemType = {
+      Boolean: 'boolean',
+      Number: 'number',
+      String: 'string',
+    } as const;
+
+    export type RunRequestOutputFieldsItem = {
+      /** Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance). */
+      key: string;
+      /** Value type the LLM must return for this key. */
+      type: RunRequestOutputFieldsItemType;
+      /** Shown to the LLM to describe what this key means. Optional. */
+      description?: string;
+    };
+
+    export interface RunRequest {
+      /**
+         * Label this config computes, e.g. ai_pilled. Need not already exist - run classifies against an in-memory config only and persists nothing.
+         * @maxLength 128
+         */
+      label: string;
+      /** System prompt; {email} is replaced with the signup email domain at runtime. */
+      prompt_text: string;
+      /**
+         * Gateway model to classify with, routed through the LLM gateway. Must be a curated model (see GET /models/), a model the gateway currently lists, or one already persisted on this label.
+         * @maxLength 128
+         */
+      model: string;
+      /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set. */
+      input_fields?: string[];
+      /**
+         * HogQL SELECT defining classifier input rows, an alternative to input_fields. When set, rows are built from this query (capped at `sample` rows) instead of recently archived orgs; 'contains' is ignored. Parsed and validated on submit but never executed until /run/ actually runs.
+         * @nullable
+         */
+      input_query?: string | null;
+      /** Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<label>: boolean, confidence: number 0-1, reasoning: string}). Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
+      output_fields?: RunRequestOutputFieldsItem[];
+      /**
+         * Number of rows to classify (1-100): recent archived orgs, or HogQL query rows when input_query is set. Each sampled row costs one LLM call, so keep this bounded during iteration.
+         * @minimum 1
+         * @maximum 100
+         */
+      sample?: number;
+      /** Optional case-insensitive substring filter on the archived company or organization name. Ignored when input_query is set. */
+      contains?: string;
+    }
+
     export interface RunWidgetsResponse {
       /** Per-tile widget run results. */
       results: DashboardWidgetRunResult[];
@@ -59980,6 +60124,56 @@ export namespace Schemas {
       initial_permission_mode?: InitialPermissionModeEnum;
       /** Bind a brand-new sandbox conversation to an existing Task so the first message resumes that Task's run. Honored only when this request creates the conversation row; ignored for an already-existing conversation. */
       task_id?: string;
+    }
+
+    /**
+     * Value type the LLM must return for this key.
+     */
+    export type SaveRequestOutputFieldsItemType = typeof SaveRequestOutputFieldsItemType[keyof typeof SaveRequestOutputFieldsItemType];
+
+
+    export const SaveRequestOutputFieldsItemType = {
+      Boolean: 'boolean',
+      Number: 'number',
+      String: 'string',
+    } as const;
+
+    export type SaveRequestOutputFieldsItem = {
+      /** Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance). */
+      key: string;
+      /** Value type the LLM must return for this key. */
+      type: SaveRequestOutputFieldsItemType;
+      /** Shown to the LLM to describe what this key means. Optional. */
+      description?: string;
+    };
+
+    export interface SaveRequest {
+      /**
+         * Label this config computes, e.g. ai_pilled.
+         * @maxLength 128
+         */
+      label: string;
+      /**
+         * Human-readable classifier version, e.g. ai-pilled-clay-v2. Must be unique per label.
+         * @maxLength 128
+         */
+      version: string;
+      /** System prompt; {email} is replaced with the signup email domain at runtime. */
+      prompt_text: string;
+      /**
+         * Gateway model to classify with, routed through the LLM gateway. Must be a curated model (see GET /models/), a model the gateway currently lists, or one already persisted on this label.
+         * @maxLength 128
+         */
+      model: string;
+      /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set. */
+      input_fields?: string[];
+      /**
+         * HogQL SELECT defining classifier input rows, an alternative to input_fields. Parsed and validated on save but never executed - execution only happens on /run/.
+         * @nullable
+         */
+      input_query?: string | null;
+      /** Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<label>: boolean, confidence: number 0-1, reasoning: string}). Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
+      output_fields?: SaveRequestOutputFieldsItem[];
     }
 
     export interface SavedHeatmapListResponse {
@@ -71140,6 +71334,14 @@ export namespace Schemas {
      * @minLength 1
      */
     search: string;
+    };
+
+    export type GrowthScoreLabConfigsRetrieveParams = {
+    /**
+     * Label name to list prompt config versions for.
+     * @minLength 1
+     */
+    label: string;
     };
 
     export type LlmAnalyticsPersonalSpendListParams = {
