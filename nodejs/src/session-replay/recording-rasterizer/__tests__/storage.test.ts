@@ -88,9 +88,39 @@ describe('uploadToS3', () => {
         expect(mockOn).not.toHaveBeenCalled()
     })
 
-    it('propagates upload errors', async () => {
-        mockDone.mockRejectedValue(new Error('AccessDenied'))
-        await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toThrow('AccessDenied')
+    it('reports a response the SDK could not read, leaving it retryable', async () => {
+        // All the SDK reports is its parser's confusion; the raw body it choked on is on $responseBodyText.
+        const undecodable = Object.assign(new Error("char 'E' is not expected.:1:1\n  Deserialization error"), {
+            $responseBodyText: 'Error: proxy denied for s3://secret-bucket/tenant-42.mp4',
+            $response: { statusCode: 407 },
+        })
+        mockDone.mockRejectedValue(undecodable)
+
+        await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toMatchObject({
+            name: 'RasterizationError',
+            code: 'S3_UPLOAD_UNDECODABLE_RESPONSE',
+            // Translating the failure must not make it terminal.
+            retryable: true,
+            cause: undecodable,
+            // This message is shown to team users as ReplayObservation.error_reason, so it must carry
+            // neither the bucket and key nor anything the object store put in the body.
+            message: 'S3 upload failed: the object store returned an unreadable (non-XML) response (status 407)',
+        })
+    })
+
+    it.each([
+        {
+            failure: 'a modeled service error whose body parsed fine',
+            error: Object.assign(new Error('Access Denied'), {
+                name: 'AccessDenied',
+                $response: { statusCode: 403 },
+                $metadata: { httpStatusCode: 403 },
+            }),
+        },
+        { failure: 'a failure carrying no HTTP response', error: new Error('socket hang up') },
+    ])('rethrows $failure untouched, so callers still see the SDK error', async ({ error }) => {
+        mockDone.mockRejectedValue(error)
+        await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toBe(error)
     })
 })
 
