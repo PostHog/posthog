@@ -431,6 +431,12 @@ _KEEP_NULL_BREAKDOWNS = {
     WebStatsBreakdown.INITIAL_UTM_MEDIUM,
     WebStatsBreakdown.INITIAL_UTM_TERM,
     WebStatsBreakdown.INITIAL_UTM_CONTENT,
+    WebStatsBreakdown.FIRST_PAGEVIEW_REFERRING_DOMAIN,
+    WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE,
+    WebStatsBreakdown.FIRST_PAGEVIEW_UTM_CAMPAIGN,
+    WebStatsBreakdown.FIRST_PAGEVIEW_UTM_MEDIUM,
+    WebStatsBreakdown.FIRST_PAGEVIEW_UTM_TERM,
+    WebStatsBreakdown.FIRST_PAGEVIEW_UTM_CONTENT,
 }
 
 
@@ -457,7 +463,7 @@ def _breakdown_having_expr(breakdown_by: WebStatsBreakdown) -> ast.Expr:
         # real for these dimensions and surfaces as a "(none)" row, so it must not be
         # dropped. Source of truth is `WebStatsTableQueryRunner.outer_where_breakdown`.
         return ast.Constant(value=True)
-    if breakdown_by == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+    if breakdown_by in (WebStatsBreakdown.INITIAL_CHANNEL_TYPE, WebStatsBreakdown.FIRST_PAGEVIEW_CHANNEL_TYPE):
         # JSON scalars: 'null' is genuine null, '""' is empty string.
         return parse_expr("breakdown_value NOT IN ('null', '\"\"')")
     # Default: reject only genuine null.
