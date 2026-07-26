@@ -565,7 +565,7 @@ class ScoutNoteSerializer(serializers.Serializer):
     origin = serializers.CharField(
         help_text=(
             "Where the note came from: `human` for one left directly through this API, or "
-            "`report_dismissal` for one derived from the note someone typed when they dismissed, "
+            "`report_dismissal` for one forwarded from the note someone typed when they dismissed, "
             "snoozed, or resolved one or more inbox reports. A `report_dismissal` note is one "
             "reviewer's verdict on the reports its content names, so weigh it as evidence about "
             "those reports rather than as fleet-level steering."

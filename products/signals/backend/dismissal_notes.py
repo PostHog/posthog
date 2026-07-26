@@ -1,4 +1,4 @@
-"""Promotion of inbox dismissal feedback into the scout steering channel.
+"""Forwarding of inbox dismissal feedback into the scout steering channel.
 
 When someone dismisses (or snoozes, or resolves) an inbox report and types a note, that note is
 the highest-signal feedback the scout fleet ever gets: a human saying why the thing a scout
@@ -7,12 +7,15 @@ scout only ever reads if a later run happens to search the inbox and land on tha
 module closes that gap by also leaving the feedback as a `SignalScoutNote`, which every run reads
 by name at cold start (`scout-notes-list`, see the run prompt's *Notes left for you* section).
 
+Forwarding, not promotion: promotion here is the pipeline moving a report up to `candidate`, and
+nothing in this path changes a report's standing.
+
 The note is a derived convenience, never the record of truth: the `dismissal` artefact on the
-report is. So promotion is best-effort and never allowed to fail a dismissal.
+report is. So forwarding is best-effort and never allowed to fail a dismissal.
 
 Authorization is the writer's, not the dismisser's. Dismissing a report needs `task:write`, while
 this table is otherwise gated to skill-authoring authorization because scouts read note content
-verbatim while holding privileged sandbox tools. So promotion re-checks that the dismisser could
+verbatim while holding privileged sandbox tools. So forwarding re-checks that the dismisser could
 have left the note by hand (`_may_steer_scouts`), against the canonical project whose scouts will
 read it. A dismisser who can't clear that bar still gets their feedback recorded on the report; it
 just doesn't enter the steering channel.
@@ -66,7 +69,7 @@ _MAX_TITLE_CHARS = 200
 _MAX_REPORT_IDS_LISTED = 10
 
 
-def promote_dismissal_note(
+def forward_dismissal_note(
     *,
     team: Team,
     reports: Sequence[SignalReport],
@@ -92,16 +95,16 @@ def promote_dismissal_note(
     if not note or not note.strip() or not reports:
         return []
     try:
-        return _promote(team=team, reports=reports, reason=reason, note=note.strip(), request=request)
+        return _forward(team=team, reports=reports, reason=reason, note=note.strip(), request=request)
     except Exception:
         logger.exception(
-            "Failed to promote dismissal feedback to a scout note",
+            "Failed to forward dismissal feedback to a scout note",
             extra={"team_id": team.id, "report_count": len(reports)},
         )
         return []
 
 
-def _promote(
+def _forward(
     *,
     team: Team,
     reports: Sequence[SignalReport],
@@ -116,7 +119,7 @@ def _promote(
     canonical_team = team.parent_team or team
     # A note lands on the canonical project and is readable by everyone with access to it, while
     # the report it quotes lives on the environment the request came in on. Access is granted per
-    # team, so promoting a child environment's report would hand its id, title, and dismissal text
+    # team, so forwarding a child environment's report would hand its id, title, and dismissal text
     # to an audience that may have no access to that environment. Those dismissals stay on the
     # report only.
     if team.id != canonical_team.id:
@@ -143,7 +146,7 @@ def _promote(
             # Per-note guard on top of the outer boundary, so one unwritable target (a skill deleted
             # mid-request, say) doesn't cost the other scouts their notes.
             logger.exception(
-                "Failed to promote dismissal note to a scout note",
+                "Failed to forward dismissal note to a scout note",
                 extra={"team_id": canonical_team.id, "skill_name": skill_name, "report_count": len(skill_reports)},
             )
             continue

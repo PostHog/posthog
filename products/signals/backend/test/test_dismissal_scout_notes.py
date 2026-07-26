@@ -130,7 +130,7 @@ class TestDismissalScoutNotes(APIBaseTest):
         assert self._notes() == []
 
     @parameterized.expand([("dismiss", "suppressed"), ("snooze", "potential"), ("resolve", "resolved")])
-    def test_every_state_that_captures_feedback_promotes_it(self, _name: str, state: str) -> None:
+    def test_every_state_that_captures_feedback_forwards_it(self, _name: str, state: str) -> None:
         report = self._create_report()
 
         response = self.client.post(
@@ -196,7 +196,7 @@ class TestDismissalScoutNotes(APIBaseTest):
             ("authorization_cannot_be_resolved", "products.signals.backend.dismissal_notes._may_steer_scouts"),
         ]
     )
-    def test_dismissal_still_succeeds_when_promotion_fails(self, _name: str, target: str) -> None:
+    def test_dismissal_still_succeeds_when_forwarding_fails(self, _name: str, target: str) -> None:
         report = self._create_report()
 
         with patch(target, side_effect=RuntimeError("boom")):
@@ -260,7 +260,7 @@ class TestDismissalScoutNotes(APIBaseTest):
         assert not SignalScoutNote.all_teams.exists()
 
     def test_no_note_when_the_dismisser_may_not_steer_scouts(self) -> None:
-        # Promotion re-checks the `llm_skill` editor bar that `SignalScoutNoteViewSet` requires, so a
+        # Forwarding re-checks the `llm_skill` editor bar that `SignalScoutNoteViewSet` requires, so a
         # member an admin restricted from skill editing can't reach the steering channel by
         # dismissing instead. Deny only that resource: a blanket False breaks the request cycle.
         report = self._create_report()

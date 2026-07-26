@@ -84,7 +84,7 @@ from products.signals.backend.billing import (
     refund_ineligibility_reason,
     report_pr_is_merged,
 )
-from products.signals.backend.dismissal_notes import promote_dismissal_note
+from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
@@ -1612,7 +1612,7 @@ class SignalReportViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        self._promote_dismissal_note(
+        self._forward_dismissal_note(
             reports=[report],
             dismissal_reason=data.get("dismissal_reason"),
             dismissal_note=data.get("dismissal_note"),
@@ -1620,7 +1620,7 @@ class SignalReportViewSet(
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
-    def _promote_dismissal_note(
+    def _forward_dismissal_note(
         self,
         *,
         # `Sequence`, not `list`: this class defines a `list` action, which shadows the builtin for
@@ -1634,11 +1634,11 @@ class SignalReportViewSet(
         Called once per request with every report that transitioned, so one note applied to a bulk
         dismissal reaches each affected scout once instead of once per report. Runs after the
         transitions have committed, because the note is derived context and the `dismissal` artefact
-        written alongside each transition remains the record of the feedback. Promotion resolves the
+        written alongside each transition remains the record of the feedback. Forwarding resolves the
         reports' resulting status itself, and authorizes the caller against the scout-note write
         gates, so this call site only hands it the request's principal.
         """
-        promote_dismissal_note(
+        forward_dismissal_note(
             team=self.team,
             reports=reports,
             reason=dismissal_reason,
@@ -1853,7 +1853,7 @@ class SignalReportViewSet(
             )
             counts[outcome.value] += 1
 
-        self._promote_dismissal_note(
+        self._forward_dismissal_note(
             reports=transitioned,
             dismissal_reason=dismissal_reason,
             dismissal_note=dismissal_note,
