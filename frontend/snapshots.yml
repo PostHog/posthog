@@ -5171,13 +5171,13 @@ snapshots:
     scenes-app-ai-observability-conversation-display--tools--light:
         hash: v1.k794b7964.cc6f7770155f4b720ff0597c3dd5deff699a267cfbdd8fe76a131cb51740215d.lKCAOsQBSoBkK46EHSYdGmWxAi4CQ4wUrx2J1iRF_f0
     scenes-app-ai-observability-prompts--empty-state--dark:
-        hash: v1.k794b7964.c8d83f25e82f659e199c0514b7eab4a0b1dab1e7a6a1c4e1de97a162a007b9f0.iR50GK7W2Ghw5_0tV7K5HMTfGuVyUSWQfYO-waZI_SA
+        hash: v1.k794b7964.1f2503ad0152203e984367634002c47a551389565abab706312f07e07c81855c.eYgqyAER3vhnb5ppvZR_T_qqS8QdQfAKpfpX7_RVPTY
     scenes-app-ai-observability-prompts--empty-state--light:
-        hash: v1.k794b7964.83bb6355d1386b5957fb43acb45e48d351e3adea9c71f47a67eeedb0ce1949a1.T0OWcSem5zhD85QUMGVmdYHwJPtpYOZV3Epg8teUqlc
+        hash: v1.k794b7964.d4f449da69fbed20bc14a06c820bc7122792c55ad87970125ecafc64626b789f.JnK8PRheAgaXSyU2U8SOqoeVZ5xEK8pR97kKMIYIXVE
     scenes-app-ai-observability-prompts--prompts-list--dark:
-        hash: v1.k794b7964.d04f5f25d543c7427fbfc2678fd8ef2828cec6d8c0107162204bbae9ec6e1c14.N6Zj2RLZ108T1ZC1w2KCCoMD7oaqaWSYBi_tChhGISM
+        hash: v1.k794b7964.1f2503ad0152203e984367634002c47a551389565abab706312f07e07c81855c.AdeMScErtpm1BoDDTmIF7iBbP0xUiyznna6Vj1GGnfU
     scenes-app-ai-observability-prompts--prompts-list--light:
-        hash: v1.k794b7964.4d030b22bf0e202534eb04d4f69375d415e9ff29a4d5b8fbd0f492df9aa54a70.EVAkzk4wn53bwkqoSLMP9QjjllEkW8XnOn-6hBt5Ogg
+        hash: v1.k794b7964.d4f449da69fbed20bc14a06c820bc7122792c55ad87970125ecafc64626b789f.9dgznCQMClrTvUmV3tjwcXKhMqjCNSGsZMlLwxxBKB0
     scenes-app-ai-observability-sentiment--bar-full-width--dark:
         hash: v1.k794b7964.c85f4138877bf5f706d5675ad8ebca39a87300e45359ba3f5325551815fb5885.E-9wb0W7JxbRPXtj3-swTXq2QVbMKq-BpfDn-PXxcfU
     scenes-app-ai-observability-sentiment--bar-full-width--light:
