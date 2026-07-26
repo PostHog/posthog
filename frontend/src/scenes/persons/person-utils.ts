@@ -146,18 +146,18 @@ export function coercePropertyValue(value: string | number | boolean | null): st
     return result
 }
 
+// Link resolution keys off the identifier alone, not the presence of a `properties` object, because the
+// server-side person columns omit `properties` even for genuinely profiled people, so gating on it dropped
+// links for identified persons. Personless rows are suppressed explicitly at the call site via `noLink`.
 export const asLink = (person?: PersonPropType | null): string | undefined => {
-    if (!person?.properties) {
-        return undefined
-    }
-    if (person.distinct_id) {
+    if (person?.distinct_id) {
         return urls.personByDistinctId(person.distinct_id)
     }
-    const bestDistinctId = pickBestPersonDistinctId(person.distinct_ids)
+    const bestDistinctId = pickBestPersonDistinctId(person?.distinct_ids)
     if (bestDistinctId) {
         return urls.personByDistinctId(bestDistinctId)
     }
-    return person.id ? urls.personByUUID(person.id) : undefined
+    return person?.id ? urls.personByUUID(person.id) : undefined
 }
 
 /**

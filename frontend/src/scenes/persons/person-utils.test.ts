@@ -88,12 +88,20 @@ describe('the person header', () => {
         it.each(personLinksTestCases.map((testCase) => [testCase.name, testCase]))(
             'returns a link %s',
             (_, testCase) => {
-                expect(asLink({ distinct_ids: testCase.distinctIds, properties: {} })).toEqual(testCase.expectedLink)
+                expect(asLink({ distinct_ids: testCase.distinctIds })).toEqual(testCase.expectedLink)
             }
         )
 
-        it('returns undefined for a person without a profile', () => {
-            expect(asLink({ distinct_ids: ['a uuid'] })).toBeUndefined()
+        // Clickability must not depend on a `properties` object being attached, because server-side person
+        // columns omit it even for profiled people, and coupling the link to it dropped links for real persons.
+        it('links from an identifier even when no properties object is present', () => {
+            expect(asLink({ distinct_id: 'user@example.com' })).toEqual(urls.personByDistinctId('user@example.com'))
+            expect(asLink({ id: 'a-person-uuid' })).toEqual(urls.personByUUID('a-person-uuid'))
+        })
+
+        it('returns undefined when there is no identifier to link to', () => {
+            expect(asLink({ distinct_ids: [] })).toBeUndefined()
+            expect(asLink(null)).toBeUndefined()
         })
     })
 

@@ -105,15 +105,12 @@ export function PersonDisplay({
     const personDistinctId = person?.distinct_id || person?.distinct_ids?.[0]
     const personEmail = typeof person?.properties?.email === 'string' ? person.properties.email : undefined
 
-    const handleClick = (e: React.MouseEvent): void => {
-        if (visible && href && !noLink && person?.properties) {
+    const handleClick = (): void => {
+        if (visible && href && !noLink) {
             router.actions.push(href)
-        } else if (visible && !person?.properties) {
-            e.preventDefault()
         } else {
             setVisible(true)
         }
-        return
     }
 
     let content = children || (
@@ -171,7 +168,7 @@ export function PersonDisplay({
             className={clsx('PersonDisplay', muted && 'PersonDisplay--muted', className)}
             onClick={!noPopover ? handleClick : undefined}
         >
-            {noLink || !href || !person?.properties ? (
+            {noLink || !href ? (
                 content
             ) : (
                 <Link

@@ -336,6 +336,10 @@ export function renderColumn(
         if (isEventsQuery(query.source)) {
             displayProps.person = value.distinct_id ? (value as EventsQueryPersonColumn) : value
             displayProps.noPopover = false // If we are in an events list, the popover experience is better
+            // Personless events carry only a distinct_id (no `uuid`); there's no profile to open, so suppress the link.
+            if (!value?.uuid) {
+                displayProps.noLink = true
+            }
         }
 
         if (isPersonsNode(query.source) && personRecord.distinct_ids) {
@@ -361,9 +365,7 @@ export function renderColumn(
         const noPopover = isActorsQuery(query.source)
         const displayProps: PersonDisplayProps = {
             withIcon: true,
-            // `properties: {}` marks this row as an identified profile so PersonDisplay still renders the link;
-            // the server-side `person_display_name` column omits `properties` even though these rows are profiled.
-            person: { id: value.id, distinct_id: value.distinct_id, properties: {} },
+            person: { id: value.id, distinct_id: value.distinct_id },
             displayName: value.display_name,
             noPopover,
         }
