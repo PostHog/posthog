@@ -7,6 +7,8 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -888,16 +890,20 @@ class SignalReportArtefact(UUIDModel):
         This reads the report's existing charts and then inserts, so it is only exact if the two are
         serialized. `append_report_charts` holds the report row for that; a caller reaching this from
         somewhere else should do the same.
+
+        Only the ids come back, extracted and de-duplicated in Postgres. A refresh appends a new row
+        under an existing id and nothing prunes the old ones, so the row count grows with how often a
+        recurring report is refreshed while the distinct ids stay capped — pulling every historical
+        query body back to parse it would make each append cost more than the last, under the lock.
         """
-        existing: set[str] = set()
-        for row in cls.objects.filter(team_id=team_id, report_id=report_id, type=cls.ArtefactType.CHART).values_list(
-            "content", flat=True
-        ):
-            try:
-                existing.add(ChartArtefact.model_validate_json(row).chart_id)
-            except ValueError:
-                # A row that no longer parses can't be resolved by the renderer either — no slot held.
-                continue
+        chart_ids = (
+            cls.objects.filter(team_id=team_id, report_id=report_id, type=cls.ArtefactType.CHART)
+            .annotate(extracted_chart_id=KeyTextTransform("chart_id", Cast("content", models.JSONField())))
+            .values_list("extracted_chart_id", flat=True)
+            .distinct()
+        )
+        # A row without a resolvable id can't be resolved by the renderer either — no slot held.
+        existing = {chart_id for chart_id in chart_ids if chart_id}
         if incoming.chart_id not in existing and len(existing) >= MAX_REPORT_CHARTS:
             raise ArtefactContentValidationError(
                 f"report {report_id} already carries {len(existing)} charts, the limit is {MAX_REPORT_CHARTS}"
