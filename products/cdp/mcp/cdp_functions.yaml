@@ -61,13 +61,20 @@ tools:
                      {"type": "context", "elements": [{"type": "mrkdwn",
                        "text": "Project: <{project.url}|{project.name}>"}]},
                      {"type": "divider"},
-                     {"type": "actions", "elements": [
+                     {"type": "actions", "block_id": "insight_alert_snooze:{event.properties.alert_id}", "elements": [
                        {"type": "button", "text": {"type": "plain_text", "text": "View Insight"},
                         "url": "{project.url}/insights/{event.properties.insight_id}"},
                        {"type": "button", "text": {"type": "plain_text", "text": "View Alert"},
                         "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"},
-                       {"type": "button", "text": {"type": "plain_text", "text": "Snooze for 1 day"},
-                        "action_id": "insight_alert_snooze", "value": "{event.properties.alert_id}|1d"}
+                       {"type": "static_select", "action_id": "insight_alert_snooze",
+                        "placeholder": {"type": "plain_text", "text": "Snooze…"},
+                        "options": [
+                          {"text": {"type": "plain_text", "text": "For 1 hour"}, "value": "{event.properties.alert_id}|1h"},
+                          {"text": {"type": "plain_text", "text": "For 6 hours"}, "value": "{event.properties.alert_id}|6h"},
+                          {"text": {"type": "plain_text", "text": "For 1 day"}, "value": "{event.properties.alert_id}|1d"},
+                          {"text": {"type": "plain_text", "text": "For 1 week"}, "value": "{event.properties.alert_id}|1w"}
+                        ]},
+                       {"type": "datetimepicker", "action_id": "insight_alert_snooze_until"}
                      ]}
                    ]}
                  }
