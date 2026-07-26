@@ -17,6 +17,7 @@ metrics-exporter-prometheus = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 envconfig = { workspace = true }
+hdrhistogram = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }

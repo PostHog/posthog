@@ -102,6 +102,13 @@ UNWARMABLE_QUERY_KINDS = ("WebVitalsQuery",)
 INTERNAL_QUERY_TYPE_SUFFIXES = ("_lazy_insert", "_preflight")
 _INTERNAL_QUERY_TYPE_FILTER = " OR ".join(f"endsWith(query_type, '{s}')" for s in INTERNAL_QUERY_TYPE_SUFFIXES)
 
+# Request kind (top-level log_comment `kind`) excluded from demand selection.
+# Temporal-kind requests are batch/scheduled workflows that run web queries
+# across nearly every team; counting them made the selection reflect background
+# traffic rather than real dashboard usage. UI and personal-API-key requests are
+# kept — those are the reads warming is meant to keep fast.
+EXCLUDED_REQUEST_KIND = "temporal"
+
 # Read-bytes ceiling for the demand-selection scan. The 14-day fleet-wide
 # query_log scan reads ~40 TiB, over the default cap, so it's raised — but to a
 # finite value (~150 TiB, generous headroom for fleet growth) rather than 0, so
@@ -293,6 +300,7 @@ def queries_to_keep_fresh(
                 JSONExtractString(log_comment, 'query_type') AS query_type,
                 JSONExtractString(log_comment, 'trigger') AS trigger,
                 JSONExtractString(log_comment, 'feature') AS feature,
+                JSONExtractString(log_comment, 'kind') AS request_kind,
                 JSONExtractRaw(log_comment, 'query') AS query_json_raw,
                 query_id
             FROM clusterAllReplicas(%(cluster)s, system.query_log)
@@ -320,6 +328,12 @@ def queries_to_keep_fresh(
             AND NOT ({_INTERNAL_QUERY_TYPE_FILTER})
             AND trigger NOT IN %(background_triggers)s
             AND feature != %(cache_warmup_feature)s
+            -- Demand should reflect real product usage, not background query
+            -- traffic. Temporal-kind requests (batch/scheduled workflows) run
+            -- web queries across nearly every team — left in, they dominated the
+            -- selection and filled the cap with shapes no dashboard reader ever
+            -- loads. UI and personal-API-key traffic are kept.
+            AND request_kind != %(excluded_request_kind)s
         GROUP BY
             team_id,
             query_json_raw
@@ -339,6 +353,7 @@ def queries_to_keep_fresh(
             "unwarmable_kinds": UNWARMABLE_QUERY_KINDS,
             "background_triggers": tuple(BACKGROUND_WARMING_TRIGGERS | SHARED_BACKGROUND_WARMING_TRIGGERS),
             "cache_warmup_feature": Feature.CACHE_WARMUP.value,
+            "excluded_request_kind": EXCLUDED_REQUEST_KIND,
         },
         settings={"max_bytes_to_read": _SELECTION_MAX_BYTES_TO_READ, "max_execution_time": 600},
     )
@@ -366,7 +381,13 @@ def queries_to_keep_fresh(
 # single Redis value. The cached blob embeds the selection parameters and a
 # timestamp so a settings change or an entry older than the TTL is treated as a
 # miss — object storage has no per-key expiry of its own.
-_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v1.json.gz"
+#
+# The vN suffix versions the selection *logic*: the cache only validates the
+# settings params (days/min/max), not the query itself, so a change to the
+# selection query (new filter, different grouping) would otherwise keep replaying
+# a stale blob written by the old logic until its TTL expired. Bump the version
+# whenever the selection query changes so the new logic takes effect on deploy.
+_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v2.json.gz"
 
 
 def _read_cached_warmable_queries(

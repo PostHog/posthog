@@ -54,8 +54,8 @@ class ReviewerContent(TypedDict):
     github_name: str | None
     relevant_commits: list[dict]
     reason: str | None
-    # True for entries injected by the scout owner guardrail (editor-controlled `LLMSkillOwner`).
-    # These route the report but are never eligible to select the autostart task identity.
+    # True when a scout's own reviewer pick matches a current `LLMSkillOwner` (editor-controlled) and
+    # was stamped for it. These route the report but are never eligible to select the autostart task identity.
     is_skill_owner: bool
 
 
@@ -297,18 +297,19 @@ def _resolve_autostart_assignee(
     reviewer at all — it runs as the triggering user (see `_resolve_triggering_user`), so a user
     can't name a colleague and have the agent run under that colleague's identity.
 
-    Owner-provenance entries (``is_skill_owner``) are excluded from identity selection: the scout
-    owner guardrail injects them from an editor-controlled `LLMSkillOwner`, so treating them as a
-    trusted commit-authorship signal would let a skill editor name a privileged teammate as owner
-    and have the implementation agent mint an OAuth session under that teammate. They still route
-    the report (they remain in the artefact); they just can't be the runner.
+    Owner-provenance entries (``is_skill_owner``) are excluded from identity selection: a scout is
+    steered by its editor-controlled skill body, so a picked reviewer who is a current `LLMSkillOwner`
+    is stamped on the way in — treating that pick as a trusted commit-authorship signal would let a
+    skill editor name a privileged teammate as owner, steer the scout to pick them, and have the
+    implementation agent mint an OAuth session under that teammate. They still route the report (they
+    remain in the artefact); they just can't be the runner.
 
     Walks *reviewers_content* in order (most relevant first). A reviewer's effective threshold is
     their personal autonomy setting when present, otherwise the team default (itself "all
     priorities"/P4 when the team has no config row). A lower rank means higher priority. Returns
     the first matching ``User``, or ``None`` if no reviewer maps to an org member.
     """
-    # Owner-injected entries never select the task identity (see docstring). Filter before resolving
+    # Owner-stamped entries never select the task identity (see docstring). Filter before resolving
     # so their logins aren't even looked up as candidates.
     identity_candidates = [r for r in reviewers_content if not r.get("is_skill_owner")]
     login_to_user = resolve_org_github_login_to_users(

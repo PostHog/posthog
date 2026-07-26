@@ -1,4 +1,9 @@
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
+
+import { ScrubUnavailableReason } from './scrub-client'
+
+/** The scrub client's reasons, plus the two the batch itself owns and the client never sees. */
+export type DropReason = ScrubUnavailableReason | 'deadline' | 'unattempted'
 
 export class ImageScrubConsumerMetrics {
     private static readonly scrubbed = new Counter({
@@ -8,6 +13,25 @@ export class ImageScrubConsumerMetrics {
     private static readonly skipped = new Counter({
         name: 'ml_mirror_image_scrub_consumer_skipped_total',
         help: 'Images skipped because the sidecar rejected them as undecodable (resolve to nothing)',
+    })
+    private static readonly deduped = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_deduped_total',
+        help: 'Messages skipped as duplicate produces of a ref, by scope: "batch" (another copy in the same poll batch) or "pod" (this pod scrubbed it earlier). Dedup hit rate = deduped / (deduped + scrubbed + skipped); the batch/pod split says how much the retained seen-ref cache is earning over free intra-batch dedup',
+        labelNames: ['scope'],
+    })
+    /**
+     * Intra-batch dedup can only collapse copies that arrive in the same poll batch, so its ceiling is
+     * set by how many messages a batch holds. Small batches are the one way it can be "undersized",
+     * and unlike the seen-ref cache the fix is poll configuration rather than memory. Buckets stop at
+     * the CONSUMER_BATCH_SIZE fetch cap, past which they could never be populated. This deliberately
+     * excludes empty polls, which is what makes it readable where consumer-v1's own batch-size
+     * histogram is not: that one samples before the empty check, and this lane runs with
+     * callEachBatchWhenEmpty, so idle polls bury the real distribution in the lowest bucket.
+     */
+    private static readonly batchMessages = new Histogram({
+        name: 'ml_mirror_image_scrub_consumer_batch_messages',
+        help: 'Messages per non-empty poll batch. Read alongside deduped{scope="batch"}: consistently small batches cap how much intra-batch dedup can collapse, whatever the duplicate rate is',
+        buckets: [1, 10, 50, 100, 200, 300, 400, 500],
     })
     private static readonly invalidKey = new Counter({
         name: 'ml_mirror_image_scrub_consumer_invalid_key_total',
@@ -25,6 +49,23 @@ export class ImageScrubConsumerMetrics {
         name: 'ml_mirror_image_scrub_consumer_shard_bytes_total',
         help: 'Scrubbed image bytes written into shards',
     })
+    /**
+     * The lane's data-loss signal, and the one to alert on. Every drop here is an image that reached
+     * the consumer and will never reach the bucket, because the sidecar had no capacity for it inside
+     * the batch's budget. A low background rate is the shape of a lane running near its ceiling; a
+     * rate approaching `scrubbed` means the sidecar is effectively down. Nothing else reports that:
+     * a pod dropping every image still passes its probes, keeps its lag flat, and keeps advancing
+     * offsets.
+     */
+    private static readonly dropped = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_dropped_total',
+        help: 'Images dropped because the sidecar could not take them. Never published, so this is lost coverage rather than leaked content. By reason: "busy" (503, shed), "timeout" (no reply inside the request timeout), "transport" (socket refused or reset, or an unexpected status), "aborted" (a sibling failure ended the batch), "deadline" (in flight when the batch scrub budget expired), "unattempted" (never submitted, because the budget expired first)',
+        labelNames: ['reason'],
+    })
+    private static readonly offsetsDiscarded = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_offsets_discarded_total',
+        help: 'Offsets that could not be stored because a rebalance had already revoked the partition, so that span rescrubs under its new owner',
+    })
     private static readonly batchFailed = new Counter({
         name: 'ml_mirror_image_scrub_consumer_batch_failed_total',
         help: 'Batches that threw and will replay, by cause (scrub or write)',
@@ -40,8 +81,20 @@ export class ImageScrubConsumerMetrics {
     public static incSkipped(): void {
         this.skipped.inc()
     }
+    public static incDropped(reason: DropReason, count = 1): void {
+        this.dropped.labels(reason).inc(count)
+    }
+    public static incOffsetsDiscarded(count: number): void {
+        this.offsetsDiscarded.inc(count)
+    }
+    public static incDeduped(scope: 'batch' | 'pod'): void {
+        this.deduped.labels(scope).inc()
+    }
     public static incInvalidKey(): void {
         this.invalidKey.inc()
+    }
+    public static observeBatchMessages(count: number): void {
+        this.batchMessages.observe(count)
     }
     public static observeShard(images: number, bytes: number): void {
         this.shardsWritten.inc()

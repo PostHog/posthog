@@ -8,10 +8,11 @@ from posthog.models.async_deletion.delete_person import DELETED_PERSON_IDS_DICTI
 from posthog.models.person.util import create_person
 
 
-def _visible_person_count() -> int:
-    # SELECT excludes lightweight-deleted rows (_row_exists = 0), so this counts
-    # only persons that survived the hard delete.
-    return sync_execute("SELECT count() FROM person")[0][0]
+def _visible_person_count(team_id: int) -> int:
+    # SELECT excludes lightweight-deleted rows (_row_exists = 0). Scope to the test's team:
+    # the ClickHouse person table is shared across the worker's tests and only truncated at
+    # package teardown, so a whole-table count would see other tests' rows.
+    return sync_execute("SELECT count() FROM person WHERE team_id = %(team_id)s", {"team_id": team_id})[0][0]
 
 
 def _dictionary_exists() -> bool:
@@ -39,7 +40,7 @@ class TestDeletePerson(BaseTest, ClickhouseTestMixin):
         remove_deleted_person_data()
 
         # only person C remains visible (both versions of A + B are tombstoned)
-        assert _visible_person_count() == 1
+        assert _visible_person_count(self.team.pk) == 1
 
     def test_preserves_persons_that_are_not_soft_deleted(self):
         create_person(team_id=self.team.pk, version=0)
@@ -47,7 +48,7 @@ class TestDeletePerson(BaseTest, ClickhouseTestMixin):
 
         remove_deleted_person_data()
 
-        assert _visible_person_count() == 2
+        assert _visible_person_count(self.team.pk) == 2
 
     def test_no_op_when_nothing_is_soft_deleted(self):
         # Dictionary source query returns no rows -> dictHas is always false ->
@@ -56,7 +57,7 @@ class TestDeletePerson(BaseTest, ClickhouseTestMixin):
 
         remove_deleted_person_data()
 
-        assert _visible_person_count() == 1
+        assert _visible_person_count(self.team.pk) == 1
 
     def test_drops_the_dictionary_after_running(self):
         create_person(team_id=self.team.pk, version=0, is_deleted=True)
@@ -75,4 +76,4 @@ class TestDeletePerson(BaseTest, ClickhouseTestMixin):
         remove_deleted_person_data()
         remove_deleted_person_data()
 
-        assert _visible_person_count() == 1
+        assert _visible_person_count(self.team.pk) == 1
