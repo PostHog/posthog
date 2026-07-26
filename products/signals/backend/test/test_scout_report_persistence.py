@@ -15,6 +15,7 @@ from posthog.models.scoping import team_scope
 from products.signals.backend.artefact_schemas import (
     ActionabilityAssessment,
     ActionabilityChoice,
+    ChartArtefact,
     SafetyJudgment,
     TaskRunArtefact,
 )
@@ -29,6 +30,7 @@ from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SO
 from products.signals.backend.scout_report import (
     InvalidScoutReportError,
     ScoutReportSignal,
+    append_report_charts,
     create_scout_report,
     soft_delete_scout_signal,
     update_scout_report,
@@ -296,3 +298,103 @@ class TestScoutReportPersistence(BaseTest):
                 source_id="obs-x",
             )
         self.emit_mock.assert_not_called()
+
+
+class TestScoutReportCharts(BaseTest):
+    _team_scope_cm: AbstractContextManager[None] | None = None
+
+    def setUp(self) -> None:
+        super().setUp()
+        cm = team_scope(self.team.id)
+        cm.__enter__()
+        self._team_scope_cm = cm
+        patcher = patch(f"{PERSISTENCE_MODULE}.emit_embedding_request")
+        self.emit_mock = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self) -> None:
+        if self._team_scope_cm is not None:
+            self._team_scope_cm.__exit__(None, None, None)
+            self._team_scope_cm = None
+        super().tearDown()
+
+    def _chart(self, chart_id: str, title: str) -> ChartArtefact:
+        return ChartArtefact(chart_id=chart_id, title=title, query={"kind": "InsightVizNode"})
+
+    def _chart_artefacts(self, report_id: str) -> list[SignalReportArtefact]:
+        return list(
+            SignalReportArtefact.objects.filter(
+                report_id=report_id, type=SignalReportArtefact.ArtefactType.CHART
+            ).order_by("created_at")
+        )
+
+    def _create(self, charts: list[ChartArtefact] | None = None) -> str:
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Signups dropped",
+            summary="Signups fell 60% on the 6th. [Daily signups](chart:signups-drop)",
+            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            attribution=ArtefactAttribution.system(),
+            charts=charts or [],
+        )
+        return result.report_id
+
+    def test_charts_are_written_as_log_artefacts_on_author(self) -> None:
+        report_id = self._create([self._chart("signups-drop", "Daily signups")])
+
+        artefacts = self._chart_artefacts(report_id)
+        assert len(artefacts) == 1
+        assert ChartArtefact.model_validate_json(artefacts[0].content).chart_id == "signups-drop"
+
+    def test_charts_survive_a_suppressed_report(self) -> None:
+        # A suppressed report keeps its exhibits so whoever reviews the suppression sees what the
+        # scout was looking at — unlike the autostart inputs, which are only written when it surfaces.
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="t",
+            summary="s",
+            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            attribution=ArtefactAttribution.system(),
+            status=SignalReport.Status.SUPPRESSED,
+            charts=[self._chart("signups-drop", "Daily signups")],
+            emit_signals=False,
+        )
+        assert len(self._chart_artefacts(result.report_id)) == 1
+
+    def test_appending_a_seen_chart_id_adds_a_version_rather_than_replacing(self) -> None:
+        # Charts are log artefacts: re-supplying an id on a later edit is a refreshed window on a
+        # recurring report, so both rows are kept and the newest is what a reference resolves to.
+        report_id = self._create([self._chart("signups-drop", "Daily signups")])
+
+        append_report_charts(
+            team_id=self.team.id,
+            report_id=report_id,
+            charts=[self._chart("signups-drop", "Daily signups (rerun)")],
+            attribution=ArtefactAttribution.system(),
+        )
+
+        artefacts = self._chart_artefacts(report_id)
+        assert len(artefacts) == 2
+        assert ChartArtefact.model_validate_json(artefacts[-1].content).title == "Daily signups (rerun)"
+
+    def test_appending_to_another_teams_report_is_refused(self) -> None:
+        other_org = Organization.objects.create(name="other")
+        other_team = Team.objects.create(organization=other_org, name="other")
+        with team_scope(other_team.id):
+            other_report = create_scout_report(
+                team_id=other_team.id,
+                title="theirs",
+                summary="s",
+                signals=[ScoutReportSignal(description="d", source_id="obs")],
+                attribution=ArtefactAttribution.system(),
+            )
+
+        with pytest.raises(InvalidScoutReportError):
+            append_report_charts(
+                team_id=self.team.id,
+                report_id=other_report.report_id,
+                charts=[self._chart("signups-drop", "Daily signups")],
+                attribution=ArtefactAttribution.system(),
+            )
+        with team_scope(other_team.id):
+            assert self._chart_artefacts(other_report.report_id) == []

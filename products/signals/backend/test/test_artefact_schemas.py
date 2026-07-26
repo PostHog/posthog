@@ -136,6 +136,15 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("task_run", {"task_id": "t1", "run_id": None, "product": "signals", "type": "implementation"}),
             ("title_change", {"old_title": "before", "new_title": "after"}),
             ("summary_change", {"old_summary": None, "new_summary": "after"}),
+            (
+                "chart",
+                {
+                    "chart_id": "signups-drop",
+                    "title": "Daily signups",
+                    "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
+                    "caption": "The drop starts on the 6th.",
+                },
+            ),
         ]
     )
     def test_accepts_valid_content_for_type(self, artefact_type, content):
@@ -155,6 +164,11 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("note", {"note": "   "}),
             ("commit", {"repository": "PostHog/posthog", "branch": "b", "commit_sha": "  ", "message": "m"}),
             ("task_run", {"task_id": "t1", "product": "Not Safe!", "type": "research"}),
+            # A kind the inbox can't draw must fail at write time, not render as an empty box later.
+            ("chart", {"chart_id": "ok", "title": "t", "query": {"kind": "HogQLQuery", "query": "SELECT 1"}}),
+            # `chart_id` is the target of a `chart:` markdown link in the summary — a slug that can't
+            # survive being parsed as one silently stops resolving the reference.
+            ("chart", {"chart_id": "Signups Drop", "title": "t", "query": {"kind": "InsightVizNode"}}),
         ]
     )
     def test_rejects_invalid_content_for_type(self, artefact_type, content):

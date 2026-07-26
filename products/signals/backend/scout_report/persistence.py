@@ -43,6 +43,7 @@ from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_SCOUT,
     ActionabilityAssessment,
+    ChartArtefact,
     NoteArtefact,
     PriorityAssessment,
     SafetyJudgment,
@@ -115,6 +116,7 @@ def create_scout_report(
     repo_selection: RepoSelectionResult | None = None,
     priority: PriorityAssessment | None = None,
     suggested_reviewers: SuggestedReviewers | None = None,
+    charts: Sequence[ChartArtefact] = (),
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
 ) -> PersistedScoutReport:
@@ -138,6 +140,10 @@ def create_scout_report(
     open a draft PR — the autostart hook itself is fired by the caller *after* this returns (never
     in-txn, since it spawns a Task), so the `suggested_reviewers` append opts out of the model's
     autostart re-evaluation hook, mirroring `create_custom_agent_ready_report`.
+
+    `charts`, when supplied, are written as `chart` log artefacts — the queries the inbox renders on
+    the report. Unlike the autostart inputs they're written whatever the judged status, so a
+    suppressed report keeps the exhibits behind it for whoever reviews the suppression.
 
     `emit_signals` gates whether the backing observations are written to `document_embeddings`. It
     defaults to True; callers pass False for a report the safety judge marked unsafe (born SUPPRESSED)
@@ -218,6 +224,8 @@ def create_scout_report(
                 attribution=attribution,
                 reevaluate_autostart=False,
             )
+        for chart in charts:
+            SignalReportArtefact.add_log(team_id=team_id, report_id=report_id, content=chart, attribution=attribution)
 
     # Committed: now emit the backing signals (unless suppressed-unsafe — see `emit_signals`).
     # Sequential (not on_commit) so the call is observable and so a Kafka failure surfaces to the
@@ -340,6 +348,35 @@ def append_report_note(
             attribution=attribution,
         )
     logger.info("signals_scout.edit_report: note appended", extra={"team_id": team_id, "report_id": report_id})
+    return report_id
+
+
+def append_report_charts(
+    *,
+    team_id: int,
+    report_id: str,
+    charts: Sequence[ChartArtefact],
+    attribution: ArtefactAttribution,
+) -> str:
+    """Append `chart` artefacts to an existing report (the `edit_report` chart path).
+
+    Team-scoped fail-closed like `append_report_note`, and appended in one transaction so a report
+    never ends up carrying half a scout's charts. Charts append rather than replace: re-supplying a
+    `chart_id` seen on an earlier call adds a newer version and the reader resolves the reference to
+    it, which is what a refreshed window on a recurring report should do.
+    """
+    if not charts:
+        return report_id
+    _validate_report_id(report_id)
+    with transaction.atomic():
+        if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        for chart in charts:
+            SignalReportArtefact.add_log(team_id=team_id, report_id=report_id, content=chart, attribution=attribution)
+    logger.info(
+        "signals_scout.edit_report: charts appended",
+        extra={"team_id": team_id, "report_id": report_id, "count": len(charts)},
+    )
     return report_id
 
 

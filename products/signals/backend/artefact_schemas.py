@@ -19,6 +19,7 @@ degraded, never raised to users).
 from __future__ import annotations
 
 import re
+import json
 from collections.abc import Mapping
 from enum import Enum
 from typing import Any, Literal, cast
@@ -405,6 +406,100 @@ def task_run_identifier_for_legacy_relationship(relationship: str | None) -> tup
     return _LEGACY_TASK_RUN_PRODUCT, _LEGACY_TASK_RUN_TYPE
 
 
+# Query node kinds a `chart` artefact may carry — the three the inbox renderer knows how to draw.
+# Narrow on purpose: an unrenderable kind fails at write time, where the author can react to it,
+# rather than silently drawing nothing in someone's inbox a day later.
+CHART_QUERY_KINDS: frozenset[str] = frozenset({"InsightVizNode", "DataVisualizationNode", "SavedInsightNode"})
+
+MAX_CHART_ID_LENGTH = 100
+MAX_CHART_TITLE_LENGTH = 200
+MAX_CHART_CAPTION_LENGTH = 500
+# Bounds the JSON a single chart can carry into the report log and, from there, into the safety-judge
+# prompt. Generous next to a real query node; small enough that a malformed one can't blow up a call.
+_MAX_CHART_QUERY_CHARS = 20_000
+
+
+class ChartArtefact(BaseModel):
+    """Content schema for a `chart` artefact: a query the report renders inline.
+
+    `chart_id` is the author's own slug rather than the row's UUID, because a report's summary and its
+    charts are written in the same call — prose can only point at a chart by a key the author picked.
+    It mirrors `evidence.source_id` on the scout report channel.
+
+    Charts append like any other log artefact; nothing dedups on `chart_id`. A report can therefore
+    hold several versions of one chart (a re-emit, a refreshed window), and resolving a reference to
+    the newest is the renderer's job, not the store's.
+
+    `query` stays an unparsed dict. Checking it against the real node models would mean importing
+    `posthog.schema`, which this module deliberately avoids (see the module docstring). The `kind`
+    allowlist and the size bound are what can be checked cheaply here — the same amount of validation
+    a notebook's `ph-query` node gets today, with the renderer degrading in place on a bad query.
+    """
+
+    chart_id: str = Field(
+        description=(
+            "Stable slug identifying this chart within the report — lowercase letters, numbers, "
+            "underscores and hyphens. The report summary references it as a markdown link with a "
+            "`chart:` target (e.g. `[Daily signups](chart:signups-drop)`) to place the chart inline."
+        ),
+    )
+    title: str = Field(description="Short heading shown above the chart.")
+    query: dict[str, Any] = Field(
+        description=(
+            "The query node to render, as JSON. `kind` must be one of `InsightVizNode`, "
+            "`DataVisualizationNode`, or `SavedInsightNode`. Pin the window to absolute dates where "
+            "the node supports it, so a reader sees the data the report was written about rather than "
+            "whatever the range resolves to when they open it."
+        ),
+    )
+    caption: str | None = Field(
+        default=None,
+        description="Optional one-line note on what to look at in the chart.",
+    )
+
+    @field_validator("chart_id")
+    @classmethod
+    def chart_id_must_be_reference_safe(cls, v: str) -> str:
+        if len(v) > MAX_CHART_ID_LENGTH:
+            raise ValueError(f"must not exceed {MAX_CHART_ID_LENGTH} characters")
+        # The slug is the target of a `chart:` markdown link in the summary, so it has to survive
+        # being parsed as a URL — the same routing-safe shape identifiers use elsewhere in this module.
+        normalized = v.strip()
+        if not _IDENTIFIER_PART_RE.fullmatch(normalized):
+            raise ValueError(
+                "must contain only lowercase letters, numbers, underscores, or hyphens, "
+                "and must start with a lowercase letter or number"
+            )
+        return normalized
+
+    @field_validator("title")
+    @classmethod
+    def title_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        if len(v) > MAX_CHART_TITLE_LENGTH:
+            raise ValueError(f"must not exceed {MAX_CHART_TITLE_LENGTH} characters")
+        return v
+
+    @field_validator("caption")
+    @classmethod
+    def caption_must_be_bounded(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > MAX_CHART_CAPTION_LENGTH:
+            raise ValueError(f"must not exceed {MAX_CHART_CAPTION_LENGTH} characters")
+        return v
+
+    @field_validator("query")
+    @classmethod
+    def query_must_be_a_renderable_node(cls, v: dict[str, Any]) -> dict[str, Any]:
+        kind = v.get("kind")
+        if kind not in CHART_QUERY_KINDS:
+            allowed = ", ".join(sorted(CHART_QUERY_KINDS))
+            raise ValueError(f"query.kind must be one of {allowed} (got {kind!r})")
+        if len(json.dumps(v)) > _MAX_CHART_QUERY_CHARS:
+            raise ValueError(f"query must not exceed {_MAX_CHART_QUERY_CHARS} characters when serialized")
+        return v
+
+
 class NoteArtefact(BaseModel):
     """Content schema for a `note` artefact: a free-form note authored by an agent or by code."""
 
@@ -529,7 +624,15 @@ StatusArtefactContent = (
     SafetyJudgment | ActionabilityAssessment | PriorityAssessment | RepoSelectionResult | SuggestedReviewers
 )
 LogArtefactContent = (
-    CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange | CodeReview | RelatedTo
+    CodeReference
+    | Commit
+    | TaskRunArtefact
+    | NoteArtefact
+    | TitleChange
+    | SummaryChange
+    | CodeReview
+    | RelatedTo
+    | ChartArtefact
 )
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
@@ -552,6 +655,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "summary_change": SummaryChange,
     "code_review": CodeReview,
     "related_to": RelatedTo,
+    "chart": ChartArtefact,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}

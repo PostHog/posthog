@@ -22,7 +22,13 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.models.integration import Integration
 from posthog.permissions import get_authenticator_scopes
 
-from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
+from products.signals.backend.artefact_schemas import (
+    MAX_CHART_CAPTION_LENGTH,
+    MAX_CHART_ID_LENGTH,
+    MAX_CHART_TITLE_LENGTH,
+    ActionabilityChoice,
+    Priority,
+)
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
@@ -31,7 +37,11 @@ from products.signals.backend.scout_harness.tools.emit import (
     MAX_TAGS_PER_FINDING,
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
-from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
+from products.signals.backend.scout_harness.tools.report import (
+    MAX_REPORT_CHARTS,
+    MAX_REPORT_TITLE_LENGTH,
+    MAX_SUGGESTED_REVIEWERS,
+)
 from products.signals.backend.scout_harness.tools.runs import DEFAULT_FINDINGS_WINDOW_HOURS, MAX_FINDINGS_WINDOW_HOURS
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 from products.skills.backend.api.skill_serializers import (
@@ -773,6 +783,60 @@ class ReportEvidenceSerializer(serializers.Serializer):
     )
 
 
+class ChartQuerySchema(serializers.Serializer):
+    """Schema shape for a chart's `query`, so the generated types describe a query node rather than an
+    opaque blob. Only the discriminator is modelled — the node's remaining fields differ per kind and
+    pass through as authored (see `ChartArtefact` for why they aren't parsed server-side).
+
+    `kind` is a `CharField`, not a `ChoiceField`, on purpose: `kind` is one of the enum field names
+    that collides across the OpenAPI spec and fails codegen under `--fail-on-warn`. The allowed values
+    are enforced by `ChartArtefact` and spelled out in the field's help text instead.
+    """
+
+    kind = serializers.CharField(
+        help_text="Query node kind — one of `InsightVizNode`, `DataVisualizationNode`, `SavedInsightNode`.",
+    )
+
+
+@extend_schema_field(ChartQuerySchema)
+class ChartQueryField(serializers.JSONField):
+    """The query node on a report chart. Typed for the schema pipeline so the generated MCP tool and
+    frontend types describe a query node instead of an opaque `unknown`."""
+
+
+class ReportChartSerializer(serializers.Serializer):
+    """One chart attached to a report — rendered in the inbox and referenceable from the summary."""
+
+    chart_id = serializers.CharField(
+        max_length=MAX_CHART_ID_LENGTH,
+        help_text=(
+            "Stable slug for this chart within the report (lowercase letters, numbers, underscores, "
+            "hyphens; must start with a letter or number). Reference it from `summary` as a markdown "
+            "link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart "
+            "at that point in the body. A chart you don't reference still renders, below the summary."
+        ),
+    )
+    title = serializers.CharField(
+        max_length=MAX_CHART_TITLE_LENGTH,
+        help_text="Short heading shown above the chart.",
+    )
+    query = ChartQueryField(
+        help_text=(
+            "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics "
+            "chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), "
+            "or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute "
+            "dates where the node supports it, so the reader sees the data you wrote about rather "
+            "than whatever a relative range resolves to when they open the report."
+        ),
+    )
+    caption = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=MAX_CHART_CAPTION_LENGTH,
+        help_text="Optional one-line note on what to look at in the chart.",
+    )
+
+
 class SuggestedReviewerSerializer(serializers.Serializer):
     """One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
 
@@ -892,6 +956,16 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold."
         ),
     )
+    charts = serializers.ListField(
+        required=False,
+        child=ReportChartSerializer(),
+        max_length=MAX_REPORT_CHARTS,
+        help_text=(
+            "Optional charts to attach to the report — the inbox renders them inline, so a metric move "
+            "is something the reader sees rather than a number they take on trust. Attach one whenever "
+            "the finding rests on a trend, a spike, or a comparison you already queried."
+        ),
+    )
 
 
 class EmitReportResponseSerializer(serializers.Serializer):
@@ -962,6 +1036,16 @@ class EditReportRequestSerializer(serializers.Serializer):
             "empty list is a no-op (existing reviewers are left untouched, never cleared)."
         ),
     )
+    charts = serializers.ListField(
+        required=False,
+        child=ReportChartSerializer(),
+        max_length=MAX_REPORT_CHARTS,
+        help_text=(
+            "Optional charts to append to the report. Charts accumulate rather than replace, so "
+            "re-supplying a `chart_id` from an earlier call adds a newer version of that chart and the "
+            "report renders the newest — which is what a refreshed window on a recurring report wants."
+        ),
+    )
 
 
 class EditReportResponseSerializer(serializers.Serializer):
@@ -972,6 +1056,7 @@ class EditReportResponseSerializer(serializers.Serializer):
     )
     note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
     reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
+    charts_appended = serializers.IntegerField(help_text="How many chart artefacts were appended.")
 
 
 # --- Project profile ------------------------------------------------------

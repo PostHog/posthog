@@ -68,6 +68,14 @@ export interface SummaryChangeContent {
     new_summary: string
 }
 
+export interface ChartContent {
+    chart_id: string
+    title: string
+    /** A query node (`InsightVizNode` / `DataVisualizationNode` / `SavedInsightNode`), unparsed. */
+    query?: Record<string, any>
+    caption?: string | null
+}
+
 // ── Type labels ──────────────────────────────────────────────────────────────────────────────
 
 /** Human label for each artefact type as it reads in the activity log header. */
@@ -88,6 +96,7 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     title_change: 'Title edited',
     summary_change: 'Summary edited',
     related_to: 'Related report',
+    chart: 'Chart attached',
 }
 
 export function artefactTypeLabel(type: string): string {
