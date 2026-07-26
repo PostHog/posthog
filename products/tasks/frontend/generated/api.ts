@@ -653,8 +653,8 @@ export const taskActivityList = async (
     projectId: string,
     params?: TaskActivityListParams,
     options?: RequestInit
-): Promise<TaskActivityPageDTOApi[]> => {
-    return apiMutator<TaskActivityPageDTOApi[]>(getTaskActivityListUrl(projectId, params), {
+): Promise<TaskActivityPageDTOApi> => {
+    return apiMutator<TaskActivityPageDTOApi>(getTaskActivityListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
