@@ -12,6 +12,51 @@
             ],
             "description": "Optional free-form note to append to the report's work log (attributed to this scout)."
         },
+        "charts": {
+            "description": "Optional charts to append to the report. Charts accumulate rather than replace, so re-supplying a `chart_id` from an earlier call adds a newer version of that chart and the report renders the newest — which is what a refreshed window on a recurring report wants.",
+            "items": {
+                "description": "One chart attached to a report — rendered in the inbox and referenceable from the summary.",
+                "properties": {
+                    "caption": {
+                        "anyOf": [
+                            {
+                                "maxLength": 500,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Optional one-line note on what to look at in the chart."
+                    },
+                    "chart_id": {
+                        "description": "Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary.",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "query": {
+                        "description": "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report.",
+                        "properties": {
+                            "kind": {
+                                "description": "Query node kind — one of `InsightVizNode`, `DataVisualizationNode`, `SavedInsightNode`.",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["kind"],
+                        "type": "object"
+                    },
+                    "title": {
+                        "description": "Short heading shown above the chart.",
+                        "maxLength": 200,
+                        "type": "string"
+                    }
+                },
+                "required": ["chart_id", "title", "query"],
+                "type": "object"
+            },
+            "maxItems": 4,
+            "type": "array"
+        },
         "report_id": {
             "description": "Id of the report to edit (must belong to this project).",
             "type": "string"
