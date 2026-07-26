@@ -443,6 +443,10 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
             "marketing_costs_precomputed": TableNode(
                 name="marketing_costs_precomputed", table=MarketingCostsPrecomputedTable()
             ),
+            "marketing_costs_precomputed_v2": TableNode(
+                name="marketing_costs_precomputed_v2",
+                table=MarketingCostsPrecomputedTable(dedup_labels_by_identity=True),
+            ),
             **children,
         }
 

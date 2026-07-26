@@ -106,6 +106,7 @@ class MarketingAnalyticsConfig:
 
     conversion_goal_precomputation_enabled: bool = False
     costs_precomputation_enabled: bool = False
+    costs_dedup_by_identity_enabled: bool = False
 
     @staticmethod
     def _precompute_flags(team: "Team") -> dict[str, bool]:
@@ -137,6 +138,12 @@ class MarketingAnalyticsConfig:
             ),
             "costs": feature_enabled_or_false(
                 "marketing-analytics-costs-precomputation",
+                str(team.uuid),
+                groups=groups,
+                group_properties=group_properties,
+            ),
+            "costs_dedup_v2": feature_enabled_or_false(
+                "marketing-analytics-costs-dedup-v2",
                 str(team.uuid),
                 groups=groups,
                 group_properties=group_properties,
@@ -177,6 +184,7 @@ class MarketingAnalyticsConfig:
         flags = cls._precompute_flags(team)
         config.conversion_goal_precomputation_enabled = flags["conversion"]
         config.costs_precomputation_enabled = flags["costs"]
+        config.costs_dedup_by_identity_enabled = flags["costs_dedup_v2"]
 
         # Gate multi-touch attribution behind its flag; fall back to last-touch when disabled. Evaluated
         # only for multi-touch modes so single-touch never triggers the flag call.
