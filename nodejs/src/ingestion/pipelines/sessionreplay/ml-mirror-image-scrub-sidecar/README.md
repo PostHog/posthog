@@ -12,7 +12,9 @@ It runs a simple http server, receives an image and replies with the scrubbed im
 
 `POST /scrub` with the raw image bytes returns the scrubbed bytes (200). The status split is load-bearing and both sides must change together: the consumer permanently skips 413 (too large) and 422 (undecodable), and retries then **drops** the image on 500 (transient) and 503 (busy). See `scrub-client.ts` for the consumer half.
 
-A dropped image is counted in `ml_mirror_image_scrub_consumer_dropped_total` and never reaches the bucket, so the failure costs coverage rather than leaking content.
+A dropped image is counted in `ml_mirror_image_scrub_consumer_dropped_total` (by `reason`: `busy`, `timeout`, `transport`, `aborted`, `deadline`, `unattempted`) and never reaches the bucket, so the failure costs coverage rather than leaking content.
+Since the loud failure mode is gone, that counter is the lane's health signal and `IngestionSessionReplayImageScrubDropRate` alerts on its ratio to `..._scrubbed_total`.
+Note `unattempted`: when a batch exhausts `SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS` the rest of that poll batch is dropped without being offered to the sidecar at all, because Kafka offsets are a high-water mark and a later batch would commit past them regardless.
 It used to fail the Kafka batch instead, which exits the consumer process: a saturated sidecar therefore crash-looped its pod, and the partitions it gave up landed on pods that were equally saturated, so saturation spread rather than eased.
 Nothing about a busy or unreachable sidecar should ever take the consumer down, because the sidecar is a separate container that a consumer restart does not fix.
 

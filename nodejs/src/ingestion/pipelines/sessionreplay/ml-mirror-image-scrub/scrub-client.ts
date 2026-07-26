@@ -4,6 +4,9 @@ import { promiseRetry } from '~/common/utils/retries'
 
 class PermanentScrubReject extends Error {}
 
+/** The timeout's own message, matched on rather than duplicated, so the reason label cannot drift. */
+const REQUEST_TIMED_OUT = 'scrub request timed out'
+
 /**
  * The sidecar had no capacity for this image: it shed the load, or it never answered inside the
  * request timeout, or the batch ran out of scrub budget while the image was queued.
@@ -15,9 +18,23 @@ class PermanentScrubReject extends Error {}
  * Every pod then exited on a saturated sidecar, which handed its partitions to the pods that were
  * already saturating, so saturation spread instead of easing.
  */
-export class ScrubUnavailable extends Error {}
+export type ScrubUnavailableReason = 'busy' | 'timeout' | 'transport' | 'aborted'
 
-class ScrubAborted extends ScrubUnavailable {}
+export class ScrubUnavailable extends Error {
+    constructor(
+        message: string,
+        readonly reason: ScrubUnavailableReason,
+        options?: ErrorOptions
+    ) {
+        super(message, options)
+    }
+}
+
+class ScrubAborted extends ScrubUnavailable {
+    constructor(message: string) {
+        super(message, 'aborted')
+    }
+}
 
 export class ScrubClient {
     private readonly url: URL
@@ -48,14 +65,14 @@ export class ScrubClient {
                     const { status, body } = await this.post(bytes, signal)
                     if (status === 200) {
                         if (body.length === 0) {
-                            throw new ScrubUnavailable('sidecar returned an empty 200 body')
+                            throw new ScrubUnavailable('sidecar returned an empty 200 body', 'transport')
                         }
                         return body
                     }
                     if (status === 422 || status === 413) {
                         throw new PermanentScrubReject(`sidecar rejected the input (${status})`)
                     }
-                    throw new ScrubUnavailable(`sidecar responded ${status}`)
+                    throw new ScrubUnavailable(`sidecar responded ${status}`, status === 503 ? 'busy' : 'transport')
                 },
                 'image-scrub-sidecar',
                 // promiseRetry count is total attempts; +1 makes maxRetries mean retries after the first try.
@@ -73,8 +90,13 @@ export class ScrubClient {
             }
             // A transport error: the socket was refused, reset, or destroyed by the request timeout.
             // Restarting the consumer cannot fix any of them, since the sidecar is a separate
-            // container that keeps running, so this is one lost image rather than a lost pod.
-            throw new ScrubUnavailable(String(error instanceof Error ? error.message : error))
+            // container that keeps running, so this is one lost image rather than a lost pod. The
+            // original is kept as `cause`: this is the last place the real reason exists, and the
+            // caller only records a counter.
+            const message = error instanceof Error ? error.message : String(error)
+            throw new ScrubUnavailable(message, message === REQUEST_TIMED_OUT ? 'timeout' : 'transport', {
+                cause: error,
+            })
         }
     }
 
@@ -93,7 +115,7 @@ export class ScrubClient {
                     res.on('error', reject)
                 }
             )
-            req.setTimeout(this.timeoutMs, () => req.destroy(new Error('scrub request timed out')))
+            req.setTimeout(this.timeoutMs, () => req.destroy(new Error(REQUEST_TIMED_OUT)))
             req.on('error', reject)
             if (signal) {
                 const onAbort = (): void => {
