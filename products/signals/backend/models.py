@@ -1,5 +1,6 @@
 import logging
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, cast
 
@@ -877,18 +878,23 @@ class SignalReportArtefact(UUIDModel):
         transaction.on_commit(_run)
 
     @classmethod
-    def _assert_chart_headroom(cls, *, team_id: int, report_id: str, incoming: ChartArtefact) -> None:
-        """Refuse a chart that would push the report past `MAX_REPORT_CHARTS` distinct charts.
+    def assert_chart_headroom(cls, *, team_id: int, report_id: str, incoming: Sequence[ChartArtefact]) -> None:
+        """Refuse charts that would push the report past `MAX_REPORT_CHARTS` distinct charts.
 
         Enforced here rather than in a caller because `chart` is writable through the generic artefact
         API as well as the scout report channel, and a limit only one of those paths honours is not a
         limit. Counted over distinct `chart_id`s: re-supplying an id is a refresh (the renderer resolves
         a reference to the newest version), so it costs no headroom.
 
+        Takes a batch so a caller can clear a whole edit's charts before it writes anything — checking
+        them one append at a time would reject the last chart after the earlier ones had committed.
+
         Concurrent appends can still race past the cap by a chart or two. That's accepted — this bounds
         how much a report costs to open, not a security boundary, and locking the report row on every
         log write would be a real cost for a bound that doesn't need to be exact.
         """
+        if not incoming:
+            return
         existing: set[str] = set()
         for row in cls.objects.filter(team_id=team_id, report_id=report_id, type=cls.ArtefactType.CHART).values_list(
             "content", flat=True
@@ -898,7 +904,8 @@ class SignalReportArtefact(UUIDModel):
             except ValueError:
                 # A row that no longer parses can't be resolved by the renderer either — no slot held.
                 continue
-        if incoming.chart_id not in existing and len(existing) >= MAX_REPORT_CHARTS:
+        resulting = existing | {chart.chart_id for chart in incoming}
+        if len(resulting) > MAX_REPORT_CHARTS:
             raise ArtefactContentValidationError(
                 f"report {report_id} already carries {len(existing)} charts, the limit is {MAX_REPORT_CHARTS}"
             )
@@ -918,7 +925,7 @@ class SignalReportArtefact(UUIDModel):
         if artefact_type_for(content) not in cls.LOG_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a log artefact content model")
         if isinstance(content, ChartArtefact):
-            cls._assert_chart_headroom(team_id=team_id, report_id=report_id, incoming=content)
+            cls.assert_chart_headroom(team_id=team_id, report_id=report_id, incoming=[content])
         artefact = cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
         if isinstance(content, RelatedTo):
             # Same team_id: reports link only within a team (grouping is per-team), so the reverse

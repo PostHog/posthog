@@ -44,6 +44,7 @@ from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_SCOUT,
     ActionabilityAssessment,
+    ArtefactContentValidationError,
     ChartArtefact,
     NoteArtefact,
     PriorityAssessment,
@@ -354,6 +355,22 @@ def append_report_note(
     return report_id
 
 
+def assert_report_chart_headroom(*, team_id: int, report_id: str, charts: Sequence[ChartArtefact]) -> None:
+    """Check the whole batch against the report's chart cap without writing anything.
+
+    A combined edit writes title/summary/notes before it reaches the charts, and those writes commit
+    on their own (no implicit per-request transaction). Clearing capacity up front means an over-cap
+    chart rejects the call before any of that lands, rather than leaving the report half-edited.
+    """
+    if not charts:
+        return
+    _validate_report_id(report_id)
+    try:
+        SignalReportArtefact.assert_chart_headroom(team_id=team_id, report_id=report_id, incoming=charts)
+    except ArtefactContentValidationError as e:
+        raise InvalidScoutReportError(str(e)) from e
+
+
 def append_report_charts(
     *,
     team_id: int,
@@ -375,7 +392,14 @@ def append_report_charts(
         if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
         for chart in charts:
-            SignalReportArtefact.add_log(team_id=team_id, report_id=report_id, content=chart, attribution=attribution)
+            try:
+                SignalReportArtefact.add_log(
+                    team_id=team_id, report_id=report_id, content=chart, attribution=attribution
+                )
+            except ArtefactContentValidationError as e:
+                # Over the cap is bad scout input, not a server fault — surface it as the harness's
+                # own invalid-input error so the tool call answers 400 like every other rejection.
+                raise InvalidScoutReportError(str(e)) from e
     logger.info(
         "signals_scout.edit_report: charts appended",
         extra={"team_id": team_id, "report_id": report_id, "count": len(charts)},

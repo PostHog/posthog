@@ -15,7 +15,13 @@ from social_django.models import UserSocialAuth
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
-from products.signals.backend.artefact_schemas import Priority, PriorityAssessment, SuggestedReviewers, TaskRunArtefact
+from products.signals.backend.artefact_schemas import (
+    MAX_REPORT_CHARTS,
+    Priority,
+    PriorityAssessment,
+    SuggestedReviewers,
+    TaskRunArtefact,
+)
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.scout_harness.tools.report import (
     MAX_SUGGESTED_REVIEWERS,
@@ -508,6 +514,34 @@ class TestScoutReportAPI(APIBaseTest):
                 "report_id": report_id,
                 "title": "should not stick",
                 "suggested_reviewers": [{"user_uuid": str(uuid4())}],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalReport.objects.get(id=report_id).title == original_title
+
+    def test_edit_report_over_cap_chart_does_not_partially_mutate(self) -> None:
+        # Same atomicity requirement as the reviewer case above, for the other input whose validity
+        # depends on stored state. The chart cap counts what the report already holds, so it can only
+        # be judged mid-request — and the title write commits on its own (no implicit per-request
+        # transaction), so checking capacity at the append would strand the rewritten title.
+        run = _make_run(self.team)
+        charts = [
+            {"chart_id": f"chart-{i}", "title": f"Chart {i}", "query": {"kind": "InsightVizNode"}}
+            for i in range(MAX_REPORT_CHARTS)
+        ]
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data={**self._payload(), "charts": charts}, format="json"
+            ).json()
+        report_id = created["report_id"]
+        original_title = SignalReport.objects.get(id=report_id).title
+        response = self.client.post(
+            self._edit_url(str(run.id)),
+            data={
+                "report_id": report_id,
+                "title": "should not stick",
+                "charts": [{"chart_id": "one-too-many", "title": "Over", "query": {"kind": "InsightVizNode"}}],
             },
             format="json",
         )

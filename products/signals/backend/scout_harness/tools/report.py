@@ -68,6 +68,7 @@ from products.signals.backend.scout_report import (
     ScoutReportSignal,
     append_report_charts,
     append_report_note,
+    assert_report_chart_headroom,
     create_scout_report,
     get_scout_report_status,
     get_scout_report_title,
@@ -1087,6 +1088,10 @@ def _do_edit_report(
     # provenance is stamped so a picked owner still can't become the autostart identity, regardless of
     # which report the edit targets.
     reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=run.skill_name)
+    # Same reasoning for charts: the cap is a function of what the report already holds, so it can
+    # only be judged here rather than in `_build_charts`. Checked before the content write for the
+    # reason above — a combined edit that busts the cap must not leave a rewritten title behind.
+    assert_report_chart_headroom(team_id=team.id, report_id=report_id, charts=charts)
 
     updated_fields: list[str] = []
     if title is not None or summary is not None:
