@@ -152,6 +152,7 @@ export type ExecCommandErrorReason =
     | 'usage'
     | 'invalid_regex'
     | 'unknown_learn_topic'
+    | 'needs_confirmation'
 
 /**
  * Thrown by the single-exec `exec` dispatcher when it rejects a command before

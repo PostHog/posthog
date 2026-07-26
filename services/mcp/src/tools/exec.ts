@@ -546,7 +546,7 @@ export function createExecTool(
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,
-                            'usage'
+                            'needs_confirmation'
                         )
                     }
                     let input: Record<string, unknown>
