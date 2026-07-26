@@ -37,6 +37,14 @@ export function buildImageScrubConsumerConfig(config: IngestionSessionReplayMlMi
         autoCommit: true,
         autoOffsetStore: false,
         callEachBatchWhenEmpty: true,
+        // Far below the 500 default, because this lane's batch has no time limit: a busy sidecar is
+        // waited on rather than dropped, so batch duration is set by how many images it holds. A
+        // batch that outlives max.poll.interval.ms (300s) gets the pod evicted mid-batch, and that
+        // is not a clean retry: the evicted pod loses the offsets for work it already did, and the
+        // partition lands on a pod whose sidecar is just as busy and redoes the same images, so
+        // offered load rises while throughput falls. Set here rather than as a deployment value so
+        // the bound cannot drift away from the design that needs it.
+        fetchBatchSize: config.SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE,
     }
 }
 

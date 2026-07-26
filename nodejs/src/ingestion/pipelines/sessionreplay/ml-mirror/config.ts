@@ -60,6 +60,8 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: number
     /** Where images the sidecar cannot process are parked so they stop holding their partition. */
     SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: string
+    /** Messages per poll. Bounds batch wall time against Kafka's max.poll.interval.ms (300s). */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: number
     // Per-write timeout (the S3 client has no built-in one). A flush does two writes, so it bounds at 2x this.
     SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: number
     /**
@@ -95,6 +97,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX: 500_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: 10 * 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: 50,
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
         SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: 0,
     }
