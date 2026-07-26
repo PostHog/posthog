@@ -1,7 +1,7 @@
 import { Server, createServer } from 'node:http'
 import { AddressInfo } from 'node:net'
 
-import { ScrubAborted, ScrubClient } from './scrub-client'
+import { ScrubAborted, ScrubClient, ScrubContractError } from './scrub-client'
 
 type Reply = { status: number; body?: string }
 
@@ -41,7 +41,8 @@ describe('ScrubClient', () => {
     it.each([
         ['shed with 503', 503],
         ['a 500 from a struggling sidecar', 500],
-        ['an empty 200 body', 200],
+        ['a 502 from a half-started sidecar', 502],
+        ['a 429', 429],
     ])('keeps waiting through %s until the sidecar returns bytes', async (_label, status) => {
         // The regression this exists for: a bounded retry that gives up turns a saturated sidecar
         // into permanent data loss, when Kafka is already holding the image durably and the only
@@ -50,6 +51,20 @@ describe('ScrubClient', () => {
 
         await expect(client().scrub(Buffer.from('image'))).resolves.toEqual(Buffer.from('scrubbed'))
         expect(requests).toBe(26)
+    })
+
+    it.each([
+        ['a misdirected URL or renamed route', 404, ''],
+        ['a drifted request contract', 400, ''],
+        ['success with no bytes', 200, ''],
+    ])('fails the batch on %s rather than waiting on it', async (_label, status, body) => {
+        // Waiting only makes sense for answers a later attempt could change. These say the deployment
+        // is wrong, and waiting on them forever would turn a config mistake into a pod that consumes
+        // nothing, passes every probe, and shows up only as lag hours later.
+        replies = [{ status, body }]
+
+        await expect(client().scrub(Buffer.from('image'))).rejects.toThrow(ScrubContractError)
+        expect(requests).toBe(1)
     })
 
     it.each([

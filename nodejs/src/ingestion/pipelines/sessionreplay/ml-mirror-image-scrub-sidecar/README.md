@@ -22,7 +22,15 @@ Lag grows while that happens, which is correct and is what the drain-time panels
 Two consequences worth knowing. A wedged sidecar blocks its partitions rather than draining them, and past `max.poll.interval.ms` (300s) the group evicts the pod and those partitions replay elsewhere: churny and loud, but lossless.
 And an image that makes the sidecar fail forever would block its partition indefinitely; 422/413 covers the common undecodable case, and the fix if a genuine poison pill ever appears is a dead-letter topic, which keeps the bytes in Kafka rather than discarding them.
 
+Waiting only applies to answers a later attempt could change: 5xx, 408, 429, and transport failures (a refused socket is the ordinary case while the sidecar is still starting in the same pod).
+Any other status, and a 200 carrying no bytes, is the sidecar answering a question we did not think we were asking, so it fails the batch loudly instead.
+Waiting on a 404 from a misdirected `SIDECAR_URL` would otherwise turn a deploy mistake into a pod that consumes nothing, passes every probe, and surfaces only as lag.
+
 `ml_mirror_image_scrub_consumer_scrub_waits_total` (by `reason`: `busy`, `timeout`, `transport`) counts attempts that came back without bytes and will be retried, so it is a saturation signal and never a loss signal.
+`ml_mirror_image_scrub_consumer_stuck_images_total` re-increments while any one image is still being retried past the point a healthy sidecar would have finished it, so it reads as a level rather than a one-off edge.
+
+**A stalled pod on this lane looks healthy to Kubernetes.** The lane runs the legacy heartbeat health check (`CONSUMER_LOOP_BASED_HEALTH_CHECK` is unset), and the consumer refreshes that heartbeat every 10s for the whole batch, so a pod blocked on one image stays Ready and Live indefinitely.
+That is deliberate — restarting it would only replay the same image — but it means lag and the two counters above are the only evidence, and it is why the lane's alerts are lag-shaped.
 
 **Nothing about a busy or unreachable sidecar may take the consumer down.**
 The consumer's Kafka loop exits the process on any batch error, so a failure that reaches it costs the whole pod and hands its partitions to pods that are equally busy, spreading the saturation.

@@ -139,6 +139,21 @@ export class ImageBatcher {
         // before any offset moves past it.
         const controller = new AbortController()
         this.activeBatch = controller
+        try {
+            await this.scrubAndStage(messages, planned, controller, nowMs)
+        } finally {
+            // Cleared here rather than on the success path: a throwing batch that left this set would
+            // have shutdown abort a controller belonging to a batch that is already over.
+            this.activeBatch = null
+        }
+    }
+
+    private async scrubAndStage(
+        messages: Message[],
+        planned: PlannedScrub[],
+        controller: AbortController,
+        nowMs: number
+    ): Promise<void> {
         let spanStart = 0
         let nextToSubmit = 0
         let retired = 0
@@ -217,7 +232,6 @@ export class ImageBatcher {
                 await this.flushOrThrow(nowMs)
             }
         }
-        this.activeBatch = null
         if (this.stopping) {
             // Deliberately no tail recordOffsets: past the last retired image nothing was finished,
             // and moving offsets over it here would lose exactly what the wait exists to protect.
