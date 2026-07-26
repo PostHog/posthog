@@ -292,14 +292,11 @@ export interface inboxReportDetailLogicActions {
     rateReport: (sentiment: InboxReportFeedbackSentiment) => {
         sentiment: InboxReportFeedbackSentiment
     }
-    setFeedbackNoteDraft: (draft: string) => {
-        draft: string
-    }
-    submitFeedbackNote: (note: string) => {
-        note: string
-    }
     searchAvailableReviewers: (query: string) => {
         query: string
+    }
+    setFeedbackNoteDraft: (draft: string) => {
+        draft: string
     }
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
@@ -309,6 +306,9 @@ export interface inboxReportDetailLogicActions {
     }
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
+    }
+    submitFeedbackNote: (note: string) => {
+        note: string
     }
     toggleExpandedTask: (taskId: string) => {
         taskId: string
