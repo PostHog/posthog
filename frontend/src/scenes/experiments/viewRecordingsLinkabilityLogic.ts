@@ -87,10 +87,16 @@ export const viewRecordingsLinkabilityLogic = kea<viewRecordingsLinkabilityLogic
                     if (eventNames.length === 0) {
                         return {}
                     }
-                    return await api.propertyDefinitions.seenTogether({
-                        eventNames,
-                        propertyDefinitionName: '$session_id',
-                    })
+                    try {
+                        return await api.propertyDefinitions.seenTogether({
+                            eventNames,
+                            propertyDefinitionName: '$session_id',
+                        })
+                    } catch {
+                        // The feature already fails open (absent keys stay linkable), so a transient
+                        // network blip shouldn't surface as an uncaught error. Return the default.
+                        return {}
+                    }
                 },
             },
         ],

@@ -5,9 +5,10 @@ export const NEW_INTERNAL_TAB = 'NEW_INTERNAL_TAB'
 /**
  * Open a path in a new browser tab. Preserves project scoping for relative URLs.
  *
- * Dispatches a synthetic cmd/ctrl-click on an anchor — browsers treat modifier-clicks
- * on `<a target="_blank">` as "open in new tab" regardless of the user's `window.open`
- * preference, while plain `window.open` and bare `.click()` can route to a new window.
+ * Clicks a real `<a target="_blank">` anchor attached to the DOM — a plain programmatic
+ * click on such an anchor opens a new tab reliably. An earlier version dispatched a
+ * synthetic cmd/ctrl-click, but browsers ignore modifier keys on untrusted events
+ * (`isTrusted === false`), so in some environments no tab opened at all.
  */
 export function newInternalTab(path?: string, _source: 'internal_link' | 'unknown' = 'internal_link'): void {
     if (!path) {
@@ -20,15 +21,9 @@ export function newInternalTab(path?: string, _source: 'internal_link' | 'unknow
     anchor.href = href
     anchor.target = '_blank'
     anchor.rel = 'noopener noreferrer'
+    anchor.style.display = 'none'
 
-    const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
-    anchor.dispatchEvent(
-        new MouseEvent('click', {
-            bubbles: true,
-            cancelable: true,
-            view: window,
-            ctrlKey: !isMac,
-            metaKey: isMac,
-        })
-    )
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
 }

@@ -66,4 +66,26 @@ describe('viewRecordingsLinkabilityLogic', () => {
         // $feature_flag_called is absent from the response: absent keys stay linkable
         expect(logic.values.unlinkableEventNames).toEqual(new Set(['purchase']))
     })
+
+    it('fails open without surfacing an error when the linkability check rejects', async () => {
+        seenTogetherSpy.mockRejectedValue(new TypeError('Failed to fetch'))
+        logic = viewRecordingsLinkabilityLogic({
+            experiment: {
+                ...experimentBase,
+                metrics: [
+                    {
+                        kind: NodeKind.ExperimentMetric,
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: 'purchase', name: 'purchase' },
+                    },
+                ],
+            } satisfies Experiment,
+        })
+        logic.mount()
+
+        // The network blip is swallowed: the loader resolves rather than firing loadSeenTogetherFailure,
+        // and every event stays linkable so callers keep today's behavior.
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ linkabilityLoaded: true })
+        expect(logic.values.unlinkableEventNames).toEqual(new Set())
+    })
 })
