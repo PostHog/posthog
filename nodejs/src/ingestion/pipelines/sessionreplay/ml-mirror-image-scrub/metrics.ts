@@ -44,6 +44,21 @@ export class ImageScrubConsumerMetrics {
         name: 'ml_mirror_image_scrub_consumer_shard_bytes_total',
         help: 'Scrubbed image bytes written into shards',
     })
+    /**
+     * The lane's data-loss signal, and the one to alert on. Every drop here is an image that reached
+     * the consumer and will never reach the bucket, because the sidecar had no capacity for it inside
+     * the batch's budget. A low background rate is the shape of a lane running near its ceiling; a
+     * rate approaching `scrubbed` means the sidecar is effectively down, which no longer announces
+     * itself by crash-looping the pods.
+     */
+    private static readonly dropped = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_dropped_total',
+        help: 'Images dropped because the sidecar had no capacity for them (busy, timed out, or the batch scrub budget expired). Never published, so this is lost coverage rather than leaked content',
+    })
+    private static readonly offsetsDiscarded = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_offsets_discarded_total',
+        help: 'Offsets that could not be stored because a rebalance had already revoked the partition, so that span rescrubs under its new owner',
+    })
     private static readonly batchFailed = new Counter({
         name: 'ml_mirror_image_scrub_consumer_batch_failed_total',
         help: 'Batches that threw and will replay, by cause (scrub or write)',
@@ -58,6 +73,12 @@ export class ImageScrubConsumerMetrics {
     }
     public static incSkipped(): void {
         this.skipped.inc()
+    }
+    public static incDropped(): void {
+        this.dropped.inc()
+    }
+    public static incOffsetsDiscarded(count: number): void {
+        this.offsetsDiscarded.inc(count)
     }
     public static incDeduped(scope: 'batch' | 'pod'): void {
         this.deduped.labels(scope).inc()

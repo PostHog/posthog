@@ -10,6 +10,17 @@ import * as ort from 'onnxruntime-node'
 import { ORT_THREADS } from './cores.ts'
 import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
+// Tiling bounds for extreme-aspect frames. A single letterboxed pass scales by 640/longSide, so on a
+// very tall/wide image a face (at most ~shortSide across) can land below the detector's smallest
+// stride. Above MAX_ASPECT the frame is cut along its long axis into windows of aspect TILE_ASPECT
+// (overlapping by one shortSide, so a face — at most one shortSide across — is always fully inside
+// some window): each window then scales by 640/(TILE_ASPECT*shortSide), keeping any face at least
+// ~640/TILE_ASPECT/(shortSide/faceSize) px. TILE_ASPECT=6 keeps a face spanning the full short side
+// at >=107px and a quarter-width face at >=27px, both comfortably detectable.
+// Kept in step with PlanLimits.faceTileAbove / faceTileAspect: the planner needs the same rule to
+// know how much of a long frame this stage really sees, and two copies of it is the drift the
+// planner exists to remove.
+import { FACE_TILE_ABOVE, FACE_TILE_ASPECT, faceWindowLong } from './scale-plan.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
 const YUNET_SIDE = 640 // this YuNet build has a FIXED 640x640 input (dynamic dims are rejected)
@@ -51,15 +62,8 @@ export interface FaceOpts {
     scoreMin?: number // lower = more sensitive (the verification pass uses this to catch lingering faces)
 }
 
-// Tiling bounds for extreme-aspect frames. A single letterboxed pass scales by 640/longSide, so on a
-// very tall/wide image a face (at most ~shortSide across) can land below the detector's smallest
-// stride. Above MAX_ASPECT the frame is cut along its long axis into windows of aspect TILE_ASPECT
-// (overlapping by one shortSide, so a face — at most one shortSide across — is always fully inside
-// some window): each window then scales by 640/(TILE_ASPECT*shortSide), keeping any face at least
-// ~640/TILE_ASPECT/(shortSide/faceSize) px. TILE_ASPECT=6 keeps a face spanning the full short side
-// at >=107px and a quarter-width face at >=27px, both comfortably detectable.
-const MAX_ASPECT = 3
-const TILE_ASPECT = 6
+const MAX_ASPECT = FACE_TILE_ABOVE
+const TILE_ASPECT = FACE_TILE_ASPECT
 
 interface Window {
     left: number
@@ -68,17 +72,31 @@ interface Window {
     height: number
 }
 
+/** Exposed for tests: a window that starts off the edge silently disables face redaction for a
+ *  whole class of frame shapes, and nothing downstream errors when it happens. */
+export function detectionWindowsForTest(W: number, H: number): Window[] {
+    return detectionWindows(W, H)
+}
+
 function detectionWindows(W: number, H: number): Window[] {
     const long = Math.max(W, H)
     const short = Math.min(W, H)
     if (long / short <= MAX_ASPECT) {
         return [{ left: 0, top: 0, width: W, height: H }]
     }
-    const windowLong = TILE_ASPECT * short
-    const stride = windowLong - short // overlap of one shortSide: no face can straddle two windows undetected
+    // Never longer than the frame: for an aspect between MAX_ASPECT and TILE_ASPECT the frame is
+    // SHORTER than a full tile, so an unclamped windowLong made `long - windowLong` negative and
+    // every window started off the left (or top) edge. Face boxes are translated by that offset, so
+    // at an aspect just over MAX_ASPECT the shift approached the whole long side and no box survived
+    // the width check: face redaction was silently off for every frame between 3:1 and 6:1.
+    // From the planner, so the work done here and the scale the plan assumed cannot disagree, and so
+    // the inference count is bounded: it grows with the aspect ratio, which the area budget does not
+    // constrain, and an unbounded count is a worker pinned by one small crafted image.
+    const windowLong = faceWindowLong(long, short, MAX_ASPECT, TILE_ASPECT)
+    const stride = Math.max(1, windowLong - short) // overlap of one shortSide: no face can straddle two windows undetected
     const windows: Window[] = []
     for (let pos = 0; ; pos += stride) {
-        const start = Math.min(pos, long - windowLong)
+        const start = Math.max(0, Math.min(pos, long - windowLong))
         windows.push(
             W >= H
                 ? { left: start, top: 0, width: Math.min(windowLong, long), height: H }
