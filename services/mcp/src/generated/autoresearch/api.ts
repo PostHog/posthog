@@ -19,7 +19,7 @@ export const AutoresearchListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -39,7 +39,7 @@ export const AutoresearchCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -143,7 +143,7 @@ export const AutoresearchModelsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -165,7 +165,7 @@ export const AutoresearchModelsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -177,7 +177,7 @@ export const AutoresearchRunsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -195,7 +195,7 @@ export const AutoresearchSuggestionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -213,7 +213,7 @@ export const AutoresearchSuggestionsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -230,10 +230,10 @@ export const AutoresearchSuggestionsCreateBody = /* @__PURE__ */ zod.object({
         ),
     priority: zod
         .enum(['try_next', 'consider'])
-        .describe('* `try_next` - try_next\n* `consider` - consider')
+        .describe('\* `try_next` - try_next\n\* `consider` - consider')
         .default(autoresearchSuggestionsCreateBodyPriorityDefault)
         .describe(
-            "'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.\n\n* `try_next` - try_next\n* `consider` - consider"
+            "'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.\n\n\* `try_next` - try_next\n\* `consider` - consider"
         ),
 })
 
@@ -247,7 +247,7 @@ export const AutoresearchSuggestionsRetrieveParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -261,7 +261,7 @@ export const AutoresearchSuggestionsRespondCreateParams = /* @__PURE__ */ zod.ob
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -272,9 +272,9 @@ export const AutoresearchSuggestionsRespondCreateBody = /* @__PURE__ */ zod
     .object({
         status: zod
             .enum(['picked_up', 'acted_on', 'dismissed'])
-            .describe('* `picked_up` - picked_up\n* `acted_on` - acted_on\n* `dismissed` - dismissed')
+            .describe('\* `picked_up` - picked_up\n\* `acted_on` - acted_on\n\* `dismissed` - dismissed')
             .describe(
-                "How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).\n\n* `picked_up` - picked_up\n* `acted_on` - acted_on\n* `dismissed` - dismissed"
+                "How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).\n\n\* `picked_up` - picked_up\n\* `acted_on` - acted_on\n\* `dismissed` - dismissed"
             ),
         agent_response: zod
             .string()
@@ -298,7 +298,7 @@ export const AutoresearchTrainingRunsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -316,7 +316,7 @@ export const AutoresearchTrainingRunsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -343,7 +343,7 @@ export const AutoresearchTrainingRunsArtifactsRetrieveParams = /* @__PURE__ */ z
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -357,7 +357,7 @@ export const AutoresearchTrainingRunsArtifactsDeleteCreateParams = /* @__PURE__ 
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -382,7 +382,7 @@ export const AutoresearchTrainingRunsArtifactsGetCreateParams = /* @__PURE__ */ 
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -407,7 +407,7 @@ export const AutoresearchTrainingRunsArtifactsUploadCreateParams = /* @__PURE__ 
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -419,7 +419,7 @@ export const AutoresearchTrainingRunsArtifactsUploadCreateBody = /* @__PURE__ */
             .string()
             .max(autoresearchTrainingRunsArtifactsUploadCreateBodyPathMax)
             .describe(
-                "Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', or 'eda/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected."
+                "Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', or 'eda\/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected."
             ),
         content_base64: zod
             .string()
@@ -439,7 +439,7 @@ export const AutoresearchTrainingRunsCompleteCreateParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -457,7 +457,7 @@ export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
         model_explanation: zod
             .looseObject({})
             .optional()
-            .describe('Global feature importance / directionality bundle for the champion model card.'),
+            .describe('Global feature importance \/ directionality bundle for the champion model card.'),
         recommended_next: zod
             .string()
             .default(autoresearchTrainingRunsCompleteCreateBodyRecommendedNextDefault)
@@ -471,7 +471,7 @@ export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
                 'A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads.'
             ),
     })
-    .describe('Input for finalizing a training run. The backend selects/promotes the champion.')
+    .describe('Input for finalizing a training run. The backend selects\/promotes the champion.')
 
 /**
  * Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration. The recipe is validated server-side: model_class must be in the allowlist and feature_sql must be a read-only SELECT keyed on person_id.
@@ -483,7 +483,7 @@ export const AutoresearchTrainingRunsIterationsCreateParams = /* @__PURE__ */ zo
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -511,9 +511,9 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
             .describe('model_class (must be allowlisted) and model_params tried this iteration.'),
         status: zod
             .enum(['kept', 'discarded', 'crashed'])
-            .describe('* `kept` - kept\n* `discarded` - discarded\n* `crashed` - crashed')
+            .describe('\* `kept` - kept\n\* `discarded` - discarded\n\* `crashed` - crashed')
             .describe(
-                "'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.\n\n* `kept` - kept\n* `discarded` - discarded\n* `crashed` - crashed"
+                "'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.\n\n\* `kept` - kept\n\* `discarded` - discarded\n\* `crashed` - crashed"
             ),
         train_score: zod.number().nullish().describe('Training-set AUC for this iteration.'),
         holdout_score: zod
@@ -549,7 +549,7 @@ export const AutoresearchTrainingRunsMaterializeFeaturesCreateParams = /* @__PUR
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -558,7 +558,7 @@ export const AutoresearchTrainingRunsMaterializeFeaturesCreateBody = /* @__PURE_
         features_sql: zod
             .string()
             .describe(
-                'Your HogQL feature query, using the {anchors}/{lookback_days} contract. Must be a read-only SELECT keyed on person_id (aliased to distinct_id), one row per user. The backend runs it server-side against the labeled training population — no 500-row cap — and writes the resulting train/holdout feature and label parquet files into your sandbox.'
+                'Your HogQL feature query, using the {anchors}\/{lookback_days} contract. Must be a read-only SELECT keyed on person_id (aliased to distinct_id), one row per user. The backend runs it server-side against the labeled training population — no 500-row cap — and writes the resulting train\/holdout feature and label parquet files into your sandbox.'
             ),
     })
     .describe("Input for materializing the labeled training feature matrix into the run's sandbox.")
@@ -572,7 +572,7 @@ export const AutoresearchTrainingRunsHistoryRetrieveParams = /* @__PURE__ */ zod
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -592,7 +592,7 @@ export const AutoresearchRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -605,7 +605,7 @@ export const AutoresearchArchiveCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -698,7 +698,7 @@ export const AutoresearchPauseCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -791,7 +791,7 @@ export const AutoresearchResumeCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -884,7 +884,7 @@ export const AutoresearchScoreCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -897,7 +897,7 @@ export const AutoresearchTrainCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -921,7 +921,7 @@ export const AutoresearchValidateOnlineCreateParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1013,7 +1013,7 @@ export const AutoresearchResolveTemplateCreateParams = /* @__PURE__ */ zod.objec
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1029,10 +1029,10 @@ export const AutoresearchResolveTemplateCreateBody = /* @__PURE__ */ zod.object(
             'repeat_key_behavior',
         ])
         .describe(
-            '* `likely_active_soon` - likely_active_soon\n* `at_risk_of_inactivity` - at_risk_of_inactivity\n* `return_after_first_use` - return_after_first_use\n* `feature_adoption` - feature_adoption\n* `repeat_key_behavior` - repeat_key_behavior'
+            '\* `likely_active_soon` - likely_active_soon\n\* `at_risk_of_inactivity` - at_risk_of_inactivity\n\* `return_after_first_use` - return_after_first_use\n\* `feature_adoption` - feature_adoption\n\* `repeat_key_behavior` - repeat_key_behavior'
         )
         .describe(
-            'Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.\n\n* `likely_active_soon` - likely_active_soon\n* `at_risk_of_inactivity` - at_risk_of_inactivity\n* `return_after_first_use` - return_after_first_use\n* `feature_adoption` - feature_adoption\n* `repeat_key_behavior` - repeat_key_behavior'
+            'Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.\n\n\* `likely_active_soon` - likely_active_soon\n\* `at_risk_of_inactivity` - at_risk_of_inactivity\n\* `return_after_first_use` - return_after_first_use\n\* `feature_adoption` - feature_adoption\n\* `repeat_key_behavior` - repeat_key_behavior'
         ),
     target_event: zod
         .string()
@@ -1056,7 +1056,7 @@ export const AutoresearchTemplatesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1073,7 +1073,7 @@ export const AutoresearchValidateCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1096,7 +1096,7 @@ export const AutoresearchValidateCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Optional target definition. Pass {"type": "action", "action_id": N} to predict a PostHog action (multi-step / property / autocapture matcher) instead of a single event.'
+            'Optional target definition. Pass {\"type\": \"action\", \"action_id\": N} to predict a PostHog action (multi-step \/ property \/ autocapture matcher) instead of a single event.'
         ),
     horizon_days: zod
         .number()

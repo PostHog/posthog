@@ -9978,14 +9978,6 @@ export namespace Schemas {
       GithubPr: 'github_pr',
     } as const;
 
-    export interface AsknicelyFeedbackSignalExtra {
-      score: string | null;
-      status: string | null;
-      question_type: string | null;
-      segment: string | null;
-      created: string | null;
-    }
-
     /**
      * Input for uploading one file of a training run's artifact bundle.
      */
@@ -9997,6 +9989,14 @@ export namespace Schemas {
       path: string;
       /** File contents, base64-encoded. Decoded server-side and written to object storage. Max 10 MB decoded. */
       content_base64: string;
+    }
+
+    export interface AsknicelyFeedbackSignalExtra {
+      score: string | null;
+      status: string | null;
+      question_type: string | null;
+      segment: string | null;
+      created: string | null;
     }
 
     /**
@@ -67179,27 +67179,6 @@ export namespace Schemas {
       run: StaffWarmRun | null;
     }
 
-    export interface StartTrainingRequest {
-      /**
-         * Override the pipeline iteration budget for this training run.
-         * @minimum 1
-         * @maximum 500
-         */
-      iteration_budget?: number;
-    }
-
-    /**
-     * Result of an upload: where the file landed and its content hash.
-     */
-    export interface StoredArtifact {
-      /** Relative path the file was stored at. */
-      path: string;
-      /** Decoded file size in bytes. */
-      size_bytes: number;
-      /** SHA-256 hex digest of the decoded file content. */
-      sha256: string;
-    }
-
     /**
      * One installation of the App the authorizing user can reach, offered for an explicit pick.
      */
@@ -67252,6 +67231,27 @@ export namespace Schemas {
       readonly app_not_installed: boolean;
       /** Populated only on the discovery path when the caller can reach MORE than one installation of this App: nothing was bound, and the user must pick which installation to connect. The frontend re-runs the authorize flow and calls back with the chosen installation_id, which the explicit path verifies. Empty whenever a bind happened (or nothing was found). */
       readonly installations: readonly StamphogDiscoveredInstallation[];
+    }
+
+    export interface StartTrainingRequest {
+      /**
+         * Override the pipeline iteration budget for this training run.
+         * @minimum 1
+         * @maximum 500
+         */
+      iteration_budget?: number;
+    }
+
+    /**
+     * Result of an upload: where the file landed and its content hash.
+     */
+    export interface StoredArtifact {
+      /** Relative path the file was stored at. */
+      path: string;
+      /** Decoded file size in bytes. */
+      size_bytes: number;
+      /** SHA-256 hex digest of the decoded file content. */
+      sha256: string;
     }
 
     /**
@@ -68180,6 +68180,7 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
+       * * `autoresearch` - Autoresearch
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
