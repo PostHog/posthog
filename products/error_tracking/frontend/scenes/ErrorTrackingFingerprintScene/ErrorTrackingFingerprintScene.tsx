@@ -1,9 +1,11 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { NotFound } from 'lib/components/NotFound'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import {
     ErrorTrackingFingerprintSceneLogicProps,
@@ -26,14 +28,29 @@ export const scene: SceneExport<ErrorTrackingFingerprintSceneLogicProps> = {
 }
 
 export function ErrorTrackingFingerprintScene(): JSX.Element {
-    const { notFound, retries } = useValues(errorTrackingFingerprintSceneLogic)
+    const { notFound, retries, resolvedFingerprintLoading } = useValues(errorTrackingFingerprintSceneLogic)
+    const { retry } = useActions(errorTrackingFingerprintSceneLogic)
 
+    // We couldn't resolve the issue within the retry window. Rather than dead-ending on the generic
+    // "page not found" screen, keep the user moving: a recently captured error can still be finishing
+    // ingestion, so offer a fresh attempt and a way back to the full issue list.
     if (notFound) {
         return (
-            <NotFound
-                object="issue"
-                caption="We couldn't find this issue. If the error was captured very recently, it may still be processing, so try refreshing in a moment."
-            />
+            <div className="flex flex-col items-center justify-center gap-3 text-center h-full py-16">
+                <h2 className="mb-0">We couldn't find this issue yet</h2>
+                <p className="text-secondary max-w-md mb-0">
+                    If the error was captured recently, it can take a few moments to finish processing. Try again in a
+                    moment, or head back to all issues to find it.
+                </p>
+                <div className="flex gap-2">
+                    <LemonButton type="primary" onClick={retry} loading={resolvedFingerprintLoading}>
+                        Try again
+                    </LemonButton>
+                    <LemonButton type="secondary" to={urls.errorTracking()}>
+                        Back to all issues
+                    </LemonButton>
+                </div>
+            </div>
         )
     }
 

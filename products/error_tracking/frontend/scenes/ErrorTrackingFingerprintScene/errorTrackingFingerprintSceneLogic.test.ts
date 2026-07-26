@@ -42,6 +42,23 @@ describe('errorTrackingFingerprintSceneLogic', () => {
         expect(router.values.searchParams).toEqual(expectedParams)
     })
 
+    it('treats a resolve 404 as a transient miss and retries without a thrown failure', async () => {
+        // A 404 while the error is still ingesting must not surface as a loader failure — that path
+        // toasts and captures the error as a self-inflicted exception (see initKea onFailure). It
+        // should instead drive the bounded retry via scheduleRetry.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/error_tracking/fingerprints/resolve/': () => [404, { detail: 'not found' }],
+            },
+        })
+        logic = errorTrackingFingerprintSceneLogic({ fingerprint: 'missing-fp' })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['resolveFingerprintSuccess', 'scheduleRetry'])
+            .toNotHaveDispatchedActions(['resolveFingerprintFailure'])
+    })
+
     it('extracts the raw, still-encoded fingerprint segment from the pathname', () => {
         expect(rawFingerprintPathSegment('/project/1/error_tracking/fingerprint/%24uper%2Fstrange%23fp')).toEqual(
             '%24uper%2Fstrange%23fp'
