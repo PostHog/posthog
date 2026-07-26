@@ -41,10 +41,15 @@ export function startServer(
     app.disable('x-powered-by')
     app.disable('etag')
 
-    const shedIfBusy = (_req: Request, res: Response, next: NextFunction): void => {
+    const shedIfBusy = (req: Request, res: Response, next: NextFunction): void => {
         if (inFlight >= maxConcurrency) {
             ScrubMetrics.incRejected()
-            res.status(503).send('busy')
+            // Drain first: this runs ahead of the body parser, and Node destroys the socket when a
+            // response completes with an unread request body. The caller would then see a reset
+            // rather than the 503, which is the one status it can tell apart from a real fault, and
+            // the shed would be indistinguishable from the sidecar falling over.
+            req.resume()
+            req.once('end', () => res.status(503).send('busy'))
             return
         }
         inFlight += 1

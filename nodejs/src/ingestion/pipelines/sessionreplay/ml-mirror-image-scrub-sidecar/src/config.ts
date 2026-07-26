@@ -29,17 +29,11 @@ export interface Config {
     jobTimeoutMs: number
 }
 
-// Validated like every other knob: a mistyped IMAGE_SCRUB_CONCURRENCY parsed to NaN leaves
-// `inFlight >= maxConcurrency` permanently false, which removes load shedding entirely rather than
-// failing loudly.
 export function loadConfig(): Config {
     return {
         port: numFromEnv('IMAGE_SCRUB_PORT', 9010, 1, 65535),
         metricsPort: numFromEnv('IMAGE_SCRUB_METRICS_PORT', 9011, 1, 65535),
-        // Derived from the worker count rather than fixed, so the two cannot drift apart. A fixed 8
-        // against a pod that could execute fewer left the difference sitting in the accept queue,
-        // where it timed out the consumer instead of being shed.
-        maxConcurrency: numFromEnv('IMAGE_SCRUB_CONCURRENCY', ADMITTED_PER_WORKER * SCRUB_WORKERS, 1, 256),
+        maxConcurrency: ADMITTED_PER_WORKER * SCRUB_WORKERS,
         maxBodyBytes: numFromEnv('IMAGE_SCRUB_MAX_BODY_BYTES', 20 * 1024 * 1024, 1024, 512 * 1024 * 1024),
         jobTimeoutMs: numFromEnv('IMAGE_SCRUB_JOB_TIMEOUT_MS', 15_000, 1000, 600_000),
     }

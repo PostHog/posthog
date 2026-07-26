@@ -37,9 +37,9 @@ const aborted = new Counter({
 const duration = new Histogram({
     name: 'ml_mirror_image_scrub_duration_seconds',
     help: 'Scrub wall time',
-    // Out to 60s: under IMAGE_SCRUB_CONCURRENCY-way contention a single scrub's wall time runs to
-    // seconds, and a quantile whose true value sits in the +Inf bucket reports the highest finite
-    // edge instead. A ceiling that traffic actually reaches reads as a flat line at that ceiling.
+    // Out to 60s: under full admission contention a single scrub's wall time runs to seconds, and a
+    // quantile whose true value sits in the +Inf bucket reports the highest finite edge instead. A
+    // ceiling that traffic actually reaches reads as a flat line at that ceiling.
     buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 60],
     registers: [register],
 })

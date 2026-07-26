@@ -1,5 +1,10 @@
 import { Counter, Histogram } from 'prom-client'
 
+import { ScrubUnavailableReason } from './scrub-client'
+
+/** The scrub client's reasons, plus the two the batch itself owns and the client never sees. */
+export type DropReason = ScrubUnavailableReason | 'deadline' | 'unattempted'
+
 export class ImageScrubConsumerMetrics {
     private static readonly scrubbed = new Counter({
         name: 'ml_mirror_image_scrub_consumer_scrubbed_total',
@@ -48,12 +53,14 @@ export class ImageScrubConsumerMetrics {
      * The lane's data-loss signal, and the one to alert on. Every drop here is an image that reached
      * the consumer and will never reach the bucket, because the sidecar had no capacity for it inside
      * the batch's budget. A low background rate is the shape of a lane running near its ceiling; a
-     * rate approaching `scrubbed` means the sidecar is effectively down, which no longer announces
-     * itself by crash-looping the pods.
+     * rate approaching `scrubbed` means the sidecar is effectively down. Nothing else reports that:
+     * a pod dropping every image still passes its probes, keeps its lag flat, and keeps advancing
+     * offsets.
      */
     private static readonly dropped = new Counter({
         name: 'ml_mirror_image_scrub_consumer_dropped_total',
-        help: 'Images dropped because the sidecar had no capacity for them (busy, timed out, or the batch scrub budget expired). Never published, so this is lost coverage rather than leaked content',
+        help: 'Images dropped because the sidecar could not take them. Never published, so this is lost coverage rather than leaked content. By reason: "busy" (503, shed), "timeout" (no reply inside the request timeout), "transport" (socket refused or reset, or an unexpected status), "aborted" (a sibling failure ended the batch), "deadline" (in flight when the batch scrub budget expired), "unattempted" (never submitted, because the budget expired first)',
+        labelNames: ['reason'],
     })
     private static readonly offsetsDiscarded = new Counter({
         name: 'ml_mirror_image_scrub_consumer_offsets_discarded_total',
@@ -74,8 +81,8 @@ export class ImageScrubConsumerMetrics {
     public static incSkipped(): void {
         this.skipped.inc()
     }
-    public static incDropped(): void {
-        this.dropped.inc()
+    public static incDropped(reason: DropReason, count = 1): void {
+        this.dropped.labels(reason).inc(count)
     }
     public static incOffsetsDiscarded(count: number): void {
         this.offsetsDiscarded.inc(count)
