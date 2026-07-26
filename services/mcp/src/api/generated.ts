@@ -13968,6 +13968,20 @@ export namespace Schemas {
       name: string;
     }
 
+    /**
+     * Schema shape for a chart's `query`, so the generated types describe a query node rather than an
+     * opaque blob. Only the discriminator is modelled — the node's remaining fields differ per kind and
+     * pass through as authored (see `ChartArtefact` for why they aren't parsed server-side).
+     *
+     * `kind` is a `CharField`, not a `ChoiceField`, on purpose: `kind` is one of the enum field names
+     * that collides across the OpenAPI spec and fails codegen under `--fail-on-warn`. The allowed values
+     * are enforced by `ChartArtefact` and spelled out in the field's help text instead.
+     */
+    export interface ChartQuerySchema {
+      /** Query node kind — one of `InsightVizNode`, `DataVisualizationNode`, `SavedInsightNode`. */
+      kind: string;
+    }
+
     export interface CheckDatabaseNameResponse {
       name: string;
       available: boolean;
@@ -22496,6 +22510,30 @@ export namespace Schemas {
     }
 
     /**
+     * One chart attached to a report — rendered in the inbox and referenceable from the summary.
+     */
+    export interface ReportChart {
+      /**
+         * Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary.
+         * @maxLength 100
+         */
+      chart_id: string;
+      /**
+         * Short heading shown above the chart.
+         * @maxLength 200
+         */
+      title: string;
+      /** The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report. */
+      query: ChartQuerySchema;
+      /**
+         * Optional one-line note on what to look at in the chart.
+         * @maxLength 500
+         * @nullable
+         */
+      caption?: string | null;
+    }
+
+    /**
      * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
      */
     export interface EditReportRequest {
@@ -22522,6 +22560,11 @@ export namespace Schemas {
          * @maxItems 10
          */
       suggested_reviewers?: SuggestedReviewer[];
+      /**
+         * Optional charts to append to the report. Charts accumulate rather than replace, so re-supplying a `chart_id` from an earlier call adds a newer version of that chart and the report renders the newest — which is what a refreshed window on a recurring report wants.
+         * @maxItems 4
+         */
+      charts?: ReportChart[];
     }
 
     export interface EditReportResponse {
@@ -22533,6 +22576,8 @@ export namespace Schemas {
       note_appended: boolean;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
+      /** How many chart artefacts were appended. */
+      charts_appended: number;
     }
 
     export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];
@@ -22927,6 +22972,11 @@ export namespace Schemas {
          * @maxItems 10
          */
       suggested_reviewers?: SuggestedReviewer[];
+      /**
+         * Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.
+         * @maxItems 4
+         */
+      charts?: ReportChart[];
     }
 
     export interface EmitReportResponse {
@@ -43329,6 +43379,7 @@ export namespace Schemas {
      * * `summary_change` - Summary Change
      * * `code_review` - Code Review
      * * `related_to` - Related To
+     * * `chart` - Chart
      */
     export type SignalReportArtefactTypeEnum = typeof SignalReportArtefactTypeEnum[keyof typeof SignalReportArtefactTypeEnum];
 
@@ -43350,6 +43401,7 @@ export namespace Schemas {
       SummaryChange: 'summary_change',
       CodeReview: 'code_review',
       RelatedTo: 'related_to',
+      Chart: 'chart',
     } as const;
 
     export interface _User {
@@ -61031,7 +61083,7 @@ export namespace Schemas {
      * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
      */
     export interface SignalReportArtefactLogCreate {
-      /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      /** The artefact type. One of: actionability_judgment, chart, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
       artefact_type: string;
       /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;
