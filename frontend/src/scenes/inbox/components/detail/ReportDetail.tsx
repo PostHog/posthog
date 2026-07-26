@@ -48,6 +48,7 @@ import {
 } from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
 import { useReportDetailActions } from './ReportDetailActions'
+import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 
@@ -323,9 +324,12 @@ export function InboxDetailFrame({
         onClick: action.onClick,
     }))
 
+    // The rating row is a third grid child rather than part of the main column: stacked (one column)
+    // that puts it last on the page, and on the two-column layout it's placed back under the main
+    // column so it still reads as the end of the report rather than the end of the sidebar.
     const overviewBody = (
-        <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
-            <div className="min-w-0 flex flex-col gap-5">
+        <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] @5xl:grid-rows-[auto_1fr] gap-5">
+            <div className="min-w-0 flex flex-col gap-5 @5xl:col-start-1 @5xl:row-start-1">
                 <DetailSection icon={summary.icon} title={summary.title}>
                     {report.summary ? (
                         <LemonMarkdown
@@ -343,7 +347,7 @@ export function InboxDetailFrame({
                 {summaryFooter}
             </div>
 
-            <div className="flex flex-col min-w-0 gap-5">
+            <div className="flex flex-col min-w-0 gap-5 @5xl:col-start-2 @5xl:row-start-1 @5xl:row-span-2">
                 {/* Pull request (when present) first, then reviewers, evidence, runs, and activity. */}
                 {children}
                 <SuggestedReviewersSection report={report} />
@@ -372,6 +376,11 @@ export function InboxDetailFrame({
                 )}
                 <ReportTasksSection report={report} />
                 <ReportActivitySection report={report} />
+            </div>
+
+            {/* `self-start` keeps this pinned under the summary when a tall sidebar stretches the row. */}
+            <div className="min-w-0 self-start @5xl:col-start-1 @5xl:row-start-2">
+                <ReportFeedbackFooter report={report} />
             </div>
         </div>
     )
@@ -440,15 +449,18 @@ export function InboxDetailFrame({
                                 </LemonButton>
                             ))}
                         </div>
-                        <LemonMenu items={overflowMenuItems} placement="bottom-end">
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconEllipsis />}
-                                aria-label="More actions"
-                                className="@4xl:hidden"
-                            />
-                        </LemonMenu>
+                        {/* A resolved report past its refund window has no secondary actions at all. */}
+                        {overflowMenuItems.length > 0 && (
+                            <LemonMenu items={overflowMenuItems} placement="bottom-end">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconEllipsis />}
+                                    aria-label="More actions"
+                                    className="@4xl:hidden"
+                                />
+                            </LemonMenu>
+                        )}
                     </div>
                 </div>
             </div>
@@ -468,7 +480,16 @@ export function InboxDetailFrame({
                                     {diffBranchTag}
                                 </span>
                             ),
-                            content: <>{diffSection}</>,
+                            // `LemonTabs` renders only the active tab, so the rating row is repeated
+                            // at the end of the diff – otherwise reviewing a PR's code and stopping
+                            // there leaves no way to rate the report. Both rows drive the same
+                            // report-keyed logic, so a rating given on one reads back on the other.
+                            content: (
+                                <div className="flex flex-col gap-5">
+                                    {diffSection}
+                                    <ReportFeedbackFooter report={report} />
+                                </div>
+                            ),
                         },
                     ]}
                 />
