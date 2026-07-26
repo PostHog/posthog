@@ -1,5 +1,7 @@
+from typing import Any
 from uuid import UUID
 
+from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -204,6 +206,24 @@ class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(TaskMentionSerializer(mentions, many=True).data)
 
 
+class _ActivityPageEnvelopeSchema(AutoSchema):
+    """Stops drf-spectacular's list-view heuristic from wrapping the `list` response in an array.
+
+    `list` returns a single page envelope (`results` + `unread_count`), not a bare collection.
+    Forcing the heuristic off renames the operation to `*_retrieve`, so pin the operationId back
+    to keep the generated client's `*List` name.
+    """
+
+    def _is_list_view(self, serializer: Any = None) -> bool:
+        return False
+
+    def get_operation_id(self) -> str:
+        operation_id = super().get_operation_id()
+        if getattr(self.view, "action", None) == "list" and operation_id.endswith("_retrieve"):
+            return operation_id.removesuffix("_retrieve") + "_list"
+        return operation_id
+
+
 class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for the requester's activity feed — one row per task they are involved in (created,
@@ -219,10 +239,10 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "task"
     http_method_names = ["get", "post", "head", "options"]
     serializer_class = TaskActivitySerializer
-    # `list` returns one page object carrying its own unread total, not a paginated
-    # list. Without this drf-spectacular wraps it and the generated client is typed
-    # for a `results` envelope the endpoint never sends.
+    # `list` hands back one envelope carrying its own unread total, so neither DRF's
+    # pagination wrapper nor spectacular's array wrapper describes what it sends.
     pagination_class = None
+    schema = _ActivityPageEnvelopeSchema()
 
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
