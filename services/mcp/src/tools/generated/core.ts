@@ -31,45 +31,31 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import { omitResponseFields, pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const DesktopFileSystemCanvasPartialUpdateSchema = DesktopFileSystemCanvasPartialUpdateParams.omit({ project_id: true })
-    .extend(DesktopFileSystemCanvasPartialUpdateBody.shape)
-    .extend({
-        id: DesktopFileSystemCanvasPartialUpdateParams.shape['id'].describe(
-            'ID of the canvas (desktop "dashboard" item) whose code to publish.'
-        ),
-        code: DesktopFileSystemCanvasPartialUpdateBody.shape['code']
-            .unwrap()
-            .describe('The complete single-file React source for the canvas. Replaces the current code wholesale.'),
-        name: DesktopFileSystemCanvasPartialUpdateBody.shape['name'].describe(
-            'Optional new display name for the canvas. When set, renames the canvas (the leaf of its path) in place. Omit to leave the name unchanged.'
-        ),
-    })
+const CanvasBuildGetSchema = DesktopFileSystemCanvasBuildsRetrieveParams.omit({ project_id: true })
 
-const desktopFileSystemCanvasPartialUpdate = (): ToolBase<
-    typeof DesktopFileSystemCanvasPartialUpdateSchema,
-    Schemas.FileSystem
-> => ({
-    name: 'desktop-file-system-canvas-partial-update',
-    schema: DesktopFileSystemCanvasPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCanvasPartialUpdateSchema>) => {
+const canvasBuildGet = (): ToolBase<typeof CanvasBuildGetSchema, Schemas.CanvasBuild> => ({
+    name: 'canvas-build-get',
+    schema: CanvasBuildGetSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasBuildGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.code !== undefined) {
-            body['code'] = params.code
-        }
-        if (params.prompt !== undefined) {
-            body['prompt'] = params.prompt
-        }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.expected_current_version_id !== undefined) {
-            body['expected_current_version_id'] = params.expected_current_version_id
-        }
-        const result = await context.api.request<Schemas.FileSystem>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/`,
-            body,
+        const result = await context.api.request<Schemas.CanvasBuild>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/builds/${encodeURIComponent(String(params.build_id))}/`,
+        })
+        return result
+    },
+})
+
+const CanvasHistoryGetSchema = DesktopFileSystemCanvasHistoryRetrieveParams.omit({ project_id: true })
+
+const canvasHistoryGet = (): ToolBase<typeof CanvasHistoryGetSchema, Schemas.CanvasHistory> => ({
+    name: 'canvas-history-get',
+    schema: CanvasHistoryGetSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasHistoryGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CanvasHistory>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/history/`,
         })
         return result
     },
@@ -85,40 +71,6 @@ const canvasSourceGet = (): ToolBase<typeof CanvasSourceGetSchema, Schemas.Canva
         const result = await context.api.request<Schemas.CanvasSourceSnapshot>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/source/`,
-        })
-        return result
-    },
-})
-
-const CanvasSourcePublishSchema = DesktopFileSystemCanvasSourceCreateParams.omit({ project_id: true }).extend(
-    DesktopFileSystemCanvasSourceCreateBody.shape
-)
-
-const canvasSourcePublish = (): ToolBase<typeof CanvasSourcePublishSchema, Schemas.CanvasPublishResponse> => ({
-    name: 'canvas-source-publish',
-    schema: CanvasSourcePublishSchema,
-    handler: async (context: Context, params: z.infer<typeof CanvasSourcePublishSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.project !== undefined) {
-            body['project'] = params.project
-        }
-        if (params.expectedCurrentVersionId !== undefined) {
-            body['expectedCurrentVersionId'] = params.expectedCurrentVersionId
-        }
-        if (params.taskId !== undefined) {
-            body['taskId'] = params.taskId
-        }
-        if (params.taskRunId !== undefined) {
-            body['taskRunId'] = params.taskRunId
-        }
-        if (params.prompt !== undefined) {
-            body['prompt'] = params.prompt
-        }
-        const result = await context.api.request<Schemas.CanvasPublishResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/source/`,
-            body,
         })
         return result
     },
@@ -151,6 +103,40 @@ const canvasSourcePatch = (): ToolBase<typeof CanvasSourcePatchSchema, Schemas.C
         }
         const result = await context.api.request<Schemas.CanvasPublishResponse>({
             method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/source/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CanvasSourcePublishSchema = DesktopFileSystemCanvasSourceCreateParams.omit({ project_id: true }).extend(
+    DesktopFileSystemCanvasSourceCreateBody.shape
+)
+
+const canvasSourcePublish = (): ToolBase<typeof CanvasSourcePublishSchema, Schemas.CanvasPublishResponse> => ({
+    name: 'canvas-source-publish',
+    schema: CanvasSourcePublishSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasSourcePublishSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.project !== undefined) {
+            body['project'] = params.project
+        }
+        if (params.expectedCurrentVersionId !== undefined) {
+            body['expectedCurrentVersionId'] = params.expectedCurrentVersionId
+        }
+        if (params.taskId !== undefined) {
+            body['taskId'] = params.taskId
+        }
+        if (params.taskRunId !== undefined) {
+            body['taskRunId'] = params.taskRunId
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        const result = await context.api.request<Schemas.CanvasPublishResponse>({
+            method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/source/`,
             body,
         })
@@ -198,31 +184,45 @@ const canvasSourceValidate = (): ToolBase<typeof CanvasSourceValidateSchema, Sch
     },
 })
 
-const CanvasHistoryGetSchema = DesktopFileSystemCanvasHistoryRetrieveParams.omit({ project_id: true })
+const DesktopFileSystemCanvasPartialUpdateSchema = DesktopFileSystemCanvasPartialUpdateParams.omit({ project_id: true })
+    .extend(DesktopFileSystemCanvasPartialUpdateBody.shape)
+    .extend({
+        id: DesktopFileSystemCanvasPartialUpdateParams.shape['id'].describe(
+            'ID of the canvas (desktop "dashboard" item) whose code to publish.'
+        ),
+        code: DesktopFileSystemCanvasPartialUpdateBody.shape['code']
+            .unwrap()
+            .describe('The complete single-file React source for the canvas. Replaces the current code wholesale.'),
+        name: DesktopFileSystemCanvasPartialUpdateBody.shape['name'].describe(
+            'Optional new display name for the canvas. When set, renames the canvas (the leaf of its path) in place. Omit to leave the name unchanged.'
+        ),
+    })
 
-const canvasHistoryGet = (): ToolBase<typeof CanvasHistoryGetSchema, Schemas.CanvasHistory> => ({
-    name: 'canvas-history-get',
-    schema: CanvasHistoryGetSchema,
-    handler: async (context: Context, params: z.infer<typeof CanvasHistoryGetSchema>) => {
+const desktopFileSystemCanvasPartialUpdate = (): ToolBase<
+    typeof DesktopFileSystemCanvasPartialUpdateSchema,
+    Schemas.FileSystem
+> => ({
+    name: 'desktop-file-system-canvas-partial-update',
+    schema: DesktopFileSystemCanvasPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCanvasPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.CanvasHistory>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/history/`,
-        })
-        return result
-    },
-})
-
-const CanvasBuildGetSchema = DesktopFileSystemCanvasBuildsRetrieveParams.omit({ project_id: true })
-
-const canvasBuildGet = (): ToolBase<typeof CanvasBuildGetSchema, Schemas.CanvasBuild> => ({
-    name: 'canvas-build-get',
-    schema: CanvasBuildGetSchema,
-    handler: async (context: Context, params: z.infer<typeof CanvasBuildGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.CanvasBuild>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/builds/${encodeURIComponent(String(params.build_id))}/`,
+        const body: Record<string, unknown> = {}
+        if (params.code !== undefined) {
+            body['code'] = params.code
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.expected_current_version_id !== undefined) {
+            body['expected_current_version_id'] = params.expected_current_version_id
+        }
+        const result = await context.api.request<Schemas.FileSystem>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/`,
+            body,
         })
         return result
     },
@@ -758,13 +758,13 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'desktop-file-system-canvas-partial-update': desktopFileSystemCanvasPartialUpdate,
-    'canvas-source-get': canvasSourceGet,
-    'canvas-source-publish': canvasSourcePublish,
-    'canvas-source-patch': canvasSourcePatch,
-    'canvas-source-validate': canvasSourceValidate,
-    'canvas-history-get': canvasHistoryGet,
     'canvas-build-get': canvasBuildGet,
+    'canvas-history-get': canvasHistoryGet,
+    'canvas-source-get': canvasSourceGet,
+    'canvas-source-patch': canvasSourcePatch,
+    'canvas-source-publish': canvasSourcePublish,
+    'canvas-source-validate': canvasSourceValidate,
+    'desktop-file-system-canvas-partial-update': desktopFileSystemCanvasPartialUpdate,
     'desktop-file-system-create': desktopFileSystemCreate,
     'desktop-file-system-instructions-partial-update': desktopFileSystemInstructionsPartialUpdate,
     'desktop-file-system-instructions-retrieve': desktopFileSystemInstructionsRetrieve,
