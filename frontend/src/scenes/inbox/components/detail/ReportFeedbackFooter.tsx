@@ -34,8 +34,10 @@ export function ReportFeedbackFooter({ report }: { report: SignalReport }): JSX.
     }
 
     return (
-        <div className="flex flex-col gap-2 pt-1 select-none">
-            <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary">
+        <div className="flex flex-col gap-2 pt-1">
+            {/* `select-none` stays on the rating row: on the wrapper it would also cover the note
+                textarea, where it blocks selecting text to edit or copy a draft. */}
+            <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary select-none">
                 <span>{feedbackSentiment ? 'Thanks for the feedback' : 'Was this report useful?'}</span>
                 <div className="flex items-center gap-1">
                     <LemonButton
@@ -77,6 +79,9 @@ export function ReportFeedbackFooter({ report }: { report: SignalReport }): JSX.
                         value={feedbackNoteDraft}
                         onChange={setFeedbackNoteDraft}
                         placeholder="What was useful or off?"
+                        // The placeholder is the only visible prompt and it disappears on the first
+                        // keystroke, so the field carries its own name for screen readers.
+                        aria-label="Add a note about this report"
                         maxLength={FEEDBACK_NOTE_MAX_LENGTH}
                         rows={3}
                         autoFocus
