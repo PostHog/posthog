@@ -2816,6 +2816,298 @@ export interface CanvasPublishConflictApi {
     current_version_id: string | null
 }
 
+/**
+ * * `queued` - Queued
+ * * `building` - Building
+ * * `ready` - Ready
+ * * `failed` - Failed
+ */
+export type CanvasBuildStatusEnumApi = (typeof CanvasBuildStatusEnumApi)[keyof typeof CanvasBuildStatusEnumApi]
+
+export const CanvasBuildStatusEnumApi = {
+    Queued: 'queued',
+    Building: 'building',
+    Ready: 'ready',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `error` - error
+ * * `warning` - warning
+ * * `info` - info
+ */
+export type IngestionWarningSeverityEnumApi =
+    (typeof IngestionWarningSeverityEnumApi)[keyof typeof IngestionWarningSeverityEnumApi]
+
+export const IngestionWarningSeverityEnumApi = {
+    Error: 'error',
+    Warning: 'warning',
+    Info: 'info',
+} as const
+
+export interface CanvasDiagnosticApi {
+    /** Diagnostic severity.
+     *
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    severity: IngestionWarningSeverityEnumApi
+    /**
+     * Stable diagnostic code.
+     * @maxLength 100
+     */
+    code: string
+    /**
+     * Build diagnostic message.
+     * @maxLength 10000
+     */
+    message: string
+    /** Project-relative source file. */
+    file?: string
+    /**
+     * One-based source line.
+     * @minimum 1
+     */
+    line?: number
+    /**
+     * Zero-based source column.
+     * @minimum 0
+     */
+    column?: number
+}
+
+export interface CanvasArtifactFileApi {
+    /** Normalized artifact path relative to this build. */
+    readonly path: string
+    /** HTTP content type for this artifact file. */
+    readonly contentType: string
+    /**
+     * UTF-8 artifact size in bytes.
+     * @minimum 0
+     */
+    readonly bytes: number
+    /**
+     * Lowercase SHA-256 digest of the artifact content.
+     * @pattern ^[a-f0-9]{64}$
+     */
+    readonly sha256: string
+}
+
+export interface CanvasPostHogCapabilitiesApi {
+    /**
+     * Insight short IDs that this canvas may load.
+     * @maxItems 256
+     * @items.minLength 1
+     * @items.maxLength 128
+     */
+    insights: string[]
+    /** Whether this canvas may execute inline PostHog queries. */
+    inlineQueries: boolean
+    /**
+     * Event names that this canvas may capture.
+     * @maxItems 256
+     * @items.minLength 1
+     * @items.maxLength 200
+     */
+    captureEvents: string[]
+}
+
+export interface CanvasNetworkCapabilitiesApi {
+    /**
+     * HTTPS origins that the canvas may contact directly.
+     * @maxItems 64
+     * @items.maxLength 2048
+     */
+    origins: string[]
+}
+
+export interface CanvasCapabilitiesApi {
+    /** PostHog data and capture capabilities. */
+    posthog: CanvasPostHogCapabilitiesApi
+    /** Direct network capabilities. */
+    network: CanvasNetworkCapabilitiesApi
+}
+
+/**
+ * Exact package versions included in this build.
+ */
+export type CanvasArtifactManifestApiDependencies = { [key: string]: string }
+
+export interface CanvasArtifactManifestApi {
+    /** Artifact manifest schema version. */
+    readonly schemaVersion: number
+    /** HTML entry file for this artifact. */
+    readonly entryHtml: string
+    /** Immutable emitted artifact files. */
+    readonly files: readonly CanvasArtifactFileApi[]
+    /** Canvas runtime SDK version used by this build. */
+    readonly canvasSdkVersion: string
+    /** Exact package versions included in this build. */
+    readonly dependencies: CanvasArtifactManifestApiDependencies
+    /** Capabilities enforced for this artifact. */
+    readonly capabilities: CanvasCapabilitiesApi
+}
+
+export interface CanvasBuildApi {
+    /** Immutable cloud build ID. */
+    readonly id: string
+    /** Source version compiled by this build. */
+    readonly sourceVersionId: string
+    /** Current build lifecycle status.
+     *
+     * * `queued` - Queued
+     * * `building` - Building
+     * * `ready` - Ready
+     * * `failed` - Failed */
+    readonly status: CanvasBuildStatusEnumApi
+    /**
+     * Short-lived URL for the immutable artifact entry HTML.
+     * @nullable
+     */
+    readonly artifactUrl: string | null
+    /**
+     * SHA-256 integrity value for entry HTML.
+     * @nullable
+     */
+    readonly integrity: string | null
+    /** Bounded build diagnostics. */
+    readonly diagnostics: readonly CanvasDiagnosticApi[]
+    /** Immutable artifact and capability manifest when ready. */
+    readonly manifest: CanvasArtifactManifestApi | null
+    /** Build creation time as Unix milliseconds. */
+    readonly createdAt: number
+    /**
+     * Build completion time as Unix milliseconds, if complete.
+     * @nullable
+     */
+    readonly completedAt: number | null
+}
+
+export interface CanvasSourceVersionApi {
+    /** Immutable source version ID. */
+    readonly id: string
+    /**
+     * Source version edited to create this version.
+     * @nullable
+     */
+    readonly parentVersionId: string | null
+    /** Task that produced this version. */
+    readonly taskId: string
+    /** Fresh task run that produced this version. */
+    readonly taskRunId: string
+    /** Canonical source SHA-256 digest. */
+    readonly sourceHash: string
+    /** Canonical source size in bytes. */
+    readonly sourceSize: number
+    /**
+     * Description of the requested canvas change.
+     * @nullable
+     */
+    readonly prompt: string | null
+    /** Creation time as Unix milliseconds. */
+    readonly createdAt: number
+}
+
+export interface CanvasHistoryApi {
+    /**
+     * Current source version for this canvas.
+     * @nullable
+     */
+    readonly currentSourceVersionId: string | null
+    /**
+     * Last-known-good build currently displayed by this canvas.
+     * @nullable
+     */
+    readonly activeBuildId: string | null
+    /** Source versions in creation order. */
+    readonly versions: readonly CanvasSourceVersionApi[]
+    /** Build attempts in creation order. */
+    readonly builds: readonly CanvasBuildApi[]
+}
+
+/**
+ * Complete map of normalized project-relative paths to UTF-8 source files.
+ */
+export type CanvasSourceProjectApiFiles = { [key: string]: string }
+
+/**
+ * Browser package names mapped to exact admitted semantic versions.
+ */
+export type CanvasSourceProjectApiDependencies = { [key: string]: string }
+
+export interface CanvasSourceProjectApi {
+    /**
+     * Canvas source schema version.
+     * @minimum 1
+     * @maximum 1
+     */
+    schemaVersion: number
+    /** Complete map of normalized project-relative paths to UTF-8 source files. */
+    files: CanvasSourceProjectApiFiles
+    /** HTML entry file. Must be "index.html". */
+    entryHtml: string
+    /** Browser package names mapped to exact admitted semantic versions. */
+    dependencies: CanvasSourceProjectApiDependencies
+    /** Exact canvas runtime SDK version. */
+    canvasSdkVersion: string
+    /** Capabilities enforced by the build and runtime. */
+    capabilities: CanvasCapabilitiesApi
+}
+
+export interface CanvasSourceSnapshotApi {
+    /** Current immutable source version metadata. */
+    readonly version: CanvasSourceVersionApi
+    /** Complete current source project. */
+    readonly project: CanvasSourceProjectApi
+}
+
+export interface CanvasPublishRequestApi {
+    /** Complete canvas source project to publish. */
+    project: CanvasSourceProjectApi
+    /**
+     * Current source version that this edit is based on. Pass null for the first version.
+     * @nullable
+     */
+    expectedCurrentVersionId: string | null
+    /** Task that produced this source version. Sandbox tasks are attributed automatically. */
+    taskId?: string
+    /** Fresh task run that produced this source version. Sandbox tasks are attributed automatically. */
+    taskRunId?: string
+    /**
+     * Short description of the requested canvas change.
+     * @maxLength 10000
+     */
+    prompt?: string
+}
+
+export interface CanvasPublishResponseApi {
+    /** Published immutable source version metadata. */
+    readonly version: CanvasSourceVersionApi
+    /** Queued authoritative cloud build. */
+    readonly build: CanvasBuildApi
+}
+
+export interface CanvasApplicationConflictApi {
+    /** Always "version_conflict". */
+    readonly code: string
+    /** How to recover from the conflicting edit. */
+    readonly detail: string
+    /**
+     * Current source version that rejected the stale edit.
+     * @nullable
+     */
+    readonly currentVersionId: string | null
+}
+
+export interface CanvasValidationResponseApi {
+    /** Whether the candidate produced a valid artifact. */
+    readonly ok: boolean
+    /** Structured validation diagnostics. */
+    readonly diagnostics: readonly CanvasDiagnosticApi[]
+    /** Validated candidate manifest when successful. */
+    readonly manifest: CanvasArtifactManifestApi | null
+}
+
 export interface ContextGenerationApi {
     /**
      * ID of the Task currently generating this folder's CONTEXT.md, or null if none.

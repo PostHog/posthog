@@ -13574,6 +13574,228 @@ export namespace Schemas {
       created: string | null;
     }
 
+    export interface CanvasApplicationConflict {
+      /** Always "version_conflict". */
+      readonly code: string;
+      /** How to recover from the conflicting edit. */
+      readonly detail: string;
+      /**
+         * Current source version that rejected the stale edit.
+         * @nullable
+         */
+      readonly currentVersionId: string | null;
+    }
+
+    export interface CanvasArtifactFile {
+      /** Normalized artifact path relative to this build. */
+      readonly path: string;
+      /** HTTP content type for this artifact file. */
+      readonly contentType: string;
+      /**
+         * UTF-8 artifact size in bytes.
+         * @minimum 0
+         */
+      readonly bytes: number;
+      /**
+         * Lowercase SHA-256 digest of the artifact content.
+         * @pattern ^[a-f0-9]{64}$
+         */
+      readonly sha256: string;
+    }
+
+    /**
+     * Exact package versions included in this build.
+     */
+    export type CanvasArtifactManifestDependencies = {[key: string]: string};
+
+    export interface CanvasPostHogCapabilities {
+      /**
+         * Insight short IDs that this canvas may load.
+         * @maxItems 256
+         * @items.minLength 1
+         * @items.maxLength 128
+         */
+      insights: string[];
+      /** Whether this canvas may execute inline PostHog queries. */
+      inlineQueries: boolean;
+      /**
+         * Event names that this canvas may capture.
+         * @maxItems 256
+         * @items.minLength 1
+         * @items.maxLength 200
+         */
+      captureEvents: string[];
+    }
+
+    export interface CanvasNetworkCapabilities {
+      /**
+         * HTTPS origins that the canvas may contact directly.
+         * @maxItems 64
+         * @items.maxLength 2048
+         */
+      origins: string[];
+    }
+
+    export interface CanvasCapabilities {
+      /** PostHog data and capture capabilities. */
+      posthog: CanvasPostHogCapabilities;
+      /** Direct network capabilities. */
+      network: CanvasNetworkCapabilities;
+    }
+
+    export interface CanvasArtifactManifest {
+      /** Artifact manifest schema version. */
+      readonly schemaVersion: number;
+      /** HTML entry file for this artifact. */
+      readonly entryHtml: string;
+      /** Immutable emitted artifact files. */
+      readonly files: readonly CanvasArtifactFile[];
+      /** Canvas runtime SDK version used by this build. */
+      readonly canvasSdkVersion: string;
+      /** Exact package versions included in this build. */
+      readonly dependencies: CanvasArtifactManifestDependencies;
+      /** Capabilities enforced for this artifact. */
+      readonly capabilities: CanvasCapabilities;
+    }
+
+    /**
+     * * `queued` - Queued
+     * * `building` - Building
+     * * `ready` - Ready
+     * * `failed` - Failed
+     */
+    export type CanvasBuildStatusEnum = typeof CanvasBuildStatusEnum[keyof typeof CanvasBuildStatusEnum];
+
+
+    export const CanvasBuildStatusEnum = {
+      Queued: 'queued',
+      Building: 'building',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info
+     */
+    export type IngestionWarningSeverityEnum = typeof IngestionWarningSeverityEnum[keyof typeof IngestionWarningSeverityEnum];
+
+
+    export const IngestionWarningSeverityEnum = {
+      Error: 'error',
+      Warning: 'warning',
+      Info: 'info',
+    } as const;
+
+    export interface CanvasDiagnostic {
+      /** Diagnostic severity.
+       *
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      severity: IngestionWarningSeverityEnum;
+      /**
+         * Stable diagnostic code.
+         * @maxLength 100
+         */
+      code: string;
+      /**
+         * Build diagnostic message.
+         * @maxLength 10000
+         */
+      message: string;
+      /** Project-relative source file. */
+      file?: string;
+      /**
+         * One-based source line.
+         * @minimum 1
+         */
+      line?: number;
+      /**
+         * Zero-based source column.
+         * @minimum 0
+         */
+      column?: number;
+    }
+
+    export interface CanvasBuild {
+      /** Immutable cloud build ID. */
+      readonly id: string;
+      /** Source version compiled by this build. */
+      readonly sourceVersionId: string;
+      /** Current build lifecycle status.
+       *
+       * * `queued` - Queued
+       * * `building` - Building
+       * * `ready` - Ready
+       * * `failed` - Failed */
+      readonly status: CanvasBuildStatusEnum;
+      /**
+         * Short-lived URL for the immutable artifact entry HTML.
+         * @nullable
+         */
+      readonly artifactUrl: string | null;
+      /**
+         * SHA-256 integrity value for entry HTML.
+         * @nullable
+         */
+      readonly integrity: string | null;
+      /** Bounded build diagnostics. */
+      readonly diagnostics: readonly CanvasDiagnostic[];
+      /** Immutable artifact and capability manifest when ready. */
+      readonly manifest: CanvasArtifactManifest | null;
+      /** Build creation time as Unix milliseconds. */
+      readonly createdAt: number;
+      /**
+         * Build completion time as Unix milliseconds, if complete.
+         * @nullable
+         */
+      readonly completedAt: number | null;
+    }
+
+    export interface CanvasSourceVersion {
+      /** Immutable source version ID. */
+      readonly id: string;
+      /**
+         * Source version edited to create this version.
+         * @nullable
+         */
+      readonly parentVersionId: string | null;
+      /** Task that produced this version. */
+      readonly taskId: string;
+      /** Fresh task run that produced this version. */
+      readonly taskRunId: string;
+      /** Canonical source SHA-256 digest. */
+      readonly sourceHash: string;
+      /** Canonical source size in bytes. */
+      readonly sourceSize: number;
+      /**
+         * Description of the requested canvas change.
+         * @nullable
+         */
+      readonly prompt: string | null;
+      /** Creation time as Unix milliseconds. */
+      readonly createdAt: number;
+    }
+
+    export interface CanvasHistory {
+      /**
+         * Current source version for this canvas.
+         * @nullable
+         */
+      readonly currentSourceVersionId: string | null;
+      /**
+         * Last-known-good build currently displayed by this canvas.
+         * @nullable
+         */
+      readonly activeBuildId: string | null;
+      /** Source versions in creation order. */
+      readonly versions: readonly CanvasSourceVersion[];
+      /** Build attempts in creation order. */
+      readonly builds: readonly CanvasBuild[];
+    }
+
     /**
      * 409 body for a guarded canvas publish based on a stale version.
      */
@@ -13587,6 +13809,77 @@ export namespace Schemas {
          * @nullable
          */
       current_version_id: string | null;
+    }
+
+    /**
+     * Complete map of normalized project-relative paths to UTF-8 source files.
+     */
+    export type CanvasSourceProjectFiles = {[key: string]: string};
+
+    /**
+     * Browser package names mapped to exact admitted semantic versions.
+     */
+    export type CanvasSourceProjectDependencies = {[key: string]: string};
+
+    export interface CanvasSourceProject {
+      /**
+         * Canvas source schema version.
+         * @minimum 1
+         * @maximum 1
+         */
+      schemaVersion: number;
+      /** Complete map of normalized project-relative paths to UTF-8 source files. */
+      files: CanvasSourceProjectFiles;
+      /** HTML entry file. Must be "index.html". */
+      entryHtml: string;
+      /** Browser package names mapped to exact admitted semantic versions. */
+      dependencies: CanvasSourceProjectDependencies;
+      /** Exact canvas runtime SDK version. */
+      canvasSdkVersion: string;
+      /** Capabilities enforced by the build and runtime. */
+      capabilities: CanvasCapabilities;
+    }
+
+    export interface CanvasPublishRequest {
+      /** Complete canvas source project to publish. */
+      project: CanvasSourceProject;
+      /**
+         * Current source version that this edit is based on. Pass null for the first version.
+         * @nullable
+         */
+      expectedCurrentVersionId: string | null;
+      /** Task that produced this source version. Sandbox tasks are attributed automatically. */
+      taskId?: string;
+      /** Fresh task run that produced this source version. Sandbox tasks are attributed automatically. */
+      taskRunId?: string;
+      /**
+         * Short description of the requested canvas change.
+         * @maxLength 10000
+         */
+      prompt?: string;
+    }
+
+    export interface CanvasPublishResponse {
+      /** Published immutable source version metadata. */
+      readonly version: CanvasSourceVersion;
+      /** Queued authoritative cloud build. */
+      readonly build: CanvasBuild;
+    }
+
+    export interface CanvasSourceSnapshot {
+      /** Current immutable source version metadata. */
+      readonly version: CanvasSourceVersion;
+      /** Complete current source project. */
+      readonly project: CanvasSourceProject;
+    }
+
+    export interface CanvasValidationResponse {
+      /** Whether the candidate produced a valid artifact. */
+      readonly ok: boolean;
+      /** Structured validation diagnostics. */
+      readonly diagnostics: readonly CanvasDiagnostic[];
+      /** Validated candidate manifest when successful. */
+      readonly manifest: CanvasArtifactManifest | null;
     }
 
     /**

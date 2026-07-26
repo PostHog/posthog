@@ -10,12 +10,27 @@ from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.file_system.access_levels import FileSystemAccessLevelSerializerMixin
+from posthog.api.file_system.canvas_application import (
+    CanvasApplicationConflictSerializer,
+    CanvasBuildSerializer,
+    CanvasHistorySerializer,
+    CanvasPublishRequestSerializer,
+    CanvasPublishResponseSerializer,
+    CanvasSourceProjectSerializer,
+    CanvasSourceSnapshotSerializer,
+    CanvasSourceVersionSerializer,
+    CanvasValidationResponseSerializer,
+    CanvasVersionConflict,
+    canvas_history,
+    current_canvas_source,
+    publish_canvas_source,
+)
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     delete_file_system_object,
@@ -50,6 +65,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.decorators import disallow_if_impersonated
+from posthog.models.file_system.canvas import CanvasApplication, CanvasBuild
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
     FileSystem,
@@ -63,6 +79,8 @@ from posthog.models.file_system.file_system_view_log import get_recent_file_syst
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import CanvasValidationBurstThrottle, CanvasValidationDailyThrottle
+from posthog.tasks.canvas_builds import validate_canvas_project
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 from posthog.utils import str_to_bool
 
@@ -77,6 +95,7 @@ RECENTS_SEARCH_SCAN_LIMIT = 200
 
 class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
     last_viewed_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    _canvas_application_cache: dict[str, CanvasApplication] | None = None
 
     class Meta:
         model = FileSystem
@@ -106,6 +125,43 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
         if "path" in validated_data:
             instance.depth = len(split_path(validated_data["path"]))
         return super().update(instance, validated_data)
+
+    def to_representation(self, instance: FileSystem) -> dict[str, Any]:
+        representation = super().to_representation(instance)
+        meta = representation.get("meta")
+        if not isinstance(meta, dict) or meta.get("kind") != "freeform":
+            return representation
+        application = self._canvas_applications(instance).get(str(instance.id))
+        active_build = application.active_build if application else None
+        if active_build is None or active_build.build_status != CanvasBuild.Status.READY:
+            return representation
+        serialized_build = CanvasBuildSerializer(active_build, context=self.context).data
+        artifact_url = serialized_build.get("artifactUrl")
+        if artifact_url:
+            representation["meta"] = {
+                **meta,
+                "activeBuildId": str(active_build.id),
+                "activeBuildArtifactUrl": artifact_url,
+                "activeBuildCapabilities": (active_build.manifest or {}).get("capabilities"),
+            }
+        return representation
+
+    def _canvas_applications(self, instance: FileSystem) -> dict[str, CanvasApplication]:
+        if self._canvas_application_cache is not None:
+            return self._canvas_application_cache
+        parent_instances = getattr(getattr(self, "parent", None), "instance", None)
+        if isinstance(parent_instances, QuerySet):
+            canvas_ids = list(parent_instances.values_list("id", flat=True))
+        else:
+            candidates = parent_instances if isinstance(parent_instances, (list, tuple)) else [instance]
+            canvas_ids = [candidate.id for candidate in candidates if isinstance(candidate, FileSystem)]
+        applications = (
+            CanvasApplication.objects.for_team(instance.team_id)
+            .select_related("active_build")
+            .filter(canvas_id__in=canvas_ids)
+        )
+        self._canvas_application_cache = {str(application.canvas_id): application for application in applications}
+        return self._canvas_application_cache
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> FileSystem:
         request = self.context["request"]
@@ -217,6 +273,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "count",
         "count_by_path",
         "context_generation",
+        "validate_canvas_source_application",
     ]
     scope_object_write_actions = [
         "create",
@@ -1240,6 +1297,144 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
             self._announce_canvas_created(request, dashboard)
 
         return Response(self.get_serializer(dashboard).data)
+
+    @extend_schema(
+        responses={200: CanvasSourceSnapshotSerializer},
+        operation_id="desktop_file_system_canvas_source_retrieve",
+    )
+    @action(methods=["GET"], detail=True, url_path="canvas/source")
+    def canvas_source(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+        current = current_canvas_source(dashboard)
+        if current is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        version, project = current
+        return Response(
+            {
+                "version": CanvasSourceVersionSerializer(version).data,
+                "project": project,
+            }
+        )
+
+    @extend_schema(
+        request=CanvasPublishRequestSerializer,
+        responses={
+            201: CanvasPublishResponseSerializer,
+            409: OpenApiResponse(
+                response=CanvasApplicationConflictSerializer, description="The canvas source changed."
+            ),
+        },
+        operation_id="desktop_file_system_canvas_source_create",
+    )
+    @canvas_source.mapping.post
+    def publish_canvas_source_application(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+        payload = CanvasPublishRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        publish_payload = dict(payload.validated_data)
+        if self._is_sandbox_authenticated(request):
+            try:
+                header_task_id = UUID((request.headers.get("X-PostHog-Task-Id") or "").strip())
+                header_run_id = UUID((request.headers.get("X-PostHog-Task-Run-Id") or "").strip())
+            except ValueError:
+                raise serializers.ValidationError("Sandbox canvas publishes require task and run attribution headers.")
+            if publish_payload.get("taskId") not in {None, header_task_id}:
+                raise serializers.ValidationError({"taskId": "Does not match the current sandbox task."})
+            if publish_payload.get("taskRunId") not in {None, header_run_id}:
+                raise serializers.ValidationError({"taskRunId": "Does not match the current sandbox run."})
+            publish_payload.update({"taskId": header_task_id, "taskRunId": header_run_id})
+        elif "taskId" not in publish_payload or "taskRunId" not in publish_payload:
+            raise serializers.ValidationError("Canvas publishes require task and run attribution.")
+        user = request.user if isinstance(request.user, User) else None
+        try:
+            version, build = publish_canvas_source(
+                canvas=dashboard,
+                payload=publish_payload,
+                user_id=user.id if user else None,
+            )
+        except CanvasVersionConflict as conflict:
+            return Response(
+                {
+                    "code": "version_conflict",
+                    "detail": "The canvas changed since it was read. Load the current source and apply the edit again.",
+                    "currentVersionId": str(conflict.current_version_id) if conflict.current_version_id else None,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(
+            {
+                "version": CanvasSourceVersionSerializer(version).data,
+                "build": CanvasBuildSerializer(build, context={"request": request}).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        request=CanvasSourceProjectSerializer,
+        responses={200: CanvasValidationResponseSerializer},
+        operation_id="desktop_file_system_canvas_validate_create",
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="canvas/validate",
+        throttle_classes=[CanvasValidationBurstThrottle, CanvasValidationDailyThrottle],
+    )
+    def validate_canvas_source_application(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+        payload = CanvasSourceProjectSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        result = validate_canvas_project(payload.validated_data)
+        return Response(CanvasValidationResponseSerializer(result).data)
+
+    @extend_schema(responses={200: CanvasHistorySerializer})
+    @action(methods=["GET"], detail=True, url_path="canvas/history")
+    def canvas_history(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+        application, versions, builds = canvas_history(dashboard)
+        return Response(
+            {
+                "currentSourceVersionId": (
+                    str(application.current_source_version_id)
+                    if application and application.current_source_version_id
+                    else None
+                ),
+                "activeBuildId": str(application.active_build_id)
+                if application and application.active_build_id
+                else None,
+                "versions": CanvasSourceVersionSerializer(versions, many=True).data,
+                "builds": CanvasBuildSerializer(builds, many=True, context={"request": request}).data,
+            }
+        )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="build_id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="Immutable canvas build ID.",
+            )
+        ],
+        responses={200: CanvasBuildSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path=r"canvas/builds/(?P<build_id>[^/.]+)")
+    def canvas_build(self, request: Request, build_id: str, *args: Any, **kwargs: Any) -> Response:
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+        build = CanvasBuild.objects.for_team(dashboard.team_id).filter(id=build_id, canvas_id=dashboard.id).first()
+        if build is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        return Response(CanvasBuildSerializer(build, context={"request": request}).data)
 
     def _announce_canvas_created(self, request: Request, dashboard: FileSystem) -> None:
         """Announce a canvas's first publish in the generating task's thread.

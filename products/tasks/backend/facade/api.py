@@ -5350,6 +5350,46 @@ def post_canvas_created_thread_update(
         logger.exception("Failed to post canvas-created thread update", extra={"task_id": str(task_id)})
 
 
+def post_canvas_build_thread_update(
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    acting_user_id: int | None,
+    canvas_name: str,
+    canvas_url: str | None,
+    build_id: str | UUID,
+    source_version_id: str | UUID,
+    build_status: Literal["ready", "failed"],
+) -> None:
+    try:
+        task = Task.objects.select_related("created_by").filter(id=task_id, team_id=team_id).first()
+        if task is None or task.created_by_id is None or task.created_by_id != acting_user_id:
+            return
+        if not _agent_thread_updates_enabled(task.created_by):
+            return
+        name = re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
+        linked_name = f"[{name}]({canvas_url})" if canvas_url else name
+        content = (
+            f"{linked_name} is ready"
+            if build_status == "ready"
+            else f"{linked_name} could not be built. Open the canvas history to review the errors."
+        )
+        _create_agent_thread_message(
+            task,
+            content,
+            event=f"canvas_build_{build_status}",
+            payload={
+                "canvas_name": name,
+                "canvas_url": canvas_url,
+                "build_id": str(build_id),
+                "source_version_id": str(source_version_id),
+                "status": build_status,
+            },
+        )
+    except Exception:
+        logger.exception("Failed to post canvas build thread update", extra={"task_id": str(task_id)})
+
+
 _GITHUB_PR_PATH_PATTERN = re.compile(r"/([^/]+)/([^/]+)/pull/(\d+)/?", re.IGNORECASE)
 
 # Characters that could break out of a markdown [label](url) token or smuggle

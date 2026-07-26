@@ -13,6 +13,13 @@ import type {
     BulkUpdateTagsResponseApi,
     CIMDVerificationTokenApi,
     CIMDVerificationTokenWithValueApi,
+    CanvasBuildApi,
+    CanvasHistoryApi,
+    CanvasPublishRequestApi,
+    CanvasPublishResponseApi,
+    CanvasSourceProjectApi,
+    CanvasSourceSnapshotApi,
+    CanvasValidationResponseApi,
     CimdVerificationTokensListParams,
     ContextGenerationApi,
     ContextGenerationSetApi,
@@ -1455,6 +1462,118 @@ export const desktopFileSystemCanvasPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedCanvasPublishApi),
+    })
+}
+
+export const getDesktopFileSystemCanvasBuildsRetrieveUrl = (projectId: string, id: string, buildId: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/canvas/builds/${buildId}/`
+}
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const desktopFileSystemCanvasBuildsRetrieve = async (
+    projectId: string,
+    id: string,
+    buildId: string,
+    options?: RequestInit
+): Promise<CanvasBuildApi> => {
+    return apiMutator<CanvasBuildApi>(getDesktopFileSystemCanvasBuildsRetrieveUrl(projectId, id, buildId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopFileSystemCanvasHistoryRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/canvas/history/`
+}
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const desktopFileSystemCanvasHistoryRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CanvasHistoryApi> => {
+    return apiMutator<CanvasHistoryApi>(getDesktopFileSystemCanvasHistoryRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopFileSystemCanvasSourceRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/canvas/source/`
+}
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const desktopFileSystemCanvasSourceRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CanvasSourceSnapshotApi> => {
+    return apiMutator<CanvasSourceSnapshotApi>(getDesktopFileSystemCanvasSourceRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopFileSystemCanvasSourceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/canvas/source/`
+}
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const desktopFileSystemCanvasSourceCreate = async (
+    projectId: string,
+    id: string,
+    canvasPublishRequestApi: CanvasPublishRequestApi,
+    options?: RequestInit
+): Promise<CanvasPublishResponseApi> => {
+    return apiMutator<CanvasPublishResponseApi>(getDesktopFileSystemCanvasSourceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasPublishRequestApi),
+    })
+}
+
+export const getDesktopFileSystemCanvasValidateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/canvas/validate/`
+}
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const desktopFileSystemCanvasValidateCreate = async (
+    projectId: string,
+    id: string,
+    canvasSourceProjectApi: CanvasSourceProjectApi,
+    options?: RequestInit
+): Promise<CanvasValidationResponseApi> => {
+    return apiMutator<CanvasValidationResponseApi>(getDesktopFileSystemCanvasValidateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasSourceProjectApi),
     })
 }
 

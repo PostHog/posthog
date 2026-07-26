@@ -107,6 +107,26 @@ describe('ApiClient', () => {
         vi.unstubAllGlobals()
     })
 
+    it('forwards sandbox task and run attribution headers', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+        const client = new ApiClient({
+            apiToken: 'test-token',
+            baseUrl: 'https://example.com',
+            taskId: 'task-1',
+            taskRunId: 'run-1',
+        })
+
+        await (client as any).fetch('https://example.com/api/test')
+
+        const [, options] = mockFetch.mock.calls[0]!
+        expect(options.headers).toMatchObject({
+            'X-PostHog-Task-Id': 'task-1',
+            'X-PostHog-Task-Run-Id': 'run-1',
+        })
+        vi.unstubAllGlobals()
+    })
+
     it('should send x-posthog-mcp-user-agent header when clientUserAgent is provided', async () => {
         const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
         vi.stubGlobal('fetch', mockFetch)

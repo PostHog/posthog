@@ -1506,6 +1506,76 @@
         },
         "feature_flag": "product-business-knowledge"
     },
+    "canvas-build-get": {
+        "description": "Get one authoritative cloud build, including diagnostics, its capability manifest, and the immutable artifact URL when ready.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Get canvas build",
+        "title": "Get canvas build",
+        "required_scopes": ["file_system:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "canvas-history-get": {
+        "description": "Get immutable source versions and build attempts for a canvas, including its current source and last-known-good active build.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Get canvas history",
+        "title": "Get canvas history",
+        "required_scopes": ["file_system:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "canvas-source-get": {
+        "description": "Get the complete current source project and immutable version metadata for a canvas. Use the returned version ID as expectedCurrentVersionId when publishing an edit.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Get canvas source",
+        "title": "Get canvas source",
+        "required_scopes": ["file_system:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "canvas-source-publish": {
+        "description": "Atomically publish a complete canvas source project from the current task run. This creates an immutable source version and queues an authoritative cloud build. Always pass the version ID read before editing as expectedCurrentVersionId so concurrent changes return a conflict instead of being overwritten.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Publish canvas source",
+        "title": "Publish canvas source",
+        "required_scopes": ["file_system:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "canvas-source-validate": {
+        "description": "Compile and validate a complete candidate canvas source project with the authoritative pinned build recipe. Returns structured diagnostics and a manifest without publishing source or changing the active canvas.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Validate canvas source",
+        "title": "Validate canvas source",
+        "required_scopes": ["file_system:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "cdp-function-templates-list": {
         "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
         "category": "Function templates",

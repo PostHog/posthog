@@ -1,0 +1,13 @@
+{
+    "name": "@posthog/canvas-builder",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "dependencies": {
+        "@posthog/quill": "0.3.0-beta.24",
+        "esbuild": "0.28.1",
+        "react": "19.2.6",
+        "react-dom": "19.2.6",
+        "three": "0.183.2"
+    }
+}

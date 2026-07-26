@@ -90,7 +90,12 @@ class TestRefreshSandboxMcp:
 
         mock_oauth.assert_called_once_with(task_run.task, task_run.state, scopes="read_only")
         mock_ph_configs.assert_called_once_with(
-            token="fresh-token", project_id=7, scopes="read_only", interaction_origin=None, task_id="task-1"
+            token="fresh-token",
+            project_id=7,
+            scopes="read_only",
+            interaction_origin=None,
+            task_id="task-1",
+            task_run_id="run-1",
         )
         mock_user_configs.assert_called_once_with(
             token="fresh-token", team_id=7, user_id=42, interaction_origin=None, allowed_installation_ids=None
@@ -205,7 +210,12 @@ class TestRefreshSandboxMcp:
 
         mock_oauth.assert_called_once_with(mock_oauth.call_args.args[0], None, scopes="full")
         mock_ph_configs.assert_called_once_with(
-            token="fresh-token", project_id=7, scopes="full", interaction_origin=None, task_id="task-1"
+            token="fresh-token",
+            project_id=7,
+            scopes="full",
+            interaction_origin=None,
+            task_id="task-1",
+            task_run_id="run-1",
         )
 
     def test_transition_refresh_failure_reports_unsafe(

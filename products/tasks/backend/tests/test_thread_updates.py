@@ -11,6 +11,7 @@ from posthog.models.scoping import team_scope
 from products.tasks.backend.facade.api import (
     list_mentions,
     list_thread_messages,
+    post_canvas_build_thread_update,
     post_canvas_created_thread_update,
     post_pr_created_thread_update,
     set_task_run_output,
@@ -232,6 +233,35 @@ class TestAgentThreadUpdates(TestCase):
         )
 
         self.assertEqual(self._messages(self.task), [])
+
+    @parameterized.expand(
+        [
+            ("ready", "[Canvas](https://us.posthog.com/canvas) is ready", "canvas_build_ready"),
+            (
+                "failed",
+                "[Canvas](https://us.posthog.com/canvas) could not be built. Open the canvas history to review the errors.",
+                "canvas_build_failed",
+            ),
+        ]
+    )
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_canvas_build_message_content(self, build_status, expected, event, _flag) -> None:
+        post_canvas_build_thread_update(
+            self.task.id,
+            self.team.id,
+            acting_user_id=self.user.id,
+            canvas_name="Canvas",
+            canvas_url="https://us.posthog.com/canvas",
+            build_id="00000000-0000-0000-0000-000000000001",
+            source_version_id="00000000-0000-0000-0000-000000000002",
+            build_status=build_status,
+        )
+
+        messages = self._messages(self.task)
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].event, event)
+        self.assertEqual(messages[0].content, expected)
+        self.assertEqual(messages[0].payload["status"], build_status)
 
     def test_list_thread_messages_excludes_legacy_turn_complete_rows(self) -> None:
         # The thread is human-to-human plus artifacts: rows written back when the

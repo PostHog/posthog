@@ -90,6 +90,72 @@ tools:
                 description: |
                     Optional new display name for the canvas. When set, renames the canvas (the leaf of its path)
                     in place. Omit to leave the name unchanged.
+    canvas-source-get:
+        operation: desktop_file_system_canvas_source_retrieve
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get canvas source
+        description: >
+            Get the complete current source project and immutable version metadata for a canvas. Use the returned version
+            ID as expectedCurrentVersionId when publishing an edit.
+    canvas-source-publish:
+        operation: desktop_file_system_canvas_source_create
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Publish canvas source
+        description: >
+            Atomically publish a complete canvas source project from the current task run. This creates an immutable
+            source version and queues an authoritative cloud build. Always pass the version ID read before editing as
+            expectedCurrentVersionId so concurrent changes return a conflict instead of being overwritten.
+    canvas-source-validate:
+        operation: desktop_file_system_canvas_validate_create
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Validate canvas source
+        description: >
+            Compile and validate a complete candidate canvas source project with the authoritative pinned build recipe.
+            Returns structured diagnostics and a manifest without publishing source or changing the active canvas.
+    canvas-history-get:
+        operation: desktop_file_system_canvas_history_retrieve
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get canvas history
+        description: >
+            Get immutable source versions and build attempts for a canvas, including its current source and
+            last-known-good active build.
+    canvas-build-get:
+        operation: desktop_file_system_canvas_builds_retrieve
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get canvas build
+        description: >
+            Get one authoritative cloud build, including diagnostics, its capability manifest, and the immutable
+            artifact URL when ready.
     desktop-file-system-context-generation-retrieve:
         operation: desktop_file_system_context_generation_retrieve
         enabled: false

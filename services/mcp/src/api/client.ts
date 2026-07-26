@@ -128,11 +128,10 @@ export interface ApiConfig {
     mcpSessionId?: string | undefined
     mcpConversationId?: string | undefined
     /**
-     * Sandbox-provisioned task id (from the inbound `x-posthog-task-id` MCP header). Forwarded
-     * to the PostHog API as `X-PostHog-Task-Id` on every call so writes can be attributed to
-     * the agent's task; the API validates it against the token's team.
+     * Sandbox-provisioned task attribution forwarded to the PostHog API.
      */
     taskId?: string | undefined
+    taskRunId?: string | undefined
 }
 
 type Endpoint = Record<string, any>
@@ -189,6 +188,7 @@ export class ApiClient {
                 : {}),
             // Forward the sandbox task id so API writes are attributed to the agent's task.
             ...(this.config.taskId ? { 'X-PostHog-Task-Id': this.config.taskId } : {}),
+            ...(this.config.taskRunId ? { 'X-PostHog-Task-Run-Id': this.config.taskRunId } : {}),
             'X-PostHog-Client': 'mcp',
         }
         if (options?.body) {

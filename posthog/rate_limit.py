@@ -720,6 +720,16 @@ class CustomSourceAIBuilderDailyThrottle(_CustomSourceAIBuilderThrottle):
     rate = "50/day"
 
 
+class CanvasValidationBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "canvas_validation_burst"
+    rate = "10/minute"
+
+
+class CanvasValidationDailyThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "canvas_validation_daily"
+    rate = "200/day"
+
+
 class PersonalSpendBurstThrottle(PersonalApiKeyOrUserRateThrottle):
     # Burst limit for the personal LLM spend analysis endpoint.
     # ClickHouse-bound; protects against impatient refresh-spamming.

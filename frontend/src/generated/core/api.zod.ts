@@ -9004,6 +9004,195 @@ export const DesktopFileSystemCanvasPartialUpdateBody = /* @__PURE__ */ zod
     .describe("Payload for publishing a freeform canvas's React source via the agent.")
 
 /**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const desktopFileSystemCanvasSourceCreateBodyProjectOneSchemaVersionMax = 1
+
+export const desktopFileSystemCanvasSourceCreateBodyProjectOneCapabilitiesOnePosthogOneInsightsItemMax = 128
+
+export const desktopFileSystemCanvasSourceCreateBodyProjectOneCapabilitiesOnePosthogOneInsightsMax = 256
+
+export const desktopFileSystemCanvasSourceCreateBodyProjectOneCapabilitiesOnePosthogOneCaptureEventsItemMax = 200
+
+export const desktopFileSystemCanvasSourceCreateBodyProjectOneCapabilitiesOnePosthogOneCaptureEventsMax = 256
+
+export const desktopFileSystemCanvasSourceCreateBodyProjectOneCapabilitiesOneNetworkOneOriginsItemMax = 2048
+
+export const desktopFileSystemCanvasSourceCreateBodyProjectOneCapabilitiesOneNetworkOneOriginsMax = 64
+
+export const desktopFileSystemCanvasSourceCreateBodyPromptMax = 10000
+
+export const DesktopFileSystemCanvasSourceCreateBody = /* @__PURE__ */ zod.object({
+    project: zod
+        .object({
+            schemaVersion: zod
+                .number()
+                .min(1)
+                .max(desktopFileSystemCanvasSourceCreateBodyProjectOneSchemaVersionMax)
+                .describe('Canvas source schema version.'),
+            files: zod
+                .record(zod.string(), zod.string())
+                .describe('Complete map of normalized project-relative paths to UTF-8 source files.'),
+            entryHtml: zod.string().describe('HTML entry file. Must be \"index.html\".'),
+            dependencies: zod
+                .record(zod.string(), zod.string())
+                .describe('Browser package names mapped to exact admitted semantic versions.'),
+            canvasSdkVersion: zod.string().describe('Exact canvas runtime SDK version.'),
+            capabilities: zod
+                .object({
+                    posthog: zod
+                        .object({
+                            insights: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .min(1)
+                                        .max(
+                                            desktopFileSystemCanvasSourceCreateBodyProjectOneCapabilitiesOnePosthogOneInsightsItemMax
+                                        )
+                                )
+                                .max(
+                                    desktopFileSystemCanvasSourceCreateBodyProjectOneCapabilitiesOnePosthogOneInsightsMax
+                                )
+                                .describe('Insight short IDs that this canvas may load.'),
+                            inlineQueries: zod
+                                .boolean()
+                                .describe('Whether this canvas may execute inline PostHog queries.'),
+                            captureEvents: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .min(1)
+                                        .max(
+                                            desktopFileSystemCanvasSourceCreateBodyProjectOneCapabilitiesOnePosthogOneCaptureEventsItemMax
+                                        )
+                                )
+                                .max(
+                                    desktopFileSystemCanvasSourceCreateBodyProjectOneCapabilitiesOnePosthogOneCaptureEventsMax
+                                )
+                                .describe('Event names that this canvas may capture.'),
+                        })
+                        .describe('PostHog data and capture capabilities.'),
+                    network: zod
+                        .object({
+                            origins: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            desktopFileSystemCanvasSourceCreateBodyProjectOneCapabilitiesOneNetworkOneOriginsItemMax
+                                        )
+                                )
+                                .max(
+                                    desktopFileSystemCanvasSourceCreateBodyProjectOneCapabilitiesOneNetworkOneOriginsMax
+                                )
+                                .describe('HTTPS origins that the canvas may contact directly.'),
+                        })
+                        .describe('Direct network capabilities.'),
+                })
+                .describe('Capabilities enforced by the build and runtime.'),
+        })
+        .describe('Complete canvas source project to publish.'),
+    expectedCurrentVersionId: zod
+        .uuid()
+        .nullable()
+        .describe('Current source version that this edit is based on. Pass null for the first version.'),
+    taskId: zod
+        .uuid()
+        .optional()
+        .describe('Task that produced this source version. Sandbox tasks are attributed automatically.'),
+    taskRunId: zod
+        .uuid()
+        .optional()
+        .describe('Fresh task run that produced this source version. Sandbox tasks are attributed automatically.'),
+    prompt: zod
+        .string()
+        .max(desktopFileSystemCanvasSourceCreateBodyPromptMax)
+        .optional()
+        .describe('Short description of the requested canvas change.'),
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const desktopFileSystemCanvasValidateCreateBodySchemaVersionMax = 1
+
+export const desktopFileSystemCanvasValidateCreateBodyCapabilitiesOnePosthogOneInsightsItemMax = 128
+
+export const desktopFileSystemCanvasValidateCreateBodyCapabilitiesOnePosthogOneInsightsMax = 256
+
+export const desktopFileSystemCanvasValidateCreateBodyCapabilitiesOnePosthogOneCaptureEventsItemMax = 200
+
+export const desktopFileSystemCanvasValidateCreateBodyCapabilitiesOnePosthogOneCaptureEventsMax = 256
+
+export const desktopFileSystemCanvasValidateCreateBodyCapabilitiesOneNetworkOneOriginsItemMax = 2048
+
+export const desktopFileSystemCanvasValidateCreateBodyCapabilitiesOneNetworkOneOriginsMax = 64
+
+export const DesktopFileSystemCanvasValidateCreateBody = /* @__PURE__ */ zod.object({
+    schemaVersion: zod
+        .number()
+        .min(1)
+        .max(desktopFileSystemCanvasValidateCreateBodySchemaVersionMax)
+        .describe('Canvas source schema version.'),
+    files: zod
+        .record(zod.string(), zod.string())
+        .describe('Complete map of normalized project-relative paths to UTF-8 source files.'),
+    entryHtml: zod.string().describe('HTML entry file. Must be \"index.html\".'),
+    dependencies: zod
+        .record(zod.string(), zod.string())
+        .describe('Browser package names mapped to exact admitted semantic versions.'),
+    canvasSdkVersion: zod.string().describe('Exact canvas runtime SDK version.'),
+    capabilities: zod
+        .object({
+            posthog: zod
+                .object({
+                    insights: zod
+                        .array(
+                            zod
+                                .string()
+                                .min(1)
+                                .max(desktopFileSystemCanvasValidateCreateBodyCapabilitiesOnePosthogOneInsightsItemMax)
+                        )
+                        .max(desktopFileSystemCanvasValidateCreateBodyCapabilitiesOnePosthogOneInsightsMax)
+                        .describe('Insight short IDs that this canvas may load.'),
+                    inlineQueries: zod.boolean().describe('Whether this canvas may execute inline PostHog queries.'),
+                    captureEvents: zod
+                        .array(
+                            zod
+                                .string()
+                                .min(1)
+                                .max(
+                                    desktopFileSystemCanvasValidateCreateBodyCapabilitiesOnePosthogOneCaptureEventsItemMax
+                                )
+                        )
+                        .max(desktopFileSystemCanvasValidateCreateBodyCapabilitiesOnePosthogOneCaptureEventsMax)
+                        .describe('Event names that this canvas may capture.'),
+                })
+                .describe('PostHog data and capture capabilities.'),
+            network: zod
+                .object({
+                    origins: zod
+                        .array(
+                            zod
+                                .string()
+                                .max(desktopFileSystemCanvasValidateCreateBodyCapabilitiesOneNetworkOneOriginsItemMax)
+                        )
+                        .max(desktopFileSystemCanvasValidateCreateBodyCapabilitiesOneNetworkOneOriginsMax)
+                        .describe('HTTPS origins that the canvas may contact directly.'),
+                })
+                .describe('Direct network capabilities.'),
+        })
+        .describe('Capabilities enforced by the build and runtime.'),
+})
+
+/**
  * Set or clear the Task associated with this folder's CONTEXT.md generation.
  */
 export const DesktopFileSystemContextGenerationUpdateBody = /* @__PURE__ */ zod.object({
