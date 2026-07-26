@@ -10,14 +10,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActivateRequestApi,
-    ConfigListResponseApi,
-    ConfigVersionApi,
-    GatewayModelListResponseApi,
+    GrowthScoreLabActivateCreateParams,
     GrowthScoreLabConfigsRetrieveParams,
+    GrowthScoreLabLabelsRetrieveParams,
+    GrowthScoreLabModelsRetrieveParams,
+    GrowthScoreLabRunCreateParams,
+    GrowthScoreLabSaveCreateParams,
     IdentityMatchingLinksListParams,
     IdentityMatchingLinksResponseApi,
     IdentityMatchingRunsResponseApi,
-    LabelListResponseApi,
     ProductPushCampaignActiveRetrieveParams,
     ProductPushCampaignApi,
     RunRequestApi,
@@ -26,27 +27,28 @@ import type {
     SdkHealthReportRetrieveParams,
 } from './api.schemas'
 
-export const getGrowthScoreLabActivateCreateUrl = () => {
-    return `/api/growth_score_lab/activate/`
+export const getGrowthScoreLabActivateCreateUrl = (params?: GrowthScoreLabActivateCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/growth_score_lab/activate/?${stringifiedParams}`
+        : `/api/growth_score_lab/activate/`
 }
 
-/**
- * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
- * config versions, dry-run a draft config against recently archived orgs, save a new
- * immutable version, and flip which version is active.
- *
- * Supersedes the admin lab UI's read paths; run/save/activate share the same underlying
- * machinery (products.growth.backend.enrichment.lab) as the admin dry-run action so both
- * surfaces compute identical verdicts.
- *
- * Registered on the root router so it is not team-nested - prompt configs are instance-global,
- * not scoped to any team or org.
- */
 export const growthScoreLabActivateCreate = async (
     activateRequestApi: ActivateRequestApi,
+    params?: GrowthScoreLabActivateCreateParams,
     options?: RequestInit
-): Promise<ConfigVersionApi> => {
-    return apiMutator<ConfigVersionApi>(getGrowthScoreLabActivateCreateUrl(), {
+): Promise<Response> => {
+    return apiMutator<Response>(getGrowthScoreLabActivateCreateUrl(params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -70,76 +72,82 @@ export const getGrowthScoreLabConfigsRetrieveUrl = (params: GrowthScoreLabConfig
         : `/api/growth_score_lab/configs/`
 }
 
-/**
- * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
- * config versions, dry-run a draft config against recently archived orgs, save a new
- * immutable version, and flip which version is active.
- *
- * Supersedes the admin lab UI's read paths; run/save/activate share the same underlying
- * machinery (products.growth.backend.enrichment.lab) as the admin dry-run action so both
- * surfaces compute identical verdicts.
- *
- * Registered on the root router so it is not team-nested - prompt configs are instance-global,
- * not scoped to any team or org.
- */
 export const growthScoreLabConfigsRetrieve = async (
     params: GrowthScoreLabConfigsRetrieveParams,
     options?: RequestInit
-): Promise<ConfigListResponseApi> => {
-    return apiMutator<ConfigListResponseApi>(getGrowthScoreLabConfigsRetrieveUrl(params), {
+): Promise<Response> => {
+    return apiMutator<Response>(getGrowthScoreLabConfigsRetrieveUrl(params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getGrowthScoreLabLabelsRetrieveUrl = () => {
-    return `/api/growth_score_lab/labels/`
+export const getGrowthScoreLabLabelsRetrieveUrl = (params?: GrowthScoreLabLabelsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/growth_score_lab/labels/?${stringifiedParams}`
+        : `/api/growth_score_lab/labels/`
 }
 
-/**
- * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
- * config versions, dry-run a draft config against recently archived orgs, save a new
- * immutable version, and flip which version is active.
- *
- * Supersedes the admin lab UI's read paths; run/save/activate share the same underlying
- * machinery (products.growth.backend.enrichment.lab) as the admin dry-run action so both
- * surfaces compute identical verdicts.
- *
- * Registered on the root router so it is not team-nested - prompt configs are instance-global,
- * not scoped to any team or org.
- */
-export const growthScoreLabLabelsRetrieve = async (options?: RequestInit): Promise<LabelListResponseApi> => {
-    return apiMutator<LabelListResponseApi>(getGrowthScoreLabLabelsRetrieveUrl(), {
+export const growthScoreLabLabelsRetrieve = async (
+    params?: GrowthScoreLabLabelsRetrieveParams,
+    options?: RequestInit
+): Promise<Response> => {
+    return apiMutator<Response>(getGrowthScoreLabLabelsRetrieveUrl(params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getGrowthScoreLabModelsRetrieveUrl = () => {
-    return `/api/growth_score_lab/models/`
+export const getGrowthScoreLabModelsRetrieveUrl = (params?: GrowthScoreLabModelsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/growth_score_lab/models/?${stringifiedParams}`
+        : `/api/growth_score_lab/models/`
 }
 
-/**
- * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
- * config versions, dry-run a draft config against recently archived orgs, save a new
- * immutable version, and flip which version is active.
- *
- * Supersedes the admin lab UI's read paths; run/save/activate share the same underlying
- * machinery (products.growth.backend.enrichment.lab) as the admin dry-run action so both
- * surfaces compute identical verdicts.
- *
- * Registered on the root router so it is not team-nested - prompt configs are instance-global,
- * not scoped to any team or org.
- */
-export const growthScoreLabModelsRetrieve = async (options?: RequestInit): Promise<GatewayModelListResponseApi> => {
-    return apiMutator<GatewayModelListResponseApi>(getGrowthScoreLabModelsRetrieveUrl(), {
+export const growthScoreLabModelsRetrieve = async (
+    params?: GrowthScoreLabModelsRetrieveParams,
+    options?: RequestInit
+): Promise<Response> => {
+    return apiMutator<Response>(getGrowthScoreLabModelsRetrieveUrl(params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getGrowthScoreLabRunCreateUrl = () => {
-    return `/api/growth_score_lab/run/`
+export const getGrowthScoreLabRunCreateUrl = (params?: GrowthScoreLabRunCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/growth_score_lab/run/?${stringifiedParams}`
+        : `/api/growth_score_lab/run/`
 }
 
 /**
@@ -148,9 +156,10 @@ export const getGrowthScoreLabRunCreateUrl = () => {
  */
 export const growthScoreLabRunCreate = async (
     runRequestApi: RunRequestApi,
+    params?: GrowthScoreLabRunCreateParams,
     options?: RequestInit
 ): Promise<Response> => {
-    return apiMutator<Response>(getGrowthScoreLabRunCreateUrl(), {
+    return apiMutator<Response>(getGrowthScoreLabRunCreateUrl(params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson', ...options?.headers },
@@ -158,27 +167,28 @@ export const growthScoreLabRunCreate = async (
     })
 }
 
-export const getGrowthScoreLabSaveCreateUrl = () => {
-    return `/api/growth_score_lab/save/`
+export const getGrowthScoreLabSaveCreateUrl = (params?: GrowthScoreLabSaveCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/growth_score_lab/save/?${stringifiedParams}`
+        : `/api/growth_score_lab/save/`
 }
 
-/**
- * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
- * config versions, dry-run a draft config against recently archived orgs, save a new
- * immutable version, and flip which version is active.
- *
- * Supersedes the admin lab UI's read paths; run/save/activate share the same underlying
- * machinery (products.growth.backend.enrichment.lab) as the admin dry-run action so both
- * surfaces compute identical verdicts.
- *
- * Registered on the root router so it is not team-nested - prompt configs are instance-global,
- * not scoped to any team or org.
- */
 export const growthScoreLabSaveCreate = async (
     saveRequestApi: SaveRequestApi,
+    params?: GrowthScoreLabSaveCreateParams,
     options?: RequestInit
-): Promise<ConfigVersionApi> => {
-    return apiMutator<ConfigVersionApi>(getGrowthScoreLabSaveCreateUrl(), {
+): Promise<Response> => {
+    return apiMutator<Response>(getGrowthScoreLabSaveCreateUrl(params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
