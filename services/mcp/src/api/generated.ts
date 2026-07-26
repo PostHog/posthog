@@ -12867,6 +12867,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `queued` - queued
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed
+     */
+    export type BuildStatusEnum = typeof BuildStatusEnum[keyof typeof BuildStatusEnum];
+
+
+    export const BuildStatusEnum = {
+      Queued: 'queued',
+      Building: 'building',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
+    /**
      * * `fully_rolled_out` - fully_rolled_out
      * * `not_rolled_out` - not_rolled_out
      * * `partial` - partial
@@ -13575,13 +13591,51 @@ export namespace Schemas {
     }
 
     /**
-     * Payload for creating a new, empty canvas in a channel.
+     * One emitted file of a built canvas artifact.
      */
-    export interface CanvasCreate {
-      /** Display name for the canvas. Slashes are replaced with spaces. */
-      name: string;
-      /** Desktop file-system id of the channel (folder) to create the canvas in. */
-      channel_id: string;
+    export interface CanvasArtifactAsset {
+      /** Artifact-relative path of the emitted file. */
+      path: string;
+      /** Hex SHA-256 of the file content. */
+      contentHash: string;
+      /** Size of the file in bytes. */
+      sizeBytes: number;
+    }
+
+    /**
+     * Exact dependency versions the artifact was built against.
+     */
+    export type CanvasArtifactManifestDependencies = {[key: string]: string};
+
+    /**
+     * Declared PostHog/network capabilities the artifact is held to at runtime.
+     */
+    export type CanvasArtifactManifestCapabilities = { [key: string]: unknown };
+
+    /**
+     * The manifest frozen into a ready build: entry, assets, versions, capabilities.
+     */
+    export interface CanvasArtifactManifest {
+      /** The artifact's entry HTML file. */
+      entryHtml: string;
+      /** Every emitted artifact file with its content hash. */
+      assets: CanvasArtifactAsset[];
+      /** Exact dependency versions the artifact was built against. */
+      dependencies: CanvasArtifactManifestDependencies;
+      /** Version of the `ph` canvas SDK the artifact targets. */
+      canvasSdkVersion: string;
+      /**
+         * Path of the runtime-mounted React component, for legacy-tier artifacts.
+         * @nullable
+         */
+      legacyComponentPath?: string | null;
+      /**
+         * The runtime-mounted component source, for legacy-tier artifacts.
+         * @nullable
+         */
+      legacyCode?: string | null;
+      /** Declared PostHog/network capabilities the artifact is held to at runtime. */
+      capabilities: CanvasArtifactManifestCapabilities;
     }
 
     /**
@@ -13601,6 +13655,69 @@ export namespace Schemas {
       path?: string;
       /** 1-based line number within `path`, when the diagnostic points at a specific line. */
       line?: number;
+    }
+
+    /**
+     * Lifecycle record of one build of a canvas source version.
+     */
+    export interface CanvasBuild {
+      /** The build's id. */
+      id: string;
+      /** The source version this build compiled. */
+      source_version_id: string;
+      /** Build lifecycle state. A failed build never replaces the last-known-good artifact.
+       *
+       * * `queued` - queued
+       * * `building` - building
+       * * `ready` - ready
+       * * `failed` - failed */
+      build_status: BuildStatusEnum;
+      /** Structured diagnostics recorded by the build (errors explain a failed status). */
+      diagnostics: CanvasDiagnostic[];
+      /** The frozen artifact manifest — present once the build is ready. */
+      manifest?: CanvasArtifactManifest | null;
+      /**
+         * Hex SHA-256 over the manifest — the artifact's integrity anchor. Null until ready.
+         * @nullable
+         */
+      integrity: string | null;
+      /** Pinned builds are retained for the lifetime of the canvas. */
+      pinned: boolean;
+      /** When the build was queued. */
+      created_at: string;
+      /**
+         * When the build reached a terminal state.
+         * @nullable
+         */
+      finished_at: string | null;
+    }
+
+    /**
+     * A canvas's build lifecycle: live pointers plus its most recent builds.
+     */
+    export interface CanvasBuildsResponse {
+      /**
+         * Id of the canvas's live build (the last successful, still-eligible one). Null until a build completes.
+         * @nullable
+         */
+      published_build_id: string | null;
+      /**
+         * Id of the source-version row the canvas's head points at.
+         * @nullable
+         */
+      current_source_version_id: string | null;
+      /** Most recent builds, newest first (capped at 20). */
+      builds: CanvasBuild[];
+    }
+
+    /**
+     * Payload for creating a new, empty canvas in a channel.
+     */
+    export interface CanvasCreate {
+      /** Display name for the canvas. Slashes are replaced with spaces. */
+      name: string;
+      /** Desktop file-system id of the channel (folder) to create the canvas in. */
+      channel_id: string;
     }
 
     /**
@@ -13699,6 +13816,16 @@ export namespace Schemas {
       version_count: number;
       /** When the canvas was created. */
       created_at: string;
+      /**
+         * Id of the normalized source-version row the canvas's head points at (null before the lifecycle recorded one).
+         * @nullable
+         */
+      current_source_version_id?: string | null;
+      /**
+         * Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.
+         * @nullable
+         */
+      published_build_id?: string | null;
     }
 
     /**

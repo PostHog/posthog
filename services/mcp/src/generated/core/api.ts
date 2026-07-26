@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 15 enabled ops
+ * PostHog API - MCP 16 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -746,6 +746,21 @@ export const DesktopFileSystemCanvasPartialUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe("Payload for publishing a freeform canvas's React source via the agent.")
+
+/**
+ * Read a canvas's build lifecycle: live pointers plus recent builds with diagnostics.
+ *
+ * Poll this after publishing — the publish queues a build, and the
+ * canvas's `published_build_id` advances only once the build is ready.
+ */
+export const DesktopFileSystemCanvasBuildsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 /**
  * Publish a complete canvas source project as the canvas's new head version.

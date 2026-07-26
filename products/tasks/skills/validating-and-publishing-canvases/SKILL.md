@@ -55,6 +55,20 @@ Publish the **complete** project with `desktop-file-system-canvas-publish-create
 The response returns the new `current_version_id`; the canvas app picks the version up
 immediately.
 
+## After publishing: the build
+
+A publish queues a server-side build of the version. Check it with
+`desktop-file-system-canvas-builds-retrieve`:
+
+- `queued`/`building` — in progress; poll again shortly.
+- `ready` — the canvas's `published_build_id` advances to this build (unless a newer publish
+  superseded it first).
+- `failed` — read the build's error diagnostics, fix the project, and publish again. A failed
+  build never replaces the last good one, so the canvas keeps rendering the previous version.
+
+You don't need to block on the build to finish your task — report the publish and, if the build
+already failed while you're still running, fix and republish.
+
 ## Recovering from 409 version_conflict
 
 A 409 means the canvas moved past your base — a concurrent publish or a user's undo. The response

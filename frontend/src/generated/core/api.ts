@@ -13,6 +13,7 @@ import type {
     BulkUpdateTagsResponseApi,
     CIMDVerificationTokenApi,
     CIMDVerificationTokenWithValueApi,
+    CanvasBuildsResponseApi,
     CanvasCreateApi,
     CanvasSourcePublishApi,
     CanvasSourcePublishResponseApi,
@@ -1463,6 +1464,27 @@ export const desktopFileSystemCanvasPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedCanvasPublishApi),
+    })
+}
+
+export const getDesktopFileSystemCanvasBuildsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/canvas/builds/`
+}
+
+/**
+ * Read a canvas's build lifecycle: live pointers plus recent builds with diagnostics.
+ *
+ * Poll this after publishing — the publish queues a build, and the
+ * canvas's `published_build_id` advances only once the build is ready.
+ */
+export const desktopFileSystemCanvasBuildsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CanvasBuildsResponseApi> => {
+    return apiMutator<CanvasBuildsResponseApi>(getDesktopFileSystemCanvasBuildsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

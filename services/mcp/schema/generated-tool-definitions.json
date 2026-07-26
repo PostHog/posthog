@@ -2750,6 +2750,20 @@
             "readOnlyHint": false
         }
     },
+    "desktop-file-system-canvas-builds-retrieve": {
+        "description": "Read a canvas's build lifecycle: `published_build_id` (the live build), `current_source_version_id`, and the most recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish queues a build; poll this until it is ready (the live pointer advances) or failed (fix the error diagnostics and publish again — the last good build stays live).",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Read canvas build status",
+        "title": "Read canvas build status",
+        "required_scopes": ["file_system:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "desktop-file-system-canvas-partial-update": {
         "description": "Publish the React source for a freeform canvas (a \"dashboard\" item on the desktop surface). The `id` is the canvas/dashboard id. Pass the COMPLETE single-file React source in `code` — each call replaces the live code and appends a new version to the canvas's history. This is how a canvas-generation task saves its result; do not write a local file.",
         "category": "Core",

@@ -64,6 +64,24 @@ tools:
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
         enabled: false
+    desktop-file-system-canvas-builds-retrieve:
+        operation: desktop_file_system_canvas_builds_retrieve
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read canvas build status
+        description: >
+            Read a canvas's build lifecycle: `published_build_id` (the live build), `current_source_version_id`, and the
+            most recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish
+            queues a build; poll this until it is ready (the live pointer advances) or failed (fix the error diagnostics
+            and publish again — the last good build stays live).
+        param_overrides:
+            id:
+                description: ID of the canvas whose builds to read.
     desktop-file-system-canvas-partial-update:
         operation: desktop_file_system_canvas_partial_update
         enabled: true

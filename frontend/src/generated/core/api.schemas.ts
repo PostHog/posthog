@@ -2817,6 +2817,152 @@ export interface CanvasPublishConflictApi {
 }
 
 /**
+ * * `queued` - queued
+ * * `building` - building
+ * * `ready` - ready
+ * * `failed` - failed
+ */
+export type BuildStatusEnumApi = (typeof BuildStatusEnumApi)[keyof typeof BuildStatusEnumApi]
+
+export const BuildStatusEnumApi = {
+    Queued: 'queued',
+    Building: 'building',
+    Ready: 'ready',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `error` - error
+ * * `warning` - warning
+ */
+export type DiagnosticSeverityEnumApi = (typeof DiagnosticSeverityEnumApi)[keyof typeof DiagnosticSeverityEnumApi]
+
+export const DiagnosticSeverityEnumApi = {
+    Error: 'error',
+    Warning: 'warning',
+} as const
+
+/**
+ * One structured validation/build diagnostic for a canvas source project.
+ */
+export interface CanvasDiagnosticApi {
+    /** 'error' blocks publishing; 'warning' is advisory and does not block.
+     *
+     * * `error` - error
+     * * `warning` - warning */
+    severity: DiagnosticSeverityEnumApi
+    /** Stable machine-readable diagnostic code, e.g. 'import_not_allowed' or 'unsupported_file'. */
+    code: string
+    /** Human-readable description of the problem and how to fix it. */
+    message: string
+    /** Project-relative path of the file the diagnostic points at, when file-specific. */
+    path?: string
+    /** 1-based line number within `path`, when the diagnostic points at a specific line. */
+    line?: number
+}
+
+/**
+ * One emitted file of a built canvas artifact.
+ */
+export interface CanvasArtifactAssetApi {
+    /** Artifact-relative path of the emitted file. */
+    path: string
+    /** Hex SHA-256 of the file content. */
+    contentHash: string
+    /** Size of the file in bytes. */
+    sizeBytes: number
+}
+
+/**
+ * Exact dependency versions the artifact was built against.
+ */
+export type CanvasArtifactManifestApiDependencies = { [key: string]: string }
+
+/**
+ * Declared PostHog/network capabilities the artifact is held to at runtime.
+ */
+export type CanvasArtifactManifestApiCapabilities = { [key: string]: unknown }
+
+/**
+ * The manifest frozen into a ready build: entry, assets, versions, capabilities.
+ */
+export interface CanvasArtifactManifestApi {
+    /** The artifact's entry HTML file. */
+    entryHtml: string
+    /** Every emitted artifact file with its content hash. */
+    assets: CanvasArtifactAssetApi[]
+    /** Exact dependency versions the artifact was built against. */
+    dependencies: CanvasArtifactManifestApiDependencies
+    /** Version of the `ph` canvas SDK the artifact targets. */
+    canvasSdkVersion: string
+    /**
+     * Path of the runtime-mounted React component, for legacy-tier artifacts.
+     * @nullable
+     */
+    legacyComponentPath?: string | null
+    /**
+     * The runtime-mounted component source, for legacy-tier artifacts.
+     * @nullable
+     */
+    legacyCode?: string | null
+    /** Declared PostHog/network capabilities the artifact is held to at runtime. */
+    capabilities: CanvasArtifactManifestApiCapabilities
+}
+
+/**
+ * Lifecycle record of one build of a canvas source version.
+ */
+export interface CanvasBuildApi {
+    /** The build's id. */
+    id: string
+    /** The source version this build compiled. */
+    source_version_id: string
+    /** Build lifecycle state. A failed build never replaces the last-known-good artifact.
+     *
+     * * `queued` - queued
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed */
+    build_status: BuildStatusEnumApi
+    /** Structured diagnostics recorded by the build (errors explain a failed status). */
+    diagnostics: CanvasDiagnosticApi[]
+    /** The frozen artifact manifest — present once the build is ready. */
+    manifest?: CanvasArtifactManifestApi | null
+    /**
+     * Hex SHA-256 over the manifest — the artifact's integrity anchor. Null until ready.
+     * @nullable
+     */
+    integrity: string | null
+    /** Pinned builds are retained for the lifetime of the canvas. */
+    pinned: boolean
+    /** When the build was queued. */
+    created_at: string
+    /**
+     * When the build reached a terminal state.
+     * @nullable
+     */
+    finished_at: string | null
+}
+
+/**
+ * A canvas's build lifecycle: live pointers plus its most recent builds.
+ */
+export interface CanvasBuildsResponseApi {
+    /**
+     * Id of the canvas's live build (the last successful, still-eligible one). Null until a build completes.
+     * @nullable
+     */
+    published_build_id: string | null
+    /**
+     * Id of the source-version row the canvas's head points at.
+     * @nullable
+     */
+    current_source_version_id: string | null
+    /** Most recent builds, newest first (capped at 20). */
+    builds: CanvasBuildApi[]
+}
+
+/**
  * Project files keyed by relative path (forward slashes, no '..'). Until the canvas build service ships, only "index.html" and "src/canvas.tsx" (the single React component the canvas mounts) are supported.
  */
 export type CanvasSourceProjectApiFiles = { [key: string]: string }
@@ -2885,36 +3031,16 @@ export interface CanvasSummaryApi {
     version_count: number
     /** When the canvas was created. */
     created_at: string
-}
-
-/**
- * * `error` - error
- * * `warning` - warning
- */
-export type DiagnosticSeverityEnumApi = (typeof DiagnosticSeverityEnumApi)[keyof typeof DiagnosticSeverityEnumApi]
-
-export const DiagnosticSeverityEnumApi = {
-    Error: 'error',
-    Warning: 'warning',
-} as const
-
-/**
- * One structured validation/build diagnostic for a canvas source project.
- */
-export interface CanvasDiagnosticApi {
-    /** 'error' blocks publishing; 'warning' is advisory and does not block.
-     *
-     * * `error` - error
-     * * `warning` - warning */
-    severity: DiagnosticSeverityEnumApi
-    /** Stable machine-readable diagnostic code, e.g. 'import_not_allowed' or 'unsupported_file'. */
-    code: string
-    /** Human-readable description of the problem and how to fix it. */
-    message: string
-    /** Project-relative path of the file the diagnostic points at, when file-specific. */
-    path?: string
-    /** 1-based line number within `path`, when the diagnostic points at a specific line. */
-    line?: number
+    /**
+     * Id of the normalized source-version row the canvas's head points at (null before the lifecycle recorded one).
+     * @nullable
+     */
+    current_source_version_id?: string | null
+    /**
+     * Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.
+     * @nullable
+     */
+    published_build_id?: string | null
 }
 
 /**

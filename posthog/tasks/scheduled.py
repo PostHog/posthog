@@ -11,6 +11,7 @@ from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
+from posthog.tasks.canvas_build import cleanup_canvas_builds
 from posthog.tasks.email import (
     EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC,
     send_error_tracking_weekly_digest,
@@ -764,6 +765,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_surveys_cache.s(),
         name="sync all surveys cache",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="1", minute=str(randrange(0, 40))),
+        cleanup_canvas_builds.s(),
+        name="apply canvas build artifact retention",
     )
 
     sender.add_periodic_task(

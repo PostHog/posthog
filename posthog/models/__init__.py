@@ -28,6 +28,7 @@ from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .role_external_reference import RoleExternalReference
 from .file_system.file_system import FileSystem
+from .file_system.canvas_build import CanvasBuild, CanvasSourceVersion
 from .file_system.folder_context_generation import FileSystemFolderContextGeneration
 from .file_system.folder_instructions import FileSystemFolderInstructions
 from .file_system.file_system_view_log import FileSystemViewLog
@@ -114,6 +115,8 @@ __all__ = [
     "RoleExternalReference",
     "FileSystem",
     "FileSystemFolderContextGeneration",
+    "CanvasBuild",
+    "CanvasSourceVersion",
     "FileSystemFolderInstructions",
     "FileSystemViewLog",
     "PersistedFolder",

@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    DesktopFileSystemCanvasBuildsRetrieveParams,
     DesktopFileSystemCanvasPartialUpdateBody,
     DesktopFileSystemCanvasPartialUpdateParams,
     DesktopFileSystemCanvasPublishCreateBody,
@@ -28,6 +29,28 @@ import {
 import { castStringToInt } from '@/tools/cast-helpers'
 import { omitResponseFields, pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const DesktopFileSystemCanvasBuildsRetrieveSchema = DesktopFileSystemCanvasBuildsRetrieveParams.omit({
+    project_id: true,
+}).extend({
+    id: DesktopFileSystemCanvasBuildsRetrieveParams.shape['id'].describe('ID of the canvas whose builds to read.'),
+})
+
+const desktopFileSystemCanvasBuildsRetrieve = (): ToolBase<
+    typeof DesktopFileSystemCanvasBuildsRetrieveSchema,
+    Schemas.CanvasBuildsResponse
+> => ({
+    name: 'desktop-file-system-canvas-builds-retrieve',
+    schema: DesktopFileSystemCanvasBuildsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCanvasBuildsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CanvasBuildsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/builds/`,
+        })
+        return result
+    },
+})
 
 const DesktopFileSystemCanvasPartialUpdateSchema = DesktopFileSystemCanvasPartialUpdateParams.omit({ project_id: true })
     .extend(DesktopFileSystemCanvasPartialUpdateBody.shape)
@@ -744,6 +767,7 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'desktop-file-system-canvas-builds-retrieve': desktopFileSystemCanvasBuildsRetrieve,
     'desktop-file-system-canvas-partial-update': desktopFileSystemCanvasPartialUpdate,
     'desktop-file-system-canvas-publish-create': desktopFileSystemCanvasPublishCreate,
     'desktop-file-system-canvas-source-retrieve': desktopFileSystemCanvasSourceRetrieve,
