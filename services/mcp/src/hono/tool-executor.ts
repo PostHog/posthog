@@ -7,6 +7,7 @@ import {
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
 import {
+    ExecCommandError,
     handleToolError,
     MissingOrganizationContextError,
     MissingProjectContextError,
@@ -516,6 +517,13 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
             ...(error.inputKeys.length ? { validationInputKeys: error.inputKeys } : {}),
         }
     }
+    // The exec dispatcher rejected the command before any inner tool ran (mistyped
+    // tool, bad JSON, unknown verb). That's an agent-recoverable input mistake, not
+    // a server fault — bucket it as `validation` so it stays out of the `internal`
+    // rate ops alerts on, and so a retry-looping agent can't masquerade as an outage.
+    if (error instanceof ExecCommandError) {
+        return { errorType: 'validation' }
+    }
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }
     }
@@ -573,6 +581,11 @@ function resolveSafeErrorMessage(error: unknown): string | undefined {
     // Documented value-free: offending field paths + issue codes, never input values.
     if (error instanceof ToolInputValidationError) {
         return error.message
+    }
+    // Value-free: the reason enum only. The dispatcher's human message can echo the
+    // caller's tool name or a JSON-parser fragment, so it's never captured.
+    if (error instanceof ExecCommandError) {
+        return `Exec command rejected: ${error.reason}`
     }
     if (error instanceof Error && error.name === 'TimeoutError') {
         return 'Tool call timed out'

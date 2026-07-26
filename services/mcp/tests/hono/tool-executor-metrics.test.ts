@@ -443,5 +443,49 @@ describe('ToolExecutor metrics', () => {
 
             expect(callsFor(mockToolErrorsInc, 'exec').length).toBeGreaterThan(0)
         })
+
+        it('classifies dispatcher command rejections as validation, not internal', async () => {
+            // An unknown inner tool is an agent mistake, not a server fault: it must
+            // not land in the `internal` bucket the error-rate alert watches.
+            await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'call nonexistent-tool-xyz {}' } },
+                execState()
+            )
+
+            expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'validation' }])
+        })
+
+        it('stamps a value-free $mcp_error_message for a dispatcher command rejection', async () => {
+            await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'call nonexistent-tool-xyz {}' } },
+                execState()
+            )
+
+            expect(trackToolCallExtras('exec')).toMatchObject({
+                $mcp_error_type: 'validation',
+                $mcp_error_message: 'Exec command rejected: unknown_tool',
+            })
+        })
+
+        it('classifies an unknown command verb as validation', async () => {
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'frobnicate' } }, execState())
+
+            expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'validation' }])
+            expect(trackToolCallExtras('exec')).toMatchObject({
+                $mcp_error_message: 'Exec command rejected: unknown_command',
+            })
+        })
+
+        it('classifies malformed JSON input as validation', async () => {
+            await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'call docs-search {not json}' } },
+                execState()
+            )
+
+            expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'validation' }])
+            expect(trackToolCallExtras('exec')).toMatchObject({
+                $mcp_error_message: 'Exec command rejected: invalid_json',
+            })
+        })
     })
 })
