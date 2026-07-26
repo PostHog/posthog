@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 15 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -748,6 +748,129 @@ export const DesktopFileSystemCanvasPartialUpdateBody = /* @__PURE__ */ zod
     .describe("Payload for publishing a freeform canvas's React source via the agent.")
 
 /**
+ * Publish a complete canvas source project as the canvas's new head version.
+ *
+ * Validates the project first — an error-severity diagnostic rejects the
+ * publish with 400 and leaves the canvas untouched. Guarded publishing via
+ * `expected_current_version_id` rejects a stale base with 409 instead of
+ * overwriting newer work.
+ */
+export const DesktopFileSystemCanvasPublishCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const desktopFileSystemCanvasPublishCreateBodyProjectOneCanvasSdkVersionDefault = `0.1.0`
+
+export const DesktopFileSystemCanvasPublishCreateBody = /* @__PURE__ */ zod
+    .object({
+        project: zod
+            .object({
+                schemaVersion: zod.number().describe('Source-project schema version. Currently always 1.'),
+                files: zod
+                    .record(zod.string(), zod.string())
+                    .describe(
+                        'Project files keyed by relative path (forward slashes, no \'..\'). Until the canvas build service ships, only \"index.html\" and \"src\/canvas.tsx\" (the single React component the canvas mounts) are supported.'
+                    ),
+                entryHtml: zod.string().describe('The project\'s entry HTML file. Currently always \"index.html\".'),
+                dependencies: zod
+                    .record(zod.string(), zod.string())
+                    .optional()
+                    .describe(
+                        'Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog\/quill, recharts, lucide-react, dayjs) at their pinned versions.'
+                    ),
+                canvasSdkVersion: zod
+                    .string()
+                    .default(desktopFileSystemCanvasPublishCreateBodyProjectOneCanvasSdkVersionDefault)
+                    .describe('Version of the host-injected `ph` canvas SDK the project targets.'),
+            })
+            .describe(
+                "A canvas's multi-file source project — the canonical write format for canvas source.\n\nUntil the canvas build service ships, projects are constrained to the\nlegacy-compatible shape: `index.html` (a fixed synthetic shell) plus\n`src\/canvas.tsx` (the single React component the runtime mounts)."
+            )
+            .describe('The complete source project to publish.'),
+        prompt: zod
+            .string()
+            .optional()
+            .describe('Short description of the change, stored on the appended version history entry.'),
+        name: zod
+            .string()
+            .optional()
+            .describe('Optional new display name for the canvas (rewrites the leaf segment of its path).'),
+        expected_current_version_id: zod
+            .string()
+            .nullish()
+            .describe(
+                'Optimistic-concurrency guard: the current_version_id the publisher based its edits on (null when it read a canvas with no versions yet). When the canvas has since moved past it the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded.'
+            ),
+    })
+    .describe('Payload for publishing a complete canvas source project.')
+
+/**
+ * Read a canvas's source project and the version pointer edits must be based on.
+ *
+ * Legacy single-file canvases are presented as a synthetic web project whose
+ * `src/canvas.tsx` holds the stored React component.
+ */
+export const DesktopFileSystemCanvasSourceRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Validate a candidate source project without publishing it.
+ *
+ * Side-effect free: returns the same structured diagnostics a publish would
+ * enforce, so agents can iterate until the project is publishable.
+ */
+export const DesktopFileSystemCanvasValidateCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const desktopFileSystemCanvasValidateCreateBodyProjectOneCanvasSdkVersionDefault = `0.1.0`
+
+export const DesktopFileSystemCanvasValidateCreateBody = /* @__PURE__ */ zod
+    .object({
+        project: zod
+            .object({
+                schemaVersion: zod.number().describe('Source-project schema version. Currently always 1.'),
+                files: zod
+                    .record(zod.string(), zod.string())
+                    .describe(
+                        'Project files keyed by relative path (forward slashes, no \'..\'). Until the canvas build service ships, only \"index.html\" and \"src\/canvas.tsx\" (the single React component the canvas mounts) are supported.'
+                    ),
+                entryHtml: zod.string().describe('The project\'s entry HTML file. Currently always \"index.html\".'),
+                dependencies: zod
+                    .record(zod.string(), zod.string())
+                    .optional()
+                    .describe(
+                        'Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog\/quill, recharts, lucide-react, dayjs) at their pinned versions.'
+                    ),
+                canvasSdkVersion: zod
+                    .string()
+                    .default(desktopFileSystemCanvasValidateCreateBodyProjectOneCanvasSdkVersionDefault)
+                    .describe('Version of the host-injected `ph` canvas SDK the project targets.'),
+            })
+            .describe(
+                "A canvas's multi-file source project — the canonical write format for canvas source.\n\nUntil the canvas build service ships, projects are constrained to the\nlegacy-compatible shape: `index.html` (a fixed synthetic shell) plus\n`src\/canvas.tsx` (the single React component the runtime mounts)."
+            )
+            .describe('The candidate source project to validate.'),
+    })
+    .describe('Payload for validating a candidate source project without publishing it.')
+
+/**
  * Return the latest non-deleted instructions for this folder.
  */
 export const DesktopFileSystemInstructionsRetrieveParams = /* @__PURE__ */ zod.object({
@@ -783,6 +906,42 @@ export const DesktopFileSystemInstructionsPartialUpdateBody = /* @__PURE__ */ zo
             "Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet."
         ),
 })
+
+/**
+ * List the project's canvases, newest first (capped at 100).
+ */
+export const DesktopFileSystemCanvasesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DesktopFileSystemCanvasesListQueryParams = /* @__PURE__ */ zod.object({
+    channel_id: zod.string().optional().describe('Only return canvases inside this channel (desktop folder id).'),
+    search: zod.string().optional().describe('A search term.'),
+})
+
+/**
+ * Create a new, empty canvas in a channel.
+ *
+ * The canvas starts with no source; publish a source project to give it one.
+ */
+export const DesktopFileSystemCanvasesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DesktopFileSystemCanvasesCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().describe('Display name for the canvas. Slashes are replaced with spaces.'),
+        channel_id: zod.string().describe('Desktop file-system id of the channel (folder) to create the canvas in.'),
+    })
+    .describe('Payload for creating a new, empty canvas in a channel.')
 
 /**
  * Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user; non-staff callers may only access their own account.

@@ -2816,6 +2816,164 @@ export interface CanvasPublishConflictApi {
     current_version_id: string | null
 }
 
+/**
+ * Project files keyed by relative path (forward slashes, no '..'). Until the canvas build service ships, only "index.html" and "src/canvas.tsx" (the single React component the canvas mounts) are supported.
+ */
+export type CanvasSourceProjectApiFiles = { [key: string]: string }
+
+/**
+ * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.
+ */
+export type CanvasSourceProjectApiDependencies = { [key: string]: string }
+
+/**
+ * A canvas's multi-file source project — the canonical write format for canvas source.
+ *
+ * Until the canvas build service ships, projects are constrained to the
+ * legacy-compatible shape: `index.html` (a fixed synthetic shell) plus
+ * `src/canvas.tsx` (the single React component the runtime mounts).
+ */
+export interface CanvasSourceProjectApi {
+    /** Source-project schema version. Currently always 1. */
+    schemaVersion: number
+    /** Project files keyed by relative path (forward slashes, no '..'). Until the canvas build service ships, only "index.html" and "src/canvas.tsx" (the single React component the canvas mounts) are supported. */
+    files: CanvasSourceProjectApiFiles
+    /** The project's entry HTML file. Currently always "index.html". */
+    entryHtml: string
+    /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions. */
+    dependencies?: CanvasSourceProjectApiDependencies
+    /** Version of the host-injected `ph` canvas SDK the project targets. */
+    canvasSdkVersion?: string
+}
+
+/**
+ * Payload for publishing a complete canvas source project.
+ */
+export interface CanvasSourcePublishApi {
+    /** The complete source project to publish. */
+    project: CanvasSourceProjectApi
+    /** Short description of the change, stored on the appended version history entry. */
+    prompt?: string
+    /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
+    name?: string
+    /**
+     * Optimistic-concurrency guard: the current_version_id the publisher based its edits on (null when it read a canvas with no versions yet). When the canvas has since moved past it the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded.
+     * @nullable
+     */
+    expected_current_version_id?: string | null
+}
+
+/**
+ * Identity and version pointers for one canvas (a desktop 'dashboard' entry).
+ */
+export interface CanvasSummaryApi {
+    /** The canvas's desktop file-system id. */
+    id: string
+    /** Display name of the canvas (the leaf segment of its path). */
+    name: string
+    /**
+     * File-system id of the channel (folder) the canvas belongs to, when recorded.
+     * @nullable
+     */
+    channel_id: string | null
+    /**
+     * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
+     * @nullable
+     */
+    current_version_id: string | null
+    /** Number of source versions in the canvas's history. */
+    version_count: number
+    /** When the canvas was created. */
+    created_at: string
+}
+
+/**
+ * * `error` - error
+ * * `warning` - warning
+ */
+export type DiagnosticSeverityEnumApi = (typeof DiagnosticSeverityEnumApi)[keyof typeof DiagnosticSeverityEnumApi]
+
+export const DiagnosticSeverityEnumApi = {
+    Error: 'error',
+    Warning: 'warning',
+} as const
+
+/**
+ * One structured validation/build diagnostic for a canvas source project.
+ */
+export interface CanvasDiagnosticApi {
+    /** 'error' blocks publishing; 'warning' is advisory and does not block.
+     *
+     * * `error` - error
+     * * `warning` - warning */
+    severity: DiagnosticSeverityEnumApi
+    /** Stable machine-readable diagnostic code, e.g. 'import_not_allowed' or 'unsupported_file'. */
+    code: string
+    /** Human-readable description of the problem and how to fix it. */
+    message: string
+    /** Project-relative path of the file the diagnostic points at, when file-specific. */
+    path?: string
+    /** 1-based line number within `path`, when the diagnostic points at a specific line. */
+    line?: number
+}
+
+/**
+ * Result of a successful source-project publish.
+ */
+export interface CanvasSourcePublishResponseApi {
+    /** The canvas after the publish, including the new version pointer. */
+    canvas: CanvasSummaryApi
+    /** Id of the source version this publish created. */
+    current_version_id: string
+    /** Advisory (warning-severity) diagnostics recorded for the published project. */
+    diagnostics: CanvasDiagnosticApi[]
+}
+
+/**
+ * 400 body for a publish whose source project failed validation.
+ */
+export interface CanvasSourceInvalidApi {
+    /** Human-readable summary of why the project was rejected. */
+    detail: string
+    /** Always "invalid_source_project". */
+    code: string
+    /** The validation diagnostics, including at least one error. */
+    diagnostics: CanvasDiagnosticApi[]
+}
+
+/**
+ * A canvas's source project plus the version pointer edits must be based on.
+ */
+export interface CanvasSourceResponseApi {
+    /** Identity and version pointers for the canvas. */
+    canvas: CanvasSummaryApi
+    /** The canvas's source project. Legacy single-file canvases are presented as a synthetic project. */
+    project: CanvasSourceProjectApi
+    /**
+     * The live source version this project reflects — pass as expected_current_version_id when publishing an edit. Null before the first publish.
+     * @nullable
+     */
+    current_version_id: string | null
+}
+
+/**
+ * Payload for validating a candidate source project without publishing it.
+ */
+export interface CanvasValidateRequestApi {
+    /** The candidate source project to validate. */
+    project: CanvasSourceProjectApi
+}
+
+/**
+ * Validation outcome for a candidate source project.
+ */
+export interface CanvasValidateResponseApi {
+    /** True when the project has no error-severity diagnostics. */
+    valid: boolean
+    /** Structured diagnostics; errors block publishing, warnings are advisory. */
+    diagnostics: CanvasDiagnosticApi[]
+}
+
 export interface ContextGenerationApi {
     /**
      * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
@@ -2892,6 +3050,16 @@ export interface PaginatedFolderInstructionsVersionListApi {
     /** @nullable */
     previous?: string | null
     results: FolderInstructionsVersionApi[]
+}
+
+/**
+ * Payload for creating a new, empty canvas in a channel.
+ */
+export interface CanvasCreateApi {
+    /** Display name for the canvas. Slashes are replaced with spaces. */
+    name: string
+    /** Desktop file-system id of the channel (folder) to create the canvas in. */
+    channel_id: string
 }
 
 export interface FileSystemShortcutApi {
@@ -4043,6 +4211,17 @@ export type DesktopFileSystemInstructionsVersionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type DesktopFileSystemCanvasesListParams = {
+    /**
+     * Only return canvases inside this channel (desktop folder id).
+     */
+    channel_id?: string
     /**
      * A search term.
      */

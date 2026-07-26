@@ -5,6 +5,13 @@ import type { Schemas } from '@/api/generated'
 import {
     DesktopFileSystemCanvasPartialUpdateBody,
     DesktopFileSystemCanvasPartialUpdateParams,
+    DesktopFileSystemCanvasPublishCreateBody,
+    DesktopFileSystemCanvasPublishCreateParams,
+    DesktopFileSystemCanvasSourceRetrieveParams,
+    DesktopFileSystemCanvasValidateCreateBody,
+    DesktopFileSystemCanvasValidateCreateParams,
+    DesktopFileSystemCanvasesCreateBody,
+    DesktopFileSystemCanvasesListQueryParams,
     DesktopFileSystemCreateBody,
     DesktopFileSystemInstructionsPartialUpdateBody,
     DesktopFileSystemInstructionsPartialUpdateParams,
@@ -61,6 +68,147 @@ const desktopFileSystemCanvasPartialUpdate = (): ToolBase<
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/`,
             body,
+        })
+        return result
+    },
+})
+
+const DesktopFileSystemCanvasPublishCreateSchema = DesktopFileSystemCanvasPublishCreateParams.omit({ project_id: true })
+    .extend(DesktopFileSystemCanvasPublishCreateBody.shape)
+    .extend({
+        id: DesktopFileSystemCanvasPublishCreateParams.shape['id'].describe(
+            'ID of the canvas whose source to publish.'
+        ),
+    })
+
+const desktopFileSystemCanvasPublishCreate = (): ToolBase<
+    typeof DesktopFileSystemCanvasPublishCreateSchema,
+    Schemas.CanvasSourcePublishResponse
+> => ({
+    name: 'desktop-file-system-canvas-publish-create',
+    schema: DesktopFileSystemCanvasPublishCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCanvasPublishCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.project !== undefined) {
+            body['project'] = params.project
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.expected_current_version_id !== undefined) {
+            body['expected_current_version_id'] = params.expected_current_version_id
+        }
+        const result = await context.api.request<Schemas.CanvasSourcePublishResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/publish/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DesktopFileSystemCanvasSourceRetrieveSchema = DesktopFileSystemCanvasSourceRetrieveParams.omit({
+    project_id: true,
+}).extend({
+    id: DesktopFileSystemCanvasSourceRetrieveParams.shape['id'].describe('ID of the canvas whose source to read.'),
+})
+
+const desktopFileSystemCanvasSourceRetrieve = (): ToolBase<
+    typeof DesktopFileSystemCanvasSourceRetrieveSchema,
+    Schemas.CanvasSourceResponse
+> => ({
+    name: 'desktop-file-system-canvas-source-retrieve',
+    schema: DesktopFileSystemCanvasSourceRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCanvasSourceRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CanvasSourceResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/source/`,
+        })
+        return result
+    },
+})
+
+const DesktopFileSystemCanvasValidateCreateSchema = DesktopFileSystemCanvasValidateCreateParams.omit({
+    project_id: true,
+})
+    .extend(DesktopFileSystemCanvasValidateCreateBody.shape)
+    .extend({
+        id: DesktopFileSystemCanvasValidateCreateParams.shape['id'].describe('ID of the canvas the project is for.'),
+    })
+
+const desktopFileSystemCanvasValidateCreate = (): ToolBase<
+    typeof DesktopFileSystemCanvasValidateCreateSchema,
+    Schemas.CanvasValidateResponse
+> => ({
+    name: 'desktop-file-system-canvas-validate-create',
+    schema: DesktopFileSystemCanvasValidateCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCanvasValidateCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.project !== undefined) {
+            body['project'] = params.project
+        }
+        const result = await context.api.request<Schemas.CanvasValidateResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/validate/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DesktopFileSystemCanvasesCreateSchema = DesktopFileSystemCanvasesCreateBody.extend({
+    channel_id: DesktopFileSystemCanvasesCreateBody.shape['channel_id'].describe(
+        'Desktop file-system id of the channel (folder) to create the canvas in.'
+    ),
+})
+
+const desktopFileSystemCanvasesCreate = (): ToolBase<
+    typeof DesktopFileSystemCanvasesCreateSchema,
+    Schemas.CanvasSummary
+> => ({
+    name: 'desktop-file-system-canvases-create',
+    schema: DesktopFileSystemCanvasesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCanvasesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.channel_id !== undefined) {
+            body['channel_id'] = params.channel_id
+        }
+        const result = await context.api.request<Schemas.CanvasSummary>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/canvases/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DesktopFileSystemCanvasesListSchema = DesktopFileSystemCanvasesListQueryParams
+
+const desktopFileSystemCanvasesList = (): ToolBase<
+    typeof DesktopFileSystemCanvasesListSchema,
+    Schemas.CanvasSummary[]
+> => ({
+    name: 'desktop-file-system-canvases-list',
+    schema: DesktopFileSystemCanvasesListSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCanvasesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CanvasSummary[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/canvases/`,
+            query: {
+                channel_id: params.channel_id,
+                search: params.search,
+            },
         })
         return result
     },
@@ -597,6 +745,11 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'desktop-file-system-canvas-partial-update': desktopFileSystemCanvasPartialUpdate,
+    'desktop-file-system-canvas-publish-create': desktopFileSystemCanvasPublishCreate,
+    'desktop-file-system-canvas-source-retrieve': desktopFileSystemCanvasSourceRetrieve,
+    'desktop-file-system-canvas-validate-create': desktopFileSystemCanvasValidateCreate,
+    'desktop-file-system-canvases-create': desktopFileSystemCanvasesCreate,
+    'desktop-file-system-canvases-list': desktopFileSystemCanvasesList,
     'desktop-file-system-create': desktopFileSystemCreate,
     'desktop-file-system-instructions-partial-update': desktopFileSystemInstructionsPartialUpdate,
     'desktop-file-system-instructions-retrieve': desktopFileSystemInstructionsRetrieve,

@@ -13,9 +13,17 @@ import type {
     BulkUpdateTagsResponseApi,
     CIMDVerificationTokenApi,
     CIMDVerificationTokenWithValueApi,
+    CanvasCreateApi,
+    CanvasSourcePublishApi,
+    CanvasSourcePublishResponseApi,
+    CanvasSourceResponseApi,
+    CanvasSummaryApi,
+    CanvasValidateRequestApi,
+    CanvasValidateResponseApi,
     CimdVerificationTokensListParams,
     ContextGenerationApi,
     ContextGenerationSetApi,
+    DesktopFileSystemCanvasesListParams,
     DesktopFileSystemInstructionsVersionsListParams,
     DesktopFileSystemListParams,
     DesktopFileSystemShortcutListParams,
@@ -1458,6 +1466,77 @@ export const desktopFileSystemCanvasPartialUpdate = async (
     })
 }
 
+export const getDesktopFileSystemCanvasPublishCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/canvas/publish/`
+}
+
+/**
+ * Publish a complete canvas source project as the canvas's new head version.
+ *
+ * Validates the project first — an error-severity diagnostic rejects the
+ * publish with 400 and leaves the canvas untouched. Guarded publishing via
+ * `expected_current_version_id` rejects a stale base with 409 instead of
+ * overwriting newer work.
+ */
+export const desktopFileSystemCanvasPublishCreate = async (
+    projectId: string,
+    id: string,
+    canvasSourcePublishApi: CanvasSourcePublishApi,
+    options?: RequestInit
+): Promise<CanvasSourcePublishResponseApi> => {
+    return apiMutator<CanvasSourcePublishResponseApi>(getDesktopFileSystemCanvasPublishCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasSourcePublishApi),
+    })
+}
+
+export const getDesktopFileSystemCanvasSourceRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/canvas/source/`
+}
+
+/**
+ * Read a canvas's source project and the version pointer edits must be based on.
+ *
+ * Legacy single-file canvases are presented as a synthetic web project whose
+ * `src/canvas.tsx` holds the stored React component.
+ */
+export const desktopFileSystemCanvasSourceRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CanvasSourceResponseApi> => {
+    return apiMutator<CanvasSourceResponseApi>(getDesktopFileSystemCanvasSourceRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopFileSystemCanvasValidateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/canvas/validate/`
+}
+
+/**
+ * Validate a candidate source project without publishing it.
+ *
+ * Side-effect free: returns the same structured diagnostics a publish would
+ * enforce, so agents can iterate until the project is publishable.
+ */
+export const desktopFileSystemCanvasValidateCreate = async (
+    projectId: string,
+    id: string,
+    canvasValidateRequestApi: CanvasValidateRequestApi,
+    options?: RequestInit
+): Promise<CanvasValidateResponseApi> => {
+    return apiMutator<CanvasValidateResponseApi>(getDesktopFileSystemCanvasValidateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasValidateRequestApi),
+    })
+}
+
 export const getDesktopFileSystemContextGenerationRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/desktop_file_system/${id}/context_generation/`
 }
@@ -1679,6 +1758,61 @@ export const desktopFileSystemMoveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(fileSystemApi),
+    })
+}
+
+export const getDesktopFileSystemCanvasesListUrl = (
+    projectId: string,
+    params?: DesktopFileSystemCanvasesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/desktop_file_system/canvases/?${stringifiedParams}`
+        : `/api/projects/${projectId}/desktop_file_system/canvases/`
+}
+
+/**
+ * List the project's canvases, newest first (capped at 100).
+ */
+export const desktopFileSystemCanvasesList = async (
+    projectId: string,
+    params?: DesktopFileSystemCanvasesListParams,
+    options?: RequestInit
+): Promise<CanvasSummaryApi[]> => {
+    return apiMutator<CanvasSummaryApi[]>(getDesktopFileSystemCanvasesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopFileSystemCanvasesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/canvases/`
+}
+
+/**
+ * Create a new, empty canvas in a channel.
+ *
+ * The canvas starts with no source; publish a source project to give it one.
+ */
+export const desktopFileSystemCanvasesCreate = async (
+    projectId: string,
+    canvasCreateApi: CanvasCreateApi,
+    options?: RequestInit
+): Promise<CanvasSummaryApi> => {
+    return apiMutator<CanvasSummaryApi>(getDesktopFileSystemCanvasesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasCreateApi),
     })
 }
 
