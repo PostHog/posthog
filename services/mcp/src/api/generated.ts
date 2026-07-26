@@ -60396,6 +60396,11 @@ export namespace Schemas {
       block_consent_modals?: boolean;
     }
 
+    export interface SavedQueryResume {
+      /** False when the query's materialization was not suspended. */
+      resumed: boolean;
+    }
+
     /**
      * Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown.
      */

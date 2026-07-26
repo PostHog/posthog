@@ -10,8 +10,12 @@ materialization that would clear it. Every path here exists to give a node a way
 import hashlib
 import datetime as dt
 from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from products.data_modeling.backend.models.node import Node
+
+if TYPE_CHECKING:
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 SUSPENDED_KEY = "suspended"
 RESET_KEY = "suspension_reset"
@@ -96,6 +100,18 @@ def resume_nodes(nodes: Iterable[Node], *, by: str, engine: str | None = None) -
             node.save(update_fields=["properties"])
             resumed += 1
     return resumed
+
+
+def resume_saved_query(saved_query: "DataWarehouseSavedQuery", *, by: str = "api") -> int:
+    """Resume every node backing a saved query.
+
+    The saved query is the unit users act on, and one can back more than one node when it landed in
+    duplicate DAGs — "resume this model" means all of them.
+    """
+    return resume_nodes(
+        Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id),
+        by=by,
+    )
 
 
 def clear_suspension_if_query_changed(node: Node, query: dict | None) -> bool:
