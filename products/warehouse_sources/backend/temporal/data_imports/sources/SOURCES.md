@@ -45,6 +45,7 @@ the row lists both.
 | Source                           | Comm method                 | Primary library                                                 | Tracked transport           |
 | -------------------------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | ably                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| adobe_analytics                  | HTTP                        | requests                                                        | ✅                          |
 | adroll                           | HTTP                        | requests                                                        | ✅                          |
 | agilecrm                         | HTTP                        | requests                                                        | ✅                          |
 | aha                              | HTTP                        | requests                                                        | ✅                          |
@@ -689,7 +690,6 @@ doesn't conflict with concurrent PRs.
 - acuity_scheduling
 - adapty
 - adjust
-- adobe_analytics
 - adobe_commerce
 - adp_workforce_now
 - adyen
