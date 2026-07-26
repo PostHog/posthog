@@ -236,6 +236,22 @@ class TestStorage(APIBaseTest):
         assert len(mock_client.delete_objects.call_args_list[0].kwargs["Delete"]["Objects"]) == 1000
         assert len(mock_client.delete_objects.call_args_list[1].kwargs["Delete"]["Objects"]) == 1
 
+    def test_deletes_route_through_mutation_client_not_read_client(self) -> None:
+        # Deletes must use the backoff-enabled mutation client, never the single-attempt
+        # read client — otherwise bursty S3 throttling resurfaces as hard ClientErrors.
+        read_client = MagicMock()
+        mutation_client = MagicMock()
+        mutation_client.delete_objects.return_value = {}
+        storage = ObjectStorage(read_client, mutation_client=mutation_client)
+
+        storage.delete_objects("test-bucket", ["key-0"])
+        storage.delete("test-bucket", "key-1")
+
+        mutation_client.delete_objects.assert_called_once()
+        mutation_client.delete_object.assert_called_once()
+        read_client.delete_objects.assert_not_called()
+        read_client.delete_object.assert_not_called()
+
 
 class TestObjectStorageClientFactory(SimpleTestCase):
     def setUp(self) -> None:
@@ -256,6 +272,25 @@ class TestObjectStorageClientFactory(SimpleTestCase):
     def test_is_usable_endpoint(self, _name: str, endpoint: str | None, expected: bool) -> None:
         assert is_usable_endpoint(endpoint) is expected
 
+    @patch("posthog.storage.object_storage.client")
+    def test_delete_client_uses_retry_backoff_read_client_stays_single_attempt(self, patched_client) -> None:
+        read_client = MagicMock()
+        mutation_client = MagicMock()
+        patched_client.side_effect = [read_client, mutation_client]
+
+        with self.settings(
+            OBJECT_STORAGE_ENABLED=True,
+            OBJECT_STORAGE_ENDPOINT="http://objectstorage:19000",
+            OBJECT_STORAGE_PUBLIC_ENDPOINT="http://objectstorage:19000",
+        ):
+            storage = object_storage_client()
+
+        assert storage.mutation_client is mutation_client
+        read_config = patched_client.call_args_list[0].kwargs["config"]
+        mutation_config = patched_client.call_args_list[1].kwargs["config"]
+        assert read_config.retries == {"max_attempts": 1}
+        assert mutation_config.retries == {"max_attempts": 5, "mode": "adaptive"}
+
     @patch("posthog.storage.object_storage.capture_exception")
     @patch("posthog.storage.object_storage.client")
     def test_bad_public_endpoint_does_not_crash_read_path(self, patched_client, patched_capture) -> None:
@@ -268,8 +303,8 @@ class TestObjectStorageClientFactory(SimpleTestCase):
             storage = object_storage_client()
 
         assert isinstance(storage, ObjectStorage)
-        # Only the internal client is built; presigned degrades to the internal client.
-        patched_client.assert_called_once()
+        # Internal read + mutation clients are built; presigned degrades to the internal client.
+        assert patched_client.call_count == 2
         assert storage.presigned_client is storage.aws_client
         # The bad config is surfaced to Sentry even though the read path stays up.
         patched_capture.assert_called_once()
@@ -278,7 +313,8 @@ class TestObjectStorageClientFactory(SimpleTestCase):
     @patch("posthog.storage.object_storage.client")
     def test_boto_failure_building_presigned_client_degrades(self, patched_client, patched_capture) -> None:
         internal_client = MagicMock()
-        patched_client.side_effect = [internal_client, ValueError("Invalid endpoint")]
+        mutation_client = MagicMock()
+        patched_client.side_effect = [internal_client, mutation_client, ValueError("Invalid endpoint")]
 
         with self.settings(
             OBJECT_STORAGE_ENABLED=True,
@@ -290,13 +326,15 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         assert isinstance(storage, ObjectStorage)
         assert storage.aws_client is internal_client
         assert storage.presigned_client is internal_client
+        assert storage.mutation_client is mutation_client
         patched_capture.assert_called_once()
 
     @patch("posthog.storage.object_storage.client")
     def test_valid_public_endpoint_builds_separate_presigned_client(self, patched_client) -> None:
         internal_client = MagicMock()
+        mutation_client = MagicMock()
         presigned_client = MagicMock()
-        patched_client.side_effect = [internal_client, presigned_client]
+        patched_client.side_effect = [internal_client, mutation_client, presigned_client]
 
         with self.settings(
             OBJECT_STORAGE_ENABLED=True,
@@ -308,3 +346,4 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         assert isinstance(storage, ObjectStorage)
         assert storage.aws_client is internal_client
         assert storage.presigned_client is presigned_client
+        assert storage.mutation_client is mutation_client

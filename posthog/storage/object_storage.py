@@ -159,9 +159,14 @@ class UnavailableStorage(ObjectStorageClient):
 
 
 class ObjectStorage(ObjectStorageClient):
-    def __init__(self, aws_client, presigned_client=None) -> None:
+    def __init__(self, aws_client, presigned_client=None, mutation_client=None) -> None:
         self.aws_client = aws_client
         self.presigned_client = presigned_client or aws_client
+        # Deletes route through a client with retry backoff. Bulk deletes (symbol-set
+        # cleanup runs DeleteObjects batches from parallel activities) provoke S3
+        # throttling (503 SlowDown); the read path stays single-attempt, so without a
+        # backoff-enabled client a throttle surfaces as a hard ClientError.
+        self.mutation_client = mutation_client or aws_client
 
     def head_bucket(self, bucket: str) -> bool:
         try:
@@ -378,7 +383,7 @@ class ObjectStorage(ObjectStorageClient):
     def delete(self, bucket: str, key: str) -> None:
         response = {}
         try:
-            response = self.aws_client.delete_object(Bucket=bucket, Key=key)
+            response = self.mutation_client.delete_object(Bucket=bucket, Key=key)
         except Exception as e:
             logger.exception("object_storage.delete_failed", bucket=bucket, key=key, error=e, s3_response=response)
             capture_exception(e)
@@ -394,7 +399,7 @@ class ObjectStorage(ObjectStorageClient):
 
             response = {}
             try:
-                response = self.aws_client.delete_objects(
+                response = self.mutation_client.delete_objects(
                     Bucket=bucket,
                     Delete={"Objects": [{"Key": key} for key in chunk], "Quiet": True},
                 )
@@ -443,6 +448,22 @@ def object_storage_client() -> ObjectStorageClient:
             config=s3_config,
             region_name=settings.OBJECT_STORAGE_REGION,
         )
+        # Deletes get their own client with adaptive retries: it backs off and proactively
+        # rate-limits when S3 throttles (503 SlowDown), which the bursty symbol-set cleanup
+        # provokes. The read path keeps its single-attempt, latency-sensitive config.
+        mutation_config = Config(
+            signature_version="s3v4",
+            connect_timeout=1,
+            retries={"max_attempts": 5, "mode": "adaptive"},
+        )
+        mutation_client = client(
+            "s3",
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            config=mutation_config,
+            region_name=settings.OBJECT_STORAGE_REGION,
+        )
         presigned_client = None
         public_endpoint = settings.OBJECT_STORAGE_PUBLIC_ENDPOINT
         if public_endpoint != settings.OBJECT_STORAGE_ENDPOINT:
@@ -470,7 +491,7 @@ def object_storage_client() -> ObjectStorageClient:
                 error = ValueError(f"Invalid OBJECT_STORAGE_PUBLIC_ENDPOINT: {public_endpoint!r}")
                 logger.error("object_storage.invalid_public_endpoint", endpoint=public_endpoint, error=error)
                 capture_exception(error)
-        _client = ObjectStorage(aws_client, presigned_client)
+        _client = ObjectStorage(aws_client, presigned_client, mutation_client=mutation_client)
 
     return _client
 
