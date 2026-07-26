@@ -58,6 +58,13 @@ class TestSafeExposeChError:
         with pytest.raises(ClickHouseAtCapacity):
             DataWarehouseTable()._safe_expose_ch_error(ServerException("busy", code=code))
 
+    def test_memory_limit_error_names_the_real_cause_not_storage_config(self) -> None:
+        # A large count query that OOMs (code 241) must not fall through to the generic
+        # "check your URL/format/credentials" message, which sends users to debug storage config.
+        err = ServerException("total memory limit exceeded: would use 220.66 GiB", code=241)
+        with pytest.raises(Exception, match="ran out of memory"):
+            DataWarehouseTable()._safe_expose_ch_error(err)
+
 
 class TestRunChdbQuery:
     def test_hung_query_is_killed_and_raises_instead_of_blocking(self) -> None:

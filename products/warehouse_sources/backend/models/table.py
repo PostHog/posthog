@@ -30,7 +30,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CORRUPTED_PARQUET_METADATA_MESSAGE, wrap_clickhouse_query_error
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.schema_enums import DatabaseSerializedFieldType
@@ -857,6 +857,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # and has no `.message` attribute.
         if isinstance(err, ClickHouseAtCapacity):
             raise err
+
+        # An out-of-memory failure means the query scanned too much data (e.g. the row-count query on
+        # a large self-managed source), not a bad URL/format/credentials. Name the real cause before
+        # the generic fallback, which would otherwise send users to debug their storage config.
+        if isinstance(err, ClickHouseQueryMemoryLimitExceeded):
+            raise Exception(
+                "This dataset is too large to count in one pass, so the query ran out of memory. "
+                "Narrow the files URL pattern to include fewer files, then try again."
+            )
 
         for key, value in ExtractErrors.items():
             if key in raw_message:
