@@ -673,6 +673,7 @@ def _capture_report_emitted(
     already_addressed: bool,
     priority: str | None,
     repository: str | None,
+    chart_count: int = 0,
 ) -> _ReportForward | None:
     """Emit the scout-owned `signals_scout_report_emitted` event — the report-channel counterpart to
     `signals_scout_run_finished`, fired once per `emit_report` call that reached a terminal outcome.
@@ -706,6 +707,7 @@ def _capture_report_emitted(
         "outcome": outcome,
         "skipped_reason": result.skipped_reason,
         "evidence_count": evidence_count,
+        "chart_count": chart_count,
         "title": title,
         "summary": _clip(summary, _MAX_TELEMETRY_SUMMARY_LEN),
         "actionability": actionability,
@@ -746,6 +748,7 @@ def _capture_report_edited(
     summary: str | None,
     note: str | None,
     suggested_reviewers: list[ReviewerInput] | None = None,
+    charts: list[ReportChart] | None = None,
 ) -> _ReportForward:
     """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
     `edit_report`, so edits are observable separately from fresh authorship. `updated_fields` /
@@ -763,6 +766,7 @@ def _capture_report_edited(
         "updated_fields": result.updated_fields,
         "note_appended": result.note_appended,
         "reviewers_set": result.reviewers_set,
+        "charts_appended": result.charts_appended,
         "title": _clip(title, MAX_REPORT_TITLE_LENGTH),
         "summary": _clip(summary, _MAX_TELEMETRY_SUMMARY_LEN),
         "note": _clip(note, _MAX_TELEMETRY_TEXT_LEN),
@@ -789,6 +793,12 @@ def _capture_report_edited(
     parts: list[object] = ["edit", run.id, result.report_id, sorted(result.updated_fields), title, summary, note]
     if result.reviewers_set and suggested_reviewers:
         parts.append(",".join(sorted(f"{r.github_login or ''}:{r.user_uuid or ''}" for r in suggested_reviewers)))
+    # Charts are a valid *sole* input to an edit, so the same reasoning applies: two chart-only edits to
+    # one report in a run carry no updated_fields and no title/summary/note, and would hash identically —
+    # ingestion would collapse the second and the team would never see that chart land. Key on the chart
+    # ids too, only when charts were appended so every other edit keeps its existing uuid.
+    if charts:
+        parts.append(",".join(sorted(c.chart_id for c in charts)))
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",
@@ -852,6 +862,7 @@ async def emit_report(
             already_addressed=already_addressed,
             priority=priority,
             repository=repository,
+            chart_count=len(chart_contents),
         )
         await _forward_report_event_async(team, forward)
         return result
@@ -914,6 +925,7 @@ async def emit_report(
         already_addressed=already_addressed,
         priority=priority,
         repository=repository,
+        chart_count=len(chart_contents),
     )
     await _forward_report_event_async(team, forward)
     return result
@@ -967,6 +979,7 @@ def emit_report_sync(
             already_addressed=already_addressed,
             priority=priority,
             repository=repository,
+            chart_count=len(chart_contents),
         )
         if forward is not None:
             _forward_report_event_to_team(team=team, forward=forward)
@@ -1028,6 +1041,7 @@ def emit_report_sync(
         already_addressed=already_addressed,
         priority=priority,
         repository=repository,
+        chart_count=len(chart_contents),
     )
     if forward is not None:
         _forward_report_event_to_team(team=team, forward=forward)
@@ -1199,6 +1213,7 @@ async def edit_report(
         summary=summary,
         note=append_note,
         suggested_reviewers=suggested_reviewers,
+        charts=charts,
     )
     await _forward_report_event_async(team, forward)
     return result
@@ -1235,6 +1250,7 @@ def edit_report_sync(
         summary=summary,
         note=append_note,
         suggested_reviewers=suggested_reviewers,
+        charts=charts,
     )
     _forward_report_event_to_team(team=team, forward=forward)
     return result

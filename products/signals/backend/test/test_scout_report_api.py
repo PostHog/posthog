@@ -23,6 +23,7 @@ from products.signals.backend.scout_harness.tools.report import (
     REPORT_KIND_SELF_IMPROVEMENT,
     EditReportResult,
     InvalidScoutReportError,
+    ReportChart,
     ReviewerInput,
     _build_suggested_reviewers,
     _capture_report_edited,
@@ -653,6 +654,53 @@ class TestScoutReportAPI(APIBaseTest):
         bob = forward([ReviewerInput(github_login="bob")])
         assert alice != bob
         assert alice == forward([ReviewerInput(github_login="alice")])
+
+    def test_chart_edit_event_uuid_keys_on_charts(self) -> None:
+        # Same collision class as the reviewer case above: charts are a valid sole input to an edit, so
+        # two chart-only edits to one report in a run carry no `updated_fields` and no title/summary/note.
+        # Without keying on the chart ids they hash to one `event_uuid` and ingestion drops the second —
+        # the team never sees that chart land. An identical retried chart edit must still stay one event.
+        run = _make_run(self.team)
+        result = EditReportResult(report_id=str(uuid4()), updated_fields=[], note_appended=False, charts_appended=1)
+
+        def forward(charts: list[ReportChart]) -> str:
+            with patch(CAPTURE_PATH):
+                return _capture_report_edited(
+                    team=self.team,
+                    run=run,
+                    result=result,
+                    title=None,
+                    summary=None,
+                    note=None,
+                    charts=charts,
+                ).event_uuid
+
+        def chart(chart_id: str) -> ReportChart:
+            return ReportChart(chart_id=chart_id, title="Daily signups", query={"kind": "InsightVizNode"})
+
+        signups = forward([chart("signups-drop")])
+        churn = forward([chart("churn-spike")])
+        assert signups != churn
+        assert signups == forward([chart("signups-drop")])
+
+    def test_chart_counts_ride_the_lifecycle_events(self) -> None:
+        # `charts_appended` / `chart_count` are what a dashboard or CDP destination reads to tell a
+        # chart-bearing report from a plain one; without them both event streams look identical.
+        run = _make_run(self.team)
+        charts = [{"chart_id": "signups-drop", "title": "Daily signups", "query": {"kind": "InsightVizNode"}}]
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH) as capture:
+            created = self.client.post(
+                self._emit_url(str(run.id)), data={**self._payload(), "charts": charts}, format="json"
+            ).json()
+            self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "charts": charts},
+                format="json",
+            )
+        emitted = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
+        edited = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_edited")
+        assert emitted.kwargs["properties"]["chart_count"] == 1
+        assert edited.kwargs["properties"]["charts_appended"] == 1
 
     @parameterized.expand(
         [
