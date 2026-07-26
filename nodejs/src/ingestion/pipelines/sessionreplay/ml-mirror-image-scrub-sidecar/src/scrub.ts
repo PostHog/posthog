@@ -18,7 +18,8 @@ import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
 import { detectCodes } from './qr.ts'
 import { type SafetyModel, classifySafety, loadSafety } from './safety.ts'
-import { SCRUB_OUT_MAX_PIXELS, type Src, decodeSrc, srcSharp } from './src-image.ts'
+import { type Dims, type ScalePlan, limitsFromEnv, planScales } from './scale-plan.ts'
+import { type Src, decodeSrc, probeDims, srcSharp } from './src-image.ts'
 import { type YunetModel, detectFacesYunet, loadYunet } from './yunet.ts'
 
 export type TextMode = 'heuristic' | 'dbnet'
@@ -107,17 +108,6 @@ function clampBox(b: Box, W: number, H: number): Box | null {
 // --- input preparation --------------------------------------------------------------------------
 /** Adaptive DBNet detection budget: big enough to resolve small text on retina shots, capped for cost.
  *  The returned value is the budget SIDE — dbnet caps its input at detLimit^2 px, aspect preserved. */
-// Detection budget as a fraction of the image's own scale (sqrt of its area). 0.75 clears all crisp
-// rendered UI (session replay's actual domain) cheaply; raise toward 1.0 for faint/small
-// scanned-document print (more CPU), lower for more throughput. Faint low-contrast text is
-// contrast- not size-limited, so resolution alone won't catch every faded fax line.
-const DET_FACTOR = numFromEnv('DET_FACTOR', 0.75, 0.1, 1)
-const DET_CAP = numFromEnv('DET_CAP', 1600, 256, 4096) // cap so retina screenshots don't explode
-function adaptiveDetLimit(W: number, H: number): number {
-    const target = Math.round((Math.sqrt(W * H) * DET_FACTOR) / 32) * 32
-    return Math.max(736, Math.min(DET_CAP, target))
-}
-
 /** Whole worker job for one image, advanced path. Detection is parallelized when PARALLEL_DETECT=1:
  *  the three ORT sessions run on onnxruntime's background threads. */
 export async function advancedScrub(
@@ -149,8 +139,12 @@ export async function advancedScrub(
     // Decode the PNG ONCE; every stage re-wraps these raw pixels. The decode is the only stage that
     // consumes untrusted bytes, so its failures are permanent-for-these-bytes (422/skip), never 500.
     let src: Src
+    let plan: ScalePlan
     try {
-        src = await decodeSrc(input)
+        const meta = await probeDims(input)
+        // One decision, before any pixel is read: every stage below takes its size from here.
+        plan = planScales(meta, limitsFromEnv())
+        src = await decodeSrc(input, plan.frame)
     } catch (e) {
         throw e instanceof UndecodableImageError ? e : new UndecodableImageError(String(e))
     }
@@ -165,7 +159,10 @@ export async function advancedScrub(
     // fixed-cost inference on every frame, which makes it the largest single thing this skips.
     if (isUniform(src)) {
         timings.uniform = true
-        const out = await compose(src, W, H, [], timings)
+        // Stored at the planned size like any other frame. Sizing it by its own dimensions instead
+        // would make a blank frame the one image kept at full resolution, which is a surprising
+        // exception to carry for no benefit: a flat colour is as recognisable small as large.
+        const out = await compose(src, W, H, [], timings, plan.stored)
         timings.totalMs = performance.now() - t0
         return { out, t: timings }
     }
@@ -186,9 +183,8 @@ export async function advancedScrub(
 
     // 2. Face (YuNet) + text (DBNet) on native ORT, codes (zxing) on wasm. Serial by default
     //    (1 core/worker); parallel opt-in.
-    const det = adaptiveDetLimit(W, H)
     const runText = (): Promise<Box[]> =>
-        textMode === 'dbnet' ? detectTextDbnet(m.dbnet, src, W, H, { detLimit: det }) : detectTextRegions(input, W, H)
+        textMode === 'dbnet' ? detectTextDbnet(m.dbnet, src, plan.text) : detectTextRegions(input, W, H)
     let faceBoxes: Box[]
     let textBoxes: Box[]
     let codeBoxes: Box[]
@@ -229,7 +225,7 @@ export async function advancedScrub(
     }
     const fillBoxes = [...faceBoxes, ...textBoxes.map(expandText).filter((b): b is Box => b !== null), ...codeBoxes]
 
-    const out = await compose(src, W, H, fillBoxes, timings)
+    const out = await compose(src, W, H, fillBoxes, timings, plan.stored)
     timings.totalMs = performance.now() - t0
     return { out, t: timings }
 }
@@ -339,13 +335,15 @@ export async function compose(
     H: number,
     boxes: Box[],
     timings: StageTimings,
-    outMaxPixels: number = SCRUB_OUT_MAX_PIXELS
+    /** Where the plan says this image is stored. Passed in rather than derived here, because the size
+     *  is a property of the whole pipeline's geometry and not of the compose step. */
+    stored: Dims
 ): Promise<Buffer> {
     const tC = performance.now()
     if (boxes.length === 0) {
         timings.composeMs = performance.now() - tC
         const tE0 = performance.now()
-        const out0 = await encodeStored(srcSharp(src), W, H, outMaxPixels, timings)
+        const out0 = await encodeStored(srcSharp(src), W, H, stored, timings)
         timings.encodeMs = performance.now() - tE0
         return out0
     }
@@ -402,7 +400,7 @@ export async function compose(
     const redacted = srcSharp(src).composite([
         { input: overlay, raw: { width: W, height: H, channels: 4 }, left: 0, top: 0 },
     ])
-    const out = await encodeStored(redacted, W, H, outMaxPixels, timings)
+    const out = await encodeStored(redacted, W, H, stored, timings)
     timings.encodeMs = performance.now() - tE
     return out
 }
@@ -425,20 +423,15 @@ async function encodeStored(
     redacted: sharp.Sharp,
     W: number,
     H: number,
-    outMaxPixels: number,
+    stored: Dims,
     timings?: StageTimings
 ): Promise<Buffer> {
-    if (W * H <= outMaxPixels) {
-        if (timings) {
-            timings.storedPixels = W * H
-        }
-        return redacted.png({ compressionLevel: PNG_LEVEL }).toBuffer()
-    }
-    const scale = Math.sqrt(outMaxPixels / (W * H))
-    const outW = Math.max(1, Math.round(W * scale))
-    const outH = Math.max(1, Math.round(H * scale))
+    const { width: outW, height: outH } = stored
     if (timings) {
         timings.storedPixels = outW * outH
+    }
+    if (outW >= W && outH >= H) {
+        return redacted.png({ compressionLevel: PNG_LEVEL }).toBuffer()
     }
     const { data, info } = await redacted.raw().toBuffer({ resolveWithObject: true })
     return sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } })

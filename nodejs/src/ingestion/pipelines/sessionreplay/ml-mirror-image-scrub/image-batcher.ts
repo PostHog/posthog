@@ -1,17 +1,34 @@
-import { Message, TopicPartitionOffset } from 'node-rdkafka'
+import { LibrdKafkaError, Message, TopicPartitionOffset } from 'node-rdkafka'
 
 import { findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
+import { logger } from '~/common/utils/logger'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 import { parseImageRef } from './content-ref'
 import { ImageShardStore, ScrubbedImage } from './image-shard-store'
 import { ImageScrubConsumerMetrics } from './metrics'
-import { ScrubClient } from './scrub-client'
+import { ScrubClient, ScrubUnavailable } from './scrub-client'
 
 export interface OffsetStore {
     offsetsStore(offsets: TopicPartitionOffset[]): void
 }
+
+/**
+ * The librdkafka codes that mean "this partition is not ours to store an offset for".
+ *
+ * Which one a revoke produces depends on where in the revoke sequence the store lands: __STATE when
+ * the partition object still exists but its offset store is stopped, __UNKNOWN_PARTITION when it is
+ * gone from the assignment entirely, and the fenced/lost pair when the group has moved on without
+ * us. All four have to be here: which one a given revoke produces is a matter of timing, so matching
+ * a subset leaves the rest of the window exiting the process.
+ */
+const REVOKED_PARTITION_CODES = new Set([
+    -172, // ERR__STATE
+    -190, // ERR__UNKNOWN_PARTITION
+    -142, // ERR__ASSIGNMENT_LOST
+    -144, // ERR__FENCED
+])
 
 /** The batch index is what lets offsets advance across the messages planning skipped. */
 interface PlannedScrub {
@@ -91,7 +108,7 @@ export class ImageBatcher {
 
         // A sliding window rather than fixed groups: every completion immediately admits the next
         // image, so the sidecar never waits on the slowest member of a group before being given more
-        // work. Grouping used to gate throughput on E[slowest of N] instead of E[mean], which on a
+        // work. Grouping would gate throughput on E[slowest of N] instead of E[mean], which on a
         // spread-out scrub-time distribution leaves a large share of the sidecar's cores idle.
         //
         // Admission is what bounds memory: scrubbed outputs can dwarf their inputs (a sub-MB input
@@ -104,6 +121,10 @@ export class ImageBatcher {
         // the sidecar.
         const controller = new AbortController()
         let scrubBudgetMs = this.options.maxBatchScrubMs
+        // Set by the deadline rather than inferred from the error, because the abort surfaces as
+        // whatever the concurrency controller rejects an aborted job with and not as a scrub error at
+        // all, so no amount of inspecting the error can tell this apart from a genuine fault.
+        let deadlineExpired = false
         let spanStart = 0
         let nextToSubmit = 0
         let retired = 0
@@ -119,6 +140,7 @@ export class ImageBatcher {
 
         while (nextToSubmit < planned.length || inFlight.size > 0) {
             while (
+                !deadlineExpired &&
                 nextToSubmit < planned.length &&
                 inFlight.size < this.maxInFlight &&
                 !this.overCapacity(stagedCount, stagedBytes)
@@ -126,14 +148,24 @@ export class ImageBatcher {
                 inFlight.set(nextToSubmit, this.submitScrub(nextToSubmit, planned[nextToSubmit], controller))
                 nextToSubmit++
             }
-            // Only reachable over capacity with work left: flush to make room rather than spin.
             if (inFlight.size === 0) {
+                // The controller is per-batch and cannot be un-aborted, so anything submitted from
+                // here rejects without the sidecar seeing it. Draining the tail that way would count
+                // hundreds of untried images as capacity drops and read as a far worse sidecar
+                // failure than actually occurred.
+                if (deadlineExpired) {
+                    break
+                }
+                // Only reachable over capacity with work left: flush to make room rather than spin.
                 await this.flushOrThrow(nowMs)
                 continue
             }
 
             const waitStartMs = performance.now()
-            const timer = setTimeout(() => controller.abort(), scrubBudgetMs)
+            const timer = setTimeout(() => {
+                deadlineExpired = true
+                controller.abort()
+            }, scrubBudgetMs)
             let done: SettledScrub
             try {
                 done = await Promise.race(inFlight.values())
@@ -143,9 +175,18 @@ export class ImageBatcher {
             }
             inFlight.delete(done.slot)
             if (done.error !== undefined) {
-                controller.abort() // one failure dooms the batch, so cancel the siblings still in flight
-                ImageScrubConsumerMetrics.incBatchFailed('scrub')
-                throw done.error
+                if (!deadlineExpired && !(done.error instanceof ScrubUnavailable)) {
+                    controller.abort() // one failure dooms the batch, so cancel the siblings still in flight
+                    ImageScrubConsumerMetrics.incBatchFailed('scrub')
+                    throw done.error
+                }
+                // The sidecar could not take this image. Losing it costs one frame from a best-effort
+                // mirror, and the ref is deliberately left unmarked so a later copy still gets a turn.
+                // Failing the batch instead costs the pod, because the Kafka loop exits the process on
+                // any throw, and the partitions it was holding land on pods that are already as busy.
+                ImageScrubConsumerMetrics.incDropped(
+                    deadlineExpired ? 'deadline' : (done.error as ScrubUnavailable).reason
+                )
             }
             if (done.scrubbed) {
                 staged[done.slot] = done.scrubbed
@@ -183,6 +224,13 @@ export class ImageBatcher {
             if (this.overCapacity(stagedCount, stagedBytes)) {
                 await this.flushOrThrow(nowMs)
             }
+        }
+        // Kafka offsets are a high-water mark, so leaving this tail uncommitted would not save it:
+        // the next batch stores a higher offset and buries the gap. Since it is lost either way, all
+        // that is left to decide is whether the loss is legible, hence its own reason rather than
+        // being folded in with images the sidecar was actually offered and refused.
+        if (nextToSubmit < planned.length) {
+            ImageScrubConsumerMetrics.incDropped('unattempted', planned.length - nextToSubmit)
         }
         // A batch whose tail is all skips, or which is nothing but skips, still has to move offsets.
         this.recordOffsets(messages.slice(spanStart))
@@ -288,8 +336,37 @@ export class ImageBatcher {
             this.bufferBytes = 0
         }
         if (this.pendingOffsets.size > 0) {
-            this.offsetStore.offsetsStore([...this.pendingOffsets.values()])
+            this.storeOffsetsUnlessRevoked([...this.pendingOffsets.values()])
             this.pendingOffsets.clear()
+        }
+    }
+
+    /**
+     * librdkafka refuses to store an offset for a partition this consumer no longer holds. A
+     * rebalance during a batch is ordinary, and the shard is already on S3 by this point, so the only
+     * thing lost is the record of how far we got: whoever picks the partition up rescrubs from the
+     * last committed offset, which is the same at-least-once behaviour a restart produces. Letting it
+     * propagate would exit the process, and a pod exiting is itself what triggers the next rebalance.
+     *
+     * The disconnected client throws a plain Error with no code at all, which is the same situation
+     * arriving during shutdown, so it is tolerated on the same grounds.
+     */
+    private storeOffsetsUnlessRevoked(offsets: TopicPartitionOffset[]): void {
+        try {
+            this.offsetStore.offsetsStore(offsets)
+        } catch (error) {
+            const code = (error as LibrdKafkaError | undefined)?.code
+            if (code !== undefined && !REVOKED_PARTITION_CODES.has(code)) {
+                throw error
+            }
+            // Logged as well as counted: the counter says how many, and a lane that is quietly
+            // rescrubbing the same span every batch needs the partitions to work that out.
+            logger.warn('🔁', 'image_scrub_offsets_discarded', {
+                error: String(error),
+                code,
+                partitions: offsets.map((o) => o.partition),
+            })
+            ImageScrubConsumerMetrics.incOffsetsDiscarded(offsets.length)
         }
     }
 }

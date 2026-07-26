@@ -1,4 +1,16 @@
+import { SCRUB_WORKERS } from './cores.ts'
 import { numFromEnv } from './env.ts'
+
+/**
+ * Requests admitted per worker.
+ *
+ * One would leave a worker idle for the width of a request body while the next one is read, so the
+ * spare slot per worker is what keeps them fed. More than that is queue, and queue is the thing to
+ * avoid: an admitted request produces no bytes until a worker frees up, and the consumer's timeout
+ * is an inactivity timeout, so queueing reads to it as an unresponsive sidecar rather than as a busy
+ * one. Shedding early gives it a 503 it can act on immediately.
+ */
+const ADMITTED_PER_WORKER = 2
 
 export interface Config {
     port: number
@@ -17,14 +29,11 @@ export interface Config {
     jobTimeoutMs: number
 }
 
-// Validated like every other knob: a mistyped IMAGE_SCRUB_CONCURRENCY parsed to NaN leaves
-// `inFlight >= maxConcurrency` permanently false, which removes load shedding entirely rather than
-// failing loudly.
 export function loadConfig(): Config {
     return {
         port: numFromEnv('IMAGE_SCRUB_PORT', 9010, 1, 65535),
         metricsPort: numFromEnv('IMAGE_SCRUB_METRICS_PORT', 9011, 1, 65535),
-        maxConcurrency: numFromEnv('IMAGE_SCRUB_CONCURRENCY', 8, 1, 256),
+        maxConcurrency: ADMITTED_PER_WORKER * SCRUB_WORKERS,
         maxBodyBytes: numFromEnv('IMAGE_SCRUB_MAX_BODY_BYTES', 20 * 1024 * 1024, 1024, 512 * 1024 * 1024),
         jobTimeoutMs: numFromEnv('IMAGE_SCRUB_JOB_TIMEOUT_MS', 15_000, 1000, 600_000),
     }
