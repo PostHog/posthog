@@ -155,21 +155,13 @@ export type ExecCommandErrorReason =
     | 'needs_confirmation'
 
 /**
- * Thrown by the single-exec `exec` dispatcher when it rejects a command before
- * any inner tool runs — an unknown command verb, an unknown / deprecated /
- * scope-gated tool name, malformed JSON input, a usage error, or an unknown
- * `learn` topic. These are agent-recoverable mistakes (the LLM mistyped a tool
- * name or sent bad JSON), not server faults, so they must classify as
- * `validation` rather than falling through to the `internal` bucket. Left as a
- * plain `Error`, a single retry-looping agent inflates the internal-error rate
- * ops alerts watch, the failures carry no `$mcp_error_message`, and every
- * slip-up mints an `exec`-fingerprinted error-tracking issue via
- * `captureException`.
+ * Thrown by the `exec` dispatcher when it rejects a command before any inner
+ * tool runs. Typed so these classify as agent mistakes rather than falling
+ * through to the `internal` bucket ops alerts on.
  *
- * `reason` is a value-free enum for telemetry; the human `message` is returned
- * to the agent verbatim so it can self-correct, but is never captured into
- * project-readable analytics (it can echo the caller's tool name or a JSON
- * parser fragment) — `$mcp_error_message` is derived from `reason` instead.
+ * `message` goes back to the agent verbatim so it can self-correct, but is
+ * never captured into analytics — it can echo the caller's tool name or a JSON
+ * parser fragment. `$mcp_error_message` is derived from the `reason` enum.
  */
 export class ExecCommandError extends Error {
     public readonly reason: ExecCommandErrorReason
@@ -472,10 +464,8 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         }
     }
 
-    // Recoverable: the exec dispatcher rejected the command before any handler ran
-    // (unknown tool/verb, bad JSON, usage). Return the guidance so the agent can
-    // self-correct, and skip exception capture — otherwise every agent slip-up
-    // mints a fresh `exec`-fingerprinted error-tracking issue.
+    // Recoverable: return the guidance so the agent can self-correct, and skip
+    // exception capture — otherwise every slip-up mints a fresh error-tracking issue.
     if (error instanceof ExecCommandError) {
         return {
             content: [
