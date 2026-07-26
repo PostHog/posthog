@@ -51,6 +51,14 @@ SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=Tru
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
+# OTLP destinations for agent-server run telemetry (PostHog Logs/APM).
+# Full ingest URLs (e.g. https://us.i.posthog.com/i/v1/logs and .../i/v1/traces)
+# plus the project API key of the telemetry project. Telemetry stays off unless
+# URL + token are set; the traces URL additionally enables APM spans.
+SANDBOX_AGENT_OTEL_LOGS_URL: str | None = get_from_env("SANDBOX_AGENT_OTEL_LOGS_URL", None, optional=True)
+SANDBOX_AGENT_OTEL_LOGS_TOKEN: str | None = get_from_env("SANDBOX_AGENT_OTEL_LOGS_TOKEN", None, optional=True)
+SANDBOX_AGENT_OTEL_TRACES_URL: str | None = get_from_env("SANDBOX_AGENT_OTEL_TRACES_URL", None, optional=True)
+
 # client_id of the OAuthApplication used to mint the access token the PostHog setup wizard
 # uses when it runs inside a task sandbox (the "run the wizard in the cloud" onboarding path).
 # It must be the wizard's own app so the LLM gateway authorizes the token like a normal wizard
@@ -93,6 +101,24 @@ TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_S
 TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS: int = get_from_env(
     "TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS", 0, type_cast=int
 )
+
+# Mirror persisted task-run logs into the PostHog Logs product (dogfooding).
+# Entries appended to a run's S3 JSONL log are also emitted as structured stdout log lines;
+# the per-cluster OTel collector already ships container stdout into the region's internal
+# PostHog project's Logs, so no transport or credentials are needed here. Only runs whose
+# task origin_product is in this list are mirrored — scoped to signals scouts for now;
+# widen the list to cover more task origins, or set it empty to disable.
+TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS: list[str] = get_list(
+    os.getenv("TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS", "signals_scout")
+)
+
+# Direct OTLP delivery for the mirror above. The token pins the destination: scout runs
+# execute for customer teams, but their mirrored logs must only ever land in (and bill)
+# PostHog's own internal logs project — so this is the internal project's API key, never
+# derived from the run's team. Point locally at the dev logs ingest to see mirrored runs
+# in /logs. Unset disables the direct leg (stdout emission for the collector remains).
+TASK_RUN_LOGS_MIRROR_OTLP_URL: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_URL", None, optional=True)
+TASK_RUN_LOGS_MIRROR_OTLP_TOKEN: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_TOKEN", None, optional=True)
 
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)

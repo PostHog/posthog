@@ -23,7 +23,7 @@ const DEFAULT_SORT_FIELD: InboxSortField = 'priority'
 const DEFAULT_SORT_DIRECTION: InboxSortDirection = 'asc'
 
 // Query-param keys that mirror the filter state so a view can be shared via URL.
-const FILTER_URL_KEYS = ['scope', 'source', 'priority', 'sort', 'search'] as const
+const FILTER_URL_KEYS = ['scope', 'source', 'scout', 'priority', 'sort', 'search'] as const
 
 const VALID_SOURCE_VALUES = new Set(INBOX_SOURCE_OPTIONS.map((o) => o.value))
 const VALID_PRIORITIES = new Set<string>(INBOX_PRIORITY_OPTIONS)
@@ -34,6 +34,7 @@ const VALID_SORT_KEYS = new Set(INBOX_SORT_OPTIONS.map((o) => `${o.field}:${o.di
 export interface InboxFilterState {
     scope: InboxScope
     sourceProductFilter: string[]
+    scoutFilter: string[]
     priorityFilter: SignalReportPriority[]
     sortField: InboxSortField
     sortDirection: InboxSortDirection
@@ -61,6 +62,19 @@ function parseListParam(raw: unknown, valid: Set<string>): string[] {
     return raw.split(',').filter((v) => valid.has(v))
 }
 
+// Scout skill names are team-specific and dynamic, so there is no static valid set to check a
+// shared link against — accept any non-empty comma-separated slugs; an unknown scout simply
+// matches no reports server-side.
+function parseScoutParam(raw: unknown): string[] {
+    if (typeof raw !== 'string' || raw.length === 0) {
+        return []
+    }
+    return raw
+        .split(',')
+        .map((v) => v.trim())
+        .filter((v) => v.length > 0)
+}
+
 /** Decode the filter query params into filter state, ignoring unknown/invalid values and falling back to defaults. */
 export function parseFilterSearchParams(searchParams: Record<string, any>): InboxFilterState {
     let sortField = DEFAULT_SORT_FIELD
@@ -73,6 +87,7 @@ export function parseFilterSearchParams(searchParams: Record<string, any>): Inbo
     return {
         scope: parseScopeParam(searchParams.scope),
         sourceProductFilter: parseListParam(searchParams.source, VALID_SOURCE_VALUES),
+        scoutFilter: parseScoutParam(searchParams.scout),
         priorityFilter: parseListParam(searchParams.priority, VALID_PRIORITIES) as SignalReportPriority[],
         sortField,
         sortDirection,
@@ -92,6 +107,9 @@ export function filterSearchParams(values: InboxFilterState): Record<string, str
     }
     if (values.sourceProductFilter.length > 0) {
         params.source = values.sourceProductFilter.join(',')
+    }
+    if (values.scoutFilter.length > 0) {
+        params.scout = values.scoutFilter.join(',')
     }
     if (values.priorityFilter.length > 0) {
         params.priority = values.priorityFilter.join(',')
@@ -149,6 +167,7 @@ export interface inboxFiltersLogicValues {
     hasUserChosenScope: boolean
     priorityFilter: SignalReportPriority[]
     scope: InboxScope
+    scoutFilter: string[]
     searchQuery: string
     sortDirection: InboxSortDirection
     sortField: InboxSortField
@@ -214,6 +233,9 @@ export interface inboxFiltersLogicActions {
     togglePriority: (priority: SignalReportPriority) => {
         priority: SignalReportPriority
     }
+    toggleScout: (scout: string) => {
+        scout: string
+    }
     toggleSourceProduct: (source: string) => {
         source: string
     }
@@ -225,6 +247,7 @@ export interface inboxFiltersLogicMeta {
         hasActiveFilters: (
             searchQuery: string,
             sourceProductFilter: string[],
+            scoutFilter: string[],
             priorityFilter: SignalReportPriority[]
         ) => boolean
     }
@@ -263,6 +286,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setSort: (field: InboxSortField, direction: InboxSortDirection) => ({ field, direction }),
         toggleSourceProduct: (source: string) => ({ source }),
+        toggleScout: (scout: string) => ({ scout }),
         togglePriority: (priority: SignalReportPriority) => ({ priority }),
         // Atomically apply a full filter set. Used when hydrating from a shared URL so the whole view
         // is restored in one action — one list refresh, no fan-out race between partial states.
@@ -350,6 +374,18 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 clearFilters: () => [],
             },
         ],
+        // Raw scout skill_name slugs (e.g. "signals-scout-error-tracking") — a sub-filter of the
+        // Scout source, narrowing to reports authored by specific scouts.
+        scoutFilter: [
+            [] as string[],
+            { persist: true },
+            {
+                toggleScout: (state, { scout }) =>
+                    state.includes(scout) ? state.filter((s) => s !== scout) : [...state, scout],
+                setFilters: (_, { filters }) => filters.scoutFilter,
+                clearFilters: () => [],
+            },
+        ],
         priorityFilter: [
             [] as SignalReportPriority[],
             { persist: true },
@@ -366,9 +402,17 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         // Whether any list-narrowing filter is active. Scope and sort are excluded: they don't hide
         // reports the way search/source/priority do, and `clearFilters` leaves them untouched.
         hasActiveFilters: [
-            (s) => [s.searchQuery, s.sourceProductFilter, s.priorityFilter],
-            (searchQuery: string, sourceProductFilter: string[], priorityFilter: SignalReportPriority[]): boolean =>
-                searchQuery.trim().length > 0 || sourceProductFilter.length > 0 || priorityFilter.length > 0,
+            (s) => [s.searchQuery, s.sourceProductFilter, s.scoutFilter, s.priorityFilter],
+            (
+                searchQuery: string,
+                sourceProductFilter: string[],
+                scoutFilter: string[],
+                priorityFilter: SignalReportPriority[]
+            ): boolean =>
+                searchQuery.trim().length > 0 ||
+                sourceProductFilter.length > 0 ||
+                scoutFilter.length > 0 ||
+                priorityFilter.length > 0,
         ],
     }),
 
@@ -382,6 +426,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             applyDefaultScope: toUrl,
             setSort: toUrl,
             toggleSourceProduct: toUrl,
+            toggleScout: toUrl,
             togglePriority: toUrl,
             setSearchQuery: toUrl,
             clearFilters: toUrl,
@@ -412,6 +457,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             const changed =
                 values.scope !== parsed.scope ||
                 !sameSet(values.sourceProductFilter, parsed.sourceProductFilter) ||
+                !sameSet(values.scoutFilter, parsed.scoutFilter) ||
                 !sameSet(values.priorityFilter, parsed.priorityFilter) ||
                 values.sortField !== parsed.sortField ||
                 values.sortDirection !== parsed.sortDirection ||

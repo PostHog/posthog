@@ -322,6 +322,14 @@ jobs:
                       }
 
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # A dispatched run would otherwise check out master (the dispatch ref)
+                  # and ship master's SPA as the "PR frontend" — dispatch is the only
+                  # preview path for draft/bot-authored PRs. The PR head is safe here:
+                  # the fork guard above has already hard-failed non-same-repo numbers,
+                  # and this job runs without credentials. pull_request events keep the
+                  # default merge-ref behavior (empty ref).
+                  ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/head', env.PR) || '' }}
 
             # --- Frontend: only build it when the PR actually touches it --------
             # The golden serves the :master SPA; mounting the backend doesn't

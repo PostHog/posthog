@@ -7,6 +7,11 @@ import psycopg
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (
     _has_inflight_replace_run,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_queue import (
+    KIND_RETIRED_BY_REPLAN,
+    REASON_RETIRED_BY_REPLAN,
+    retire_backfill_run,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
     DUCKGRES_APPLY_TABLE,
     DUCKGRES_LEASE_TABLE,
@@ -1146,4 +1151,39 @@ class TestOrgConcurrencyBudget:
 
         # org-a: 1 live lease of budget 1 -> saturated; org-b: 1 of 2 -> not.
         assert await DuckgresBatchQueue.count_orgs_at_budget(conn, team_org_budgets=one_each) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+class TestRetireBackfillRun:
+    @pytest.mark.asyncio
+    async def test_marks_unapplied_chunks_failed_with_replan_reason(
+        self, conn: psycopg.AsyncConnection[Any], _db_url: str
+    ) -> None:
+        # Regression: retire_backfill_run built error_response with bare
+        # placeholders inside jsonb_build_object (a VARIADIC "any" function), so
+        # Postgres raised IndeterminateDatatype ("could not determine data type
+        # of parameter $1") on EVERY replan of a schema that still had a live
+        # backfill_run_uuid -- silently blocking operator un-sticking. The
+        # ::text casts fix it; this test executes the real SQL that regressed.
+        run_uuid = "run-to-retire"
+        b0 = await _insert_batch(conn, run_uuid=run_uuid, batch_index=0)
+        b1 = await _insert_batch(conn, run_uuid=run_uuid, batch_index=1)
+        # An already-applied chunk must be left alone (the a.id IS NULL filter).
+        applied = await _insert_batch(conn, run_uuid=run_uuid, batch_index=2)
+        await _mark_applied_raw(conn, batch_id=applied, run_uuid=run_uuid, batch_index=2)
+
+        # retire_backfill_run takes a *sync* psycopg connection (it runs inline
+        # in the consumer fetch path), so open one against the same test DB.
+        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
+            retire_backfill_run(sync_conn, run_uuid=run_uuid)
+
+        cur = await conn.execute(f"SELECT batch_id, job_state, error_response FROM {DUCKGRES_STATUS_TABLE}")
+        rows = await cur.fetchall()
+
+        retired = {str(batch_id): (job_state, err) for batch_id, job_state, err in rows}
+        assert set(retired) == {str(b0), str(b1)}  # applied chunk untouched
+        for job_state, err in retired.values():
+            assert job_state == "failed"
+            assert err["error"] == REASON_RETIRED_BY_REPLAN
+            assert err["kind"] == KIND_RETIRED_BY_REPLAN
         assert await DuckgresBatchQueue.count_orgs_at_budget(conn, team_org_budgets=[]) == 0

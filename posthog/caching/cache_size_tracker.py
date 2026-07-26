@@ -3,33 +3,34 @@ from datetime import timedelta
 from typing import Optional
 
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import BaseCache, caches
 
 import structlog
+from django_redis import get_redis_connection
 from prometheus_client import Counter, Histogram
+from redis import Redis, RedisCluster
 
-from posthog import redis
 from posthog.cache_utils import cache_for
-from posthog.caching.query_cache_routing import BACKEND_CLUSTER, BACKEND_DEFAULT
+from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
 
 logger = structlog.get_logger(__name__)
 
 CACHE_EVICTION_COUNTER = Counter(
     "query_cache_size_limit_evictions_total",
     "Cache entries evicted due to per-team size limits",
-    labelnames=["team_id", "backend"],
+    labelnames=["team_id"],
 )
 
 CACHE_EVICTION_BYTES_COUNTER = Counter(
     "query_cache_size_limit_evicted_bytes_total",
     "Bytes evicted due to per-team size limits",
-    labelnames=["team_id", "backend"],
+    labelnames=["team_id"],
 )
 
 CACHE_EVICTION_AGE_HISTOGRAM = Histogram(
     "query_cache_eviction_age_seconds",
     "Age of cache entries at eviction time (seconds since write)",
-    labelnames=["team_id", "backend"],
+    labelnames=["team_id"],
     buckets=[
         1800,  # 30 min
         3600,  # 1 hour
@@ -46,7 +47,7 @@ CACHE_EVICTION_AGE_HISTOGRAM = Histogram(
 CACHE_SIZE_HISTOGRAM = Histogram(
     "query_cache_team_size_bytes",
     "Distribution of per-team cache sizes in bytes",
-    labelnames=["team_id", "backend"],
+    labelnames=["team_id"],
     buckets=[
         1_000_000,  # 1MB
         10_000_000,  # 10MB
@@ -140,17 +141,24 @@ class TeamCacheSizeTracker:
     - posthog:cache_total:{team_id} - String counter: total bytes (for O(1) total size lookup)
     """
 
-    def __init__(self, team_id: int, cache_backend=None, redis_client=None, is_cluster: bool = False):
+    def __init__(
+        self,
+        team_id: int,
+        cache_backend: BaseCache | None = None,
+        redis_client: Redis | RedisCluster | None = None,
+    ):
         self.team_id = team_id
-        self._cache = cache_backend or cache
-        self.redis_client = redis_client or redis.get_client()
-        self._is_cluster = is_cluster
+        self._cache = cache_backend if cache_backend is not None else caches[QUERY_CACHE_ALIAS]
+        self.redis_client: Redis | RedisCluster = (
+            redis_client if redis_client is not None else get_redis_connection(QUERY_CACHE_ALIAS)
+        )
         self.entries_key = f"posthog:cache_sizes:{{{team_id}}}"
         self.sizes_key = f"posthog:cache_entry_sizes:{{{team_id}}}"
         self.total_key = f"posthog:cache_total:{{{team_id}}}"
 
-        self._track_write_script = self.redis_client.register_script(TRACK_CACHE_WRITE_SCRIPT)
-        self._remove_tracking_script = self.redis_client.register_script(REMOVE_TRACKING_SCRIPT)
+        # redis-py's stubs omit register_script on RedisCluster; the runtime supports it.
+        self._track_write_script = self.redis_client.register_script(TRACK_CACHE_WRITE_SCRIPT)  # type: ignore[union-attr]
+        self._remove_tracking_script = self.redis_client.register_script(REMOVE_TRACKING_SCRIPT)  # type: ignore[union-attr]
 
     def set(self, cache_key: str, data: bytes, data_size: int, ttl: int) -> list[str]:
         """
@@ -176,8 +184,7 @@ class TeamCacheSizeTracker:
 
         total_size = self.get_total_size()
         entry_count = self.redis_client.zcard(self.entries_key)
-        backend = BACKEND_CLUSTER if self._is_cluster else BACKEND_DEFAULT
-        CACHE_SIZE_HISTOGRAM.labels(team_id=self.team_id, backend=backend).observe(total_size)
+        CACHE_SIZE_HISTOGRAM.labels(team_id=self.team_id).observe(total_size)
 
         logger.info(
             "query_cache_write",
@@ -235,11 +242,10 @@ class TeamCacheSizeTracker:
             current_size -= removed_size
             evicted_keys.append(cache_key)
 
-            backend = BACKEND_CLUSTER if self._is_cluster else BACKEND_DEFAULT
-            CACHE_EVICTION_COUNTER.labels(team_id=self.team_id, backend=backend).inc()
-            CACHE_EVICTION_BYTES_COUNTER.labels(team_id=self.team_id, backend=backend).inc(removed_size)
+            CACHE_EVICTION_COUNTER.labels(team_id=self.team_id).inc()
+            CACHE_EVICTION_BYTES_COUNTER.labels(team_id=self.team_id).inc(removed_size)
             eviction_age = time.time() - float(write_timestamp)
-            CACHE_EVICTION_AGE_HISTOGRAM.labels(team_id=self.team_id, backend=backend).observe(eviction_age)
+            CACHE_EVICTION_AGE_HISTOGRAM.labels(team_id=self.team_id).observe(eviction_age)
 
         return evicted_keys
 

@@ -434,12 +434,6 @@ const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUr
             if (params.exit_condition !== undefined) {
                 body['exit_condition'] = params.exit_condition
             }
-            if (params.edges !== undefined) {
-                body['edges'] = params.edges
-            }
-            if (params.actions !== undefined) {
-                body['actions'] = params.actions
-            }
             if (params.variables !== undefined) {
                 body['variables'] = params.variables
             }

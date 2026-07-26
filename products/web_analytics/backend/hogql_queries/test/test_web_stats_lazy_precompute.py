@@ -738,7 +738,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 return_value=LazyComputationResult(ready=True, job_ids=[], stale=True),
             ),
             patch(
-                "products.web_analytics.backend.tasks.lazy_precompute_revalidation.revalidate_web_analytics_precompute.delay"
+                "products.web_analytics.backend.tasks.lazy_precompute_revalidation.revalidate_web_analytics_precompute.apply_async"
             ) as delay,
         ):
             reset_query_tags()
@@ -746,4 +746,4 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             execute_lazy_precomputed_read(runner)
 
         assert delay.call_count == 1
-        assert delay.call_args.kwargs["team_id"] == self.team.pk
+        assert delay.call_args.kwargs["kwargs"]["team_id"] == self.team.pk

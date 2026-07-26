@@ -7,6 +7,10 @@ SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
+AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
+# Run-state key the telemetry flag decision is stamped under at dispatch (temporal/client.py).
+# Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
+AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 
 
 def vm_sandbox_allowed_origin_products(payload: object) -> set[str]:
@@ -22,9 +26,28 @@ def vm_sandbox_allowed_origin_products(payload: object) -> set[str]:
     return set()
 
 
-def vm_sandbox_allowed_origins(*, distinct_id: str, organization_id: str) -> set[str]:
-    """Allowed origin products from the VM-sandbox flag; empty when off (payload only resolves on match)."""
-    payload = posthoganalytics.get_feature_flag_payload(
+def vm_sandbox_default_base_origin_products(payload: object) -> set[str]:
+    """Origins allowed to run on the bare VM *base* image even without a custom image.
+
+    This is the knob that makes the VM runtime the default for standard cloud runs: an
+    origin listed here provisions on `SandboxTemplate.VM_BASE` instead of the gVisor
+    default base, without requiring the user to pick a custom image. Read only from the
+    explicit dict key — unlike `origin_products`, a bare-list payload keeps its legacy
+    `origin_products` meaning and never opts an origin into the default base."""
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (ValueError, TypeError):
+            payload = None
+    value = payload.get("default_base_origin_products") if isinstance(payload, dict) else None
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return {item for item in value if isinstance(item, str)}
+    return set()
+
+
+def get_vm_sandbox_flag_payload(*, distinct_id: str, organization_id: str) -> object:
+    """Raw payload of the Modal VM-sandbox flag; resolves to None when the flag is off."""
+    return posthoganalytics.get_feature_flag_payload(
         MODAL_VM_SANDBOX_FEATURE_FLAG,
         distinct_id=distinct_id,
         groups={"organization": organization_id},
@@ -32,7 +55,13 @@ def vm_sandbox_allowed_origins(*, distinct_id: str, organization_id: str) -> set
         only_evaluate_locally=False,
         send_feature_flag_events=False,
     )
-    return vm_sandbox_allowed_origin_products(payload)
+
+
+def vm_sandbox_allowed_origins(*, distinct_id: str, organization_id: str) -> set[str]:
+    """Allowed origin products from the VM-sandbox flag; empty when off (payload only resolves on match)."""
+    return vm_sandbox_allowed_origin_products(
+        get_vm_sandbox_flag_payload(distinct_id=distinct_id, organization_id=organization_id)
+    )
 
 
 MAX_CUSTOM_IMAGES_PER_TEAM = 20
@@ -340,6 +369,9 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "GH_TOKEN",
         "LLM_GATEWAY_URL",
         "POSTHOG_RESUME_RUN_ID",
+        "POSTHOG_AGENT_OTEL_LOGS_URL",
+        "POSTHOG_AGENT_OTEL_LOGS_TOKEN",
+        "POSTHOG_AGENT_OTEL_TRACES_URL",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
         "DISABLE_TELEMETRY",
         "DISABLE_ERROR_REPORTING",

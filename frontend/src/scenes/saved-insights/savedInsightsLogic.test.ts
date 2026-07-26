@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -322,6 +323,47 @@ describe('savedInsightsLogic', () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboardInsight(createInsight(100, 'a new insight'))
             }).toDispatchActions(['addInsight'])
+        })
+    })
+
+    describe('draft insight row', () => {
+        const draftKey = `draft-query-${MOCK_TEAM_ID}`
+        const draft = {
+            query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } },
+            timestamp: 1721000000000,
+        }
+
+        afterEach(() => {
+            localStorage.removeItem(draftKey)
+        })
+
+        it('loads a stored draft into the draft row', async () => {
+            localStorage.setItem(draftKey, JSON.stringify(draft))
+            logic.actions.loadDraftQuery()
+            await expectLogic(logic).toMatchValues({
+                draftQuery: draft,
+                draftInsightRow: partial({ id: -1, query: draft.query }),
+            })
+        })
+
+        it.each([
+            ['unparseable JSON', 'not json'],
+            ['a non-numeric timestamp', JSON.stringify({ query: { kind: 'TrendsQuery' }, timestamp: 'yesterday' })],
+            ['a query without a kind', JSON.stringify({ query: {}, timestamp: 1721000000000 })],
+        ])('drops a malformed draft (%s) instead of surfacing it', async (_label, storedValue) => {
+            localStorage.setItem(draftKey, storedValue)
+            logic.actions.loadDraftQuery()
+            await expectLogic(logic).toMatchValues({ draftQuery: null, draftInsightRow: null })
+            expect(localStorage.getItem(draftKey)).toBeNull()
+        })
+
+        it('discarding a draft clears localStorage so it does not come back', async () => {
+            localStorage.setItem(draftKey, JSON.stringify(draft))
+            logic.actions.loadDraftQuery()
+            logic.actions.discardDraftQuery()
+            await expectLogic(logic).toMatchValues({ draftQuery: null, draftInsightRow: null })
+            await expectLogic(eventUsageLogic).toDispatchActions(['reportInsightDraftDiscarded'])
+            expect(localStorage.getItem(draftKey)).toBeNull()
         })
     })
 })

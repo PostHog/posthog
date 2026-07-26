@@ -18,6 +18,12 @@ jobs:
             - name: Check secrets scripts
               run: cd bin && shellcheck deploy-hobby
 
+            - name: Check Windows-compatible repository paths
+              run: |
+                  shellcheck .github/scripts/check-windows-paths.sh .github/scripts/check-windows-paths.test.sh
+                  .github/scripts/check-windows-paths.test.sh
+                  .github/scripts/check-windows-paths.sh
+
             # Runs here, not in a path-gated ci-* job, so AGENTS/CLAUDE changes
             # anywhere in the repo are validated on every PR.
             - name: Check AGENTS.md / CLAUDE.md symlinks

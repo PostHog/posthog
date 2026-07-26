@@ -111,6 +111,15 @@ export interface LoopTriggerDTOApi {
     updated_at: string
 }
 
+export interface LoopSkillBundleDTOApi {
+    id: string
+    skill_name: string
+    skill_source: string
+    size: number
+    content_sha256: string
+    uploaded_at: string
+}
+
 /**
  * Detail/create/update response for a loop, including its triggers.
  */
@@ -156,6 +165,8 @@ export interface LoopDTOApi {
     updated_at: string
     /** Triggers attached to this loop. */
     triggers: LoopTriggerDTOApi[]
+    /** Skill bundles attached to this loop, seeded into every fired run. */
+    skill_bundles: LoopSkillBundleDTOApi[]
 }
 
 export interface PaginatedLoopDTOListApi {
@@ -355,7 +366,7 @@ export interface LoopTriggerWriteApi {
     type: LoopTriggerTypeEnumApi
     /** Whether this trigger is active. Disabling pauses only this trigger. */
     enabled?: boolean
-    /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}`; api takes no config. */
+    /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config. */
     config?: unknown
 }
 
@@ -596,6 +607,72 @@ export interface LoopRunPageApi {
      * @nullable
      */
     next_cursor: string | null
+}
+
+/**
+ * * `user` - user
+ * * `repo` - repo
+ * * `marketplace` - marketplace
+ * * `codex` - codex
+ */
+export type SkillSourceEnumApi = (typeof SkillSourceEnumApi)[keyof typeof SkillSourceEnumApi]
+
+export const SkillSourceEnumApi = {
+    User: 'user',
+    Repo: 'repo',
+    Marketplace: 'marketplace',
+    Codex: 'codex',
+} as const
+
+/**
+ * * `zip` - zip
+ */
+export type BundleFormatEnumApi = (typeof BundleFormatEnumApi)[keyof typeof BundleFormatEnumApi]
+
+export const BundleFormatEnumApi = {
+    Zip: 'zip',
+} as const
+
+/**
+ * One zipped local skill in a skill-bundle replace request.
+ */
+export interface LoopSkillBundleUploadApi {
+    /**
+     * File name for the stored bundle, e.g. `my-skill.zip`.
+     * @maxLength 255
+     */
+    file_name: string
+    /**
+     * Name of the skill inside the bundle.
+     * @maxLength 255
+     */
+    skill_name: string
+    /** Local source the bundle was built from, such as user or repo.
+     *
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex */
+    skill_source: SkillSourceEnumApi
+    /**
+     * SHA-256 hex digest of the bundle bytes.
+     * @pattern ^[a-f0-9]{64}$
+     */
+    content_sha256: string
+    /** Archive format used for the bundle.
+     *
+     * * `zip` - zip */
+    bundle_format: BundleFormatEnumApi
+    /** Base64-encoded bundle bytes. */
+    content_base64: string
+}
+
+/**
+ * Request body for replacing a loop's attached skill bundles wholesale. Send an empty
+ * list to detach every skill.
+ */
+export interface LoopSkillBundlesWriteApi {
+    bundles: LoopSkillBundleUploadApi[]
 }
 
 /**
@@ -1090,30 +1167,6 @@ export const TaskRunDetailDTOProviderEnumApi = {
     Openai: 'openai',
 } as const
 
-/**
- * * `user` - user
- * * `repo` - repo
- * * `marketplace` - marketplace
- * * `codex` - codex
- */
-export type SkillSourceEnumApi = (typeof SkillSourceEnumApi)[keyof typeof SkillSourceEnumApi]
-
-export const SkillSourceEnumApi = {
-    User: 'user',
-    Repo: 'repo',
-    Marketplace: 'marketplace',
-    Codex: 'codex',
-} as const
-
-/**
- * * `zip` - zip
- */
-export type BundleFormatEnumApi = (typeof BundleFormatEnumApi)[keyof typeof BundleFormatEnumApi]
-
-export const BundleFormatEnumApi = {
-    Zip: 'zip',
-} as const
-
 export interface TaskRunArtifactMetadataApi {
     /**
      * Name of the local skill included in a skill_bundle artifact.
@@ -1312,6 +1365,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `review_hog` - ReviewHog
  * * `image_builder` - Image Builder
  * * `loop` - Loop
+ * * `mcp_analytics` - MCP Analytics
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -1334,6 +1388,7 @@ export const OriginProductEnumApi = {
     ReviewHog: 'review_hog',
     ImageBuilder: 'image_builder',
     Loop: 'loop',
+    McpAnalytics: 'mcp_analytics',
 } as const
 
 /**
@@ -1366,12 +1421,14 @@ export interface TaskCreateApi {
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
-     * * `loop` - Loop */
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1507,7 +1564,8 @@ export interface TaskWriteApi {
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
-     * * `loop` - Loop */
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1628,7 +1686,8 @@ export interface PatchedTaskWriteApi {
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
-     * * `loop` - Loop */
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1832,12 +1891,12 @@ export const InitialPermissionModeEnumApi = {
  */
 export interface ClaudeTaskRunCreateSchemaApi {
     /**
-     * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
      * @nullable
      */
     imported_mcp_servers?: ImportedMcpServerApi[] | null
     /**
-     * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
      * @nullable
      */
     relayed_mcp_servers?: RelayedMcpServerApi[] | null
@@ -1896,7 +1955,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `xhigh` - xhigh
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+    /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
     /** Initial permission mode for Claude runtimes.
      *
@@ -1943,12 +2002,12 @@ export const CodexTaskRunCreateSchemaInitialPermissionModeEnumApi = {
  */
 export interface CodexTaskRunCreateSchemaApi {
     /**
-     * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
      * @nullable
      */
     imported_mcp_servers?: ImportedMcpServerApi[] | null
     /**
-     * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
      * @nullable
      */
     relayed_mcp_servers?: RelayedMcpServerApi[] | null
@@ -2007,7 +2066,7 @@ export interface CodexTaskRunCreateSchemaApi {
      * * `xhigh` - xhigh
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+    /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
     /** Initial permission mode for Codex runtimes.
      *
@@ -2055,7 +2114,7 @@ export interface TaskRunResumeRequestSchemaApi {
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
-    /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+    /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
 }
 
@@ -2265,12 +2324,12 @@ export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
  */
 export interface TaskRunBootstrapCreateRequestApi {
     /**
-     * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
      * @nullable
      */
     imported_mcp_servers?: ImportedMcpServerApi[] | null
     /**
-     * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
      * @nullable
      */
     relayed_mcp_servers?: RelayedMcpServerApi[] | null
@@ -2326,7 +2385,7 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `xhigh` - xhigh
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+    /** Ephemeral GitHub user token from PostHog Desktop for user-authored cloud pull requests. */
     github_user_token?: string
     /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
      *
