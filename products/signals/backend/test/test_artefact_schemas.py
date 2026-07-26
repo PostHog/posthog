@@ -169,6 +169,10 @@ class TestValidateArtefactContent(SimpleTestCase):
             # `chart_id` is the target of a `chart:` markdown link in the summary — a slug that can't
             # survive being parsed as one silently stops resolving the reference.
             ("chart", {"chart_id": "Signups Drop", "title": "t", "query": {"kind": "InsightVizNode"}}),
+            # `kind` is caller-supplied JSON and can be any type. An unhashable one used to raise
+            # TypeError straight out of the validator, turning a bad write into a 500 instead of a 400.
+            ("chart", {"chart_id": "ok", "title": "t", "query": {"kind": []}}),
+            ("chart", {"chart_id": "ok", "title": "t", "query": {"kind": {"nested": 1}}}),
         ]
     )
     def test_rejects_invalid_content_for_type(self, artefact_type, content):

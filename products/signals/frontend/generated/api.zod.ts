@@ -607,16 +607,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                             .max(signalsScoutEditReportBodyChartsItemTitleMax)
                             .describe('Short heading shown above the chart.'),
                         query: zod
-                            .object({
-                                kind: zod
-                                    .string()
-                                    .describe(
-                                        'Query node kind — one of `InsightVizNode`, `DataVisualizationNode`, `SavedInsightNode`.'
-                                    ),
-                            })
-                            .describe(
-                                "Schema shape for a chart's `query`, so the generated types describe a query node rather than an\nopaque blob. Only the discriminator is modelled — the node's remaining fields differ per kind and\npass through as authored (see `ChartArtefact` for why they aren't parsed server-side).\n\n`kind` is a `CharField`, not a `ChoiceField`, on purpose: `kind` is one of the enum field names\nthat collides across the OpenAPI spec and fails codegen under `--fail-on-warn`. The allowed values\nare enforced by `ChartArtefact` and spelled out in the field's help text instead."
-                            )
+                            .unknown()
                             .describe(
                                 'The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report.'
                             ),
@@ -785,16 +776,7 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                             .max(signalsScoutEmitReportBodyChartsItemTitleMax)
                             .describe('Short heading shown above the chart.'),
                         query: zod
-                            .object({
-                                kind: zod
-                                    .string()
-                                    .describe(
-                                        'Query node kind — one of `InsightVizNode`, `DataVisualizationNode`, `SavedInsightNode`.'
-                                    ),
-                            })
-                            .describe(
-                                "Schema shape for a chart's `query`, so the generated types describe a query node rather than an\nopaque blob. Only the discriminator is modelled — the node's remaining fields differ per kind and\npass through as authored (see `ChartArtefact` for why they aren't parsed server-side).\n\n`kind` is a `CharField`, not a `ChoiceField`, on purpose: `kind` is one of the enum field names\nthat collides across the OpenAPI spec and fails codegen under `--fail-on-warn`. The allowed values\nare enforced by `ChartArtefact` and spelled out in the field's help text instead."
-                            )
+                            .unknown()
                             .describe(
                                 'The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report.'
                             ),

@@ -411,6 +411,10 @@ def task_run_identifier_for_legacy_relationship(relationship: str | None) -> tup
 # rather than silently drawing nothing in someone's inbox a day later.
 CHART_QUERY_KINDS: frozenset[str] = frozenset({"InsightVizNode", "DataVisualizationNode", "SavedInsightNode"})
 
+# How many distinct charts one report may carry. Bounds how many queries a report fires when it's
+# opened; enforced on the model's write funnel so every caller is covered, not just the scout channel.
+MAX_REPORT_CHARTS = 4
+
 MAX_CHART_ID_LENGTH = 100
 MAX_CHART_TITLE_LENGTH = 200
 MAX_CHART_CAPTION_LENGTH = 500
@@ -492,7 +496,10 @@ class ChartArtefact(BaseModel):
     @classmethod
     def query_must_be_a_renderable_node(cls, v: dict[str, Any]) -> dict[str, Any]:
         kind = v.get("kind")
-        if kind not in CHART_QUERY_KINDS:
+        # `kind` is caller-supplied JSON, so it can be any type. Check it's a string before the
+        # membership test — an unhashable one (`{"kind": []}`) would raise TypeError out of the
+        # validator, escaping the ValidationError path that turns a bad write into a 400.
+        if not isinstance(kind, str) or kind not in CHART_QUERY_KINDS:
             allowed = ", ".join(sorted(CHART_QUERY_KINDS))
             raise ValueError(f"query.kind must be one of {allowed} (got {kind!r})")
         if len(json.dumps(v)) > _MAX_CHART_QUERY_CHARS:

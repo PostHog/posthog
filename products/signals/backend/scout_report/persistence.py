@@ -40,6 +40,7 @@ from posthog.schema import EmbeddingModelName
 from posthog.api.embedding_worker import emit_embedding_request
 
 from products.signals.backend.artefact_schemas import (
+    MAX_REPORT_CHARTS,
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_SCOUT,
     ActionabilityAssessment,
@@ -67,13 +68,6 @@ _EMBEDDING_RENDERING = "plain"
 # Defensive cap: a single authored report shouldn't carry an unbounded evidence list. The agent groups
 # its own observations; this is a harness circuit breaker, mirroring `MAX_EVIDENCE_ENTRIES` on emit.
 MAX_REPORT_SIGNALS = 50
-
-# A report is something a human skims — a handful of charts is a supporting exhibit, a dozen is a
-# dashboard nobody reads. Also bounds how many queries one report fires when it's opened, so it is
-# enforced per *report* rather than per call: charts append, and an edit that ignored what the report
-# already carries would let repeated edits accumulate an unbounded set. Counted over distinct
-# `chart_id`s, so refreshing a chart (re-supplying its id with a newer window) never eats headroom.
-MAX_REPORT_CHARTS = 4
 
 
 class InvalidScoutReportError(ValueError):
@@ -360,29 +354,6 @@ def append_report_note(
     return report_id
 
 
-def _assert_chart_headroom(*, team_id: int, report_id: str, incoming: Sequence[ChartArtefact]) -> None:
-    """Enforce `MAX_REPORT_CHARTS` across the report, not just the incoming batch.
-
-    Counted over distinct `chart_id`s: an id the report already carries is a refresh (the renderer
-    resolves a reference to the newest version), so it costs no headroom, while a genuinely new chart
-    does. Without this an edit could keep appending past the cap one call at a time.
-    """
-    existing: set[str] = set()
-    for row in SignalReportArtefact.objects.filter(
-        team_id=team_id, report_id=report_id, type=SignalReportArtefact.ArtefactType.CHART
-    ).values_list("content", flat=True):
-        try:
-            existing.add(ChartArtefact.model_validate_json(row).chart_id)
-        except ValidationError:
-            # A row that no longer parses can't be resolved by the renderer either, so it holds no slot.
-            continue
-    total = len(existing | {chart.chart_id for chart in incoming})
-    if total > MAX_REPORT_CHARTS:
-        raise InvalidScoutReportError(
-            f"report {report_id} would carry {total} charts, over the {MAX_REPORT_CHARTS} limit"
-        )
-
-
 def append_report_charts(
     *,
     team_id: int,
@@ -403,7 +374,6 @@ def append_report_charts(
     with transaction.atomic():
         if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
-        _assert_chart_headroom(team_id=team_id, report_id=report_id, incoming=charts)
         for chart in charts:
             SignalReportArtefact.add_log(team_id=team_id, report_id=report_id, content=chart, attribution=attribution)
     logger.info(

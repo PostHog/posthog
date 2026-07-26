@@ -38,15 +38,7 @@
                         "type": "string"
                     },
                     "query": {
-                        "description": "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report.",
-                        "properties": {
-                            "kind": {
-                                "description": "Query node kind — one of `InsightVizNode`, `DataVisualizationNode`, `SavedInsightNode`.",
-                                "type": "string"
-                            }
-                        },
-                        "required": ["kind"],
-                        "type": "object"
+                        "description": "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report."
                     },
                     "title": {
                         "description": "Short heading shown above the chart.",

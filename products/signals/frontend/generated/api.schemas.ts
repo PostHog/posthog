@@ -2774,20 +2774,6 @@ export interface SuggestedReviewerApi {
 }
 
 /**
- * Schema shape for a chart's `query`, so the generated types describe a query node rather than an
- * opaque blob. Only the discriminator is modelled — the node's remaining fields differ per kind and
- * pass through as authored (see `ChartArtefact` for why they aren't parsed server-side).
- *
- * `kind` is a `CharField`, not a `ChoiceField`, on purpose: `kind` is one of the enum field names
- * that collides across the OpenAPI spec and fails codegen under `--fail-on-warn`. The allowed values
- * are enforced by `ChartArtefact` and spelled out in the field's help text instead.
- */
-export interface ChartQuerySchemaApi {
-    /** Query node kind — one of `InsightVizNode`, `DataVisualizationNode`, `SavedInsightNode`. */
-    kind: string
-}
-
-/**
  * One chart attached to a report — rendered in the inbox and referenceable from the summary.
  */
 export interface ReportChartApi {
@@ -2802,7 +2788,7 @@ export interface ReportChartApi {
      */
     title: string
     /** The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report. */
-    query: ChartQuerySchemaApi
+    query: unknown
     /**
      * Optional one-line note on what to look at in the chart.
      * @maxLength 500

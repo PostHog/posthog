@@ -795,25 +795,23 @@ class ReportEvidenceSerializer(serializers.Serializer):
     )
 
 
-class ChartQuerySchema(serializers.Serializer):
-    """Schema shape for a chart's `query`, so the generated types describe a query node rather than an
-    opaque blob. Only the discriminator is modelled — the node's remaining fields differ per kind and
-    pass through as authored (see `ChartArtefact` for why they aren't parsed server-side).
-
-    `kind` is a `CharField`, not a `ChoiceField`, on purpose: `kind` is one of the enum field names
-    that collides across the OpenAPI spec and fails codegen under `--fail-on-warn`. The allowed values
-    are enforced by `ChartArtefact` and spelled out in the field's help text instead.
-    """
-
-    kind = serializers.CharField(
-        help_text="Query node kind — one of `InsightVizNode`, `DataVisualizationNode`, `SavedInsightNode`.",
-    )
-
-
-@extend_schema_field(ChartQuerySchema)
+# The chart `query` is free-form JSON by design, and the generated schema has to keep it that way.
+#
+# This is load-bearing, not a style call. The MCP executor dispatches Zod's *parsed* output
+# (`services/mcp/src/tools/exec.ts` — "Dispatch the parsed output so coerced values and defaults
+# apply"), and a generated `zod.object({...})` strips keys it doesn't name. Declaring the node's
+# shape — even just `kind` — would therefore drop `source` / `display` / `shortId` on the way through
+# the tool and hand the backend a bare `{"kind": ...}`: valid per `ChartArtefact`, and a chart that
+# renders nothing. `additionalProperties` doesn't save it either; it reaches the TypeScript type but
+# not the Zod schema.
+#
+# So the field stays untyped in the schema (the `spec: zod.unknown()` precedent), and the contract
+# lives in `help_text` where the scout reads it, enforced by `ChartArtefact` server-side.
+@extend_schema_field(OpenApiTypes.ANY)
 class ChartQueryField(serializers.JSONField):
     """The query node on a report chart. Typed for the schema pipeline so the generated MCP tool and
-    frontend types describe a query node instead of an opaque `unknown`."""
+    frontend types describe a query node instead of an opaque `unknown`, while still carrying the
+    node's per-kind fields through untouched."""
 
 
 class ReportChartSerializer(serializers.Serializer):

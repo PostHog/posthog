@@ -13,8 +13,10 @@ from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 
 from products.signals.backend.artefact_schemas import (
+    MAX_REPORT_CHARTS,
     ActionabilityAssessment,
     ActionabilityChoice,
+    ArtefactContentValidationError,
     ChartArtefact,
     SafetyJudgment,
     TaskRunArtefact,
@@ -28,7 +30,6 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.scout_report import (
-    MAX_REPORT_CHARTS,
     InvalidScoutReportError,
     ScoutReportSignal,
     append_report_charts,
@@ -404,6 +405,20 @@ class TestScoutReportCharts(BaseTest):
             attribution=ArtefactAttribution.system(),
         )
         assert len(self._chart_artefacts(report_id)) == MAX_REPORT_CHARTS + 1
+
+    def test_cap_holds_on_the_generic_artefact_write_path(self) -> None:
+        # `chart` is writable through the generic artefact API as well as the scout report channel, so
+        # the cap lives on the model's write funnel — a limit only one caller honours is not a limit.
+        report_id = self._create([self._chart(f"chart-{i}", f"Chart {i}") for i in range(MAX_REPORT_CHARTS)])
+
+        with pytest.raises(ArtefactContentValidationError):
+            SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=self._chart("straight-to-the-model", "Bypass"),
+                attribution=ArtefactAttribution.system(),
+            )
+        assert len(self._chart_artefacts(report_id)) == MAX_REPORT_CHARTS
 
     def test_appending_to_another_teams_report_is_refused(self) -> None:
         other_org = Organization.objects.create(name="other")
