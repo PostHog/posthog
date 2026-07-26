@@ -73,7 +73,26 @@ def notify_task_run_cancelled(task_run: TaskRun) -> None:
 
 def notify_task_run_awaiting_input(task_run: TaskRun) -> None:
     """Fire a push notification when an interactive run is waiting for user input."""
+    _project_awaiting_input_activity(task_run)
     _enqueue(task_run, kind="awaiting", body=f'"{_task_title(task_run)}" needs your input')
+
+
+def _project_awaiting_input_activity(task_run: TaskRun) -> None:
+    """Surface the wait in the in-app Activity feed.
+
+    Runs ahead of, and independently of, the push guards above: the feed should update even
+    for users without the mobile push flag, and it has no cooldown to observe. Best-effort
+    for the same reason ``_enqueue`` is — this sits on the agent's turn-end path and must
+    never fail it.
+    """
+    try:
+        from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keeps the facade off the push import path
+            project_awaiting_input_activity,
+        )
+
+        project_awaiting_input_activity(task_run)
+    except Exception:
+        logger.warning("push_dispatcher.activity_projection_failed", run_id=str(task_run.id), exc_info=True)
 
 
 def _task_title(task_run: TaskRun) -> str:

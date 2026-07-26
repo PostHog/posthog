@@ -4,38 +4,8 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
-def backfill_activity(apps, schema_editor):
-    Task = apps.get_model("tasks", "Task")
-    Activity = apps.get_model("tasks", "TaskActivity")
-    Activity.objects.bulk_create(
-        [
-            Activity(
-                team_id=r["team_id"],
-                user_id=r["created_by_id"],
-                task_id=r["id"],
-                kind="created",
-                activity_at=r["created_at"],
-            )
-            for r in Task.objects.exclude(created_by_id=None)
-            .values("id", "team_id", "created_by_id", "created_at")
-            .iterator(chunk_size=1000)
-        ],
-        batch_size=1000,
-        ignore_conflicts=True,
-    )
-    selects = [
-        "SELECT gen_random_uuid(), team_id, author_id, task_id, id, 'message', created_at, NULL FROM posthog_task_thread_message WHERE author_id IS NOT NULL",
-        "SELECT gen_random_uuid(), team_id, mentioned_user_id, task_id, message_id, 'mention', created_at, NULL FROM posthog_task_thread_message_mention",
-        "SELECT gen_random_uuid(), m.team_id, t.created_by_id, m.task_id, m.id, 'awaiting_input', m.created_at, NULL FROM posthog_task_thread_message m JOIN posthog_task t ON t.id=m.task_id WHERE m.event='turn_complete' AND t.created_by_id IS NOT NULL",
-    ]
-    for select in selects:
-        schema_editor.execute(
-            f"INSERT INTO posthog_task_activity (id,team_id,user_id,task_id,message_id,kind,activity_at,read_at) {select} ON CONFLICT (team_id,user_id,task_id) DO UPDATE SET message_id=EXCLUDED.message_id,kind=EXCLUDED.kind,activity_at=EXCLUDED.activity_at WHERE posthog_task_activity.activity_at <= EXCLUDED.activity_at"
-        )
-
-
 class Migration(migrations.Migration):
-    dependencies = [("tasks", "0062_sandbox_custom_image_base_reference")]
+    dependencies = [("tasks", "0072_loop_skill_bundles")]
     operations = [
         migrations.CreateModel(
             name="TaskActivity",
@@ -98,5 +68,12 @@ class Migration(migrations.Migration):
             model_name="taskactivity",
             index=models.Index(fields=["team", "user", "activity_at", "id"], name="task_activity_feed_idx"),
         ),
-        migrations.RunPython(backfill_activity, migrations.RunPython.noop),
+        migrations.AddIndex(
+            model_name="taskactivity",
+            index=models.Index(
+                fields=["team", "user"],
+                condition=models.Q(read_at__isnull=True),
+                name="task_activity_unread_idx",
+            ),
+        ),
     ]

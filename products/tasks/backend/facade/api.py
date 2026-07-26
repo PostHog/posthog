@@ -26,7 +26,7 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import CharField, Count, Exists, F, Max, Min, OuterRef, Q, QuerySet, Subquery
+from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
 
@@ -5131,9 +5131,15 @@ def _visible_task(task_id: str | UUID, team_id: int, user_id: int | None) -> Tas
 def list_thread_messages(
     task_id: str | UUID, team_id: int, user_id: int | None
 ) -> list[contracts.TaskThreadMessageDTO] | None:
-    """A task's thread, ascending. ``None`` when the task isn't visible to the user."""
+    """A task's thread, ascending. ``None`` when the task isn't visible to the user.
+
+    Reading the thread is what "seeing" a task means, so this clears the requester's
+    activity row for it — reaching the task from the sidebar counts the same as clicking
+    it in the Activity list. The update is a no-op once the row is already read.
+    """
     if _visible_task(task_id, team_id, user_id) is None:
         return None
+    mark_task_activity_read(team_id, user_id, [task_id])
     messages = (
         TaskThreadMessage.objects.filter(task_id=task_id, team_id=team_id)
         # The thread is human-to-human plus artifact announcements; rows written
@@ -5186,7 +5192,14 @@ def _index_thread_message_mentions(message: TaskThreadMessage) -> None:
         ignore_conflicts=True,
     )
     for mention in mentions:
-        _upsert_task_activity(message, mention.mentioned_user_id, TaskActivity.Kind.MENTION)
+        TaskActivity.record(
+            team_id=message.team_id,
+            user_id=mention.mentioned_user_id,
+            task_id=message.task_id,
+            kind=TaskActivity.Kind.MENTION,
+            activity_at=message.created_at,
+            message_id=message.id,
+        )
 
 
 def list_mentions(
@@ -5222,190 +5235,65 @@ def list_mentions(
     ]
 
 
-# The activity_kind values, in priority order for ties on activity_at (highest wins).
-_ACTIVITY_KIND_CREATED = "created"
-_ACTIVITY_KIND_MENTION = "mention"
-_ACTIVITY_KIND_AWAITING_INPUT = "awaiting_input"
-_ACTIVITY_KIND_MESSAGE = "message"
-
-
-def _latest_messages_for_kind(
-    team_id: int, task_ids: list[UUID], *, user_id: int | None = None, event: str | None = None
-) -> list[tuple[UUID, TaskThreadMessage]]:
-    """Thread messages matching a signal, ascending — so a caller keeping the last per task lands
-    on the most recent. Filters by ``author_id`` (the user's own messages) or ``event`` per call."""
-    if not task_ids:
-        return []
-    qs = TaskThreadMessage.objects.filter(team_id=team_id, task_id__in=task_ids)
-    if user_id is not None:
-        qs = qs.filter(author_id=user_id)
-    if event is not None:
-        qs = qs.filter(event=event)
-    return [(message.task_id, message) for message in qs.select_related("author").order_by("created_at", "id")]
-
-
-def _list_task_activity_legacy(
-    team_id: int, user_id: int | None, *, since: datetime | None = None, limit: int = 100
-) -> list[contracts.TaskActivityDTO]:
-    """Tasks the requester is involved in, one row per task, most-recent activity first.
-
-    A task qualifies if the requester created it, was @-mentioned in its thread, or authored
-    a thread message on it — all gated to tasks they can see via ``_visible_task_qs``. Each row's
-    ``activity_at`` is the most recent of the signals present on that task; ``activity_kind`` names
-    the winning signal.
-
-    "Awaiting your input" is derived from the durable ``event="turn_complete"`` thread message,
-    which the sandbox relay only writes for channel-filed tasks — so a non-channel task never
-    surfaces an ``awaiting_input`` row (it still appears via created/mentioned/authored). A newer
-    reply the requester authored outranks an older turn-complete, so a task the user just replied to
-    reads as ``message`` rather than ``awaiting_input``.
-    """
-    if user_id is None:
-        return []
-
-    visible = _visible_task_qs(team_id, user_id)
-
-    # Pass 1: gather the candidate tasks and each signal's latest timestamp with a handful of
-    # grouped aggregates, then merge in Python. Bounded by the visible-task set, not by limit.
-    created_ts: dict[UUID, datetime] = dict(visible.filter(created_by_id=user_id).values_list("id", "created_at"))
-
-    mention_rows = (
-        TaskThreadMessageMention.objects.filter(team_id=team_id, mentioned_user_id=user_id, task__in=visible)
-        .values("task_id")
-        .annotate(ts=Max("created_at"))
-    )
-    mention_ts: dict[UUID, datetime] = {row["task_id"]: row["ts"] for row in mention_rows}
-
-    my_message_rows = (
-        TaskThreadMessage.objects.filter(team_id=team_id, task__in=visible, author_id=user_id)
-        .values("task_id")
-        .annotate(ts=Max("created_at"))
-    )
-    my_message_ts: dict[UUID, datetime] = {row["task_id"]: row["ts"] for row in my_message_rows}
-
-    candidate_ids = set(created_ts) | set(mention_ts) | set(my_message_ts)
-    if not candidate_ids:
-        return []
-
-    # Awaiting-input is only meaningful for tasks the user is already involved in, so scope it to
-    # the candidate set (also keeps the scan bounded).
-    awaiting_rows = (
-        TaskThreadMessage.objects.filter(team_id=team_id, task_id__in=candidate_ids, event="turn_complete")
-        .values("task_id")
-        .annotate(ts=Max("created_at"))
-    )
-    awaiting_ts: dict[UUID, datetime] = {row["task_id"]: row["ts"] for row in awaiting_rows}
-
-    # Per task, pick the winning signal: latest timestamp wins, ties break by the priority order
-    # above (message > awaiting_input > mention > created). A reply at or after the last
-    # turn-complete means the user isn't the one being waited on, so it reads as "message".
-    resolved: list[tuple[UUID, datetime, str]] = []
-    for task_id in candidate_ids:
-        signals: list[tuple[datetime, int, str]] = []
-        if task_id in my_message_ts:
-            signals.append((my_message_ts[task_id], 3, _ACTIVITY_KIND_MESSAGE))
-        if task_id in awaiting_ts:
-            signals.append((awaiting_ts[task_id], 2, _ACTIVITY_KIND_AWAITING_INPUT))
-        if task_id in mention_ts:
-            signals.append((mention_ts[task_id], 1, _ACTIVITY_KIND_MENTION))
-        if task_id in created_ts:
-            signals.append((created_ts[task_id], 0, _ACTIVITY_KIND_CREATED))
-        activity_at, _, kind = max(signals)
-        if since is not None and activity_at <= since:
-            continue
-        resolved.append((task_id, activity_at, kind))
-
-    resolved.sort(key=lambda row: (row[1], row[0]), reverse=True)
-    resolved = resolved[:limit]
-    if not resolved:
-        return []
-
-    # Pass 2: hydrate the winners — one query for task titles/channels, then the thread message tied
-    # to each row's winning signal (created rows have none). Grouped by kind so each source is a
-    # single query; order_by ascending means the last write per task is the most recent message.
-    winner_ids = [task_id for task_id, _, _ in resolved]
-    tasks_by_id = {
-        task.id: task for task in Task.objects.filter(team_id=team_id, id__in=winner_ids).select_related("channel")
-    }
-
-    by_kind: dict[str, list[UUID]] = {}
-    for task_id, _, kind in resolved:
-        by_kind.setdefault(kind, []).append(task_id)
-
-    winning_message_by_task: dict[UUID, TaskThreadMessage] = {}
-
-    for task_id_of, message in _latest_messages_for_kind(
-        team_id, by_kind.get(_ACTIVITY_KIND_MESSAGE, []), user_id=user_id
-    ):
-        winning_message_by_task[task_id_of] = message
-    for task_id_of, message in _latest_messages_for_kind(
-        team_id, by_kind.get(_ACTIVITY_KIND_AWAITING_INPUT, []), event="turn_complete"
-    ):
-        winning_message_by_task[task_id_of] = message
-    for mention in (
-        TaskThreadMessageMention.objects.filter(
-            team_id=team_id, mentioned_user_id=user_id, task_id__in=by_kind.get(_ACTIVITY_KIND_MENTION, [])
-        )
-        .select_related("message__author")
-        .order_by("created_at", "id")
-    ):
-        winning_message_by_task[mention.task_id] = mention.message
-
-    activity: list[contracts.TaskActivityDTO] = []
-    for task_id, activity_at, kind in resolved:
-        task = tasks_by_id.get(task_id)
-        if task is None:
-            continue
-        message = winning_message_by_task.get(task_id)
-        activity.append(
-            contracts.TaskActivityDTO(
-                task_id=task_id,
-                task_title=task.title,
-                channel_id=task.channel_id,
-                channel_name=task.channel.name if task.channel else None,
-                activity_at=activity_at,
-                activity_kind=kind,
-                snippet=message.content if message is not None else "",
-                latest_author=_user_basic_info(message.author if message and message.author_id else None),
-                latest_message_id=message.id if message is not None else None,
-            )
-        )
-    return activity
-
-
-def _upsert_task_activity(message: TaskThreadMessage, user_id: int, kind: str) -> None:
-    row, created = TaskActivity.objects.for_team(message.team_id).get_or_create(
-        team_id=message.team_id,
-        user_id=user_id,
-        task_id=message.task_id,
-        defaults={"message_id": message.id, "kind": kind, "activity_at": message.created_at},
-    )
-    if created or row.activity_at > message.created_at:
-        return
-    row.message_id = message.id
-    row.kind = kind
-    row.activity_at = message.created_at
-    row.read_at = None
-    row.save(update_fields=["message", "kind", "activity_at", "read_at"])
-
-
 def project_thread_message_activity(message: TaskThreadMessage) -> None:
+    """Project a new thread message onto the feed of everyone it concerns."""
     if message.author_id is not None:
-        _upsert_task_activity(message, message.author_id, TaskActivity.Kind.MESSAGE)
-    if message.event == "turn_complete":
-        creator_id = (
-            Task.objects.filter(id=message.task_id, team_id=message.team_id)
-            .values_list("created_by_id", flat=True)
-            .first()
+        TaskActivity.record(
+            team_id=message.team_id,
+            user_id=message.author_id,
+            task_id=message.task_id,
+            kind=TaskActivity.Kind.MESSAGE,
+            activity_at=message.created_at,
+            message_id=message.id,
+            actor_id=message.author_id,
         )
-        if creator_id is not None:
-            _upsert_task_activity(message, creator_id, TaskActivity.Kind.AWAITING_INPUT)
+
+
+def project_awaiting_input_activity(task_run: "TaskRun") -> None:
+    """Flag the task creator's feed row when a run stops and needs them.
+
+    Called from ``push_dispatcher.notify_task_run_awaiting_input`` so every path that
+    decides a run is waiting (stream ingest, agent proxy callback, sandbox relay) projects
+    the same row. Deliberately outside the push feature flag and its Redis cooldown — the
+    in-app feed should update even where the mobile push is off.
+    """
+    creator_id = task_run.task.created_by_id
+    if creator_id is None:
+        return
+    TaskActivity.record(
+        team_id=task_run.task.team_id,
+        user_id=creator_id,
+        task_id=task_run.task_id,
+        kind=TaskActivity.Kind.AWAITING_INPUT,
+        activity_at=django_timezone.now(),
+    )
+
+
+def _task_activity_qs(team_id: int, user_id: int):
+    """The requester's feed rows, gated to tasks they can still see.
+
+    Rows outlive visibility changes (a task moving to a private channel, say), so the
+    visibility gate belongs on read rather than being enforced when projecting.
+    """
+    return TaskActivity.objects.filter(team_id=team_id, user_id=user_id, task__in=_visible_task_qs(team_id, user_id))
+
+
+def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
+    """Unread tasks across the requester's whole feed. Backs the sidebar badge."""
+    if user_id is None:
+        return 0
+    return _task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
 
 
 def list_task_activity(team_id: int, user_id: int | None, *, limit: int = 100) -> contracts.TaskActivityPageDTO:
+    """The requester's feed: one row per task they are involved in, newest activity first.
+
+    ``unread_count`` counts every unread row the requester can see, not just the ones in
+    this page, so the sidebar badge stays honest past ``limit``.
+    """
     if user_id is None:
         return contracts.TaskActivityPageDTO(results=[], unread_count=0)
-    qs = TaskActivity.objects.filter(team_id=team_id, user_id=user_id, task__in=_visible_task_qs(team_id, user_id))
+    qs = _task_activity_qs(team_id, user_id)
     rows = qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[:limit]
     return contracts.TaskActivityPageDTO(
         results=[
@@ -5428,12 +5316,17 @@ def list_task_activity(team_id: int, user_id: int | None, *, limit: int = 100) -
     )
 
 
-def mark_task_activity_read(team_id: int, user_id: int | None) -> int:
-    if user_id is None:
+def mark_task_activity_read(team_id: int, user_id: int | None, task_ids: Sequence[UUID | str]) -> int:
+    """Mark the requester's feed rows for ``task_ids`` read. Returns the number cleared.
+
+    Read state is per task, so whichever surface the user reaches the task through clears
+    the same row — the Activity list, opening the thread, or a deep link.
+    """
+    if user_id is None or not task_ids:
         return 0
-    return TaskActivity.objects.filter(team_id=team_id, user_id=user_id, read_at__isnull=True).update(
-        read_at=django_timezone.now()
-    )
+    return TaskActivity.objects.filter(
+        team_id=team_id, user_id=user_id, task_id__in=task_ids, read_at__isnull=True
+    ).update(read_at=django_timezone.now())
 
 
 def delete_thread_message(message_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None) -> str:

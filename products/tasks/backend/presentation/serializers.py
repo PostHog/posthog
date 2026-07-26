@@ -1496,11 +1496,19 @@ class TaskActivitySerializer(DataclassSerializer):
         required=False,
         help_text="Author of the thread message tied to the latest activity, when one applies.",
     )
-    activity_kind = serializers.CharField(
-        help_text='Winning signal for this row: "awaiting_input", "message", "mention", or "created".'
+    activity_kind = serializers.ChoiceField(
+        choices=["awaiting_input", "mention", "message", "created"],
+        help_text=(
+            "What the latest activity on this task was: an agent run waiting on the requester "
+            "(awaiting_input), someone @-mentioning them (mention), their own reply (message), "
+            "or their creating the task (created)."
+        ),
     )
     snippet = serializers.CharField(
         help_text="Content of the thread message tied to the latest activity; empty for task-creation rows."
+    )
+    is_unread = serializers.BooleanField(
+        help_text="Whether the requester has yet to see this activity. Activity they caused themselves is never unread."
     )
 
     class Meta:
@@ -1521,11 +1529,32 @@ class TaskActivitySerializer(DataclassSerializer):
 
 
 class TaskActivityPageSerializer(DataclassSerializer):
-    results = TaskActivitySerializer(many=True)
+    """A page of the requester's activity feed, plus the unread total across the whole feed."""
+
+    results = TaskActivitySerializer(many=True, help_text="Tasks with activity, most recent first.")
+    unread_count = serializers.IntegerField(
+        help_text="Unread tasks across the requester's whole feed, not just this page. Backs the sidebar badge."
+    )
 
     class Meta:
         dataclass = TaskActivityPageDTO
         fields = ["results", "unread_count"]
+
+
+class TaskActivityMarkReadSerializer(serializers.Serializer):
+    """Request body for clearing the unread flag on specific tasks."""
+
+    task_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=500,
+        help_text="Tasks to mark read for the requester. Read state is per task, not a feed-wide cursor.",
+    )
+
+
+class TaskActivityMarkReadResponseSerializer(serializers.Serializer):
+    marked_read = serializers.IntegerField(help_text="How many feed rows changed from unread to read.")
+    unread_count = serializers.IntegerField(help_text="The requester's remaining unread total after the update.")
 
 
 class TaskRepositoriesResponseSerializer(serializers.Serializer):

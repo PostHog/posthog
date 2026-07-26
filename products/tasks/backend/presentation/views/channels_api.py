@@ -19,6 +19,8 @@ from products.tasks.backend.presentation.serializers import (
     ChannelFeedMessageWriteSerializer,
     ChannelSerializer,
     ChannelWriteSerializer,
+    TaskActivityMarkReadResponseSerializer,
+    TaskActivityMarkReadSerializer,
     TaskActivityPageSerializer,
     TaskActivityQuerySerializer,
     TaskActivitySerializer,
@@ -181,7 +183,7 @@ class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     ]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
-    http_method_names = ["get", "post", "head", "options"]
+    http_method_names = ["get", "head", "options"]
     serializer_class = TaskMentionSerializer
 
     def _user_id(self) -> int | None:
@@ -215,7 +217,7 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     ]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
-    http_method_names = ["get", "head", "options"]
+    http_method_names = ["get", "post", "head", "options"]
     serializer_class = TaskActivitySerializer
 
     def _user_id(self) -> int | None:
@@ -237,10 +239,30 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         activity = tasks_facade.list_task_activity(self.team_id, self._user_id(), limit=limit)
         return Response(TaskActivityPageSerializer(activity).data)
 
+    # @extend_schema must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any schema
+    # annotation applied earlier — including @validated_request's — from the generated OpenAPI.
+    @extend_schema(
+        request=TaskActivityMarkReadSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskActivityMarkReadResponseSerializer, description="Remaining unread total"),
+        },
+        summary="Mark task activity read",
+        description=(
+            "Clear the unread flag on the requester's feed rows for the given tasks. Read state is per "
+            "task, so opening a task through any surface clears the same row."
+        ),
+    )
     @action(detail=False, methods=["post"], url_path="mark_read", required_scopes=["task:write"])
+    @validated_request(request_serializer=TaskActivityMarkReadSerializer)
     def mark_read(self, request, *args, **kwargs):
-        tasks_facade.mark_task_activity_read(self.team_id, self._user_id())
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        task_ids = request.validated_data["task_ids"]
+        marked_read = tasks_facade.mark_task_activity_read(self.team_id, self._user_id(), task_ids)
+        return Response(
+            {
+                "marked_read": marked_read,
+                "unread_count": tasks_facade.count_unread_task_activity(self.team_id, self._user_id()),
+            }
+        )
 
 
 class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

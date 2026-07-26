@@ -50,7 +50,6 @@ class WizardCloudRunDTO:
     Carries only what the FAB's cloud stream needs to reconnect.
     """
 
-    id: UUID
     task_id: UUID
     run_id: UUID
     status: str
@@ -220,6 +219,7 @@ class TaskActivityDTO:
     task creation, which has no message).
     """
 
+    id: UUID
     task_id: UUID
     task_title: str
     channel_id: UUID | None
