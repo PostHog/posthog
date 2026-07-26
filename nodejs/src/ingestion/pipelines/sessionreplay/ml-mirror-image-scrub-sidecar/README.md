@@ -33,6 +33,8 @@ Such an image is parked on `session_replay_image_scrub_dlq` and the partition mo
 
 The bytes published there are the **originals, never scrubbed**, so that topic holds unredacted content and nothing may treat it as scrubbed.
 Keeping them is the point: discarding would destroy the only reproduction of the sidecar bug that rejected them, and 30 days of retention is the window to fix the sidecar and replay.
+It is the same content the source topic already carries, on the same cluster, and it expires the same way: neither topic sets `cleanup.policy`, so both take Kafka's `delete` default and segments age out on their own.
+The one difference is that a parked image outlives its source copy, 30 days against 7, which is deliberately the width of that window.
 Why it was parked travels in headers, so the topic can be triaged without reading image content.
 
 **What makes an image poison rather than unlucky is the only question that matters here.**
