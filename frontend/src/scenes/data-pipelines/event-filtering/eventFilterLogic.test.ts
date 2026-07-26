@@ -1,5 +1,11 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
 import {
     countConditions,
+    eventFilterLogic,
     evaluateFilterTree,
     FilterNode,
     normalizeRootToGroup,
@@ -332,5 +338,56 @@ describe('treeHasEmptyValues', () => {
         ['deeply nested empty value', and(or(cond(), not(cond('event_name', 'exact', '')))), true],
     ])('%s', (_name, tree, expected) => {
         expect(treeHasEmptyValues(tree)).toBe(expected)
+    })
+})
+
+describe('delete filter', () => {
+    let savedPayload: Record<string, any> | null = null
+
+    beforeEach(() => {
+        savedPayload = null
+        useMocks({
+            get: { '/api/environments/:team_id/event_filter/': () => [204, null] },
+            post: {
+                '/api/environments/:team_id/event_filter/': async ({ request }) => {
+                    savedPayload = (await request.json()) as Record<string, any>
+                    return [200, { id: 'abc', ...savedPayload }]
+                },
+            },
+        })
+        initKeaTests()
+        eventFilterLogic.mount()
+    })
+
+    it('keeps delete available after the last condition is removed from a saved filter', () => {
+        // The reported bug: removing the last condition used to hide the delete
+        // affordance and strand the user, because save is blocked on an empty tree.
+        eventFilterLogic.actions.setFilterFormValue('id', 'saved-id')
+        eventFilterLogic.actions.setFilterFormValue('filter_tree', or())
+
+        expect(eventFilterLogic.values.conditionCount).toBe(0)
+        expect(eventFilterLogic.values.canDeleteFilter).toBe(true)
+    })
+
+    it('offers no delete when there is no saved filter and no conditions', () => {
+        expect(eventFilterLogic.values.canDeleteFilter).toBe(false)
+    })
+
+    it('saves a disabled, empty config so an existing filter can be deleted', async () => {
+        eventFilterLogic.actions.setFilterFormValue('mode', 'live')
+        eventFilterLogic.actions.setFilterFormValue('filter_tree', or(cond('event_name', 'exact', 'pageview')))
+        eventFilterLogic.actions.setFilterFormValue('test_cases', [
+            { _key: 'k1', event_name: 'pageview', distinct_id: '', expected_result: 'drop' },
+        ])
+
+        await expectLogic(eventFilterLogic, () => eventFilterLogic.actions.clearFilter()).toDispatchActions([
+            'submitFilterFormSuccess',
+        ])
+
+        expect(savedPayload).not.toBeNull()
+        expect(savedPayload!.mode).toBe('disabled')
+        expect(savedPayload!.filter_tree).toEqual({ type: 'or', children: [] })
+        expect(savedPayload!.test_cases).toEqual([])
+        expect(eventFilterLogic.values.conditionCount).toBe(0)
     })
 })

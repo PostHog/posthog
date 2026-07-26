@@ -247,6 +247,7 @@ export function updateAtPath(node: FilterNode, path: TreePath, updater: (node: F
 export interface eventFilterLogicValues {
     allTestsPass: boolean
     breadcrumbs: Breadcrumb[]
+    canDeleteFilter: boolean
     conditionCount: number
     currentTeamId: number
     filterForm: EventFilterFormValues
@@ -270,6 +271,9 @@ export interface eventFilterLogicActions {
         pathKeys: TreePath
     }
     addTestCase: () => {
+        value: true
+    }
+    clearFilter: () => {
         value: true
     }
     convertToGroup: (
@@ -351,6 +355,7 @@ export interface eventFilterLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         currentTeamId: (currentTeamId: number | null) => number
         conditionCount: (filterForm: EventFilterFormValues) => number
+        canDeleteFilter: (filterForm: EventFilterFormValues, conditionCount: number) => boolean
         testResults: (filterForm: EventFilterFormValues) => TestResult[]
         allTestsPass: (testResults: TestResult[], filterForm: EventFilterFormValues) => boolean
     }
@@ -380,6 +385,8 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
         addTestCase: true,
         removeTestCase: (index: number) => ({ index }),
         updateTestCase: (index: number, updates: Partial<TestCase>) => ({ index, updates }),
+        // Reset to an empty, disabled filter and save it — i.e. delete the filter
+        clearFilter: true,
     }),
 
     forms(({ values }) => ({
@@ -427,6 +434,17 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
         conditionCount: [
             (s) => [s.filterForm],
             (form: EventFilterFormValues): number => countConditions(form.filter_tree),
+        ],
+
+        /**
+         * Whether there's a filter to delete: one already saved (has an id) or one
+         * being built (has conditions). Gates the delete button on "a filter exists"
+         * rather than "the tree is non-empty right now" — otherwise removing the last
+         * condition hides the button and strands the user with no way to clear it.
+         */
+        canDeleteFilter: [
+            (s) => [s.filterForm, s.conditionCount],
+            (form: EventFilterFormValues, conditionCount: number): boolean => form.id !== null || conditionCount > 0,
         ],
 
         /** Run each test case against the current tree client-side for live preview. */
@@ -540,6 +558,12 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
         updateTestCase: ({ index, updates }) => {
             const newCases = values.filterForm.test_cases.map((tc, i) => (i === index ? { ...tc, ...updates } : tc))
             actions.setFilterFormValue('test_cases', newCases)
+        },
+        clearFilter: () => {
+            actions.setFilterFormValue('mode', 'disabled')
+            actions.setFilterFormValue('filter_tree', { type: 'or', children: [] })
+            actions.setFilterFormValue('test_cases', [])
+            actions.submitFilterForm()
         },
     })),
 

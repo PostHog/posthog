@@ -14,7 +14,15 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
-import { LemonBanner, LemonButton, LemonDivider, LemonLabel, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDialog,
+    LemonDivider,
+    LemonLabel,
+    LemonModal,
+    LemonSegmentedButton,
+} from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -36,9 +44,15 @@ export const scene: SceneExport = {
 }
 
 export function EventFilterScene(): JSX.Element {
-    const { filterForm, isFilterFormSubmitting, allTestsPass, filterFormErrors, showFilterFormErrors } =
-        useValues(eventFilterLogic)
-    const { setFilterFormValue, submitFilterForm, updateTreeNode } = useActions(eventFilterLogic)
+    const {
+        filterForm,
+        isFilterFormSubmitting,
+        allTestsPass,
+        filterFormErrors,
+        showFilterFormErrors,
+        canDeleteFilter,
+    } = useValues(eventFilterLogic)
+    const { setFilterFormValue, submitFilterForm, updateTreeNode, clearFilter } = useActions(eventFilterLogic)
     const [activeId, setActiveId] = useState<string | null>(null)
     const [showExpression, setShowExpression] = useState(false)
     const nodeIds = useRef(new NodeIdMap()).current
@@ -269,6 +283,30 @@ export function EventFilterScene(): JSX.Element {
                         <LemonButton type="primary" onClick={() => submitFilterForm()} loading={isFilterFormSubmitting}>
                             Save
                         </LemonButton>
+                        {canDeleteFilter && (
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                disabledReason={isFilterFormSubmitting ? 'Saving' : undefined}
+                                onClick={() =>
+                                    LemonDialog.open({
+                                        title: 'Delete filter',
+                                        description:
+                                            'This clears every condition and test case and disables the filter. No events will be dropped until you set it up again.',
+                                        primaryButton: {
+                                            status: 'danger',
+                                            children: 'Delete filter',
+                                            onClick: () => clearFilter(),
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                        },
+                                    })
+                                }
+                            >
+                                Delete filter
+                            </LemonButton>
+                        )}
                     </div>
                 </div>
             </Form>
