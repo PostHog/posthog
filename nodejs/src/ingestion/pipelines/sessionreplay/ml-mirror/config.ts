@@ -56,15 +56,8 @@ export type MlMirrorConfig = {
      */
     SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: number
-    SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: number
     // Per-write timeout (the S3 client has no built-in one). A flush does two writes, so it bounds at 2x this.
     SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: number
-    // Scrub-phase budget, covering scrub time only — mid-batch flush time is excluded (each flush is
-    // separately bounded at 2x the S3 write timeout). Sized so scrub plus the worst-case flushes for
-    // one poll batch stays under Kafka's max.poll.interval.ms (300s), or a hung sidecar/S3 evicts us
-    // mid-batch and livelocks.
-    SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: number
-
     /**
      * Cap on messages scrubbed concurrently per pod. Each in-flight scrub occupies one libuv
      * threadpool thread (UV_THREADPOOL_SIZE, default 4, shared with the recorder's snappy
@@ -97,9 +90,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS: 250_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX: 500_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: 10 * 1000,
-        SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: 3,
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
-        SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: 120 * 1000,
         SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: 0,
     }
 }

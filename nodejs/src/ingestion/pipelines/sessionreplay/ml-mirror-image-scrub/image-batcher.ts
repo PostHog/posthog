@@ -8,7 +8,7 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 import { parseImageRef } from './content-ref'
 import { ImageShardStore, ScrubbedImage } from './image-shard-store'
 import { ImageScrubConsumerMetrics } from './metrics'
-import { ScrubClient, ScrubUnavailable } from './scrub-client'
+import { ScrubClient } from './scrub-client'
 
 export interface OffsetStore {
     offsetsStore(offsets: TopicPartitionOffset[]): void
@@ -57,7 +57,6 @@ export interface ImageBatcherOptions {
     maxImages: number
     maxBytes: number
     scrubConcurrency: number
-    maxBatchScrubMs: number
     dedupMaxRefs: number
 }
 
@@ -115,16 +114,11 @@ export class ImageBatcher {
         // can come back as a multi-MB full-resolution PNG), so submitting a whole poll batch at once
         // could hold gigabytes. Peak is ~maxBytes plus the outputs of one window.
         //
-        // The deadline covers scrub time only: the timer is armed around each wait and the elapsed
-        // time charged to the budget, so slow-but-succeeding S3 writes (each bounded by their own
-        // timeout) can't burn the scrub budget and turn into an abort/replay loop misattributed to
-        // the sidecar.
+        // There is no time limit on the batch. A busy sidecar is waited on rather than given up on,
+        // so the batch takes as long as the sidecar needs and the next consume() happens that much
+        // later, which is the whole backpressure mechanism. Every message this batch took is finished
+        // before any offset moves past it.
         const controller = new AbortController()
-        let scrubBudgetMs = this.options.maxBatchScrubMs
-        // Set by the deadline rather than inferred from the error, because the abort surfaces as
-        // whatever the concurrency controller rejects an aborted job with and not as a scrub error at
-        // all, so no amount of inspecting the error can tell this apart from a genuine fault.
-        let deadlineExpired = false
         let spanStart = 0
         let nextToSubmit = 0
         let retired = 0
@@ -140,7 +134,6 @@ export class ImageBatcher {
 
         while (nextToSubmit < planned.length || inFlight.size > 0) {
             while (
-                !deadlineExpired &&
                 nextToSubmit < planned.length &&
                 inFlight.size < this.maxInFlight &&
                 !this.overCapacity(stagedCount, stagedBytes)
@@ -148,45 +141,18 @@ export class ImageBatcher {
                 inFlight.set(nextToSubmit, this.submitScrub(nextToSubmit, planned[nextToSubmit], controller))
                 nextToSubmit++
             }
+            // Only reachable over capacity with work left: flush to make room rather than spin.
             if (inFlight.size === 0) {
-                // The controller is per-batch and cannot be un-aborted, so anything submitted from
-                // here rejects without the sidecar seeing it. Draining the tail that way would count
-                // hundreds of untried images as capacity drops and read as a far worse sidecar
-                // failure than actually occurred.
-                if (deadlineExpired) {
-                    break
-                }
-                // Only reachable over capacity with work left: flush to make room rather than spin.
                 await this.flushOrThrow(nowMs)
                 continue
             }
 
-            const waitStartMs = performance.now()
-            const timer = setTimeout(() => {
-                deadlineExpired = true
-                controller.abort()
-            }, scrubBudgetMs)
-            let done: SettledScrub
-            try {
-                done = await Promise.race(inFlight.values())
-            } finally {
-                clearTimeout(timer)
-                scrubBudgetMs -= performance.now() - waitStartMs
-            }
+            const done = await Promise.race(inFlight.values())
             inFlight.delete(done.slot)
             if (done.error !== undefined) {
-                if (!deadlineExpired && !(done.error instanceof ScrubUnavailable)) {
-                    controller.abort() // one failure dooms the batch, so cancel the siblings still in flight
-                    ImageScrubConsumerMetrics.incBatchFailed('scrub')
-                    throw done.error
-                }
-                // The sidecar could not take this image. Losing it costs one frame from a best-effort
-                // mirror, and the ref is deliberately left unmarked so a later copy still gets a turn.
-                // Failing the batch instead costs the pod, because the Kafka loop exits the process on
-                // any throw, and the partitions it was holding land on pods that are already as busy.
-                ImageScrubConsumerMetrics.incDropped(
-                    deadlineExpired ? 'deadline' : (done.error as ScrubUnavailable).reason
-                )
+                controller.abort() // one failure dooms the batch, so cancel the siblings still in flight
+                ImageScrubConsumerMetrics.incBatchFailed('scrub')
+                throw done.error
             }
             if (done.scrubbed) {
                 staged[done.slot] = done.scrubbed
@@ -224,13 +190,6 @@ export class ImageBatcher {
             if (this.overCapacity(stagedCount, stagedBytes)) {
                 await this.flushOrThrow(nowMs)
             }
-        }
-        // Kafka offsets are a high-water mark, so leaving this tail uncommitted would not save it:
-        // the next batch stores a higher offset and buries the gap. Since it is lost either way, all
-        // that is left to decide is whether the loss is legible, hence its own reason rather than
-        // being folded in with images the sidecar was actually offered and refused.
-        if (nextToSubmit < planned.length) {
-            ImageScrubConsumerMetrics.incDropped('unattempted', planned.length - nextToSubmit)
         }
         // A batch whose tail is all skips, or which is nothing but skips, still has to move offsets.
         this.recordOffsets(messages.slice(spanStart))

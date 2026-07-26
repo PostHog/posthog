@@ -67,8 +67,7 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
         )
         const scrubClient = new ScrubClient(
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL,
-            this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS,
-            this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES
+            this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS
         )
 
         const consumer = new KafkaConsumer(buildImageScrubConsumerConfig(this.config))
@@ -81,7 +80,6 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
                 maxImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES,
                 maxBytes: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES,
                 scrubConcurrency: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY,
-                maxBatchScrubMs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS,
                 dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS,
             },
             Date.now()

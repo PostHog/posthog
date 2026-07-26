@@ -1,9 +1,6 @@
 import { Counter, Histogram } from 'prom-client'
 
-import { ScrubUnavailableReason } from './scrub-client'
-
-/** The scrub client's reasons, plus the two the batch itself owns and the client never sees. */
-export type DropReason = ScrubUnavailableReason | 'deadline' | 'unattempted'
+import { ScrubWaitReason } from './scrub-client'
 
 export class ImageScrubConsumerMetrics {
     private static readonly scrubbed = new Counter({
@@ -50,16 +47,17 @@ export class ImageScrubConsumerMetrics {
         help: 'Scrubbed image bytes written into shards',
     })
     /**
-     * The lane's data-loss signal, and the one to alert on. Every drop here is an image that reached
-     * the consumer and will never reach the bucket, because the sidecar had no capacity for it inside
-     * the batch's budget. A low background rate is the shape of a lane running near its ceiling; a
-     * rate approaching `scrubbed` means the sidecar is effectively down. Nothing else reports that:
-     * a pod dropping every image still passes its probes, keeps its lag flat, and keeps advancing
-     * offsets.
+     * The saturation signal, and the one to alert on.
+     *
+     * Each increment is one attempt that came back without bytes and will be retried rather than
+     * abandoned, so this never means data was lost. What it means is that the consumer is spending
+     * wall time waiting on the sidecar instead of draining, which is the thing that turns into lag.
+     * Read it against `scrubbed`: a small ratio is a lane near its ceiling, and a large one means the
+     * sidecar is not keeping up and the backlog is growing.
      */
-    private static readonly dropped = new Counter({
-        name: 'ml_mirror_image_scrub_consumer_dropped_total',
-        help: 'Images dropped because the sidecar could not take them. Never published, so this is lost coverage rather than leaked content. By reason: "busy" (503, shed), "timeout" (no reply inside the request timeout), "transport" (socket refused or reset, or an unexpected status), "aborted" (a sibling failure ended the batch), "deadline" (in flight when the batch scrub budget expired), "unattempted" (never submitted, because the budget expired first)',
+    private static readonly scrubWaits = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_scrub_waits_total',
+        help: 'Scrub attempts that returned no bytes and will be retried, by reason: "busy" (503, shed), "timeout" (no reply inside the request timeout), "transport" (socket refused or reset, or an unexpected status). Retried rather than dropped, so this is backpressure and not loss',
         labelNames: ['reason'],
     })
     private static readonly offsetsDiscarded = new Counter({
@@ -81,8 +79,8 @@ export class ImageScrubConsumerMetrics {
     public static incSkipped(): void {
         this.skipped.inc()
     }
-    public static incDropped(reason: DropReason, count = 1): void {
-        this.dropped.labels(reason).inc(count)
+    public static incScrubWait(reason: ScrubWaitReason): void {
+        this.scrubWaits.labels(reason).inc()
     }
     public static incOffsetsDiscarded(count: number): void {
         this.offsetsDiscarded.inc(count)

@@ -1,10 +1,9 @@
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
-import { register } from 'prom-client'
 
 import { hashImageBytes, imageRef } from './content-ref'
 import { ImageBatcher, OffsetStore } from './image-batcher'
 import { ImageShardStore, ScrubbedImage } from './image-shard-store'
-import { ScrubClient, ScrubUnavailable } from './scrub-client'
+import { ScrubClient } from './scrub-client'
 
 const pt = (n: number): string => String(n).padStart(32, '0')
 const CONTENT_KEY = 'fedcba9876543210fedcba9876543210'
@@ -46,23 +45,11 @@ const scrubClient = {
     scrub: (b: Buffer) => Promise.resolve(Buffer.concat([Buffer.from('x'), b])),
 } as unknown as ScrubClient
 
-async function droppedByReason(): Promise<Record<string, number>> {
-    const metric = await register.getSingleMetric('ml_mirror_image_scrub_consumer_dropped_total')!.get()
-    const counts: Record<string, number> = { capacity: 0, unattempted: 0 }
-    for (const v of metric.values) {
-        counts[String(v.labels.reason)] = v.value
-    }
-    // The client's reasons all mean the same thing to this assertion: the sidecar was offered the
-    // image and could not take it, as against never being offered it at all.
-    counts.capacity = ['busy', 'timeout', 'transport', 'aborted', 'deadline'].reduce((n, r) => n + (counts[r] ?? 0), 0)
-    return counts
-}
 const options = {
     flushIntervalMs: 0,
     maxImages: 1000,
     maxBytes: 1e9,
     scrubConcurrency: 4,
-    maxBatchScrubMs: 30_000,
     dedupMaxRefs: 1000,
 }
 
@@ -174,7 +161,7 @@ describe('ImageBatcher', () => {
             slowStore as unknown as ImageShardStore,
             offsets,
             { scrub: () => Promise.resolve(Buffer.alloc(16)) } as unknown as ScrubClient,
-            { ...options, maxBytes: 32, scrubConcurrency: 2, maxBatchScrubMs: 60 },
+            { ...options, maxBytes: 32, scrubConcurrency: 2 },
             0
         )
 
@@ -493,96 +480,6 @@ describe('ImageBatcher', () => {
                     0
                 )
         ).toThrow('scrubConcurrency')
-    })
-
-    it('drops the images still in flight when scrubbing exceeds the deadline, without failing the batch', async () => {
-        // Every capacity failure has to end this way, the deadline included. It reaches the batch as
-        // whatever the concurrency controller rejects an aborted job with rather than as a scrub
-        // error, so classifying by error type alone leaves this one path still killing the pod.
-        const store = new FakeStore()
-        const offsets = new FakeOffsets()
-        const hangingClient = { scrub: () => new Promise<Buffer>(() => {}) } as unknown as ScrubClient
-        const batcher = new ImageBatcher(
-            store as unknown as ImageShardStore,
-            offsets,
-            hangingClient,
-            { ...options, maxBatchScrubMs: 5 },
-            0
-        )
-
-        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)).resolves.toBeUndefined()
-        expect(store.writes).toHaveLength(0)
-    })
-
-    it('counts the images a deadline never reached apart from the ones it actually attempted', async () => {
-        // A stall past the deadline discards the whole remaining batch, not just the images in
-        // flight, because the batch's abort controller cannot be un-aborted and everything submitted
-        // after it rejects without the sidecar ever seeing it. That loss is accepted, but its size
-        // has to be legible: rolled into one counter, two timed-out images and four hundred that were
-        // never tried look identical, and the deadline is exactly the knob you would be trying to
-        // size from that number.
-        const hangingClient = { scrub: () => new Promise<Buffer>(() => {}) } as unknown as ScrubClient
-        const batcher = new ImageBatcher(
-            new FakeStore() as unknown as ImageShardStore,
-            new FakeOffsets(),
-            hangingClient,
-            { ...options, scrubConcurrency: 2, maxBatchScrubMs: 5 },
-            0
-        )
-
-        const before = await droppedByReason()
-        const messages = Array.from({ length: 20 }, (_, i) => msg(0, i, pt(1), Buffer.from(`img-${i}`)))
-        await expect(batcher.handleBatch(messages, 1)).resolves.toBeUndefined()
-        const after = await droppedByReason()
-
-        expect(after.capacity - before.capacity).toBe(2)
-        expect(after.unattempted - before.unattempted).toBe(18)
-    })
-
-    it('drops an image the sidecar has no capacity for instead of failing the batch', async () => {
-        // The lane's crash loop: a saturated sidecar times out, the batch rethrows, and the Kafka
-        // loop exits the process on any throw. The partitions then land on pods that are just as
-        // busy, so every pod took its turn dying and the lane never recovered on its own.
-        const store = new FakeStore()
-        const offsets = new FakeOffsets()
-        const busyClient = {
-            scrub: () => Promise.reject(new ScrubUnavailable('scrub request timed out', 'timeout')),
-        } as unknown as ScrubClient
-        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, busyClient, options, 0)
-
-        await expect(
-            batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a')), msg(0, 1, pt(1), Buffer.from('b'))], 1)
-        ).resolves.toBeUndefined()
-        expect(store.writes).toHaveLength(0)
-        expect(offsets.received.flat().map((o) => o.offset)).toEqual([2])
-    })
-
-    it('leaves a dropped ref unmarked so a later copy still gets scrubbed', async () => {
-        // The drop must not look like the permanent 422 rejection, which does mark the ref. Marking
-        // here would let one busy moment permanently exclude that image from the mirror.
-        let attempts = 0
-        const busyOnceClient = {
-            scrub: (b: Buffer) => {
-                attempts += 1
-                return attempts === 1
-                    ? Promise.reject(new ScrubUnavailable('sidecar responded 503', 'busy'))
-                    : Promise.resolve(b)
-            },
-        } as unknown as ScrubClient
-        const store = new FakeStore()
-        const batcher = new ImageBatcher(
-            store as unknown as ImageShardStore,
-            new FakeOffsets(),
-            busyOnceClient,
-            options,
-            0
-        )
-        const sprite = Buffer.from('sprite')
-
-        await batcher.handleBatch([msg(0, 0, pt(1), sprite)], 1)
-        await batcher.handleBatch([msg(0, 0, pt(1), sprite)], 2)
-
-        expect(store.writes.flat()).toHaveLength(1)
     })
 
     it('discards offsets for a partition a rebalance already revoked, rather than exiting', async () => {

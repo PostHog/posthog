@@ -10,11 +10,19 @@ It runs a simple http server, receives an image and replies with the scrubbed im
 
 ## HTTP contract
 
-`POST /scrub` with the raw image bytes returns the scrubbed bytes (200). The status split is load-bearing and both sides must change together: the consumer permanently skips 413 (too large) and 422 (undecodable), and retries then **drops** the image on 500 (transient) and 503 (busy). See `scrub-client.ts` for the consumer half.
+`POST /scrub` with the raw image bytes returns the scrubbed bytes (200). The status split is load-bearing and both sides must change together: the consumer permanently skips 413 (too large) and 422 (undecodable), and **waits and retries** on 500 (transient) and 503 (busy). See `scrub-client.ts` for the consumer half.
 
-A dropped image is counted in `ml_mirror_image_scrub_consumer_dropped_total` (by `reason`: `busy`, `timeout`, `transport`, `aborted`, `deadline`, `unattempted`) and never reaches the bucket, so the failure costs coverage rather than leaking content.
-That counter is the lane's only health signal, so `IngestionSessionReplayImageScrubDropRate` alerts on its ratio to `..._scrubbed_total`: a pod dropping every image still passes its probes, keeps its lag flat, and keeps advancing offsets.
-Note `unattempted`: when a batch exhausts `SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS` the rest of that poll batch is dropped without being offered to the sidecar at all, because Kafka offsets are a high-water mark and a later batch would commit past them regardless.
+**A busy sidecar is waited on, never given up on, and no image is ever dropped for lack of capacity.**
+Kafka is already holding the image durably, so a bounded retry buys nothing except the chance to discard data the log was keeping safe, while consuming more slowly costs only lag, which is what the topic is for.
+There is no batch time limit and no drop path: every message a poll batch takes is finished before any offset moves past it.
+
+The waiting _is_ the backpressure. A batch that spends longer on a jammed sidecar calls `consume()` that much later, so the consumer paces itself to whatever the sidecar can execute without needing to pause partitions explicitly.
+Lag grows while that happens, which is correct and is what the drain-time panels on the dashboard are for.
+
+Two consequences worth knowing. A wedged sidecar blocks its partitions rather than draining them, and past `max.poll.interval.ms` (300s) the group evicts the pod and those partitions replay elsewhere: churny and loud, but lossless.
+And an image that makes the sidecar fail forever would block its partition indefinitely; 422/413 covers the common undecodable case, and the fix if a genuine poison pill ever appears is a dead-letter topic, which keeps the bytes in Kafka rather than discarding them.
+
+`ml_mirror_image_scrub_consumer_scrub_waits_total` (by `reason`: `busy`, `timeout`, `transport`) counts attempts that came back without bytes and will be retried, so it is a saturation signal and never a loss signal.
 
 **Nothing about a busy or unreachable sidecar may take the consumer down.**
 The consumer's Kafka loop exits the process on any batch error, so a failure that reaches it costs the whole pod and hands its partitions to pods that are equally busy, spreading the saturation.
