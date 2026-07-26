@@ -482,6 +482,29 @@ describe('ImageBatcher', () => {
         ).toThrow('scrubConcurrency')
     })
 
+    it('returns when stopped, so shutdown does not wait on an unresponsive sidecar', async () => {
+        // disconnect() awaits the running batch, and the scrub client now waits on a busy sidecar
+        // rather than giving up, so a batch against a sidecar that is down never returns on its own.
+        // Without the interrupt a graceful stop runs to the termination grace period and is SIGKILLed.
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        const hangingClient = {
+            scrub: (_b: Buffer, signal: AbortSignal) =>
+                new Promise<Buffer>((_resolve, reject) =>
+                    signal.addEventListener('abort', () => reject(new Error('scrub batch aborted')), { once: true })
+                ),
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, hangingClient, options, 0)
+
+        const running = batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)
+        batcher.stop()
+
+        await expect(running).resolves.toBeUndefined()
+        // Nothing finished, so nothing may be committed over: the image replays under the next owner.
+        expect(offsets.received.flat()).toEqual([])
+        expect(store.writes).toHaveLength(0)
+    })
+
     it('discards offsets for a partition a rebalance already revoked, rather than exiting', async () => {
         // librdkafka raises ERR__STATE for a partition we no longer hold. The shard is already on S3,
         // so the span simply rescrubs under its new owner. Propagating it exits the process, and a

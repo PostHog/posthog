@@ -60,6 +60,18 @@ export class ImageScrubConsumerMetrics {
         help: 'Scrub attempts that returned no bytes and will be retried, by reason: "busy" (503, shed), "timeout" (no reply inside the request timeout), "transport" (socket refused or reset, or an unexpected status). Retried rather than dropped, so this is backpressure and not loss',
         labelNames: ['reason'],
     })
+    /**
+     * Images that have been retried long past what any healthy sidecar needs for one image.
+     *
+     * Separate from the wait counter because it means something different. Waits rise and fall with
+     * load; this rising while `scrub_waits_total{reason="busy"}` is flat points at one image the
+     * sidecar cannot process rather than at capacity, and that image is holding the head of its
+     * partition. The log line beside it carries the ref.
+     */
+    private static readonly stuckImages = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_stuck_images_total',
+        help: 'Images still being retried after the point where a healthy sidecar would have finished, so likely unprocessable rather than merely queued. Each one holds the head of its partition until it succeeds',
+    })
     private static readonly offsetsDiscarded = new Counter({
         name: 'ml_mirror_image_scrub_consumer_offsets_discarded_total',
         help: 'Offsets that could not be stored because a rebalance had already revoked the partition, so that span rescrubs under its new owner',
@@ -81,6 +93,9 @@ export class ImageScrubConsumerMetrics {
     }
     public static incScrubWait(reason: ScrubWaitReason): void {
         this.scrubWaits.labels(reason).inc()
+    }
+    public static incStuckImage(): void {
+        this.stuckImages.inc()
     }
     public static incOffsetsDiscarded(count: number): void {
         this.offsetsDiscarded.inc(count)

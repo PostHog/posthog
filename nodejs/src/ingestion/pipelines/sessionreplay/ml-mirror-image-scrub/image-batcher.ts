@@ -78,6 +78,16 @@ export class ImageBatcher {
      * one.
      */
     private readonly seenRefs: RefDedupCache
+    /**
+     * The batch currently in flight, so shutdown can interrupt it.
+     *
+     * disconnect() waits on the running batch, and a batch waiting on a sidecar that is down waits
+     * forever, so without this a graceful stop runs to the termination grace period and ends in a
+     * SIGKILL. Aborting is safe: offsets are only recorded for images that finished, so whatever was
+     * still in flight replays under the partition's next owner.
+     */
+    private activeBatch: AbortController | null = null
+    private stopping = false
 
     constructor(
         private readonly store: ImageShardStore,
@@ -97,7 +107,16 @@ export class ImageBatcher {
         this.seenRefs = new RefDedupCache('image_scrub_consumer', options.dedupMaxRefs)
     }
 
+    /** Interrupts the running batch so a graceful shutdown does not wait on an unresponsive sidecar. */
+    public stop(): void {
+        this.stopping = true
+        this.activeBatch?.abort()
+    }
+
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
+        if (this.stopping) {
+            return
+        }
         // Skips resolve up front so the window only ever holds real work: a duplicate admitted into a
         // slot would occupy it and complete instantly, spending the pod's concurrency on no-ops.
         if (messages.length) {
@@ -119,6 +138,7 @@ export class ImageBatcher {
         // later, which is the whole backpressure mechanism. Every message this batch took is finished
         // before any offset moves past it.
         const controller = new AbortController()
+        this.activeBatch = controller
         let spanStart = 0
         let nextToSubmit = 0
         let retired = 0
@@ -150,6 +170,12 @@ export class ImageBatcher {
             const done = await Promise.race(inFlight.values())
             inFlight.delete(done.slot)
             if (done.error !== undefined) {
+                // Shutdown is not a failure. Everything retired so far is flushed below and its
+                // offsets are already recorded; the rest was never finished, so its offsets stay
+                // unrecorded and it replays wherever the partition lands next.
+                if (this.stopping) {
+                    break
+                }
                 controller.abort() // one failure dooms the batch, so cancel the siblings still in flight
                 ImageScrubConsumerMetrics.incBatchFailed('scrub')
                 throw done.error
@@ -190,6 +216,13 @@ export class ImageBatcher {
             if (this.overCapacity(stagedCount, stagedBytes)) {
                 await this.flushOrThrow(nowMs)
             }
+        }
+        this.activeBatch = null
+        if (this.stopping) {
+            // Deliberately no tail recordOffsets: past the last retired image nothing was finished,
+            // and moving offsets over it here would lose exactly what the wait exists to protect.
+            await this.flushOrThrow(nowMs)
+            return
         }
         // A batch whose tail is all skips, or which is nothing but skips, still has to move offsets.
         this.recordOffsets(messages.slice(spanStart))
@@ -257,7 +290,7 @@ export class ImageBatcher {
     }
 
     private async scrubOne(planned: PlannedScrub, signal: AbortSignal): Promise<ScrubbedImage | null> {
-        const bytes = await this.scrubClient.scrub(planned.value, signal)
+        const bytes = await this.scrubClient.scrub(planned.value, signal, planned.ref)
         if (bytes === null) {
             // Null is only ever a 422/413, a verdict on the content itself, so no retry can succeed.
             // Marking it stops every later copy from re-earning the same rejection, and there is

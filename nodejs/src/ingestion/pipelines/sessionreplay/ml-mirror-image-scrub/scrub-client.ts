@@ -1,5 +1,7 @@
 import { request } from 'node:http'
 
+import { logger } from '~/common/utils/logger'
+
 import { ImageScrubConsumerMetrics } from './metrics'
 
 /** The timeout's own message, matched on rather than duplicated, so the reason label cannot drift. */
@@ -13,6 +15,17 @@ export class ScrubAborted extends Error {}
 
 const BACKOFF_BASE_MS = 100
 const BACKOFF_MAX_MS = 5_000
+
+/**
+ * Attempts on one image before it is called out by ref.
+ *
+ * At the capped backoff this is a couple of minutes, which no healthy sidecar spends on a single
+ * image, so crossing it means either a sidecar that is down or an image it cannot process. The
+ * second is the one that needs naming: the bytes are user-controlled, and an image that fails the
+ * same way forever holds the head of its partition, which is a stall shared by every team whose
+ * records hash to it. Waiting is still better than discarding, but it must not be silent.
+ */
+const STUCK_AFTER_ATTEMPTS = 20
 
 /** Full jitter, so a pod's eight in-flight images do not all re-post to a busy sidecar in lockstep. */
 function backoffMs(attempt: number, random: () => number): number {
@@ -45,7 +58,7 @@ export class ScrubClient {
      * Only two things end the loop. Bytes, or a verdict on the content that no retry could change.
      * The caller hanging up raises [[ScrubAborted]], which belongs to shutdown rather than to load.
      */
-    public async scrub(bytes: Buffer, signal?: AbortSignal): Promise<Buffer | null> {
+    public async scrub(bytes: Buffer, signal?: AbortSignal, ref?: string): Promise<Buffer | null> {
         for (let attempt = 0; ; attempt++) {
             if (signal?.aborted) {
                 throw new ScrubAborted('scrub batch aborted')
@@ -69,6 +82,15 @@ export class ScrubClient {
                 reason = (error as Error)?.message === REQUEST_TIMED_OUT ? 'timeout' : 'transport'
             }
             ImageScrubConsumerMetrics.incScrubWait(reason)
+            if (attempt === STUCK_AFTER_ATTEMPTS) {
+                ImageScrubConsumerMetrics.incStuckImage()
+                logger.warn('🚨', 'image_scrub_image_stuck', {
+                    ref,
+                    reason,
+                    attempts: attempt + 1,
+                    bytes: bytes.length,
+                })
+            }
             await this.sleep(backoffMs(attempt, this.random))
         }
     }

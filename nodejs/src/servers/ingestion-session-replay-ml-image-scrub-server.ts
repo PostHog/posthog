@@ -91,10 +91,16 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-scrub',
-            // disconnect() stops the poll loop and commits stored offsets. The un-flushed buffer's offsets were
-            // never stored, so those messages just replay on restart — a final flush here would only race the
-            // still-running loop over the shared buffer.
-            onShutdown: () => consumer.disconnect(),
+            // batcher.stop() first: disconnect() waits on the running batch, and a batch waiting on an
+            // unresponsive sidecar never returns, so without the interrupt a graceful stop runs to the
+            // termination grace period and ends in a SIGKILL. Then disconnect() stops the poll loop and
+            // commits stored offsets. The un-flushed buffer's offsets were never stored, so those
+            // messages just replay on restart — a final flush here would only race the still-running
+            // loop over the shared buffer.
+            onShutdown: async () => {
+                batcher.stop()
+                await consumer.disconnect()
+            },
             healthcheck: () => consumer.isHealthy(),
         })
     }
