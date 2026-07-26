@@ -1031,6 +1031,35 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         )
         assert response.status_code == expected, response.content
 
+    @parameterized.expand(
+        [
+            # A derived note quotes a report's id, title, and dismissal text, all of which the
+            # report API gates on `task:read`. A scout-only token must not read around that.
+            ("without_report_read", ["signal_scout:read"], {"steering"}),
+            ("with_report_read", ["signal_scout:read", "task:read"], {"steering", "derived from a dismissal"}),
+        ]
+    )
+    def test_list_withholds_dismissal_notes_from_callers_without_report_read(
+        self, _name: str, scopes: list[str], expected: set[str]
+    ) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        SignalScoutNote.objects.create(team=self.team, content="steering")
+        SignalScoutNote.objects.create(
+            team=self.team,
+            content="derived from a dismissal",
+            origin=SignalScoutNote.Origin.REPORT_DISMISSAL,
+        )
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.get(self._list_url(), HTTP_AUTHORIZATION=f"Bearer {raw}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert {row["content"] for row in response.json()} == expected
+
 
 class TestAgentHarnessProjectProfileAPI(APIBaseTest):
     """The project profile is the scout's orientation surface — read once at run start.
