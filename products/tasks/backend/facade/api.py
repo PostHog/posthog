@@ -5269,7 +5269,7 @@ def project_awaiting_input_activity(task_run: "TaskRun") -> None:
     )
 
 
-def _task_activity_qs(team_id: int, user_id: int):
+def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     """The requester's feed rows, gated to tasks they can still see.
 
     Rows outlive visibility changes (a task moving to a private channel, say), so the
