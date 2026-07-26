@@ -4,14 +4,14 @@ import dataclasses
 
 from django.conf import settings
 
-from azure.core.exceptions import HttpResponseError
+from azure.core.exceptions import ClientAuthenticationError, HttpResponseError, ResourceNotFoundError
 from azure.storage.blob import StorageErrorCode
 from azure.storage.blob.aio import BlobServiceClient, ContainerClient, ExponentialRetry
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import AzureBlobIntegration, Integration
+from posthog.models.integration import AzureBlobIntegration, AzureBlobIntegrationError, Integration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -43,17 +43,6 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
-
-NON_RETRYABLE_ERROR_TYPES = (
-    "AzureBlobIntegrationError",
-    "AzureBlobIntegrationNotFoundError",
-    "ClientAuthenticationError",
-    "MalformedConnectionStringError",
-    "MissingRequiredPermissionsError",
-    "ResourceNotFoundError",
-    "UnsupportedCompressionError",
-    "UnsupportedFileFormatError",
-)
 
 FILE_FORMAT_EXTENSIONS = {
     "Parquet": "parquet",
@@ -103,6 +92,18 @@ class MalformedConnectionStringError(Exception):
         super().__init__(
             "The provided connection string was rejected by Azure. Ensure the connection string is made up of key=value pairs separated only by a semicolon (;) with no additional characters in between. Example: AccountName=name;AccountKey=key;SomeKey=somevalue"
         )
+
+
+NON_RETRYABLE_ERROR_TYPES = (
+    AzureBlobIntegrationError,
+    AzureBlobIntegrationNotFoundError,
+    ClientAuthenticationError,
+    MalformedConnectionStringError,
+    MissingRequiredPermissionsError,
+    ResourceNotFoundError,
+    UnsupportedCompressionError,
+    UnsupportedFileFormatError,
+)
 
 
 def _is_authorization_failure_response_error(err: HttpResponseError) -> bool:

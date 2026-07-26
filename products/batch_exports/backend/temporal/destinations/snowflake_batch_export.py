@@ -24,7 +24,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import Integration, SnowflakeIntegration
+from posthog.models.integration import Integration, SnowflakeIntegration, SnowflakeIntegrationError
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -76,44 +76,6 @@ class NamedBytesIO(io.BytesIO):
 
 # One batch export allowed to connect at a time (in theory) per worker.
 CONNECTION_SEMAPHORE = asyncio.Semaphore(value=1)
-
-NON_RETRYABLE_ERROR_TYPES = (
-    # Raised when we cannot connect to Snowflake.
-    "DatabaseError",
-    # Raised by Snowflake when a query cannot be compiled.
-    # Usually this means we don't have table permissions or something doesn't exist (db, schema).
-    "ProgrammingError",
-    # Raised by Snowflake with an incorrect account name.
-    "ForbiddenError",
-    # Our own exception when we can't connect to Snowflake, usually due to invalid parameters.
-    "SnowflakeConnectionError",
-    # Raised when a table is not found in Snowflake.
-    "SnowflakeTableNotFoundError",
-    # Raised when a using key-pair auth and the private key or passphrase is not valid.
-    "InvalidPrivateKeyError",
-    # Raised when a valid authentication method is not provided.
-    "SnowflakeAuthenticationError",
-    # Raised when a Warehouse is suspended.
-    "SnowflakeWarehouseSuspendedError",
-    # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
-    "SnowflakeIncompatibleSchemaError",
-    # Raised when Snowflake denies an operation due to missing privileges. This is a customer-side
-    # configuration issue that retrying cannot fix.
-    "SnowflakeInsufficientPrivilegesError",
-    # Raised when we hit our self-imposed query timeout.
-    # We don't want to continually retry as it could consume a lot of compute resources in the user's account and can
-    # lead to a lot of queries queuing up for a given warehouse.
-    "SnowflakeQueryClientTimeoutError",
-    # Raised when a Snowflake query exceeds the timeout set in the user's account. This is typically set by
-    # STATEMENT_TIMEOUT_IN_SECONDS, which can be set at various levels (account, warehouse, user).
-    "SnowflakeQueryServerTimeoutError",
-    # Raised when either the warehouse does not exist or we are missing 'USAGE' permissions on it
-    "SnowflakeWarehouseUsageError",
-    # The linked Integration was deleted or doesn't belong to the team.
-    "SnowflakeIntegrationNotFoundError",
-    # The linked Integration is the wrong kind or has invalid/missing credentials.
-    "SnowflakeIntegrationError",
-)
 
 
 class SnowflakeFileNotUploadedError(Exception):
@@ -253,6 +215,45 @@ class SnowflakeQueryServerTimeoutError(TimeoutError):
     """
 
     pass
+
+
+NON_RETRYABLE_ERROR_TYPES = (
+    # Raised when we cannot connect to Snowflake.
+    snowflake.connector.errors.DatabaseError,
+    # Raised by Snowflake when a query cannot be compiled.
+    # Usually this means we don't have table permissions or something doesn't exist (db, schema).
+    snowflake.connector.errors.ProgrammingError,
+    # Raised by Snowflake with an incorrect account name.
+    snowflake.connector.errors.ForbiddenError,
+    # Our own exception when we can't connect to Snowflake, usually due to invalid parameters.
+    SnowflakeConnectionError,
+    # Raised when a table is not found in Snowflake.
+    SnowflakeTableNotFoundError,
+    # Raised when using key-pair auth and the private key or passphrase is not valid.
+    InvalidPrivateKeyError,
+    # Raised when a valid authentication method is not provided.
+    SnowflakeAuthenticationError,
+    # Raised when a Warehouse is suspended.
+    SnowflakeWarehouseSuspendedError,
+    # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
+    SnowflakeIncompatibleSchemaError,
+    # Raised when Snowflake denies an operation due to missing privileges. This is a customer-side
+    # configuration issue that retrying cannot fix.
+    SnowflakeInsufficientPrivilegesError,
+    # Raised when we hit our self-imposed query timeout.
+    # We don't want to continually retry as it could consume a lot of compute resources in the user's account and can
+    # lead to a lot of queries queuing up for a given warehouse.
+    SnowflakeQueryClientTimeoutError,
+    # Raised when a Snowflake query exceeds the timeout set in the user's account. This is typically set by
+    # STATEMENT_TIMEOUT_IN_SECONDS, which can be set at various levels (account, warehouse, user).
+    SnowflakeQueryServerTimeoutError,
+    # Raised when either the warehouse does not exist or we are missing 'USAGE' permissions on it
+    SnowflakeWarehouseUsageError,
+    # The linked Integration was deleted or doesn't belong to the team.
+    SnowflakeIntegrationNotFoundError,
+    # The linked Integration is the wrong kind or has invalid/missing credentials.
+    SnowflakeIntegrationError,
+)
 
 
 SnowflakeTypeName = typing.Literal[

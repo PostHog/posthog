@@ -87,7 +87,7 @@ class DummyRetryableError(Exception):
         super().__init__(message)
 
 
-NON_RETRYABLE_ERROR_TYPES = ("DummyNonRetryableError",)
+NON_RETRYABLE_ERROR_TYPES = (DummyNonRetryableError,)
 
 
 @dataclass(kw_only=True)

@@ -24,7 +24,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import DatabricksIntegration, Integration
+from posthog.models.integration import DatabricksIntegration, DatabricksIntegrationError, Integration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -56,29 +56,6 @@ from products.batch_exports.backend.temporal.utils import JsonType, handle_non_r
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
-
-NON_RETRYABLE_ERROR_TYPES: list[str] = [
-    # Our own exception when we can't connect to Databricks, usually due to invalid parameters.
-    "DatabricksConnectionError",
-    # Raised when we don't have sufficient permissions to perform an operation.
-    "DatabricksInsufficientPermissionsError",
-    # Raised when the Databricks integration is not found.
-    "DatabricksIntegrationNotFoundError",
-    # Raised when the Databricks integration is not valid.
-    "DatabricksIntegrationError",
-    # Raised when we hit our self-imposed long running operation timeout.
-    # We don't want to continually retry as it could consume a lot of compute resources in the user's account.
-    "DatabricksOperationTimeoutError",
-    # Raised when the Databricks catalog is not found.
-    "DatabricksCatalogNotFoundError",
-    # Raised when the Databricks schema is not found.
-    "DatabricksSchemaNotFoundError",
-    # Raised when the Databricks warehouse is stopped.
-    "DatabricksWarehouseStoppedError",
-    # Raised when the destination table's column names or types are incompatible with the exported
-    # data (e.g. the table column is VARIANT but the export is configured to write STRING).
-    "DatabricksIncompatibleSchemaError",
-]
 
 DatabricksField = tuple[str, str]
 
@@ -179,6 +156,30 @@ class DatabricksIncompatibleSchemaError(DatabricksOperationError):
             "This means the destination table's column names/types don't match the data being exported. "
             "Please check the schema of your destination table.",
         )
+
+
+NON_RETRYABLE_ERROR_TYPES = (
+    # Our own exception when we can't connect to Databricks, usually due to invalid parameters.
+    DatabricksConnectionError,
+    # Raised when we don't have sufficient permissions to perform an operation.
+    DatabricksInsufficientPermissionsError,
+    # Raised when the Databricks integration is not found.
+    DatabricksIntegrationNotFoundError,
+    # Raised when the Databricks integration is not valid.
+    DatabricksIntegrationError,
+    # Raised when we hit our self-imposed long running operation timeout.
+    # We don't want to continually retry as it could consume a lot of compute resources in the user's account.
+    DatabricksOperationTimeoutError,
+    # Raised when the Databricks catalog is not found.
+    DatabricksCatalogNotFoundError,
+    # Raised when the Databricks schema is not found.
+    DatabricksSchemaNotFoundError,
+    # Raised when the Databricks warehouse is stopped.
+    DatabricksWarehouseStoppedError,
+    # Raised when the destination table's column names or types are incompatible with the exported
+    # data (e.g. the table column is VARIANT but the export is configured to write STRING).
+    DatabricksIncompatibleSchemaError,
+)
 
 
 @dataclasses.dataclass(kw_only=True)

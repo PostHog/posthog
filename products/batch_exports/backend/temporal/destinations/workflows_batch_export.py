@@ -44,11 +44,6 @@ if typing.TYPE_CHECKING:
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
-NON_RETRYABLE_ERROR_TYPES: list[str] = [
-    "NotFoundErrorGroup",
-    "BadRequestErrorGroup",
-    "HogFunctionErrorThresholdExceeded",
-]
 HOG_FUNCTION_API_PATH = "/api/projects/{team_id}/hog_functions/{hog_function_id}/batch_export_invocations"
 
 
@@ -130,6 +125,13 @@ class HogFunctionErrorThresholdExceeded(Exception):
         if latest_error:
             message += f" Latest error message: '{latest_error}'"
         super().__init__(message)
+
+
+NON_RETRYABLE_ERROR_TYPES = (
+    NotFoundErrorGroup,
+    BadRequestErrorGroup,
+    HogFunctionErrorThresholdExceeded,
+)
 
 
 def _make_exception(

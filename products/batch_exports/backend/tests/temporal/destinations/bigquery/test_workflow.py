@@ -10,6 +10,7 @@ import unittest.mock
 from django.conf import settings
 
 import pytest_asyncio
+from google.auth.exceptions import RefreshError
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -426,9 +427,6 @@ async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_er
         interval=interval,
         **bigquery_batch_export.destination.config,
     )
-
-    class RefreshError(Exception):
-        pass
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(

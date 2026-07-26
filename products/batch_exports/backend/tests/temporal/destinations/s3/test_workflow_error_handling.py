@@ -129,9 +129,6 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(
         **s3_compatible_batch_export.destination.config,
     )
 
-    class ParamValidationError(Exception):
-        pass
-
     @activity.defn(name="insert_into_internal_stage_activity")
     async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
         return InternalStageResult(stage_folder="test-stage-folder", records_total=None)
@@ -151,7 +148,7 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(
         ):
             with mock.patch(
                 "products.batch_exports.backend.temporal.destinations.s3_batch_export.ProducerFromInternalStage.start",
-                side_effect=ParamValidationError("A useful error message"),
+                side_effect=botocore.exceptions.ParamValidationError(report="A useful error message"),
             ):
                 await activity_environment.client.execute_workflow(
                     S3BatchExportWorkflow.run,
@@ -166,7 +163,7 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(
 
     run = runs[0]
     assert run.status == "Failed"
-    assert run.latest_error == "ParamValidationError: A useful error message"
+    assert run.latest_error == "ParamValidationError: Parameter validation failed:\nA useful error message"
 
 
 async def test_s3_export_workflow_handles_cancellation(ateam, s3_compatible_batch_export, interval):

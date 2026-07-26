@@ -321,7 +321,12 @@ def make_retryable_with_exponential_backoff(
     return inner
 
 
-def handle_non_retryable_errors(non_retryable_error_types: typing.Sequence[str]):
+def handle_non_retryable_errors(
+    non_retryable_error_types: collections.abc.Sequence[type[Exception]],
+) -> typing.Callable[
+    [typing.Callable[_P, collections.abc.Awaitable[BatchExportResult]]],
+    typing.Any,
+]:
     """Decorator to handle non-retryable errors in batch export activities.
 
     This decorator wraps batch export activities to catch exceptions and determine
@@ -329,34 +334,33 @@ def handle_non_retryable_errors(non_retryable_error_types: typing.Sequence[str])
     a) an internal error and should be retried (by allowing the activity to fail) or
     b) a user error and should be returned as a BatchExportResult with an error.
 
-    For now, we just take in a list of error class names that should not be retried.
-    In the future, we should use actual exception classes instead of strings.
-
     Args:
-        non_retryable_error_types: List of error class names that should not be retried.
+        non_retryable_error_types: Exception classes that should not be retried.
 
     Returns:
         A decorator function that handles exceptions according to the retry policy.
 
     Example:
         @activity.defn
-        @handle_non_retryable_errors(("ClientError", "ParamValidationError"))
+        @handle_non_retryable_errors((ClientError, ParamValidationError))
         async def insert_into_s3_activity(inputs: S3InsertInputs) -> BatchExportResult:
             # Activity implementation here
             return BatchExportResult(records_completed=100)
     """
+    non_retryable_errors = tuple(non_retryable_error_types)
 
-    def decorator(func: typing.Callable[..., collections.abc.Awaitable[BatchExportResult]]):
+    def decorator(
+        func: typing.Callable[_P, collections.abc.Awaitable[BatchExportResult]],
+    ) -> typing.Any:
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs) -> BatchExportResult:
+        async def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> BatchExportResult:
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
                 # If we catch an error at any point during this activity, we check if it's a non-retryable error.
                 # If it is, we return a BatchExportResult with the error.
                 # If it's not, we re-raise the error.
-                # TODO: Use actual exception classes instead of strings.
-                if e.__class__.__name__ in non_retryable_error_types:
+                if type(e) in non_retryable_errors:
                     LOGGER.exception("Non-retryable error caught in activity")
                     return BatchExportResult.from_exception(e)
                 LOGGER.exception("Retryable error caught in activity")

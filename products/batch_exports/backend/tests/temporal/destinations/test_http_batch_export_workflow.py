@@ -34,6 +34,7 @@ from products.batch_exports.backend.temporal.destinations.http_batch_export impo
     HttpBatchExportInputs,
     HttpBatchExportWorkflow,
     HttpInsertInputs,
+    NonRetryableResponseError,
     RetryableResponseError,
     http_default_fields,
     insert_into_http_activity,
@@ -651,9 +652,6 @@ async def test_http_export_workflow_handles_insert_activity_non_retryable_errors
         **http_batch_export.destination.config,
     )
 
-    class NonRetryableResponseError(Exception):
-        pass
-
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
@@ -668,7 +666,7 @@ async def test_http_export_workflow_handles_insert_activity_non_retryable_errors
         ):
             with unittest.mock.patch(
                 "products.batch_exports.backend.temporal.destinations.http_batch_export.aiohttp.ClientSession",
-                side_effect=NonRetryableResponseError("A useful error message"),
+                side_effect=NonRetryableResponseError(400, "A useful error message"),
             ):
                 await activity_environment.client.execute_workflow(
                     HttpBatchExportWorkflow.run,
@@ -683,7 +681,9 @@ async def test_http_export_workflow_handles_insert_activity_non_retryable_errors
 
     run = runs[0]
     assert run.status == "Failed"
-    assert run.latest_error == "NonRetryableResponseError: A useful error message"
+    assert (
+        run.latest_error == "NonRetryableResponseError: NonRetryableResponseError (status: 400): A useful error message"
+    )
     assert run.records_completed is None
 
 

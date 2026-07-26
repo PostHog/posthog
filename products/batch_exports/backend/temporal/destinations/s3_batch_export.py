@@ -69,33 +69,6 @@ from products.batch_exports.backend.temporal.pipeline.types import BatchExportRe
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
-NON_RETRYABLE_ERROR_TYPES = (
-    # S3 parameter validation failed.
-    "ParamValidationError",
-    # This error usually indicates credentials are incorrect or permissions are missing.
-    "ClientError",
-    # An S3 bucket doesn't exist.
-    "NoSuchBucket",
-    # Couldn't connect to custom S3 endpoint
-    "EndpointConnectionError",
-    # TLS handshake failed against a custom S3 endpoint
-    "SSLError",
-    # User provided an invalid S3 key
-    "InvalidS3Key",
-    # Invalid S3 endpoint URL
-    "InvalidS3EndpointError",
-    # Invalid file_format input
-    "UnsupportedFileFormatError",
-    # Invalid compression input
-    "UnsupportedCompressionError",
-    # Invalid S3 credentials
-    "InvalidCredentialsError",
-    # The linked Integration was deleted or doesn't belong to the team
-    "S3IntegrationNotFoundError",
-    # The linked Integration is the wrong kind or has invalid/missing credentials
-    "S3CredentialIntegrationError",
-)
-
 FILE_FORMAT_EXTENSIONS = {
     "Parquet": "parquet",
     "JSONLines": "jsonl",
@@ -250,6 +223,33 @@ class InvalidCredentialsError(Exception):
 
     def __init__(self, message: str = "Credentials are invalid."):
         super().__init__(message)
+
+
+NON_RETRYABLE_ERROR_TYPES = (
+    # S3 parameter validation failed.
+    botocore.exceptions.ParamValidationError,
+    # This error usually indicates credentials are incorrect or permissions are missing.
+    # This also covers generated service exceptions such as NoSuchBucket.
+    botocore.exceptions.ClientError,
+    # Couldn't connect to custom S3 endpoint
+    botocore.exceptions.EndpointConnectionError,
+    # TLS handshake failed against a custom S3 endpoint
+    botocore.exceptions.SSLError,
+    # User provided an invalid S3 key
+    InvalidS3Key,
+    # Invalid S3 endpoint URL
+    InvalidS3EndpointError,
+    # Invalid file_format input
+    UnsupportedFileFormatError,
+    # Invalid compression input
+    UnsupportedCompressionError,
+    # Invalid S3 credentials
+    InvalidCredentialsError,
+    # The linked Integration was deleted or doesn't belong to the team
+    S3IntegrationNotFoundError,
+    # The linked Integration is the wrong kind or has invalid/missing credentials
+    S3CredentialIntegrationError,
+)
 
 
 def s3_default_fields() -> list[BatchExportField]:

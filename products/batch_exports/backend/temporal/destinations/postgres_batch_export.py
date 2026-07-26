@@ -75,66 +75,6 @@ UNPAIRED_SURROGATE_PATTERN_2 = re.compile(
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
-NON_RETRYABLE_ERROR_TYPES = (
-    # Raised on errors that are related to database operation.
-    # For example: unexpected disconnect, database or other object not found.
-    "OperationalError",
-    # The schema name provided is invalid (usually because it doesn't exist).
-    "InvalidSchemaName",
-    # Missing permissions to, e.g., insert into table.
-    "InsufficientPrivilege",
-    # Issue with exported data compared to schema, retrying won't help.
-    "NotNullViolation",
-    # A user added a unique constraint on their table, but batch exports (particularly events)
-    # can cause duplicates.
-    "UniqueViolation",
-    # Something changed in the target table's schema that we were not expecting.
-    "UndefinedColumn",
-    # Only if raised by the copy method, would indicate missing USAGE permissions on the schema.
-    # Otherwise we should create the table and not see this.
-    "UndefinedTable",
-    # A VARCHAR column is too small.
-    "StringDataRightTruncation",
-    # Raised by PostgreSQL client. Self explanatory.
-    "DiskFull",
-    # Raised by our PostgreSQL client when failing to connect after several attempts.
-    "PostgreSQLConnectionError",
-    # The integration backing this export was deleted. Retrying can never recover it,
-    # so fail fast and let the user reconnect the destination.
-    "PostgreSQLIntegrationNotFoundError",
-    # Raised when merging without a primary key.
-    "MissingPrimaryKeyError",
-    # Raised when the database doesn't support a particular feature we use.
-    # Generally, we have seen this when the database is read-only.
-    "FeatureNotSupported",
-    # A check constraint has been violated.
-    # We do not create any ourselves, so this generally is a user-managed check, so we
-    # should not retry.
-    "CheckViolation",
-    # We do not create foreign keys, so this is a user managed check we have failed.
-    "ForeignKeyViolation",
-    # Data (usually event properties) contains garbage that we cannot clean.
-    "UntranslatableCharacter",
-    "InvalidTextRepresentation",
-    # Can be raised when merging tables with an incompatible schema (eg if the destination table has been
-    # created manually)
-    "DatatypeMismatch",
-    # Exceeded limits for indexes that we do not maintain.
-    "ProgramLimitExceeded",
-    # Raised when the destination table schema is incompatible with the schema of the data we are trying to export.
-    "PostgreSQLIncompatibleSchemaError",
-    # Raised when a transaction fails to complete after a certain number of retries.
-    "PostgreSQLTransactionError",
-    # Raised when a query takes too long.
-    "TimeoutError",
-    # Raised when a PostgreSQL stored procedure or function fails.
-    # We don't (at the moment) create or run any ourselves, so it must be something set up by the user.
-    "SqlRoutineException",
-    # The inputs are missing required connection details (e.g. credentials or host).
-    # This usually means the backing integration is misconfigured or absent, so retrying won't help.
-    "PostgreSQLMissingRequiredInputsError",
-)
-
 
 class PostgreSQLConnectionError(Exception):
     pass
@@ -859,6 +799,67 @@ class PostgreSQLIntegrationNotFoundError(Exception):
     """Error raised when the PostgreSQL integration is not found."""
 
     pass
+
+
+NON_RETRYABLE_ERROR_TYPES = (
+    # Raised on errors that are related to database operation.
+    # For example: unexpected disconnect, database or other object not found.
+    psycopg.OperationalError,
+    # The schema name provided is invalid (usually because it doesn't exist).
+    psycopg.errors.InvalidSchemaName,
+    # Missing permissions to, e.g., insert into table.
+    psycopg.errors.InsufficientPrivilege,
+    # Issue with exported data compared to schema, retrying won't help.
+    psycopg.errors.NotNullViolation,
+    # A user added a unique constraint on their table, but batch exports (particularly events)
+    # can cause duplicates.
+    psycopg.errors.UniqueViolation,
+    # Something changed in the target table's schema that we were not expecting.
+    psycopg.errors.UndefinedColumn,
+    # Only if raised by the copy method, would indicate missing USAGE permissions on the schema.
+    # Otherwise we should create the table and not see this.
+    psycopg.errors.UndefinedTable,
+    # A VARCHAR column is too small.
+    psycopg.errors.StringDataRightTruncation,
+    # Raised by PostgreSQL client. Self explanatory.
+    psycopg.errors.DiskFull,
+    # Raised by our PostgreSQL client when failing to connect after several attempts.
+    PostgreSQLConnectionError,
+    # The integration backing this export was deleted. Retrying can never recover it,
+    # so fail fast and let the user reconnect the destination.
+    PostgreSQLIntegrationNotFoundError,
+    # Raised when merging without a primary key.
+    MissingPrimaryKeyError,
+    # Raised when the database doesn't support a particular feature we use.
+    # Generally, we have seen this when the database is read-only.
+    psycopg.errors.FeatureNotSupported,
+    # A check constraint has been violated.
+    # We do not create any ourselves, so this generally is a user-managed check, so we
+    # should not retry.
+    psycopg.errors.CheckViolation,
+    # We do not create foreign keys, so this is a user managed check we have failed.
+    psycopg.errors.ForeignKeyViolation,
+    # Data (usually event properties) contains garbage that we cannot clean.
+    psycopg.errors.UntranslatableCharacter,
+    psycopg.errors.InvalidTextRepresentation,
+    # Can be raised when merging tables with an incompatible schema (eg if the destination table has been
+    # created manually)
+    psycopg.errors.DatatypeMismatch,
+    # Exceeded limits for indexes that we do not maintain.
+    psycopg.errors.ProgramLimitExceeded,
+    # Raised when the destination table schema is incompatible with the schema of the data we are trying to export.
+    PostgreSQLIncompatibleSchemaError,
+    # Raised when a transaction fails to complete after a certain number of retries.
+    PostgreSQLTransactionError,
+    # Raised when a query takes too long.
+    TimeoutError,
+    # Raised when a PostgreSQL stored procedure or function fails.
+    # We don't (at the moment) create or run any ourselves, so it must be something set up by the user.
+    psycopg.errors.SqlRoutineException,
+    # The inputs are missing required connection details (e.g. credentials or host).
+    # This usually means the backing integration is misconfigured or absent, so retrying won't help.
+    PostgreSQLMissingRequiredInputsError,
+)
 
 
 async def _get_postgresql_integration(

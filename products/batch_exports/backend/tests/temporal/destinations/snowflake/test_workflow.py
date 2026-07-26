@@ -14,6 +14,7 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
+from snowflake.connector.errors import ForbiddenError
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -341,12 +342,9 @@ async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_e
     To simulate a user error, we mock the `Producer.start` method.
     """
 
-    class ForbiddenError(Exception):
-        pass
-
     with unittest.mock.patch(
         "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.Producer.start",
-        side_effect=ForbiddenError("A useful error message"),
+        side_effect=ForbiddenError(msg="A useful error message"),
     ):
         run = await _run_workflow(
             team_id=ateam.pk,
@@ -355,7 +353,7 @@ async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_e
             snowflake_batch_export=snowflake_batch_export,
         )
     assert run.status == "Failed"
-    assert run.latest_error == "ForbiddenError: A useful error message"
+    assert run.latest_error == "ForbiddenError: 290000: A useful error message"
     assert run.records_completed is None
 
 

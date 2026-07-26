@@ -78,34 +78,6 @@ from products.batch_exports.backend.temporal.utils import (
     make_retryable_with_exponential_backoff,
 )
 
-NON_RETRYABLE_ERROR_TYPES = (
-    # Raised on missing permissions.
-    "Forbidden",
-    # Invalid token.
-    "RefreshError",
-    # Usually means the dataset or project_id doesn't exist.
-    "NotFound",
-    # Raised when something about dataset is wrong (not alphanumeric, too long, etc).
-    "BadRequest",
-    # Raised when table_id isn't valid. Sadly, `ValueError` is rather generic, but we
-    # don't anticipate a `ValueError` thrown from our own export code.
-    "ValueError",
-    # Raised when attempting to run a batch export without required BigQuery permissions.
-    # Our own version of `Forbidden`.
-    "MissingRequiredPermissionsError",
-    # Raised when a query takes too long to start (i.e. remains in "PENDING" state for too long).
-    "StartQueryTimeoutError",
-    # A service account we are supposed to impersonate does not exist.
-    "ServiceAccountNotFoundError",
-    # We could not verify that the service account we are meant to use belongs to the
-    # organization this batch export is running for.
-    "ServiceAccountOwnershipError",
-    # Raised when the BigQuery integration is not found.
-    "BigQueryIntegrationNotFoundError",
-    # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
-    "BigQueryIncompatibleSchemaError",
-)
-
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
@@ -1337,6 +1309,35 @@ class BigQueryIntegrationNotFoundError(Exception):
     """Error raised when the BigQuery integration is not found."""
 
     pass
+
+
+NON_RETRYABLE_ERROR_TYPES = (
+    # Raised on missing permissions.
+    Forbidden,
+    # Invalid token.
+    google.auth.exceptions.RefreshError,
+    # Usually means the dataset or project_id doesn't exist.
+    NotFound,
+    # Raised when something about dataset is wrong (not alphanumeric, too long, etc).
+    BadRequest,
+    # Raised when table_id isn't valid. Sadly, `ValueError` is rather generic, but we
+    # don't anticipate a `ValueError` thrown from our own export code.
+    ValueError,
+    # Raised when attempting to run a batch export without required BigQuery permissions.
+    # Our own version of `Forbidden`.
+    MissingRequiredPermissionsError,
+    # Raised when a query takes too long to start (i.e. remains in "PENDING" state for too long).
+    StartQueryTimeoutError,
+    # A service account we are supposed to impersonate does not exist.
+    ServiceAccountNotFoundError,
+    # We could not verify that the service account we are meant to use belongs to the
+    # organization this batch export is running for.
+    ServiceAccountOwnershipError,
+    # Raised when the BigQuery integration is not found.
+    BigQueryIntegrationNotFoundError,
+    # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
+    BigQueryIncompatibleSchemaError,
+)
 
 
 async def _get_google_cloud_service_account_integration(

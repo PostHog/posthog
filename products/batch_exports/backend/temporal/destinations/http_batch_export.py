@@ -32,7 +32,6 @@ from products.batch_exports.backend.temporal.spmc import compose_filters_clause
 from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, json_dumps_bytes
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
-NON_RETRYABLE_ERROR_TYPES = ("NonRetryableResponseError", "InvalidDestinationURLError")
 LOGGER = get_logger(__name__)
 
 
@@ -55,6 +54,9 @@ class InvalidDestinationURLError(Exception):
 
     def __init__(self, url):
         super().__init__(f"Invalid destination URL: {url}")
+
+
+NON_RETRYABLE_ERROR_TYPES = (NonRetryableResponseError, InvalidDestinationURLError)
 
 
 async def raise_for_status(response: aiohttp.ClientResponse):

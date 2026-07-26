@@ -62,7 +62,7 @@ def test_from_inputs_raises_value_error_when_connection_inputs_missing(missing_f
 
 
 def test_missing_required_inputs_error_is_non_retryable():
-    assert PostgreSQLMissingRequiredInputsError.__name__ in NON_RETRYABLE_ERROR_TYPES
+    assert PostgreSQLMissingRequiredInputsError in NON_RETRYABLE_ERROR_TYPES
 
 
 async def test_run_in_retryable_transaction_raises_non_retryable_error_after_max_retries(

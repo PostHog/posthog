@@ -43,10 +43,12 @@ from products.batch_exports.backend.temporal.batch_exports import (
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
     Fields,
     PostgreSQLClient,
+    PostgreSQLConnectionError,
     PostgreSQLField,
 )
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     ConcurrentS3Consumer,
+    InvalidCredentialsError,
     PolicyStatement,
     get_credentials_using_user_aws_role,
     s3_client,
@@ -65,54 +67,6 @@ from products.batch_exports.backend.temporal.utils import JsonType, handle_non_r
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger()
-
-
-NON_RETRYABLE_ERROR_TYPES = (
-    # Raised on errors that are related to database operation.
-    # For example: unexpected disconnect, database or other object not found.
-    "OperationalError",
-    # The schema name provided is invalid (usually because it doesn't exist).
-    "InvalidSchemaName",
-    # Missing permissions to, e.g., insert into table.
-    "InsufficientPrivilege",
-    # A column, usually properties, exceeds the limit for a VARCHAR field,
-    # usually the max of 65535 bytes
-    "StringDataRightTruncation",
-    "StringLimitExceededError",
-    # Raised by our PostgreSQL client when failing to connect after several attempts.
-    "PostgreSQLConnectionError",
-    # Column missing in Redshift, likely the schema was altered.
-    "UndefinedColumn",
-    # Raised by our PostgreSQL client when a given feature is not supported.
-    # This can also happen when merging tables with a different number of columns:
-    # "Target relation and source relation must have the same number of columns"
-    "FeatureNotSupported",
-    # There is a mismatch between the schema of the table and our data. This
-    # usually means the table was created by the user, as we resolve types the
-    # same way every time.
-    "DatatypeMismatch",
-    # Raised when multiple S3 operations failed with a ClientError.
-    "ClientErrorGroup",
-    # Raised by PostgreSQL client when a function doesn't exist for the specified types.
-    # This can indicate, for example, attempting to compare two types that cannot be
-    # compared.
-    "UndefinedFunction",
-    # Unretryable error raised by S3 client when using `copy_into_redshift_activity_from_stage`.
-    "ClientError",
-    # An S3 bucket doesn't exist when using `copy_into_redshift_activity_from_stage`.
-    "NoSuchBucket",
-    # S3 parameter validation failed.
-    "ParamValidationError",
-    # Invalid S3 credentials when using `copy_into_redshift_activity_from_stage`.
-    "InvalidCredentialsError",
-    # Raised by Redshift client when the cluster has insufficient system resources.
-    "InsufficientSystemResourcesError",
-    # The S3 credentials provided for the COPY can't read the staged files.
-    "InsufficientS3PermissionsError",
-    # Redshift failed to COPY the staged files from S3 (IAM role auth, cause not locally confirmable).
-    # These (read access, region, manifest) don't self-heal, so retrying is pointless.
-    "RedshiftS3CopyError",
-)
 
 
 class StringLimitExceededError(Exception):
@@ -233,6 +187,53 @@ class ClientErrorGroup(ExceptionGroup):
 
     def derive(self, excs):
         return ClientErrorGroup(excs)
+
+
+NON_RETRYABLE_ERROR_TYPES = (
+    # Raised on errors that are related to database operation.
+    # For example: unexpected disconnect, database or other object not found.
+    psycopg.OperationalError,
+    # The schema name provided is invalid (usually because it doesn't exist).
+    psycopg.errors.InvalidSchemaName,
+    # Missing permissions to, e.g., insert into table.
+    psycopg.errors.InsufficientPrivilege,
+    # A column, usually properties, exceeds the limit for a VARCHAR field,
+    # usually the max of 65535 bytes
+    psycopg.errors.StringDataRightTruncation,
+    StringLimitExceededError,
+    # Raised by our PostgreSQL client when failing to connect after several attempts.
+    PostgreSQLConnectionError,
+    # Column missing in Redshift, likely the schema was altered.
+    psycopg.errors.UndefinedColumn,
+    # Raised by our PostgreSQL client when a given feature is not supported.
+    # This can also happen when merging tables with a different number of columns:
+    # "Target relation and source relation must have the same number of columns"
+    psycopg.errors.FeatureNotSupported,
+    # There is a mismatch between the schema of the table and our data. This
+    # usually means the table was created by the user, as we resolve types the
+    # same way every time.
+    psycopg.errors.DatatypeMismatch,
+    # Raised when multiple S3 operations failed with a ClientError.
+    ClientErrorGroup,
+    # Raised by PostgreSQL client when a function doesn't exist for the specified types.
+    # This can indicate, for example, attempting to compare two types that cannot be
+    # compared.
+    psycopg.errors.UndefinedFunction,
+    # Unretryable error raised by S3 client when using `copy_into_redshift_activity_from_stage`.
+    # This also covers generated service exceptions such as NoSuchBucket.
+    botocore.exceptions.ClientError,
+    # S3 parameter validation failed.
+    botocore.exceptions.ParamValidationError,
+    # Invalid S3 credentials when using `copy_into_redshift_activity_from_stage`.
+    InvalidCredentialsError,
+    # Raised by Redshift client when the cluster has insufficient system resources.
+    InsufficientSystemResourcesError,
+    # The S3 credentials provided for the COPY can't read the staged files.
+    InsufficientS3PermissionsError,
+    # Redshift failed to COPY the staged files from S3 (IAM role auth, cause not locally confirmable).
+    # These (read access, region, manifest) don't self-heal, so retrying is pointless.
+    RedshiftS3CopyError,
+)
 
 
 class RedshiftClient(PostgreSQLClient):
