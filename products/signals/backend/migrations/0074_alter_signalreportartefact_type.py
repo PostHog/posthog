@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("signals", "0071_signalscoutnote"),
-    ]
+    dependencies = [("signals", "0073_signal_scout_run_report_id_gin_indexes")]
 
     operations = [
         migrations.AlterField(
