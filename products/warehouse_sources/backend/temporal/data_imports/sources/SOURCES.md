@@ -499,6 +499,7 @@ the row lists both.
 | runpod                           | HTTP                        | requests                                                        | ✅                          |
 | safetyculture                    | HTTP                        | requests                                                        | ✅                          |
 | sage_hr                          | HTTP                        | requests                                                        | ✅                          |
+| sage_intacct                     | HTTP                        | requests                                                        | ✅                          |
 | salesforce                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesflare                       | HTTP                        | requests                                                        | ✅                          |
 | salesloft                        | HTTP                        | requests                                                        | ✅                          |
@@ -1231,7 +1232,6 @@ doesn't conflict with concurrent PRs.
 - rss
 - rudderstack
 - safetyculture
-- sage_intacct
 - sailthru
 - salesforce_marketing_cloud
 - salestrics
