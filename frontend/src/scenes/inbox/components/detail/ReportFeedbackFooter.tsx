@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -23,6 +24,11 @@ export function ReportFeedbackFooter({ report }: { report: SignalReport }): JSX.
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { feedbackSentiment, feedbackNoteOpen, feedbackNoteDraft, feedbackNoteSent } = useValues(logic)
     const { rateReport, openFeedbackNote, setFeedbackNoteDraft, submitFeedbackNote } = useActions(logic)
+
+    // Focus the note only when *this* instance opened it. `feedbackNoteOpen` is report-keyed state
+    // shared with the copy of this row on the other tab, and `LemonTabs` remounts tab content, so
+    // an unconditional `autoFocus` would grab focus and scroll on every tab switch with a draft open.
+    const [openedHere, setOpenedHere] = useState(false)
 
     const isPositive = feedbackSentiment === 'positive'
     const isNegative = feedbackSentiment === 'negative'
@@ -65,7 +71,10 @@ export function ReportFeedbackFooter({ report }: { report: SignalReport }): JSX.
                     <LemonButton
                         size="xsmall"
                         type="tertiary"
-                        onClick={openFeedbackNote}
+                        onClick={() => {
+                            setOpenedHere(true)
+                            openFeedbackNote()
+                        }}
                         data-attr="inbox-report-feedback-add-note"
                     >
                         Add a note
@@ -84,7 +93,7 @@ export function ReportFeedbackFooter({ report }: { report: SignalReport }): JSX.
                         aria-label="Add a note about this report"
                         maxLength={FEEDBACK_NOTE_MAX_LENGTH}
                         rows={3}
-                        autoFocus
+                        autoFocus={openedHere}
                         data-attr="inbox-report-feedback-note"
                     />
                     <LemonButton
