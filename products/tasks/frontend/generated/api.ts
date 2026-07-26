@@ -32,7 +32,6 @@ import type {
     PaginatedLoopDTOListApi,
     PaginatedSandboxCustomImageDTOListApi,
     PaginatedSandboxEnvironmentDTOListApi,
-    PaginatedTaskActivityPageDTOListApi,
     PaginatedTaskAutomationDTOListApi,
     PaginatedTaskDetailDTOListApi,
     PaginatedTaskMentionDTOListApi,
@@ -60,6 +59,7 @@ import type {
     TaskActivityListParams,
     TaskActivityMarkReadApi,
     TaskActivityMarkReadResponseApi,
+    TaskActivityPageDTOApi,
     TaskAutomationDTOApi,
     TaskAutomationWriteApi,
     TaskAutomationsListParams,
@@ -653,8 +653,8 @@ export const taskActivityList = async (
     projectId: string,
     params?: TaskActivityListParams,
     options?: RequestInit
-): Promise<PaginatedTaskActivityPageDTOListApi> => {
-    return apiMutator<PaginatedTaskActivityPageDTOListApi>(getTaskActivityListUrl(projectId, params), {
+): Promise<TaskActivityPageDTOApi[]> => {
+    return apiMutator<TaskActivityPageDTOApi[]>(getTaskActivityListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

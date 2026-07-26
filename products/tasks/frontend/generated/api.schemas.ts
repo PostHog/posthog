@@ -959,15 +959,6 @@ export interface TaskActivityPageDTOApi {
     unread_count: number
 }
 
-export interface PaginatedTaskActivityPageDTOListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaskActivityPageDTOApi[]
-}
-
 /**
  * Request body for clearing the unread flag on specific tasks.
  */
@@ -3631,10 +3622,6 @@ export type TaskActivityListParams = {
      * @maximum 500
      */
     limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type TaskAutomationsListParams = {
