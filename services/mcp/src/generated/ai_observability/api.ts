@@ -1584,9 +1584,14 @@ export const LlmPromptsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const llmPromptsListQueryArchivedDefault = false
 export const llmPromptsListQueryContentDefault = `full`
 
 export const LlmPromptsListQueryParams = /* @__PURE__ */ zod.object({
+    archived: zod
+        .boolean()
+        .default(llmPromptsListQueryArchivedDefault)
+        .describe('When true, list archived prompts instead of active ones.'),
     content: zod
         .enum(['full', 'preview', 'none'])
         .default(llmPromptsListQueryContentDefault)

@@ -77567,6 +77567,10 @@ export namespace Schemas {
 
     export type LlmPromptsListParams = {
     /**
+     * When true, list archived prompts instead of active ones.
+     */
+    archived?: boolean;
+    /**
      * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
      *
      * * `full` - full

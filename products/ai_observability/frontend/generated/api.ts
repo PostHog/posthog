@@ -1966,6 +1966,24 @@ export const llmPromptsNameLabelsDestroy = async (
     })
 }
 
+export const getLlmPromptsNameUnarchiveCreateUrl = (projectId: string, promptName: string) => {
+    return `/api/projects/${projectId}/llm_prompts/name/${promptName}/unarchive/`
+}
+
+export const llmPromptsNameUnarchiveCreate = async (
+    projectId: string,
+    promptName: string,
+    lLMPromptApi: NonReadonly<LLMPromptApi>,
+    options?: RequestInit
+): Promise<LLMPromptApi> => {
+    return apiMutator<LLMPromptApi>(getLlmPromptsNameUnarchiveCreateUrl(projectId, promptName), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMPromptApi),
+    })
+}
+
 export const getLlmPromptsResolveNameRetrieveUrl = (
     projectId: string,
     promptName: string,

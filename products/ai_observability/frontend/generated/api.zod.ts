@@ -1825,6 +1825,23 @@ export const LlmPromptsNameLabelsUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const llmPromptsNameUnarchiveCreateBodyNameMax = 255
+
+export const llmPromptsNameUnarchiveCreateBodyVersionDescriptionMax = 400
+
+export const LlmPromptsNameUnarchiveCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(llmPromptsNameUnarchiveCreateBodyNameMax)
+        .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
+    prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
+    version_description: zod
+        .string()
+        .max(llmPromptsNameUnarchiveCreateBodyVersionDescriptionMax)
+        .nullish()
+        .describe('Optional note describing what changed in this version. Set when the version is published.'),
+})
+
 export const taggersCreateBodyNameMax = 400
 
 export const taggersCreateBodyTaggerTypeDefault = `llm`
