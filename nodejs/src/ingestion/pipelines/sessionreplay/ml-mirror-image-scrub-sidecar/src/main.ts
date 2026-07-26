@@ -1,8 +1,10 @@
 /* eslint-disable no-console -- sidecar logs to stdout */
 import { loadConfig } from './config.ts'
 import { ORT_THREADS, SCRUB_WORKERS } from './cores.ts'
+import { bindingRatio } from './floors.ts'
 import { ScrubMetrics, trackPool } from './metrics.ts'
 import { startPool } from './pool.ts'
+import { limitsFromEnv } from './scale-plan.ts'
 import { startServer } from './server.ts'
 
 // Resolved here rather than in pool.ts: entry points run under tsx, where import.meta works, while
@@ -10,13 +12,16 @@ import { startServer } from './server.ts'
 const WORKER_URL = new URL('./scrub-worker.ts', import.meta.url)
 
 const cfg = loadConfig()
+const SCRUB_LIMITS = limitsFromEnv()
 // Thread sizing is derived (workers and ORT threads from the cgroup quota) or set outside the process
 // (UV_THREADPOOL_SIZE in the Dockerfile), so log what this process actually resolved: a pool sized
 // wrong shows up as latency rather than as an error, with no other way to tell from a running pod.
 const uvThreadpoolSize = Number(process.env.UV_THREADPOOL_SIZE ?? 4)
 console.log(
     `[image-scrub] concurrency=${cfg.maxConcurrency} workers=${SCRUB_WORKERS} ortThreads=${ORT_THREADS} ` +
-        `uvThreadpoolSize=${process.env.UV_THREADPOOL_SIZE ?? '4 (libuv default)'}`
+        `uvThreadpoolSize=${process.env.UV_THREADPOOL_SIZE ?? '4 (libuv default)'} ` +
+        `framePixels=${SCRUB_LIMITS.framePixels} storedPixels=${SCRUB_LIMITS.storedPixels} ` +
+        `ratio=${(bindingRatio() * SCRUB_LIMITS.safetyFactor).toFixed(2)}x`
 )
 // The pool is process-wide and every worker's sharp stages queue onto it, so below the worker count
 // those stages re-serialise however many workers there are. It cannot be fixed from here: libuv

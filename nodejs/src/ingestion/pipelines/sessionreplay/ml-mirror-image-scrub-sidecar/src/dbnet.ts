@@ -11,11 +11,11 @@ import * as ort from 'onnxruntime-node'
 
 import { ORT_THREADS } from './cores.ts'
 import { numFromEnv } from './env.ts'
-import { type Box, roundTo32 } from './geometry.ts'
+import { type Box } from './geometry.ts'
+import { type Dims } from './scale-plan.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
 export interface DetectOpts {
-    detLimit?: number // detection budget SIDE: the model input is capped at detLimit^2 px (aspect preserved). Bigger = catches smaller text, slower.
     probThreshold?: number // per-pixel text probability cutoff
     boxScoreMin?: number // mean probability over a component's core pixels to keep it
     minAreaPx?: number // min component size in model-resolution px
@@ -25,7 +25,6 @@ export interface DetectOpts {
 }
 
 const DEFAULTS: Required<DetectOpts> = {
-    detLimit: numFromEnv('DET_LIMIT', 640, 256, 4096),
     probThreshold: numFromEnv('PROB_T', 0.3, 0.05, 0.9),
     boxScoreMin: numFromEnv('BOX_SCORE', 0.5, 0.05, 0.95),
     minAreaPx: numFromEnv('MIN_AREA', 16, 1, 1024),
@@ -71,21 +70,20 @@ export async function loadDbnet(modelPath: string): Promise<DbnetModel> {
 
 async function preprocess(
     src: Src,
-    W: number,
-    H: number,
-    detLimit: number
+    text: { content: Dims; canvas: Dims }
 ): Promise<{ data: Float32Array; rw: number; rh: number; sx: number; sy: number }> {
-    // Area budget (detLimit^2), aspect preserved: same tensor-size bound as a detLimit-square, but a
-    // tall page keeps its native text size instead of being squashed below detectability.
-    const ratio = Math.min(1, Math.sqrt((detLimit * detLimit) / (W * H)))
-    const rw = roundTo32(W * ratio)
-    const rh = roundTo32(H * ratio)
+    const { width: cw, height: ch } = text.content
+    const { width: rw, height: rh } = text.canvas
     // A resample is a low-pass filter, and glyph edges are the high frequencies DB scores. Restoring
     // some of that edge contrast before the model sees it is the cheapest lever on small text.
     // Measured against the ORIGINAL rather than the decoded frame, because both downscales cost edge
     // detail and a 4K screenshot has been through both by the time it arrives here.
-    const totalRatio = Math.sqrt((rw * rh) / src.inputPixels)
-    const pipeline = srcSharp(src).resize(rw, rh, { fit: 'fill' })
+    const totalRatio = Math.sqrt((cw * ch) / src.inputPixels)
+    // Padding is mid-grey rather than black or white: a flat extreme against a light or dark frame
+    // edge is itself a strong edge, which is what the DB head scores.
+    const pipeline = srcSharp(src)
+        .resize(cw, ch, { fit: 'fill' })
+        .extend({ right: rw - cw, bottom: rh - ch, background: '#808080' })
     const sharpened = DET_SHARPEN > 0 && totalRatio < DET_SHARPEN_BELOW
     const { data } = await (sharpened ? pipeline.sharpen({ sigma: DET_SHARPEN }) : pipeline)
         .raw()
@@ -97,7 +95,7 @@ async function preprocess(
         chw[plane + p] = (data[i + 1] / 255 - MEAN[1]) / STD[1]
         chw[2 * plane + p] = (data[i + 2] / 255 - MEAN[2]) / STD[2]
     }
-    return { data: chw, rw, rh, sx: W / rw, sy: H / rh }
+    return { data: chw, rw, rh, sx: src.W / cw, sy: src.H / ch }
 }
 
 /** Horizontal dilation by radius k via per-row prefix sums; bridges inter-word gaps on a line. */
@@ -209,14 +207,13 @@ function postprocess(
 export async function detectTextDbnet(
     model: DbnetModel,
     src: Src,
-    W: number,
-    H: number,
+    text: { content: Dims; canvas: Dims },
     opts: DetectOpts = {}
 ): Promise<Box[]> {
     const o: Required<DetectOpts> = { ...DEFAULTS, ...opts }
-    const { data, rw, rh, sx, sy } = await preprocess(src, W, H, o.detLimit)
+    const { data, rw, rh, sx, sy } = await preprocess(src, text)
     const tensor = new ort.Tensor('float32', data, [1, 3, rh, rw])
     const out = await model.session.run({ [model.inputName]: tensor })
     const prob = out[model.outputName].data as Float32Array
-    return postprocess(prob, rw, rh, sx, sy, W, H, o)
+    return postprocess(prob, rw, rh, sx, sy, src.W, src.H, o)
 }
