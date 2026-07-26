@@ -381,6 +381,9 @@ export interface cohortEditLogicActions {
         groupIndex: number
         newCriteria: AnyCohortCriteriaType
     }
+    setFilterTestAccounts: (filterTestAccounts: boolean) => {
+        filterTestAccounts: boolean
+    }
     setInnerGroupType: (
         type: FilterLogicalOperator,
         groupIndex: number
@@ -442,6 +445,7 @@ export interface cohortEditLogicActions {
             errors_calculating?: number | undefined
             experiment_set?: number[] | undefined
             filters: {
+                filterTestAccounts?: boolean | undefined
                 properties: CohortCriteriaGroupFilter
             }
             groups: CohortGroupType[]
@@ -470,6 +474,7 @@ export interface cohortEditLogicActions {
             errors_calculating?: number | undefined
             experiment_set?: number[] | undefined
             filters: {
+                filterTestAccounts?: boolean | undefined
                 properties: CohortCriteriaGroupFilter
             }
             groups: CohortGroupType[]
@@ -528,6 +533,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         checkIfFinishedCalculating: (cohort: CohortType) => ({ cohort }),
 
         setOuterGroupsType: (type: FilterLogicalOperator) => ({ type }),
+        setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
         setInnerGroupType: (type: FilterLogicalOperator, groupIndex: number) => ({ type, groupIndex }),
         duplicateFilter: (groupIndex: number, criteriaIndex?: number) => ({ groupIndex, criteriaIndex }),
         addFilter: (groupIndex?: number) => ({ groupIndex }),
@@ -557,10 +563,18 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 setOuterGroupsType: (state, { type }) => ({
                     ...state,
                     filters: {
+                        ...state.filters,
                         properties: {
                             ...state.filters.properties,
                             type,
                         },
+                    },
+                }),
+                setFilterTestAccounts: (state, { filterTestAccounts }) => ({
+                    ...state,
+                    filters: {
+                        ...state.filters,
+                        filterTestAccounts,
                     },
                 }),
                 setInnerGroupType: (state, { type, groupIndex }) =>

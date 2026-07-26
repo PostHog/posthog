@@ -6442,6 +6442,40 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertEqual(cohort.condition_type, expected_condition_type)
         self.assertEqual(response.data["condition_type"], expected_condition_type)
 
+    def test_filter_test_accounts_persists_and_forces_batch_calculation(self):
+        """The same person-property filter classifies as realtime without the flag (see
+        test_cohort_type_not_set_when_not_provided). With filterTestAccounts on, the flag must
+        survive the serializer round-trip and the cohort must be forced off the realtime path,
+        because realtime bytecode can't see the injected test account filters."""
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "Real users only",
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "person",
+                                "key": "email",
+                                "operator": "icontains",
+                                "value": "@posthog.com",
+                            }
+                        ],
+                    },
+                    "filterTestAccounts": True,
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        cohort = Cohort.objects.get(id=response.data["id"])
+        assert cohort.filters is not None
+        self.assertIs(cohort.filters.get("filterTestAccounts"), True)
+        self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
+
     def test_person_metadata_cohort_not_classified_realtime(self):
         """person_metadata cohorts must route to the non-realtime path: the realtime
         precalculated_person_properties table only carries JSON-blob values, not top-level

@@ -160,6 +160,7 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                     .describe(
                         'AND\/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
                     ),
+                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
             }),
             zod.null(),
         ])
@@ -321,6 +322,7 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .describe(
                         'AND\/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
                     ),
+                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
             }),
             zod.null(),
         ])
