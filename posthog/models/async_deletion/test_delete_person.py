@@ -17,10 +17,11 @@ def _visible_person_count(team_id: int) -> int:
     )[0][0]
 
 
-def _dictionary_exists() -> bool:
+def _dictionaries_exist() -> bool:
+    # per-run dictionaries share a name prefix; none should remain after a run
     [[count]] = sync_execute(
-        "SELECT count() FROM system.dictionaries WHERE database = %(db)s AND name = %(name)s",
-        {"db": settings.CLICKHOUSE_DATABASE, "name": DELETED_PERSON_IDS_DICTIONARY},
+        "SELECT count() FROM system.dictionaries WHERE database = %(db)s AND name LIKE %(prefix)s",
+        {"db": settings.CLICKHOUSE_DATABASE, "prefix": f"{DELETED_PERSON_IDS_DICTIONARY}%"},
     )
     return count > 0
 
@@ -67,7 +68,7 @@ class TestDeletePerson(BaseTest, ClickhouseTestMixin):
         remove_deleted_person_data()
 
         # the transient dictionary must not linger (it holds the id set in memory)
-        assert not _dictionary_exists()
+        assert not _dictionaries_exist()
 
     def test_is_idempotent(self):
         # After the first run the deleted rows are tombstoned (_row_exists = 0) and so
