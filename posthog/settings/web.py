@@ -356,6 +356,10 @@ GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLE
 # enrichment group properties are projected onto; env-overridable since that id differs across
 # cloud deployments.
 GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env("GROWTH_ENRICHMENT_INTERNAL_TEAM_ID", 2, type_cast=int)
+# The team the growth score lab's HogQL input_query path executes against
+# (products/growth/backend/enrichment/input_query.py). Defaults to GROWTH_ENRICHMENT_INTERNAL_TEAM_ID
+# above (project 2 in prod); env-overridable independently since the two paths may want to diverge.
+SCORE_LAB_HOGQL_TEAM_ID = get_from_env("SCORE_LAB_HOGQL_TEAM_ID", GROWTH_ENRICHMENT_INTERNAL_TEAM_ID, type_cast=int)
 # Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
 # one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
 SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")

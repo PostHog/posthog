@@ -1,1 +1,1 @@
-0007_enrichmentlabelresult_inputs
+0008_enrichmentpromptconfig_input_query_and_more

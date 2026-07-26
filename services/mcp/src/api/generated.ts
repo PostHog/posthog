@@ -14960,6 +14960,27 @@ export namespace Schemas {
       Invalid: 'invalid',
     } as const;
 
+    /**
+     * Value type the LLM must return for this key.
+     */
+    export type ConfigVersionOutputFieldsItemType = typeof ConfigVersionOutputFieldsItemType[keyof typeof ConfigVersionOutputFieldsItemType];
+
+
+    export const ConfigVersionOutputFieldsItemType = {
+      Boolean: 'boolean',
+      Number: 'number',
+      String: 'string',
+    } as const;
+
+    export type ConfigVersionOutputFieldsItem = {
+      /** Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance). */
+      key: string;
+      /** Value type the LLM must return for this key. */
+      type: ConfigVersionOutputFieldsItemType;
+      /** Shown to the LLM to describe what this key means. Optional. */
+      description?: string;
+    };
+
     export interface ConfigVersion {
       /** Prompt config row id. */
       id: string;
@@ -14971,8 +14992,15 @@ export namespace Schemas {
       prompt_text: string;
       /** Gateway model id this version was authored against. */
       model: string;
-      /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. */
+      /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set. */
       input_fields: string[];
+      /**
+         * HogQL SELECT defining classifier input rows, an alternative to input_fields. Null when input_fields is used instead. Each result row becomes one classification input; a 'company' or 'domain' column (if present) is used for display, and every column is passed to the prompt as the Company data JSON keyed by column name.
+         * @nullable
+         */
+      input_query: string | null;
+      /** Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<name>: boolean, confidence: number 0-1, reasoning: string}). */
+      output_fields: ConfigVersionOutputFieldsItem[];
       /** Whether the batch runner currently computes this version. */
       is_active: boolean;
       /**
@@ -14982,7 +15010,7 @@ export namespace Schemas {
       readonly created_by_email: string | null;
       /** When this version was created. */
       created_at: string;
-      /** Whether any EnrichmentLabelResult rows reference this version. Once true the version is frozen - prompt_text, model, and input_fields can never change (FROZEN_FIELDS immutability). */
+      /** Whether any EnrichmentLabelResult rows reference this version. Once true the version is frozen - prompt_text, model, input_fields, input_query, and output_fields can never change (FROZEN_FIELDS immutability). */
       readonly has_results: boolean;
     }
 
@@ -31418,6 +31446,16 @@ export namespace Schemas {
       readonly updated: number;
     }
 
+    export interface GatewayModel {
+      /** Gateway model id, usable as `model` on run/save. */
+      id: string;
+    }
+
+    export interface GatewayModelListResponse {
+      /** Models the gateway currently lists (cached for 5 minutes), or the curated fallback list if the gateway is unreachable. */
+      results: GatewayModel[];
+    }
+
     /**
      * * `last_n_days` - last_n_days
      * * `since_last_run` - since_last_run
@@ -31919,38 +31957,6 @@ export namespace Schemas {
          */
       math_property?: string | null;
     }
-
-    /**
-     * * `gpt-5.2` - gpt-5.2
-     * * `gpt-5.2-pro` - gpt-5.2-pro
-     * * `gpt-5.1` - gpt-5.1
-     * * `gpt-5` - gpt-5
-     * * `gpt-5-mini` - gpt-5-mini
-     * * `gpt-5-nano` - gpt-5-nano
-     * * `gpt-4.1` - gpt-4.1
-     * * `gpt-4.1-mini` - gpt-4.1-mini
-     * * `claude-fable-5` - claude-fable-5
-     * * `claude-opus-4-8` - claude-opus-4-8
-     * * `claude-sonnet-5` - claude-sonnet-5
-     * * `claude-haiku-4-5` - claude-haiku-4-5
-     */
-    export type GrowthScoreLabModelEnum = typeof GrowthScoreLabModelEnum[keyof typeof GrowthScoreLabModelEnum];
-
-
-    export const GrowthScoreLabModelEnum = {
-      Gpt52: 'gpt-5.2',
-      Gpt52Pro: 'gpt-5.2-pro',
-      Gpt51: 'gpt-5.1',
-      Gpt5: 'gpt-5',
-      Gpt5Mini: 'gpt-5-mini',
-      Gpt5Nano: 'gpt-5-nano',
-      Gpt41: 'gpt-4.1',
-      Gpt41Mini: 'gpt-4.1-mini',
-      ClaudeFable5: 'claude-fable-5',
-      ClaudeOpus48: 'claude-opus-4-8',
-      ClaudeSonnet5: 'claude-sonnet-5',
-      ClaudeHaiku45: 'claude-haiku-4-5',
-    } as const;
 
     export type HealthCheckSignalExtraPayload = { [key: string]: unknown };
 
@@ -59763,6 +59769,27 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    /**
+     * Value type the LLM must return for this key.
+     */
+    export type RunRequestOutputFieldsItemType = typeof RunRequestOutputFieldsItemType[keyof typeof RunRequestOutputFieldsItemType];
+
+
+    export const RunRequestOutputFieldsItemType = {
+      Boolean: 'boolean',
+      Number: 'number',
+      String: 'string',
+    } as const;
+
+    export type RunRequestOutputFieldsItem = {
+      /** Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance). */
+      key: string;
+      /** Value type the LLM must return for this key. */
+      type: RunRequestOutputFieldsItemType;
+      /** Shown to the LLM to describe what this key means. Optional. */
+      description?: string;
+    };
+
     export interface RunRequest {
       /**
          * Label this config computes, e.g. ai_pilled. Need not already exist - run classifies against an in-memory config only and persists nothing.
@@ -59771,30 +59798,27 @@ export namespace Schemas {
       label: string;
       /** System prompt; {email} is replaced with the signup email domain at runtime. */
       prompt_text: string;
-      /** Gateway model to classify with, routed through the LLM gateway.
-       *
-       * * `gpt-5.2` - gpt-5.2
-       * * `gpt-5.2-pro` - gpt-5.2-pro
-       * * `gpt-5.1` - gpt-5.1
-       * * `gpt-5` - gpt-5
-       * * `gpt-5-mini` - gpt-5-mini
-       * * `gpt-5-nano` - gpt-5-nano
-       * * `gpt-4.1` - gpt-4.1
-       * * `gpt-4.1-mini` - gpt-4.1-mini
-       * * `claude-fable-5` - claude-fable-5
-       * * `claude-opus-4-8` - claude-opus-4-8
-       * * `claude-sonnet-5` - claude-sonnet-5
-       * * `claude-haiku-4-5` - claude-haiku-4-5 */
-      model: GrowthScoreLabModelEnum;
-      /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. */
+      /**
+         * Gateway model to classify with, routed through the LLM gateway. Must be a curated model (see GET /models/), a model the gateway currently lists, or one already persisted on this label.
+         * @maxLength 128
+         */
+      model: string;
+      /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set. */
       input_fields?: string[];
       /**
-         * Number of recent archived orgs to classify (1-100). Each sampled org costs one LLM call, so keep this bounded during iteration.
+         * HogQL SELECT defining classifier input rows, an alternative to input_fields. When set, rows are built from this query (capped at `sample` rows) instead of recently archived orgs; 'contains' is ignored. Parsed and validated on submit but never executed until /run/ actually runs.
+         * @nullable
+         */
+      input_query?: string | null;
+      /** Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<label>: boolean, confidence: number 0-1, reasoning: string}). Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
+      output_fields?: RunRequestOutputFieldsItem[];
+      /**
+         * Number of rows to classify (1-100): recent archived orgs, or HogQL query rows when input_query is set. Each sampled row costs one LLM call, so keep this bounded during iteration.
          * @minimum 1
          * @maximum 100
          */
       sample?: number;
-      /** Optional case-insensitive substring filter on the archived company or organization name. */
+      /** Optional case-insensitive substring filter on the archived company or organization name. Ignored when input_query is set. */
       contains?: string;
     }
 
@@ -60102,6 +60126,27 @@ export namespace Schemas {
       task_id?: string;
     }
 
+    /**
+     * Value type the LLM must return for this key.
+     */
+    export type SaveRequestOutputFieldsItemType = typeof SaveRequestOutputFieldsItemType[keyof typeof SaveRequestOutputFieldsItemType];
+
+
+    export const SaveRequestOutputFieldsItemType = {
+      Boolean: 'boolean',
+      Number: 'number',
+      String: 'string',
+    } as const;
+
+    export type SaveRequestOutputFieldsItem = {
+      /** Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance). */
+      key: string;
+      /** Value type the LLM must return for this key. */
+      type: SaveRequestOutputFieldsItemType;
+      /** Shown to the LLM to describe what this key means. Optional. */
+      description?: string;
+    };
+
     export interface SaveRequest {
       /**
          * Label this config computes, e.g. ai_pilled.
@@ -60115,23 +60160,20 @@ export namespace Schemas {
       version: string;
       /** System prompt; {email} is replaced with the signup email domain at runtime. */
       prompt_text: string;
-      /** Gateway model to classify with, routed through the LLM gateway.
-       *
-       * * `gpt-5.2` - gpt-5.2
-       * * `gpt-5.2-pro` - gpt-5.2-pro
-       * * `gpt-5.1` - gpt-5.1
-       * * `gpt-5` - gpt-5
-       * * `gpt-5-mini` - gpt-5-mini
-       * * `gpt-5-nano` - gpt-5-nano
-       * * `gpt-4.1` - gpt-4.1
-       * * `gpt-4.1-mini` - gpt-4.1-mini
-       * * `claude-fable-5` - claude-fable-5
-       * * `claude-opus-4-8` - claude-opus-4-8
-       * * `claude-sonnet-5` - claude-sonnet-5
-       * * `claude-haiku-4-5` - claude-haiku-4-5 */
-      model: GrowthScoreLabModelEnum;
-      /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. */
+      /**
+         * Gateway model to classify with, routed through the LLM gateway. Must be a curated model (see GET /models/), a model the gateway currently lists, or one already persisted on this label.
+         * @maxLength 128
+         */
+      model: string;
+      /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set. */
       input_fields?: string[];
+      /**
+         * HogQL SELECT defining classifier input rows, an alternative to input_fields. Parsed and validated on save but never executed - execution only happens on /run/.
+         * @nullable
+         */
+      input_query?: string | null;
+      /** Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<label>: boolean, confidence: number 0-1, reasoning: string}). Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
+      output_fields?: SaveRequestOutputFieldsItem[];
     }
 
     export interface SavedHeatmapListResponse {

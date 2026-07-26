@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
+from products.growth.backend.enrichment import lab as lab_module
+from products.growth.backend.enrichment.lab import GATEWAY_MODEL_CHOICES
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 
@@ -35,6 +37,9 @@ class TestScoreLabAPI(APIBaseTest):
         super().setUp()
         self.user.is_staff = True
         self.user.save()
+        # A prior test's successful gateway call would otherwise leak a cached model list into
+        # this test (list_gateway_models is module-level state, see enrichment/lab.py).
+        lab_module._model_list_cache.update({"models": None, "expires_at": 0.0})
 
     def _config(
         self,
@@ -56,6 +61,7 @@ class TestScoreLabAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("labels", "get", "/api/growth_score_lab/labels/"),
+            ("models", "get", "/api/growth_score_lab/models/"),
             ("configs", "get", "/api/growth_score_lab/configs/?label=test_label"),
             ("run", "post", "/api/growth_score_lab/run/"),
             ("save", "post", "/api/growth_score_lab/save/"),
@@ -220,3 +226,168 @@ class TestScoreLabAPI(APIBaseTest):
     def test_activate_unknown_config_returns_404(self):
         response = self.client.post("/api/growth_score_lab/activate/", {"config_id": str(uuid.uuid4())}, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_models_returns_gateway_list_when_client_works(self):
+        fake_client = MagicMock()
+        fake_client.models.list.return_value = [MagicMock(id="gpt-5.2"), MagicMock(id="claude-fable-5")]
+
+        with patch("products.growth.backend.enrichment.lab.get_llm_client", return_value=fake_client):
+            response = self.client.get("/api/growth_score_lab/models/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {row["id"] for row in response.json()["results"]}
+        self.assertEqual(ids, {"gpt-5.2", "claude-fable-5"})
+
+    def test_models_falls_back_to_curated_list_on_gateway_exception(self):
+        with patch("products.growth.backend.enrichment.lab.get_llm_client", side_effect=RuntimeError("gateway down")):
+            response = self.client.get("/api/growth_score_lab/models/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {row["id"] for row in response.json()["results"]}
+        self.assertEqual(ids, set(GATEWAY_MODEL_CHOICES))
+
+    def test_run_builds_rows_from_input_query_instead_of_archived_fetches(self):
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"name": "ArchivedCo"}
+        )
+        canned_rows = [{"company": "RowCo", "domain": "rowco.com", "headcount": 10}]
+
+        with (
+            patch("products.growth.backend.api.score_lab.run_input_query", return_value=canned_rows) as run_query_mock,
+            patch(
+                "products.growth.backend.api.score_lab.get_llm_client",
+                return_value=_mock_llm_client(label="row_query_label"),
+            ),
+        ):
+            response = self.client.post(
+                "/api/growth_score_lab/run/",
+                {
+                    "label": "row_query_label",
+                    "prompt_text": "judge it. Email: {email}",
+                    "model": "gpt-5-mini",
+                    "input_query": "SELECT 1 as x",
+                    "sample": 10,
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows = _drain_ndjson(response.streaming_content)
+        verdict_rows = [row for row in rows if "summary" not in row]
+        self.assertEqual(len(verdict_rows), 1)
+        self.assertEqual(verdict_rows[0]["company"], "RowCo")
+        self.assertEqual(verdict_rows[0]["domain"], "rowco.com")
+        self.assertEqual(verdict_rows[0]["verdict"], "true")
+        run_query_mock.assert_called_once_with("SELECT 1 as x", 10)
+
+    def test_run_rejects_syntax_error_input_query(self):
+        response = self.client.post(
+            "/api/growth_score_lab/run/",
+            {
+                "label": "test_label",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "input_query": "SELEC nonsense !!! FRM",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "input_query")
+
+    @parameterized.expand(
+        [
+            ("syntax_error", "SELEC nonsense !!! FRM"),
+            ("non_select", "INSERT INTO events (event) VALUES ('x')"),
+        ]
+    )
+    def test_save_rejects_invalid_input_query(self, _name, query):
+        response = self.client.post(
+            "/api/growth_score_lab/save/",
+            {"label": "iq_label", "version": "v1", "prompt_text": "x", "model": "gpt-5-mini", "input_query": query},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "input_query")
+        self.assertEqual(EnrichmentPromptConfig.objects.filter(name="iq_label").count(), 0)
+
+    def test_save_persists_input_query_and_output_fields_and_configs_endpoint_returns_them(self):
+        payload = {
+            "label": "iq_schema_label",
+            "version": "v1",
+            "prompt_text": "x",
+            "model": "gpt-5-mini",
+            "input_query": "SELECT 1 as x",
+            "output_fields": [{"key": "flag", "type": "boolean", "description": "d"}],
+        }
+
+        save_response = self.client.post("/api/growth_score_lab/save/", payload, format="json")
+
+        self.assertEqual(save_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(save_response.json()["input_query"], "SELECT 1 as x")
+        self.assertEqual(save_response.json()["output_fields"], payload["output_fields"])
+
+        configs_response = self.client.get("/api/growth_score_lab/configs/?label=iq_schema_label")
+        row = configs_response.json()["results"][0]
+        self.assertEqual(row["input_query"], "SELECT 1 as x")
+        self.assertEqual(row["output_fields"], payload["output_fields"])
+
+    @parameterized.expand(
+        [
+            ("bad_key", [{"key": "Bad-Key", "type": "boolean", "description": ""}]),
+            ("bad_type", [{"key": "ok_key", "type": "float", "description": ""}]),
+            ("duplicate_key", [{"key": "a", "type": "boolean"}, {"key": "a", "type": "number"}]),
+            ("reserved_key", [{"key": "meta", "type": "boolean"}]),
+        ]
+    )
+    def test_save_rejects_invalid_output_fields_schema(self, _name, output_fields):
+        response = self.client.post(
+            "/api/growth_score_lab/save/",
+            {
+                "label": "schema_label",
+                "version": "v1",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "output_fields": output_fields,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "output_fields")
+        self.assertEqual(EnrichmentPromptConfig.objects.filter(name="schema_label").count(), 0)
+
+    def test_run_with_custom_output_fields_emits_outputs_shape_and_prompts_the_configured_keys(self):
+        output_fields = [
+            {"key": "is_enterprise", "type": "boolean", "description": "Is this an enterprise company?"},
+            {"key": "employee_estimate", "type": "number", "description": "Estimated headcount"},
+        ]
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
+        )
+        client = MagicMock()
+        response_obj = MagicMock()
+        response_obj.choices[0].message.content = json.dumps({"is_enterprise": True, "employee_estimate": 500})
+        client.chat.completions.create.return_value = response_obj
+
+        with patch("products.growth.backend.api.score_lab.get_llm_client", return_value=client):
+            response = self.client.post(
+                "/api/growth_score_lab/run/",
+                {
+                    "label": "schema_label",
+                    "prompt_text": "judge it",
+                    "model": "gpt-5-mini",
+                    "input_fields": ["name"],
+                    "output_fields": output_fields,
+                    "sample": 10,
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows = _drain_ndjson(response.streaming_content)
+        verdict_rows = [row for row in rows if "summary" not in row]
+        self.assertEqual(verdict_rows[0]["outputs"], {"is_enterprise": True, "employee_estimate": 500.0})
+        self.assertNotIn("verdict", verdict_rows[0])
+
+        sent_user_message = client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+        self.assertIn("is_enterprise", sent_user_message)
+        self.assertIn("employee_estimate", sent_user_message)

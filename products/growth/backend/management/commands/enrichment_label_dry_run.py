@@ -17,6 +17,7 @@ from products.growth.backend.enrichment.labels import (
     get_active_config,
     recent_latest_fetches_qs,
     signup_domain_for_organization,
+    verdict_field_key,
 )
 from products.growth.backend.models import EnrichmentLabelResult
 
@@ -66,6 +67,9 @@ class Command(BaseCommand):
             display_version = f"{config.version}+file"
 
         client = get_llm_client(product="growth")
+        # A custom output schema's pass/fail key differs from `label` - see
+        # verdict_field_key's docstring.
+        verdict_key = verdict_field_key(config)
 
         ordered_fetches = list(recent_latest_fetches_qs().select_related("organization")[:sample])
 
@@ -99,7 +103,7 @@ class Command(BaseCommand):
                 self.stdout.write(row_fmt.format(*row))
                 continue
 
-            label_verdict = verdict.get(label)
+            label_verdict = verdict.get(verdict_key) if verdict_key is not None else None
             if label_verdict == UNKNOWN:
                 unknown += 1
             else:

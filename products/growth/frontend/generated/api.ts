@@ -12,6 +12,7 @@ import type {
     ActivateRequestApi,
     ConfigListResponseApi,
     ConfigVersionApi,
+    GatewayModelListResponseApi,
     GrowthScoreLabConfigsRetrieveParams,
     IdentityMatchingLinksListParams,
     IdentityMatchingLinksResponseApi,
@@ -114,13 +115,36 @@ export const growthScoreLabLabelsRetrieve = async (options?: RequestInit): Promi
     })
 }
 
+export const getGrowthScoreLabModelsRetrieveUrl = () => {
+    return `/api/growth_score_lab/models/`
+}
+
+/**
+ * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
+ * config versions, dry-run a draft config against recently archived orgs, save a new
+ * immutable version, and flip which version is active.
+ *
+ * Supersedes the admin lab UI's read paths; run/save/activate share the same underlying
+ * machinery (products.growth.backend.enrichment.lab) as the admin dry-run action so both
+ * surfaces compute identical verdicts.
+ *
+ * Registered on the root router so it is not team-nested - prompt configs are instance-global,
+ * not scoped to any team or org.
+ */
+export const growthScoreLabModelsRetrieve = async (options?: RequestInit): Promise<GatewayModelListResponseApi> => {
+    return apiMutator<GatewayModelListResponseApi>(getGrowthScoreLabModelsRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getGrowthScoreLabRunCreateUrl = () => {
     return `/api/growth_score_lab/run/`
 }
 
 /**
- * One JSON object per line: a verdict row ({company, domain, verdict, confidence, reasoning}) as each LLM call completes, then a final {summary: {classified, unknown, errors}} line. Persists nothing - spends real LLM money, so sample is capped at 100.
- * @summary Stream classifier verdicts for an unsaved draft config against recent archived orgs.
+ * One JSON object per line: a verdict row as each LLM call completes, then a final {summary: {classified, unknown, errors}} line. A legacy config (no output_fields) emits {company, domain, verdict, confidence, reasoning} rows; a configurable output schema (output_fields set) emits {company, domain, outputs: {<key>: value, ...}} rows instead. When input_query is set, rows are built from that HogQL query (capped at `sample`) instead of recently archived orgs. Persists nothing - spends real LLM money, so sample is capped at 100.
+ * @summary Stream classifier verdicts for an unsaved draft config against recent archived orgs or a HogQL input query.
  */
 export const growthScoreLabRunCreate = async (
     runRequestApi: RunRequestApi,

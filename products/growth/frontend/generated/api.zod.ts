@@ -26,10 +26,12 @@ export const GrowthScoreLabActivateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * One JSON object per line: a verdict row ({company, domain, verdict, confidence, reasoning}) as each LLM call completes, then a final {summary: {classified, unknown, errors}} line. Persists nothing - spends real LLM money, so sample is capped at 100.
- * @summary Stream classifier verdicts for an unsaved draft config against recent archived orgs.
+ * One JSON object per line: a verdict row as each LLM call completes, then a final {summary: {classified, unknown, errors}} line. A legacy config (no output_fields) emits {company, domain, verdict, confidence, reasoning} rows; a configurable output schema (output_fields set) emits {company, domain, outputs: {<key>: value, ...}} rows instead. When input_query is set, rows are built from that HogQL query (capped at `sample`) instead of recently archived orgs. Persists nothing - spends real LLM money, so sample is capped at 100.
+ * @summary Stream classifier verdicts for an unsaved draft config against recent archived orgs or a HogQL input query.
  */
 export const growthScoreLabRunCreateBodyLabelMax = 128
+
+export const growthScoreLabRunCreateBodyModelMax = 128
 
 export const growthScoreLabRunCreateBodySampleDefault = 10
 export const growthScoreLabRunCreateBodySampleMax = 100
@@ -45,42 +47,58 @@ export const GrowthScoreLabRunCreateBody = /* @__PURE__ */ zod.object({
         ),
     prompt_text: zod.string().describe('System prompt; {email} is replaced with the signup email domain at runtime.'),
     model: zod
-        .enum([
-            'gpt-5.2',
-            'gpt-5.2-pro',
-            'gpt-5.1',
-            'gpt-5',
-            'gpt-5-mini',
-            'gpt-5-nano',
-            'gpt-4.1',
-            'gpt-4.1-mini',
-            'claude-fable-5',
-            'claude-opus-4-8',
-            'claude-sonnet-5',
-            'claude-haiku-4-5',
-        ])
+        .string()
+        .max(growthScoreLabRunCreateBodyModelMax)
         .describe(
-            '\* `gpt-5.2` - gpt-5.2\n\* `gpt-5.2-pro` - gpt-5.2-pro\n\* `gpt-5.1` - gpt-5.1\n\* `gpt-5` - gpt-5\n\* `gpt-5-mini` - gpt-5-mini\n\* `gpt-5-nano` - gpt-5-nano\n\* `gpt-4.1` - gpt-4.1\n\* `gpt-4.1-mini` - gpt-4.1-mini\n\* `claude-fable-5` - claude-fable-5\n\* `claude-opus-4-8` - claude-opus-4-8\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-haiku-4-5` - claude-haiku-4-5'
-        )
-        .describe(
-            'Gateway model to classify with, routed through the LLM gateway.\n\n\* `gpt-5.2` - gpt-5.2\n\* `gpt-5.2-pro` - gpt-5.2-pro\n\* `gpt-5.1` - gpt-5.1\n\* `gpt-5` - gpt-5\n\* `gpt-5-mini` - gpt-5-mini\n\* `gpt-5-nano` - gpt-5-nano\n\* `gpt-4.1` - gpt-4.1\n\* `gpt-4.1-mini` - gpt-4.1-mini\n\* `claude-fable-5` - claude-fable-5\n\* `claude-opus-4-8` - claude-opus-4-8\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-haiku-4-5` - claude-haiku-4-5'
+            'Gateway model to classify with, routed through the LLM gateway. Must be a curated model (see GET \/models\/), a model the gateway currently lists, or one already persisted on this label.'
         ),
     input_fields: zod
         .array(zod.string())
         .optional()
-        .describe('Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage.'),
+        .describe(
+            'Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set.'
+        ),
+    input_query: zod
+        .string()
+        .nullish()
+        .describe(
+            "HogQL SELECT defining classifier input rows, an alternative to input_fields. When set, rows are built from this query (capped at `sample` rows) instead of recently archived orgs; 'contains' is ignored. Parsed and validated on submit but never executed until \/run\/ actually runs."
+        ),
+    output_fields: zod
+        .array(
+            zod.object({
+                key: zod
+                    .string()
+                    .describe(
+                        "Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]\*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance)."
+                    ),
+                type: zod
+                    .enum(['boolean', 'number', 'string'])
+                    .describe('Value type the LLM must return for this key.'),
+                description: zod
+                    .string()
+                    .optional()
+                    .describe('Shown to the LLM to describe what this key means. Optional.'),
+            })
+        )
+        .optional()
+        .describe(
+            "Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<label>: boolean, confidence: number 0-1, reasoning: string}). Keys must match ^[a-z][a-z0-9_]\*$, be unique, and not be 'meta' or 'inputs'."
+        ),
     sample: zod
         .number()
         .min(1)
         .max(growthScoreLabRunCreateBodySampleMax)
         .default(growthScoreLabRunCreateBodySampleDefault)
         .describe(
-            'Number of recent archived orgs to classify (1-100). Each sampled org costs one LLM call, so keep this bounded during iteration.'
+            'Number of rows to classify (1-100): recent archived orgs, or HogQL query rows when input_query is set. Each sampled row costs one LLM call, so keep this bounded during iteration.'
         ),
     contains: zod
         .string()
         .default(growthScoreLabRunCreateBodyContainsDefault)
-        .describe('Optional case-insensitive substring filter on the archived company or organization name.'),
+        .describe(
+            'Optional case-insensitive substring filter on the archived company or organization name. Ignored when input_query is set.'
+        ),
 })
 
 /**
@@ -99,6 +117,8 @@ export const growthScoreLabSaveCreateBodyLabelMax = 128
 
 export const growthScoreLabSaveCreateBodyVersionMax = 128
 
+export const growthScoreLabSaveCreateBodyModelMax = 128
+
 export const GrowthScoreLabSaveCreateBody = /* @__PURE__ */ zod.object({
     label: zod
         .string()
@@ -110,28 +130,42 @@ export const GrowthScoreLabSaveCreateBody = /* @__PURE__ */ zod.object({
         .describe('Human-readable classifier version, e.g. ai-pilled-clay-v2. Must be unique per label.'),
     prompt_text: zod.string().describe('System prompt; {email} is replaced with the signup email domain at runtime.'),
     model: zod
-        .enum([
-            'gpt-5.2',
-            'gpt-5.2-pro',
-            'gpt-5.1',
-            'gpt-5',
-            'gpt-5-mini',
-            'gpt-5-nano',
-            'gpt-4.1',
-            'gpt-4.1-mini',
-            'claude-fable-5',
-            'claude-opus-4-8',
-            'claude-sonnet-5',
-            'claude-haiku-4-5',
-        ])
+        .string()
+        .max(growthScoreLabSaveCreateBodyModelMax)
         .describe(
-            '\* `gpt-5.2` - gpt-5.2\n\* `gpt-5.2-pro` - gpt-5.2-pro\n\* `gpt-5.1` - gpt-5.1\n\* `gpt-5` - gpt-5\n\* `gpt-5-mini` - gpt-5-mini\n\* `gpt-5-nano` - gpt-5-nano\n\* `gpt-4.1` - gpt-4.1\n\* `gpt-4.1-mini` - gpt-4.1-mini\n\* `claude-fable-5` - claude-fable-5\n\* `claude-opus-4-8` - claude-opus-4-8\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-haiku-4-5` - claude-haiku-4-5'
-        )
-        .describe(
-            'Gateway model to classify with, routed through the LLM gateway.\n\n\* `gpt-5.2` - gpt-5.2\n\* `gpt-5.2-pro` - gpt-5.2-pro\n\* `gpt-5.1` - gpt-5.1\n\* `gpt-5` - gpt-5\n\* `gpt-5-mini` - gpt-5-mini\n\* `gpt-5-nano` - gpt-5-nano\n\* `gpt-4.1` - gpt-4.1\n\* `gpt-4.1-mini` - gpt-4.1-mini\n\* `claude-fable-5` - claude-fable-5\n\* `claude-opus-4-8` - claude-opus-4-8\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-haiku-4-5` - claude-haiku-4-5'
+            'Gateway model to classify with, routed through the LLM gateway. Must be a curated model (see GET \/models\/), a model the gateway currently lists, or one already persisted on this label.'
         ),
     input_fields: zod
         .array(zod.string())
         .optional()
-        .describe('Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage.'),
+        .describe(
+            'Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set.'
+        ),
+    input_query: zod
+        .string()
+        .nullish()
+        .describe(
+            'HogQL SELECT defining classifier input rows, an alternative to input_fields. Parsed and validated on save but never executed - execution only happens on \/run\/.'
+        ),
+    output_fields: zod
+        .array(
+            zod.object({
+                key: zod
+                    .string()
+                    .describe(
+                        "Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]\*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance)."
+                    ),
+                type: zod
+                    .enum(['boolean', 'number', 'string'])
+                    .describe('Value type the LLM must return for this key.'),
+                description: zod
+                    .string()
+                    .optional()
+                    .describe('Shown to the LLM to describe what this key means. Optional.'),
+            })
+        )
+        .optional()
+        .describe(
+            "Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<label>: boolean, confidence: number 0-1, reasoning: string}). Keys must match ^[a-z][a-z0-9_]\*$, be unique, and not be 'meta' or 'inputs'."
+        ),
 })

@@ -12,6 +12,27 @@ export interface ActivateRequestApi {
     config_id: string
 }
 
+/**
+ * Value type the LLM must return for this key.
+ */
+export type ConfigVersionApiOutputFieldsItemType =
+    (typeof ConfigVersionApiOutputFieldsItemType)[keyof typeof ConfigVersionApiOutputFieldsItemType]
+
+export const ConfigVersionApiOutputFieldsItemType = {
+    Boolean: 'boolean',
+    Number: 'number',
+    String: 'string',
+} as const
+
+export type ConfigVersionApiOutputFieldsItem = {
+    /** Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance). */
+    key: string
+    /** Value type the LLM must return for this key. */
+    type: ConfigVersionApiOutputFieldsItemType
+    /** Shown to the LLM to describe what this key means. Optional. */
+    description?: string
+}
+
 export interface ConfigVersionApi {
     /** Prompt config row id. */
     id: string
@@ -23,8 +44,15 @@ export interface ConfigVersionApi {
     prompt_text: string
     /** Gateway model id this version was authored against. */
     model: string
-    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. */
+    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set. */
     input_fields: string[]
+    /**
+     * HogQL SELECT defining classifier input rows, an alternative to input_fields. Null when input_fields is used instead. Each result row becomes one classification input; a 'company' or 'domain' column (if present) is used for display, and every column is passed to the prompt as the Company data JSON keyed by column name.
+     * @nullable
+     */
+    input_query: string | null
+    /** Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<name>: boolean, confidence: number 0-1, reasoning: string}). */
+    output_fields: ConfigVersionApiOutputFieldsItem[]
     /** Whether the batch runner currently computes this version. */
     is_active: boolean
     /**
@@ -34,7 +62,7 @@ export interface ConfigVersionApi {
     readonly created_by_email: string | null
     /** When this version was created. */
     created_at: string
-    /** Whether any EnrichmentLabelResult rows reference this version. Once true the version is frozen - prompt_text, model, and input_fields can never change (FROZEN_FIELDS immutability). */
+    /** Whether any EnrichmentLabelResult rows reference this version. Once true the version is frozen - prompt_text, model, input_fields, input_query, and output_fields can never change (FROZEN_FIELDS immutability). */
     readonly has_results: boolean
 }
 
@@ -65,36 +93,36 @@ export interface LabelListResponseApi {
     results: LabelSummaryApi[]
 }
 
-/**
- * * `gpt-5.2` - gpt-5.2
- * * `gpt-5.2-pro` - gpt-5.2-pro
- * * `gpt-5.1` - gpt-5.1
- * * `gpt-5` - gpt-5
- * * `gpt-5-mini` - gpt-5-mini
- * * `gpt-5-nano` - gpt-5-nano
- * * `gpt-4.1` - gpt-4.1
- * * `gpt-4.1-mini` - gpt-4.1-mini
- * * `claude-fable-5` - claude-fable-5
- * * `claude-opus-4-8` - claude-opus-4-8
- * * `claude-sonnet-5` - claude-sonnet-5
- * * `claude-haiku-4-5` - claude-haiku-4-5
- */
-export type GrowthScoreLabModelEnumApi = (typeof GrowthScoreLabModelEnumApi)[keyof typeof GrowthScoreLabModelEnumApi]
+export interface GatewayModelApi {
+    /** Gateway model id, usable as `model` on run/save. */
+    id: string
+}
 
-export const GrowthScoreLabModelEnumApi = {
-    Gpt52: 'gpt-5.2',
-    Gpt52Pro: 'gpt-5.2-pro',
-    Gpt51: 'gpt-5.1',
-    Gpt5: 'gpt-5',
-    Gpt5Mini: 'gpt-5-mini',
-    Gpt5Nano: 'gpt-5-nano',
-    Gpt41: 'gpt-4.1',
-    Gpt41Mini: 'gpt-4.1-mini',
-    ClaudeFable5: 'claude-fable-5',
-    ClaudeOpus48: 'claude-opus-4-8',
-    ClaudeSonnet5: 'claude-sonnet-5',
-    ClaudeHaiku45: 'claude-haiku-4-5',
+export interface GatewayModelListResponseApi {
+    /** Models the gateway currently lists (cached for 5 minutes), or the curated fallback list if the gateway is unreachable. */
+    results: GatewayModelApi[]
+}
+
+/**
+ * Value type the LLM must return for this key.
+ */
+export type RunRequestApiOutputFieldsItemType =
+    (typeof RunRequestApiOutputFieldsItemType)[keyof typeof RunRequestApiOutputFieldsItemType]
+
+export const RunRequestApiOutputFieldsItemType = {
+    Boolean: 'boolean',
+    Number: 'number',
+    String: 'string',
 } as const
+
+export type RunRequestApiOutputFieldsItem = {
+    /** Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance). */
+    key: string
+    /** Value type the LLM must return for this key. */
+    type: RunRequestApiOutputFieldsItemType
+    /** Shown to the LLM to describe what this key means. Optional. */
+    description?: string
+}
 
 export interface RunRequestApi {
     /**
@@ -104,31 +132,49 @@ export interface RunRequestApi {
     label: string
     /** System prompt; {email} is replaced with the signup email domain at runtime. */
     prompt_text: string
-    /** Gateway model to classify with, routed through the LLM gateway.
-     *
-     * * `gpt-5.2` - gpt-5.2
-     * * `gpt-5.2-pro` - gpt-5.2-pro
-     * * `gpt-5.1` - gpt-5.1
-     * * `gpt-5` - gpt-5
-     * * `gpt-5-mini` - gpt-5-mini
-     * * `gpt-5-nano` - gpt-5-nano
-     * * `gpt-4.1` - gpt-4.1
-     * * `gpt-4.1-mini` - gpt-4.1-mini
-     * * `claude-fable-5` - claude-fable-5
-     * * `claude-opus-4-8` - claude-opus-4-8
-     * * `claude-sonnet-5` - claude-sonnet-5
-     * * `claude-haiku-4-5` - claude-haiku-4-5 */
-    model: GrowthScoreLabModelEnumApi
-    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. */
+    /**
+     * Gateway model to classify with, routed through the LLM gateway. Must be a curated model (see GET /models/), a model the gateway currently lists, or one already persisted on this label.
+     * @maxLength 128
+     */
+    model: string
+    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set. */
     input_fields?: string[]
     /**
-     * Number of recent archived orgs to classify (1-100). Each sampled org costs one LLM call, so keep this bounded during iteration.
+     * HogQL SELECT defining classifier input rows, an alternative to input_fields. When set, rows are built from this query (capped at `sample` rows) instead of recently archived orgs; 'contains' is ignored. Parsed and validated on submit but never executed until /run/ actually runs.
+     * @nullable
+     */
+    input_query?: string | null
+    /** Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<label>: boolean, confidence: number 0-1, reasoning: string}). Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
+    output_fields?: RunRequestApiOutputFieldsItem[]
+    /**
+     * Number of rows to classify (1-100): recent archived orgs, or HogQL query rows when input_query is set. Each sampled row costs one LLM call, so keep this bounded during iteration.
      * @minimum 1
      * @maximum 100
      */
     sample?: number
-    /** Optional case-insensitive substring filter on the archived company or organization name. */
+    /** Optional case-insensitive substring filter on the archived company or organization name. Ignored when input_query is set. */
     contains?: string
+}
+
+/**
+ * Value type the LLM must return for this key.
+ */
+export type SaveRequestApiOutputFieldsItemType =
+    (typeof SaveRequestApiOutputFieldsItemType)[keyof typeof SaveRequestApiOutputFieldsItemType]
+
+export const SaveRequestApiOutputFieldsItemType = {
+    Boolean: 'boolean',
+    Number: 'number',
+    String: 'string',
+} as const
+
+export type SaveRequestApiOutputFieldsItem = {
+    /** Output key, e.g. ai_pilled. Must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs' (reserved for provenance). */
+    key: string
+    /** Value type the LLM must return for this key. */
+    type: SaveRequestApiOutputFieldsItemType
+    /** Shown to the LLM to describe what this key means. Optional. */
+    description?: string
 }
 
 export interface SaveRequestApi {
@@ -144,23 +190,20 @@ export interface SaveRequestApi {
     version: string
     /** System prompt; {email} is replaced with the signup email domain at runtime. */
     prompt_text: string
-    /** Gateway model to classify with, routed through the LLM gateway.
-     *
-     * * `gpt-5.2` - gpt-5.2
-     * * `gpt-5.2-pro` - gpt-5.2-pro
-     * * `gpt-5.1` - gpt-5.1
-     * * `gpt-5` - gpt-5
-     * * `gpt-5-mini` - gpt-5-mini
-     * * `gpt-5-nano` - gpt-5-nano
-     * * `gpt-4.1` - gpt-4.1
-     * * `gpt-4.1-mini` - gpt-4.1-mini
-     * * `claude-fable-5` - claude-fable-5
-     * * `claude-opus-4-8` - claude-opus-4-8
-     * * `claude-sonnet-5` - claude-sonnet-5
-     * * `claude-haiku-4-5` - claude-haiku-4-5 */
-    model: GrowthScoreLabModelEnumApi
-    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. */
+    /**
+     * Gateway model to classify with, routed through the LLM gateway. Must be a curated model (see GET /models/), a model the gateway currently lists, or one already persisted on this label.
+     * @maxLength 128
+     */
+    model: string
+    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Ignored when input_query is set. */
     input_fields?: string[]
+    /**
+     * HogQL SELECT defining classifier input rows, an alternative to input_fields. Parsed and validated on save but never executed - execution only happens on /run/.
+     * @nullable
+     */
+    input_query?: string | null
+    /** Configurable output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. Empty (the default) means the legacy output shape ({<label>: boolean, confidence: number 0-1, reasoning: string}). Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
+    output_fields?: SaveRequestApiOutputFieldsItem[]
 }
 
 export interface ProductPushCampaignApi {

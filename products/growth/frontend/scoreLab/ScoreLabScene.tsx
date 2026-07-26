@@ -1,12 +1,14 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
+import { IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
     LemonCheckbox,
     LemonDialog,
     LemonInput,
+    LemonSegmentedButton,
     LemonSelect,
     LemonTable,
     LemonTableColumns,
@@ -25,9 +27,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import type { ConfigVersionApi, LabelSummaryApi } from '../generated/api.schemas'
-import { GrowthScoreLabModelEnumApi } from '../generated/api.schemas'
 import { SCORE_LAB_INPUT_FIELD_OPTIONS } from './scoreLabInputFields'
-import { SCORE_LAB_MAX_SAMPLE_SIZE, scoreLabLogic } from './scoreLabLogic'
+import { ScoreLabOutputField, ScoreLabOutputFieldType, SCORE_LAB_MAX_SAMPLE_SIZE, scoreLabLogic } from './scoreLabLogic'
 import { ScoreLabResultsTable } from './ScoreLabResultsTable'
 
 export const scene: SceneExport = {
@@ -35,7 +36,11 @@ export const scene: SceneExport = {
     logic: scoreLabLogic,
 }
 
-const MODEL_OPTIONS = Object.values(GrowthScoreLabModelEnumApi).map((model) => ({ value: model, label: model }))
+const OUTPUT_FIELD_TYPE_OPTIONS: { value: ScoreLabOutputFieldType; label: string }[] = [
+    { value: 'boolean', label: 'Boolean' },
+    { value: 'number', label: 'Number' },
+    { value: 'string', label: 'String' },
+]
 
 function ScoreLabLabelPicker(): JSX.Element {
     const { labels, labelsLoading } = useValues(scoreLabLogic)
@@ -135,9 +140,71 @@ function ScoreLabVersionsRail(): JSX.Element {
     )
 }
 
+function ScoreLabOutputFieldsEditor(): JSX.Element {
+    const { editorOutputFields } = useValues(scoreLabLogic)
+    const { addOutputField, removeOutputField, updateOutputField, seedDefaultOutputFields } = useActions(scoreLabLogic)
+
+    if (editorOutputFields.length === 0) {
+        return (
+            <div className="flex items-center gap-2">
+                <span className="text-secondary text-sm">Default output (verdict, confidence, reasoning)</span>
+                <LemonButton type="secondary" size="small" onClick={() => seedDefaultOutputFields()}>
+                    Customize output fields
+                </LemonButton>
+            </div>
+        )
+    }
+
+    return (
+        <div className="space-y-1">
+            {editorOutputFields.map((field: ScoreLabOutputField, index: number) => (
+                <div key={index} className="flex items-center gap-2">
+                    <LemonInput
+                        className="flex-1"
+                        placeholder="key, e.g. ai_pilled"
+                        value={field.key}
+                        onChange={(key) => updateOutputField(index, { key })}
+                    />
+                    <LemonSelect
+                        value={field.type}
+                        onChange={(type) => type && updateOutputField(index, { type })}
+                        options={OUTPUT_FIELD_TYPE_OPTIONS}
+                    />
+                    <LemonInput
+                        className="flex-[2]"
+                        placeholder="Description shown to the model (optional)"
+                        value={field.description}
+                        onChange={(description) => updateOutputField(index, { description })}
+                    />
+                    <LemonButton
+                        icon={<IconTrash />}
+                        size="small"
+                        status="danger"
+                        onClick={() => removeOutputField(index)}
+                        tooltip="Remove field"
+                    />
+                </div>
+            ))}
+            <LemonButton icon={<IconPlus />} size="small" type="secondary" onClick={() => addOutputField()}>
+                Add field
+            </LemonButton>
+        </div>
+    )
+}
+
 function ScoreLabEditorPanel(): JSX.Element {
-    const { editorPromptText, editorModel, editorInputFields, isEditorDirty } = useValues(scoreLabLogic)
-    const { setEditorPromptText, setEditorModel, toggleEditorInputField } = useActions(scoreLabLogic)
+    const {
+        editorPromptText,
+        editorModel,
+        editorInputFields,
+        editorInputMode,
+        editorInputQuery,
+        isEditorDirty,
+        modelOptions,
+        selectedVersionId,
+    } = useValues(scoreLabLogic)
+    const { setEditorPromptText, setEditorModel, toggleEditorInputField, setEditorInputMode, setEditorInputQuery } =
+        useActions(scoreLabLogic)
 
     return (
         <div className="space-y-2">
@@ -147,10 +214,13 @@ function ScoreLabEditorPanel(): JSX.Element {
                 <LemonSelect
                     value={editorModel}
                     onChange={(value) => value && setEditorModel(value)}
-                    options={MODEL_OPTIONS}
+                    options={modelOptions}
                 />
             </div>
             <CodeEditor
+                // Remount when a version loads: monaco can mount before async state hydrates
+                // and miss the first controlled value update.
+                key={selectedVersionId ?? 'unloaded'}
                 className="border"
                 language="markdown"
                 value={editorPromptText}
@@ -159,24 +229,74 @@ function ScoreLabEditorPanel(): JSX.Element {
                 options={{ minimap: { enabled: false }, wordWrap: 'on' }}
             />
             <div className="space-y-1">
-                <span className="font-semibold">Input fields</span>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                    {SCORE_LAB_INPUT_FIELD_OPTIONS.map((option) => (
-                        <LemonCheckbox
-                            key={option.value}
-                            label={option.label}
-                            checked={editorInputFields.includes(option.value)}
-                            onChange={() => toggleEditorInputField(option.value)}
-                        />
-                    ))}
-                </div>
+                <span className="font-semibold">Input</span>
+                <LemonSegmentedButton
+                    value={editorInputMode}
+                    onChange={setEditorInputMode}
+                    options={[
+                        { value: 'fields' as const, label: 'Payload fields' },
+                        { value: 'query' as const, label: 'HogQL query' },
+                    ]}
+                />
+                {editorInputMode === 'fields' ? (
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-1">
+                        {SCORE_LAB_INPUT_FIELD_OPTIONS.map((option) => (
+                            <LemonCheckbox
+                                key={option.value}
+                                label={option.label}
+                                checked={editorInputFields.includes(option.value)}
+                                onChange={() => toggleEditorInputField(option.value)}
+                            />
+                        ))}
+                    </div>
+                ) : (
+                    <CodeEditor
+                        className="border"
+                        language="hogQL"
+                        value={editorInputQuery}
+                        onChange={(value) => setEditorInputQuery(value ?? '')}
+                        height={160}
+                        options={{ minimap: { enabled: false }, wordWrap: 'on' }}
+                    />
+                )}
+            </div>
+            <div className="space-y-1">
+                <span className="font-semibold">Output fields</span>
+                <ScoreLabOutputFieldsEditor />
             </div>
         </div>
     )
 }
 
+function runDisabledReason(
+    canRun: boolean,
+    editorPromptText: string,
+    editorInputMode: string,
+    editorInputQuery: string
+): string | undefined {
+    if (canRun) {
+        return undefined
+    }
+    if (!editorPromptText.trim()) {
+        return 'Enter a prompt before running'
+    }
+    if (editorInputMode === 'query' && !editorInputQuery.trim()) {
+        return 'Enter a HogQL query before running'
+    }
+    return undefined
+}
+
 function ScoreLabRunControls(): JSX.Element {
-    const { sampleSize, containsFilter, canRun, isRunning } = useValues(scoreLabLogic)
+    const {
+        sampleSize,
+        containsFilter,
+        canRun,
+        isRunning,
+        saveResultLoading,
+        editorPromptText,
+        editorInputMode,
+        editorInputQuery,
+    } = useValues(scoreLabLogic)
     const { setSampleSize, setContainsFilter, runClassification } = useActions(scoreLabLogic)
 
     return (
@@ -203,12 +323,17 @@ function ScoreLabRunControls(): JSX.Element {
                     placeholder="Filter by company or org name"
                     value={containsFilter}
                     onChange={setContainsFilter}
+                    disabled={editorInputMode === 'query'}
                 />
             </div>
             <LemonButton
                 type="primary"
                 loading={isRunning}
-                disabledReason={!canRun && !isRunning ? 'Enter a prompt before running' : undefined}
+                disabledReason={
+                    saveResultLoading
+                        ? 'Save in progress'
+                        : runDisabledReason(canRun, editorPromptText, editorInputMode, editorInputQuery)
+                }
                 onClick={() => runClassification()}
                 data-attr="score-lab-run"
             >
@@ -219,7 +344,7 @@ function ScoreLabRunControls(): JSX.Element {
 }
 
 function ScoreLabSaveControls(): JSX.Element {
-    const { newVersionInput, saveResultLoading, selectedLabel } = useValues(scoreLabLogic)
+    const { newVersionInput, saveResultLoading, selectedLabel, isRunning } = useValues(scoreLabLogic)
     const { setNewVersionInput, saveVersion } = useActions(scoreLabLogic)
 
     return (
@@ -239,11 +364,13 @@ function ScoreLabSaveControls(): JSX.Element {
                 type="secondary"
                 loading={saveResultLoading}
                 disabledReason={
-                    !selectedLabel
-                        ? 'Select a label first'
-                        : !newVersionInput.trim()
-                          ? 'Enter a version name'
-                          : undefined
+                    isRunning
+                        ? 'Run in progress'
+                        : !selectedLabel
+                          ? 'Select a label first'
+                          : !newVersionInput.trim()
+                            ? 'Enter a version name'
+                            : undefined
                 }
                 onClick={() => saveVersion()}
                 data-attr="score-lab-save"
