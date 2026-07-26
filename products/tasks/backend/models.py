@@ -1015,7 +1015,11 @@ class TaskActivity(TeamScopedRootMixin):
                    SET message_id = EXCLUDED.message_id,
                        kind = EXCLUDED.kind,
                        activity_at = EXCLUDED.activity_at,
-                       read_at = EXCLUDED.read_at
+                       read_at = CASE
+                           WHEN {cls._meta.db_table}.activity_at = EXCLUDED.activity_at
+                           THEN {cls._meta.db_table}.read_at
+                           ELSE EXCLUDED.read_at
+                       END
                  WHERE {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
                 """,
                 [uuid7(), team_id, user_id, task_id, message_id, kind, activity_at, read_at],

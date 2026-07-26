@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from unittest.mock import patch
 
@@ -348,8 +348,8 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         return response.json()
 
-    def _mark_read(self, client, task_ids) -> dict:
-        response = client.post(self._activity_url() + "mark_read/", {"task_ids": task_ids}, format="json")
+    def _mark_read(self, client, activities) -> dict:
+        response = client.post(self._activity_url() + "mark_read/", {"activities": activities}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         return response.json()
 
@@ -460,18 +460,57 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         self._awaiting_input(second)
         self.assertEqual(self.author_client.get(self._activity_url()).json()["unread_count"], 2)
 
-        body = self._mark_read(self.author_client, [str(self.task.id)])
+        row = self._row_for(self.author_client, self.task)
+        body = self._mark_read(
+            self.author_client,
+            [{"task_id": str(self.task.id), "seen_before": row["activity_at"]}],
+        )
         self.assertEqual(body, {"marked_read": 1, "unread_count": 1})
         self.assertFalse(self._row_for(self.author_client, self.task)["is_unread"])
         self.assertTrue(self._row_for(self.author_client, second)["is_unread"])
 
-    def test_reading_the_thread_marks_that_task_read(self):
+    def test_reading_the_thread_does_not_mutate_activity(self):
         self._awaiting_input()
         self.assertTrue(self._row_for(self.author_client, self.task)["is_unread"])
-        # Reaching the task from anywhere but the Activity list still counts as seeing it.
         self.assertEqual(self.author_client.get(self._thread_url()).status_code, status.HTTP_200_OK)
+        self.assertTrue(self._row_for(self.author_client, self.task)["is_unread"])
+
+    def test_mark_read_does_not_clear_newer_activity(self):
+        self._awaiting_input()
+        listed = self._row_for(self.author_client, self.task)
+        TaskActivity.record(
+            team_id=self.team.id,
+            user_id=self.author.id,
+            task_id=self.task.id,
+            kind=TaskActivity.Kind.MENTION,
+            activity_at=django_timezone.now() + timedelta(seconds=1),
+        )
+
+        body = self._mark_read(
+            self.author_client,
+            [{"task_id": str(self.task.id), "seen_before": listed["activity_at"]}],
+        )
+
+        self.assertEqual(body["marked_read"], 0)
+        self.assertTrue(self._row_for(self.author_client, self.task)["is_unread"])
+
+    def test_replaying_the_same_activity_preserves_read_state(self):
+        self._awaiting_input()
+        listed = self._row_for(self.author_client, self.task)
+        self._mark_read(
+            self.author_client,
+            [{"task_id": str(self.task.id), "seen_before": listed["activity_at"]}],
+        )
+
+        TaskActivity.record(
+            team_id=self.team.id,
+            user_id=self.author.id,
+            task_id=self.task.id,
+            kind=TaskActivity.Kind.AWAITING_INPUT,
+            activity_at=datetime.fromisoformat(listed["activity_at"]),
+        )
+
         self.assertFalse(self._row_for(self.author_client, self.task)["is_unread"])
-        self.assertEqual(self.author_client.get(self._activity_url()).json()["unread_count"], 0)
 
     def test_unread_count_covers_the_whole_feed_not_just_the_page(self):
         for index in range(2):
@@ -502,12 +541,33 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         self._post_message(self.author_client, "kickoff", task=second)
         rows = self._rows(self.author_client)
         self.assertEqual([row["task_id"] for row in rows], [str(second.id), str(self.task.id)])
-        limited = self.author_client.get(self._activity_url(), {"limit": 1}).json()["results"]
-        self.assertEqual([row["task_id"] for row in limited], [str(second.id)])
+        first_page = self.author_client.get(self._activity_url(), {"limit": 1}).json()
+        self.assertEqual([row["task_id"] for row in first_page["results"]], [str(second.id)])
+        second_page = self.author_client.get(
+            self._activity_url(),
+            {
+                "limit": 1,
+                "before": first_page["next_before"],
+                "before_id": first_page["next_before_id"],
+            },
+        ).json()
+        self.assertEqual([row["task_id"] for row in second_page["results"]], [str(self.task.id)])
+        self.assertIsNone(second_page["next_before"])
+        self.assertIsNone(second_page["next_before_id"])
 
     def test_mark_read_rejects_an_empty_task_list(self):
-        response = self.author_client.post(self._activity_url() + "mark_read/", {"task_ids": []}, format="json")
+        response = self.author_client.post(self._activity_url() + "mark_read/", {"activities": []}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    def test_activity_projection_failure_does_not_fail_message_creation(self):
+        with patch.object(TaskActivity, "record", side_effect=RuntimeError("projection unavailable")):
+            response = self.author_client.post(self._thread_url(), {"content": "still persisted"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(
+            TaskThreadMessage.objects.filter(task=self.task, content="still persisted").count(),
+            1,
+        )
 
 
 class ChannelFeedMessageAPITestCase(TestCase):

@@ -957,6 +957,23 @@ export interface TaskActivityPageDTOApi {
     results: TaskActivityDTOApi[]
     /** Unread tasks across the requester's whole feed, not just this page. Backs the sidebar badge. */
     unread_count: number
+    /**
+     * Activity timestamp to pass as before for the next page, or null on the final page.
+     * @nullable
+     */
+    next_before?: string | null
+    /**
+     * Activity ID to pass as before_id for the next page, or null on the final page.
+     * @nullable
+     */
+    next_before_id?: string | null
+}
+
+export interface TaskActivityReadMarkerApi {
+    /** Task whose displayed activity should be marked read. */
+    task_id: string
+    /** Mark activity at or before this timestamp read without clearing newer activity. */
+    seen_before: string
 }
 
 /**
@@ -964,10 +981,10 @@ export interface TaskActivityPageDTOApi {
  */
 export interface TaskActivityMarkReadApi {
     /**
-     * Tasks to mark read for the requester. Read state is per task, not a feed-wide cursor.
+     * Displayed task activities to mark read if they have not changed.
      * @maxItems 500
      */
-    task_ids: string[]
+    activities: TaskActivityReadMarkerApi[]
 }
 
 export interface TaskActivityMarkReadResponseApi {
@@ -3616,6 +3633,14 @@ export type SandboxListParams = {
 }
 
 export type TaskActivityListParams = {
+    /**
+     * Activity timestamp from the final row of the previous page.
+     */
+    before?: string
+    /**
+     * Activity ID from the final row of the previous page.
+     */
+    before_id?: string
     /**
      * Maximum number of tasks to return (most recent activity first).
      * @minimum 1

@@ -259,8 +259,13 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
     )
     def list(self, request, *args, **kwargs):
-        limit = request.validated_query_data["limit"]
-        activity = tasks_facade.list_task_activity(self.team_id, self._user_id(), limit=limit)
+        activity = tasks_facade.list_task_activity(
+            self.team_id,
+            self._user_id(),
+            limit=request.validated_query_data["limit"],
+            before=request.validated_query_data.get("before"),
+            before_id=request.validated_query_data.get("before_id"),
+        )
         return Response(TaskActivityPageSerializer(activity).data)
 
     # @extend_schema must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any schema
@@ -279,8 +284,10 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["post"], url_path="mark_read", required_scopes=["task:write"])
     @validated_request(request_serializer=TaskActivityMarkReadSerializer)
     def mark_read(self, request, *args, **kwargs):
-        task_ids = request.validated_data["task_ids"]
-        marked_read = tasks_facade.mark_task_activity_read(self.team_id, self._user_id(), task_ids)
+        activities = [
+            (activity["task_id"], activity["seen_before"]) for activity in request.validated_data["activities"]
+        ]
+        marked_read = tasks_facade.mark_task_activity_read(self.team_id, self._user_id(), activities)
         return Response(
             {
                 "marked_read": marked_read,

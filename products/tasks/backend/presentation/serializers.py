@@ -782,7 +782,7 @@ class TaskRunArtifactUploadSerializer(serializers.Serializer):
         help_text="Optional structured metadata for special artifact types, such as skill bundles.",
     )
 
-    def validate(self, attrs):
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = validate_task_run_artifact_metadata(attrs)
         content = attrs["content"]
         content_encoding = attrs.get("content_encoding", "utf-8")
@@ -1486,6 +1486,19 @@ class TaskActivityQuerySerializer(serializers.Serializer):
         max_value=500,
         help_text="Maximum number of tasks to return (most recent activity first).",
     )
+    before = serializers.DateTimeField(
+        required=False,
+        help_text="Activity timestamp from the final row of the previous page.",
+    )
+    before_id = serializers.UUIDField(
+        required=False,
+        help_text="Activity ID from the final row of the previous page.",
+    )
+
+    def validate(self, attrs):
+        if ("before" in attrs) != ("before_id" in attrs):
+            raise serializers.ValidationError("before and before_id must be provided together")
+        return attrs
 
 
 class TaskActivitySerializer(DataclassSerializer):
@@ -1535,20 +1548,37 @@ class TaskActivityPageSerializer(DataclassSerializer):
     unread_count = serializers.IntegerField(
         help_text="Unread tasks across the requester's whole feed, not just this page. Backs the sidebar badge."
     )
+    next_before = serializers.DateTimeField(
+        allow_null=True,
+        required=False,
+        help_text="Activity timestamp to pass as before for the next page, or null on the final page.",
+    )
+    next_before_id = serializers.UUIDField(
+        allow_null=True,
+        required=False,
+        help_text="Activity ID to pass as before_id for the next page, or null on the final page.",
+    )
 
     class Meta:
         dataclass = TaskActivityPageDTO
-        fields = ["results", "unread_count"]
+        fields = ["results", "unread_count", "next_before", "next_before_id"]
+
+
+class TaskActivityReadMarkerSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="Task whose displayed activity should be marked read.")
+    seen_before = serializers.DateTimeField(
+        help_text="Mark activity at or before this timestamp read without clearing newer activity."
+    )
 
 
 class TaskActivityMarkReadSerializer(serializers.Serializer):
     """Request body for clearing the unread flag on specific tasks."""
 
-    task_ids = serializers.ListField(
-        child=serializers.UUIDField(),
+    activities = serializers.ListField(
+        child=TaskActivityReadMarkerSerializer(),
         allow_empty=False,
         max_length=500,
-        help_text="Tasks to mark read for the requester. Read state is per task, not a feed-wide cursor.",
+        help_text="Displayed task activities to mark read if they have not changed.",
     )
 
 

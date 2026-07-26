@@ -872,14 +872,21 @@ export const SandboxPartialUpdateBody = /* @__PURE__ */ zod
  * Clear the unread flag on the requester's feed rows for the given tasks. Read state is per task, so opening a task through any surface clears the same row.
  * @summary Mark task activity read
  */
-export const taskActivityMarkReadCreateBodyTaskIdsMax = 500
+export const taskActivityMarkReadCreateBodyActivitiesMax = 500
 
 export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
     .object({
-        task_ids: zod
-            .array(zod.uuid())
-            .max(taskActivityMarkReadCreateBodyTaskIdsMax)
-            .describe('Tasks to mark read for the requester. Read state is per task, not a feed-wide cursor.'),
+        activities: zod
+            .array(
+                zod.object({
+                    task_id: zod.uuid().describe('Task whose displayed activity should be marked read.'),
+                    seen_before: zod.iso
+                        .datetime({ offset: true })
+                        .describe('Mark activity at or before this timestamp read without clearing newer activity.'),
+                })
+            )
+            .max(taskActivityMarkReadCreateBodyActivitiesMax)
+            .describe('Displayed task activities to mark read if they have not changed.'),
     })
     .describe('Request body for clearing the unread flag on specific tasks.')
 

@@ -236,6 +236,8 @@ class TaskActivityDTO:
 class TaskActivityPageDTO:
     results: list[TaskActivityDTO]
     unread_count: int
+    next_before: datetime | None = None
+    next_before_id: UUID | None = None
 
 
 @dataclass(frozen=True)

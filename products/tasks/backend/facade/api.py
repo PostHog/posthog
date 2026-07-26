@@ -5131,15 +5131,9 @@ def _visible_task(task_id: str | UUID, team_id: int, user_id: int | None) -> Tas
 def list_thread_messages(
     task_id: str | UUID, team_id: int, user_id: int | None
 ) -> list[contracts.TaskThreadMessageDTO] | None:
-    """A task's thread, ascending. ``None`` when the task isn't visible to the user.
-
-    Reading the thread is what "seeing" a task means, so this clears the requester's
-    activity row for it — reaching the task from the sidebar counts the same as clicking
-    it in the Activity list. The update is a no-op once the row is already read.
-    """
+    """A task's thread, ascending. ``None`` when the task isn't visible to the user."""
     if _visible_task(task_id, team_id, user_id) is None:
         return None
-    mark_task_activity_read(team_id, user_id, [task_id])
     messages = (
         TaskThreadMessage.objects.filter(task_id=task_id, team_id=team_id)
         # The thread is human-to-human plus artifact announcements; rows written
@@ -5158,7 +5152,10 @@ def create_thread_message(
     if _visible_task(task_id, team_id, user_id) is None:
         return None
     message = TaskThreadMessage.objects.create(team_id=team_id, task_id=task_id, author_id=user_id, content=content)
-    project_thread_message_activity(message)
+    try:
+        project_thread_message_activity(message)
+    except Exception:
+        logger.exception("Failed to project thread message activity", extra={"message_id": str(message.id)})
     try:
         _index_thread_message_mentions(message)
     except Exception:
@@ -5285,7 +5282,14 @@ def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
     return _task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
 
 
-def list_task_activity(team_id: int, user_id: int | None, *, limit: int = 100) -> contracts.TaskActivityPageDTO:
+def list_task_activity(
+    team_id: int,
+    user_id: int | None,
+    *,
+    limit: int = 100,
+    before: datetime | None = None,
+    before_id: UUID | None = None,
+) -> contracts.TaskActivityPageDTO:
     """The requester's feed: one row per task they are involved in, newest activity first.
 
     ``unread_count`` counts every unread row the requester can see, not just the ones in
@@ -5294,7 +5298,12 @@ def list_task_activity(team_id: int, user_id: int | None, *, limit: int = 100) -
     if user_id is None:
         return contracts.TaskActivityPageDTO(results=[], unread_count=0)
     qs = _task_activity_qs(team_id, user_id)
-    rows = qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[:limit]
+    if before is not None and before_id is not None:
+        qs = qs.filter(Q(activity_at__lt=before) | Q(activity_at=before, id__lt=before_id))
+    rows = list(qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[: limit + 1])
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    next_row = rows[-1] if has_more else None
     return contracts.TaskActivityPageDTO(
         results=[
             contracts.TaskActivityDTO(
@@ -5312,21 +5321,24 @@ def list_task_activity(team_id: int, user_id: int | None, *, limit: int = 100) -
             )
             for row in rows
         ],
-        unread_count=qs.filter(read_at__isnull=True).count(),
+        unread_count=_task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count(),
+        next_before=next_row.activity_at if next_row else None,
+        next_before_id=next_row.id if next_row else None,
     )
 
 
-def mark_task_activity_read(team_id: int, user_id: int | None, task_ids: Sequence[UUID | str]) -> int:
-    """Mark the requester's feed rows for ``task_ids`` read. Returns the number cleared.
-
-    Read state is per task, so whichever surface the user reaches the task through clears
-    the same row — the Activity list, opening the thread, or a deep link.
-    """
-    if user_id is None or not task_ids:
+def mark_task_activity_read(team_id: int, user_id: int | None, activities: Sequence[tuple[UUID, datetime]]) -> int:
+    """Mark feed rows read only when their latest activity was visible to the requester."""
+    if user_id is None or not activities:
         return 0
-    return TaskActivity.objects.filter(
-        team_id=team_id, user_id=user_id, task_id__in=task_ids, read_at__isnull=True
-    ).update(read_at=django_timezone.now())
+    activity_versions = Q()
+    for task_id, seen_before in activities:
+        activity_versions |= Q(task_id=task_id, activity_at__lte=seen_before)
+    return (
+        TaskActivity.objects.filter(team_id=team_id, user_id=user_id, read_at__isnull=True)
+        .filter(activity_versions)
+        .update(read_at=django_timezone.now())
+    )
 
 
 def delete_thread_message(message_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None) -> str:
