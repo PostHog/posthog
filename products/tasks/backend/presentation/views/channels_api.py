@@ -19,6 +19,8 @@ from products.tasks.backend.presentation.serializers import (
     ChannelFeedMessageWriteSerializer,
     ChannelSerializer,
     ChannelWriteSerializer,
+    TaskActivityQuerySerializer,
+    TaskActivitySerializer,
     TaskMentionQuerySerializer,
     TaskMentionSerializer,
     TaskThreadMessageSerializer,
@@ -197,6 +199,45 @@ class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = request.validated_query_data["limit"]
         mentions = tasks_facade.list_mentions(self.team_id, self._user_id(), since=since, limit=limit)
         return Response(TaskMentionSerializer(mentions, many=True).data)
+
+
+class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API for the requester's activity feed — one row per task they are involved in (created,
+    @-mentioned in, or authored a thread message on), most-recent activity first.
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "head", "options"]
+    serializer_class = TaskActivitySerializer
+
+    def _user_id(self) -> int | None:
+        return getattr(self.request.user, "id", None)
+
+    @validated_request(
+        query_serializer=TaskActivityQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskActivitySerializer(many=True), description="Tasks, most-recent activity first"
+            ),
+        },
+        summary="List the requester's task activity",
+        description=(
+            "Tasks the requester is involved in (created, mentioned, or messaged), one row per task, "
+            "most-recent activity first, restricted to tasks they can see."
+        ),
+    )
+    def list(self, request, *args, **kwargs):
+        since = request.validated_query_data.get("since")
+        limit = request.validated_query_data["limit"]
+        activity = tasks_facade.list_task_activity(self.team_id, self._user_id(), since=since, limit=limit)
+        return Response(TaskActivitySerializer(activity, many=True).data)
 
 
 class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

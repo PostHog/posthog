@@ -209,6 +209,28 @@ class TaskMentionDTO:
 
 
 @dataclass(frozen=True)
+class TaskActivityDTO:
+    """One task the requesting user is involved in, for the task-centric activity feed.
+
+    Unlike ``TaskMentionDTO`` (one row per mention message), this is one row per task,
+    surfacing the most recent relevant activity. ``activity_kind`` classifies the winning
+    signal so the client can pick row copy; ``snippet``/``latest_author``/``latest_message_id``
+    describe the thread message tied to ``activity_at`` (empty/None when the winning signal is
+    task creation, which has no message).
+    """
+
+    task_id: UUID
+    task_title: str
+    channel_id: UUID | None
+    channel_name: str | None
+    activity_at: datetime
+    activity_kind: str
+    snippet: str
+    latest_author: "TaskUserBasicInfo | None" = None
+    latest_message_id: UUID | None = None
+
+
+@dataclass(frozen=True)
 class TaskLatestRunSummaryDTO:
     """The latest-run status/environment pair nested in a task summary response."""
 
