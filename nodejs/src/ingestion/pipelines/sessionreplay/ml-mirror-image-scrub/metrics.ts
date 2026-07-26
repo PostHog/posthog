@@ -72,6 +72,25 @@ export class ImageScrubConsumerMetrics {
         name: 'ml_mirror_image_scrub_consumer_stuck_images_total',
         help: 'Images still being retried after the point where a healthy sidecar would have finished, so likely unprocessable rather than merely queued. Each one holds the head of its partition until it succeeds',
     })
+    /**
+     * How much of a batch reached a recordable offset, and how long the batch took.
+     *
+     * Offsets retire contiguously from the front, so one image stuck at the head holds back every
+     * completed image behind it: the pod carries their bytes without being able to commit any of
+     * them. Nothing else distinguishes that from a batch that was simply slow, and the difference
+     * matters, because a batch running long against max.poll.interval.ms is what gets the pod
+     * evicted and its work redone elsewhere.
+     */
+    private static readonly batchRetiredRatio = new Histogram({
+        name: 'ml_mirror_image_scrub_consumer_batch_retired_ratio',
+        help: 'Share of a batch that retired to a recordable offset. Well under 1 means head-of-line blocking: later images finished but a stuck one at the front prevented any offset advancing',
+        buckets: [0, 0.25, 0.5, 0.75, 0.9, 0.99, 1],
+    })
+    private static readonly batchDuration = new Histogram({
+        name: 'ml_mirror_image_scrub_consumer_batch_duration_seconds',
+        help: 'Wall time per poll batch. Read against Kafka max.poll.interval.ms (300s): batches approaching it get the pod evicted mid-batch, and the partition is redone by whoever picks it up',
+        buckets: [1, 5, 15, 30, 60, 120, 240, 300, 600],
+    })
     private static readonly offsetsDiscarded = new Counter({
         name: 'ml_mirror_image_scrub_consumer_offsets_discarded_total',
         help: 'Offsets that could not be stored because a rebalance had already revoked the partition, so that span rescrubs under its new owner',
@@ -96,6 +115,12 @@ export class ImageScrubConsumerMetrics {
     }
     public static incStuckImage(): void {
         this.stuckImages.inc()
+    }
+    public static observeBatchProgress(retired: number, planned: number, durationSeconds: number): void {
+        if (planned > 0) {
+            this.batchRetiredRatio.observe(retired / planned)
+        }
+        this.batchDuration.observe(durationSeconds)
     }
     public static incOffsetsDiscarded(count: number): void {
         this.offsetsDiscarded.inc(count)

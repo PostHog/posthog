@@ -88,6 +88,17 @@ export class ImageBatcher {
      */
     private activeBatch: AbortController | null = null
     private stopping = false
+    /**
+     * Set when a flush finds this pod no longer owns the partitions it is committing.
+     *
+     * Whatever is left of the batch belongs to another pod now, and scrubbing it anyway spends the
+     * same saturated sidecar twice on one image and writes a second shard for a span the new owner
+     * is already writing. That is load rising per unit of useful work exactly when capacity is what
+     * is scarce, so the batch stops instead.
+     */
+    private partitionsRevoked = false
+    /** Retired count of the running batch, read by the progress metric once it ends. */
+    private retiredInBatch = 0
 
     constructor(
         private readonly store: ImageShardStore,
@@ -139,9 +150,16 @@ export class ImageBatcher {
         // before any offset moves past it.
         const controller = new AbortController()
         this.activeBatch = controller
+        this.partitionsRevoked = false
+        const startedAt = performance.now()
         try {
             await this.scrubAndStage(messages, planned, controller, nowMs)
         } finally {
+            ImageScrubConsumerMetrics.observeBatchProgress(
+                this.retiredInBatch,
+                planned.length,
+                (performance.now() - startedAt) / 1000
+            )
             // Cleared here rather than on the success path: a throwing batch that left this set would
             // have shutdown abort a controller belonging to a batch that is already over.
             this.activeBatch = null
@@ -157,6 +175,7 @@ export class ImageBatcher {
         let spanStart = 0
         let nextToSubmit = 0
         let retired = 0
+        this.retiredInBatch = 0
         const settled = new Array<boolean>(planned.length).fill(false)
         const inFlight = new Map<number, Promise<SettledScrub>>()
         // Results wait here until their slot retires, so the buffer only ever holds images whose
@@ -179,6 +198,9 @@ export class ImageBatcher {
             // Only reachable over capacity with work left: flush to make room rather than spin.
             if (inFlight.size === 0) {
                 await this.flushOrThrow(nowMs)
+                if (this.partitionsRevoked) {
+                    break
+                }
                 continue
             }
 
@@ -222,6 +244,7 @@ export class ImageBatcher {
                     stagedBytes -= ready.image.bytes.length
                 }
                 retired++
+                this.retiredInBatch = retired
             }
             if (retired > retiredBefore) {
                 const spanEnd = planned[retired - 1].index + 1
@@ -231,8 +254,12 @@ export class ImageBatcher {
             if (this.overCapacity(stagedCount, stagedBytes)) {
                 await this.flushOrThrow(nowMs)
             }
+            if (this.partitionsRevoked) {
+                controller.abort()
+                break
+            }
         }
-        if (this.stopping) {
+        if (this.stopping || this.partitionsRevoked) {
             // Deliberately no tail recordOffsets: past the last retired image nothing was finished,
             // and moving offsets over it here would lose exactly what the wait exists to protect.
             await this.flushOrThrow(nowMs)
@@ -372,6 +399,7 @@ export class ImageBatcher {
                 code,
                 partitions: offsets.map((o) => o.partition),
             })
+            this.partitionsRevoked = true
             ImageScrubConsumerMetrics.incOffsetsDiscarded(offsets.length)
         }
     }

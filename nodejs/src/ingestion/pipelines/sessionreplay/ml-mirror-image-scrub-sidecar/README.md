@@ -19,7 +19,12 @@ There is no batch time limit and no drop path: every message a poll batch takes 
 The waiting _is_ the backpressure. A batch that spends longer on a jammed sidecar calls `consume()` that much later, so the consumer paces itself to whatever the sidecar can execute without needing to pause partitions explicitly.
 Lag grows while that happens, which is correct and is what the drain-time panels on the dashboard are for.
 
-Two consequences worth knowing. A wedged sidecar blocks its partitions rather than draining them, and past `max.poll.interval.ms` (300s) the group evicts the pod and those partitions replay elsewhere: churny and loud, but lossless.
+Because the batch has no time limit, its duration is set by how many images it holds, so this lane runs a small `CONSUMER_BATCH_SIZE` (50, against a default of 500).
+A batch that outlives `max.poll.interval.ms` (300s) gets the pod evicted mid-batch, and that is not a clean retry: the evicted pod loses the offsets for work it already did, and the partition lands on a pod whose sidecar is equally busy and redoes the same images, so offered load rises while throughput falls.
+Keeping batches far inside the interval is what stops ordinary saturation reaching that point.
+If a revoke does land mid-batch, the batch stops as soon as a flush finds it no longer owns the partitions, rather than scrubbing on and writing a second shard for a span the new owner is already writing.
+
+A wedged sidecar still blocks its partitions rather than draining them, and no batch size prevents that.
 And an image that makes the sidecar fail forever would block its partition indefinitely; 422/413 covers the common undecodable case, and the fix if a genuine poison pill ever appears is a dead-letter topic, which keeps the bytes in Kafka rather than discarding them.
 
 Waiting only applies to answers a later attempt could change: 5xx, 408, 429, and transport failures (a refused socket is the ordinary case while the sidecar is still starting in the same pod).
