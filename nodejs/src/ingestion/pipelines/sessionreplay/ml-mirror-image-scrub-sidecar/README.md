@@ -41,7 +41,12 @@ Why it was parked travels in headers, so the topic can be triaged without readin
 Under saturation every image waits a long time, so anything keyed on waiting or failure count alone would park the entire stream during a backlog, which is the mass loss the wait exists to prevent arriving through a different door.
 An image is blamed only when it keeps failing **while other images succeed**: a sidecar that is full or wedged fails everything equally, so no image ever meets that condition and the lane keeps waiting, which is correct.
 Only a considered answer counts towards blame, which is the `rejected` reason: the sidecar took the image, looked at it, and could not produce bytes.
-A 503 is it declining to look at all; a timeout is the consumer giving up before the sidecar has, since its per-request budget is shorter than the sidecar's own job deadline, so blaming timeouts would park legitimately expensive images and retire a worker on every attempt; and a refused or reset socket is true of every image at once.
+A 503 is it declining to look at all, and a refused or reset socket is true of every image at once.
+
+**The two deadlines are ordered on purpose, and inverting them reopens a hole.** The sidecar gives up on a job it cannot finish first (`IMAGE_SCRUB_JOB_TIMEOUT_MS`), retires the worker, and answers 500, which is a considered answer about that image and is what lets it be blamed and parked.
+The consumer waits longer than that (`SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS`, past the job deadline plus admission queue wait) so the answer actually arrives.
+Give up first and an unprocessable image looks merely slow on every attempt, never earns blame, and holds the head of a partition shared by every team whose records hash to it.
+A timeout then means what it should: the sidecar said nothing at all, which is true of every image at once and so is not blamable.
 
 The number of other successes required is deliberately small, and must stay below the pod's scrub concurrency.
 A batch cannot finish while one of its images is in flight, and a pod cannot poll for more work until its batch finishes, so the only successes that can ever arrive are from the few slots running alongside that image.

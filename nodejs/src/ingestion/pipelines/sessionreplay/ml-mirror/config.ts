@@ -57,6 +57,17 @@ export type MlMirrorConfig = {
      * memory incident should not need a code deploy of the shared replay ingester.
      */
     SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX: number
+    /**
+     * How long to wait for the sidecar to answer one image.
+     *
+     * Must exceed the sidecar's own IMAGE_SCRUB_JOB_TIMEOUT_MS plus the time a request can sit in
+     * its admission queue, and the ordering is load-bearing rather than a matter of taste. The
+     * sidecar answers a job it cannot finish by retiring the worker and returning 500, which is a
+     * considered answer about that image and is what lets a genuinely unprocessable one be blamed
+     * and parked. Give up first and that answer never arrives: the image looks merely slow on every
+     * attempt, never earns blame, and sits at the head of a partition shared by every team whose
+     * records hash to it. A timeout is then what it should be, the sidecar saying nothing at all.
+     */
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: number
     /** Where images the sidecar cannot process are parked so they stop holding their partition. */
     SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: string
@@ -95,7 +106,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: 8,
         SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS: 250_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX: 500_000,
-        SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: 10 * 1000,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: 45 * 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ,
         SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: 50,
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
