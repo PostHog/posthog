@@ -3048,7 +3048,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 height: parseFloat(iframe.height),
             })
         },
-        exportRecording: ({
+        exportRecording: async ({
             format,
             timestamp = 0,
             mode = SessionRecordingPlayerMode.Screenshot,
@@ -3056,7 +3056,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             filename = '',
         }) => {
             actions.setPause()
-            const iframe = values.rootFrame?.querySelector('iframe')
+
+            // rrweb mounts the replay iframe once the player initializes, which can lag a beat
+            // behind the export trigger. Poll briefly so the first attempt wins the timing race
+            // instead of failing and forcing the user to retry.
+            let iframe = values.rootFrame?.querySelector('iframe')
+            for (let attempt = 0; !iframe && attempt < 20; attempt++) {
+                await delay(50)
+                iframe = values.rootFrame?.querySelector('iframe')
+            }
             if (!iframe) {
                 lemonToast.error('Cannot export recording. Please try again.')
                 return

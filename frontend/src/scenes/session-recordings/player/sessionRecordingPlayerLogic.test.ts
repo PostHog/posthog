@@ -1417,5 +1417,21 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(startReplayExportSpy.mock.calls[0]?.[5]?.skip_inactivity).toBe(false)
             startReplayExportSpy.mockRestore()
         })
+
+        it('waits for the replay iframe to mount instead of failing the first attempt', async () => {
+            // Reproduce the timing race: rootFrame exists but rrweb hasn't mounted the iframe yet
+            const rootFrame = document.createElement('div')
+            logic.actions.setRootFrame(rootFrame)
+
+            const startReplayExportSpy = jest.spyOn(logic.actions, 'startReplayExport')
+            logic.actions.exportRecording(ExporterFormat.PNG, 0, SessionRecordingPlayerMode.Screenshot)
+
+            // The iframe appears a beat later, as it would once the player initializes
+            rootFrame.appendChild(document.createElement('iframe'))
+
+            await expectLogic(logic).toDispatchActions(['startReplayExport'])
+            expect(startReplayExportSpy).toHaveBeenCalledTimes(1)
+            startReplayExportSpy.mockRestore()
+        })
     })
 })
