@@ -12,9 +12,13 @@ It runs a simple http server, receives an image and replies with the scrubbed im
 
 `POST /scrub` with the raw image bytes returns the scrubbed bytes (200). The status split is load-bearing and both sides must change together: the consumer permanently skips 413 (too large) and 422 (undecodable), and retries then **drops** the image on 500 (transient) and 503 (busy). See `scrub-client.ts` for the consumer half.
 
-A dropped image is counted in `ml_mirror_image_scrub_consumer_dropped_total` and never reaches the bucket, so the failure costs coverage rather than leaking content.
-It used to fail the Kafka batch instead, which exits the consumer process: a saturated sidecar therefore crash-looped its pod, and the partitions it gave up landed on pods that were equally saturated, so saturation spread rather than eased.
-Nothing about a busy or unreachable sidecar should ever take the consumer down, because the sidecar is a separate container that a consumer restart does not fix.
+A dropped image is counted in `ml_mirror_image_scrub_consumer_dropped_total` (by `reason`: `busy`, `timeout`, `transport`, `aborted`, `deadline`, `unattempted`) and never reaches the bucket, so the failure costs coverage rather than leaking content.
+That counter is the lane's only health signal, so `IngestionSessionReplayImageScrubDropRate` alerts on its ratio to `..._scrubbed_total`: a pod dropping every image still passes its probes, keeps its lag flat, and keeps advancing offsets.
+Note `unattempted`: when a batch exhausts `SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS` the rest of that poll batch is dropped without being offered to the sidecar at all, because Kafka offsets are a high-water mark and a later batch would commit past them regardless.
+
+**Nothing about a busy or unreachable sidecar may take the consumer down.**
+The consumer's Kafka loop exits the process on any batch error, so a failure that reaches it costs the whole pod and hands its partitions to pods that are equally busy, spreading the saturation.
+A consumer restart cannot fix the sidecar in any case: it is a separate container that keeps running.
 
 `maxConcurrency` is derived from `SCRUB_WORKERS` rather than set independently, so the sidecar sheds load it cannot execute instead of admitting it into an accept queue.
 That matters because the consumer's per-request timeout is an inactivity timeout: a queued request sends no bytes, so queueing reads to the consumer as an unresponsive sidecar rather than a busy one, and a fast 503 is the signal it can actually act on.

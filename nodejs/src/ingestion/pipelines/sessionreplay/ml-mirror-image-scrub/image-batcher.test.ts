@@ -1,4 +1,5 @@
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
+import { register } from 'prom-client'
 
 import { hashImageBytes, imageRef } from './content-ref'
 import { ImageBatcher, OffsetStore } from './image-batcher'
@@ -44,6 +45,18 @@ class FakeOffsets implements OffsetStore {
 const scrubClient = {
     scrub: (b: Buffer) => Promise.resolve(Buffer.concat([Buffer.from('x'), b])),
 } as unknown as ScrubClient
+
+async function droppedByReason(): Promise<Record<string, number>> {
+    const metric = await register.getSingleMetric('ml_mirror_image_scrub_consumer_dropped_total')!.get()
+    const counts: Record<string, number> = { capacity: 0, unattempted: 0 }
+    for (const v of metric.values) {
+        counts[String(v.labels.reason)] = v.value
+    }
+    // The client's reasons all mean the same thing to this assertion: the sidecar was offered the
+    // image and could not take it, as against never being offered it at all.
+    counts.capacity = ['busy', 'timeout', 'transport', 'aborted', 'deadline'].reduce((n, r) => n + (counts[r] ?? 0), 0)
+    return counts
+}
 const options = {
     flushIntervalMs: 0,
     maxImages: 1000,
@@ -501,6 +514,31 @@ describe('ImageBatcher', () => {
         expect(store.writes).toHaveLength(0)
     })
 
+    it('counts the images a deadline never reached apart from the ones it actually attempted', async () => {
+        // A stall past the deadline discards the whole remaining batch, not just the images in
+        // flight, because the batch's abort controller cannot be un-aborted and everything submitted
+        // after it rejects without the sidecar ever seeing it. That loss is accepted, but its size
+        // has to be legible: rolled into one counter, two timed-out images and four hundred that were
+        // never tried look identical, and the deadline is exactly the knob you would be trying to
+        // size from that number.
+        const hangingClient = { scrub: () => new Promise<Buffer>(() => {}) } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            new FakeStore() as unknown as ImageShardStore,
+            new FakeOffsets(),
+            hangingClient,
+            { ...options, scrubConcurrency: 2, maxBatchScrubMs: 5 },
+            0
+        )
+
+        const before = await droppedByReason()
+        const messages = Array.from({ length: 20 }, (_, i) => msg(0, i, pt(1), Buffer.from(`img-${i}`)))
+        await expect(batcher.handleBatch(messages, 1)).resolves.toBeUndefined()
+        const after = await droppedByReason()
+
+        expect(after.capacity - before.capacity).toBe(2)
+        expect(after.unattempted - before.unattempted).toBe(18)
+    })
+
     it('drops an image the sidecar has no capacity for instead of failing the batch', async () => {
         // The lane's crash loop: a saturated sidecar times out, the batch rethrows, and the Kafka
         // loop exits the process on any throw. The partitions then land on pods that are just as
@@ -508,7 +546,7 @@ describe('ImageBatcher', () => {
         const store = new FakeStore()
         const offsets = new FakeOffsets()
         const busyClient = {
-            scrub: () => Promise.reject(new ScrubUnavailable('scrub request timed out')),
+            scrub: () => Promise.reject(new ScrubUnavailable('scrub request timed out', 'timeout')),
         } as unknown as ScrubClient
         const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, busyClient, options, 0)
 
@@ -527,7 +565,7 @@ describe('ImageBatcher', () => {
             scrub: (b: Buffer) => {
                 attempts += 1
                 return attempts === 1
-                    ? Promise.reject(new ScrubUnavailable('sidecar responded 503'))
+                    ? Promise.reject(new ScrubUnavailable('sidecar responded 503', 'busy'))
                     : Promise.resolve(b)
             },
         } as unknown as ScrubClient
