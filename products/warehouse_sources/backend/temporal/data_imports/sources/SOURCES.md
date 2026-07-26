@@ -501,6 +501,7 @@ the row lists both.
 | sage_hr                          | HTTP                        | requests                                                        | ✅                          |
 | salesforce                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesflare                       | HTTP                        | requests                                                        | ✅                          |
+| salesforce_marketing_cloud       | HTTP                        | requests                                                        | ✅                          |
 | salesloft                        | HTTP                        | requests                                                        | ✅                          |
 | savvycal                         | HTTP                        | requests                                                        | ✅                          |
 | scale_ai                         | HTTP                        | requests                                                        | ✅                          |
@@ -1233,7 +1234,6 @@ doesn't conflict with concurrent PRs.
 - safetyculture
 - sage_intacct
 - sailthru
-- salesforce_marketing_cloud
 - salestrics
 - sanity
 - sap_concur

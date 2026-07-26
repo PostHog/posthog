@@ -6,4 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class SalesforceMarketingCloudSourceConfig(config.Config):
-    pass
+    subdomain: str
+    client_id: str
+    client_secret: str
+    account_id: str | None = None
