@@ -2196,6 +2196,22 @@ export namespace Schemas {
       config?: ActivityEventsListWidgetConfig;
     }
 
+    /**
+     * * `awaiting_input` - awaiting_input
+     * * `mention` - mention
+     * * `message` - message
+     * * `created` - created
+     */
+    export type ActivityKindEnum = typeof ActivityKindEnum[keyof typeof ActivityKindEnum];
+
+
+    export const ActivityKindEnum = {
+      AwaitingInput: 'awaiting_input',
+      Mention: 'mention',
+      Message: 'message',
+      Created: 'created',
+    } as const;
+
     export interface ActivityLog {
       readonly id: string;
       user: UserBasic;
@@ -44662,6 +44678,54 @@ export namespace Schemas {
     }
 
     /**
+     * Response shape for one task in the requester's activity feed (one row per task).
+     */
+    export interface TaskActivityDTO {
+      id: string;
+      task_id: string;
+      task_title: string;
+      /** @nullable */
+      channel_id: string | null;
+      /** @nullable */
+      channel_name: string | null;
+      activity_at: string;
+      /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), someone @-mentioning them (mention), their own reply (message), or their creating the task (created).
+       *
+       * * `awaiting_input` - awaiting_input
+       * * `mention` - mention
+       * * `message` - message
+       * * `created` - created */
+      activity_kind: ActivityKindEnum;
+      /** Content of the thread message tied to the latest activity; empty for task-creation rows. */
+      snippet: string;
+      /** Author of the thread message tied to the latest activity, when one applies. */
+      latest_author?: TaskUserBasicInfo | null;
+      /** @nullable */
+      latest_message_id?: string | null;
+      /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
+      is_unread: boolean;
+    }
+
+    /**
+     * A page of the requester's activity feed, plus the unread total across the whole feed.
+     */
+    export interface TaskActivityPageDTO {
+      /** Tasks with activity, most recent first. */
+      results: TaskActivityDTO[];
+      /** Unread tasks across the requester's whole feed, not just this page. Backs the sidebar badge. */
+      unread_count: number;
+    }
+
+    export interface PaginatedTaskActivityPageDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskActivityPageDTO[];
+    }
+
+    /**
      * Detail/create/update/run response for a task automation.
      */
     export interface TaskAutomationDTO {
@@ -66965,6 +67029,24 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for clearing the unread flag on specific tasks.
+     */
+    export interface TaskActivityMarkRead {
+      /**
+         * Tasks to mark read for the requester. Read state is per task, not a feed-wide cursor.
+         * @maxItems 500
+         */
+      task_ids: string[];
+    }
+
+    export interface TaskActivityMarkReadResponse {
+      /** How many feed rows changed from unread to read. */
+      marked_read: number;
+      /** The requester's remaining unread total after the update. */
+      unread_count: number;
+    }
+
+    /**
      * * `active` - active
      * * `failed` - failed
      */
@@ -79780,6 +79862,19 @@ export namespace Schemas {
     export type TagsListParams = {
     /**
      * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TaskActivityListParams = {
+    /**
+     * Maximum number of tasks to return (most recent activity first).
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number;
     /**
