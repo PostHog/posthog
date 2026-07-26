@@ -7,6 +7,7 @@ code never touches `SignalReport` or the embeddings pipeline directly.
 """
 
 from products.signals.backend.scout_report.persistence import (
+    MAX_REPORT_CHARTS,
     MAX_REPORT_SIGNALS,
     InvalidScoutReportError,
     PersistedScoutReport,
@@ -24,6 +25,7 @@ from products.signals.backend.scout_report.persistence import (
 )
 
 __all__ = [
+    "MAX_REPORT_CHARTS",
     "MAX_REPORT_SIGNALS",
     "InvalidScoutReportError",
     "PersistedScoutReport",

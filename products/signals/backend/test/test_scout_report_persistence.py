@@ -28,6 +28,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.scout_report import (
+    MAX_REPORT_CHARTS,
     InvalidScoutReportError,
     ScoutReportSignal,
     append_report_charts,
@@ -376,6 +377,33 @@ class TestScoutReportCharts(BaseTest):
         artefacts = self._chart_artefacts(report_id)
         assert len(artefacts) == 2
         assert ChartArtefact.model_validate_json(artefacts[-1].content).title == "Daily signups (rerun)"
+
+    def test_chart_cap_counts_the_whole_report_not_just_the_call(self) -> None:
+        # The cap bounds how many queries one report fires when it's opened, so it has to hold across
+        # edits — charts append, and a per-call check alone lets repeated edits accumulate past it.
+        report_id = self._create([self._chart(f"chart-{i}", f"Chart {i}") for i in range(MAX_REPORT_CHARTS)])
+
+        with pytest.raises(InvalidScoutReportError):
+            append_report_charts(
+                team_id=self.team.id,
+                report_id=report_id,
+                charts=[self._chart("one-too-many", "Over the line")],
+                attribution=ArtefactAttribution.system(),
+            )
+        assert len(self._chart_artefacts(report_id)) == MAX_REPORT_CHARTS
+
+    def test_refreshing_an_existing_chart_costs_no_headroom(self) -> None:
+        # Counted over distinct ids, so a scout at the cap can still refresh what it already has —
+        # otherwise the refresh workflow the append semantics exist for would be unreachable.
+        report_id = self._create([self._chart(f"chart-{i}", f"Chart {i}") for i in range(MAX_REPORT_CHARTS)])
+
+        append_report_charts(
+            team_id=self.team.id,
+            report_id=report_id,
+            charts=[self._chart("chart-0", "Chart 0 (rerun)")],
+            attribution=ArtefactAttribution.system(),
+        )
+        assert len(self._chart_artefacts(report_id)) == MAX_REPORT_CHARTS + 1
 
     def test_appending_to_another_teams_report_is_refused(self) -> None:
         other_org = Organization.objects.create(name="other")

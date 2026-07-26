@@ -19,6 +19,7 @@ that may have succeeded.
 from __future__ import annotations
 
 import re
+import json
 import uuid
 import asyncio
 import logging
@@ -61,6 +62,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     remediation_for_skip,
 )
 from products.signals.backend.scout_report import (
+    MAX_REPORT_CHARTS,
     MAX_REPORT_SIGNALS,
     InvalidScoutReportError,
     ScoutReportSignal,
@@ -86,9 +88,6 @@ MAX_SUGGESTED_REVIEWERS = 10
 # per-item description (or summary) lets one malformed call spend/fail on a huge LLM prompt.
 MAX_EVIDENCE_DESCRIPTION_LENGTH = 4000
 MAX_REPORT_SUMMARY_LENGTH = 20000
-# A report is something a human skims — a handful of charts is a supporting exhibit, a dozen is a
-# dashboard nobody reads. Also bounds how many queries one report fires when it's opened.
-MAX_REPORT_CHARTS = 4
 
 # Repository modes for `emit_report`, mirroring `custom_agent`'s three-mode contract:
 #   "owner/repo" -> that repo; NO_REPO -> explicitly no repo (lands without a draft PR);
@@ -617,6 +616,12 @@ def _report_url(team_id: int, report_id: str | None) -> str | None:
     return f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
 
 
+def _chart_event_key(chart: ReportChart) -> str:
+    """Identity + content of one chart, for the edit event's dedup key. `sort_keys` keeps the query's
+    serialization stable so an identical re-append hashes the same across worker processes."""
+    return f"{chart.chart_id}:{chart.title}:{chart.caption or ''}:{json.dumps(chart.query, sort_keys=True)}"
+
+
 def _report_event_uuid(*parts: object) -> str:
     """Deterministic event uuid from the parts that identify a distinct emit/edit. A retried capture of the
     same authored report (or an identical re-applied edit) collapses to one event at ingestion instead of
@@ -795,10 +800,14 @@ def _capture_report_edited(
         parts.append(",".join(sorted(f"{r.github_login or ''}:{r.user_uuid or ''}" for r in suggested_reviewers)))
     # Charts are a valid *sole* input to an edit, so the same reasoning applies: two chart-only edits to
     # one report in a run carry no updated_fields and no title/summary/note, and would hash identically —
-    # ingestion would collapse the second and the team would never see that chart land. Key on the chart
-    # ids too, only when charts were appended so every other edit keeps its existing uuid.
+    # ingestion would collapse the second and the team would never see that chart land. Key on the charts
+    # too, only when charts were appended so every other edit keeps its existing uuid.
+    #
+    # The key is the charts' *content*, not just their ids: re-supplying an id is how a scout refreshes a
+    # chart to a newer window, so keying on ids alone would collapse exactly the refresh the team wants to
+    # hear about. A genuinely identical re-append still hashes the same and stays one event.
     if charts:
-        parts.append(",".join(sorted(c.chart_id for c in charts)))
+        parts.append(",".join(sorted(_chart_event_key(c) for c in charts)))
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",

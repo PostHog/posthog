@@ -682,6 +682,12 @@ class TestScoutReportAPI(APIBaseTest):
         churn = forward([chart("churn-spike")])
         assert signups != churn
         assert signups == forward([chart("signups-drop")])
+        # Re-supplying an id is how a scout refreshes a chart to a newer window, so the key has to cover
+        # content too — on ids alone the refresh collapses into the original and the team never hears it.
+        refreshed = ReportChart(
+            chart_id="signups-drop", title="Daily signups", query={"kind": "InsightVizNode", "full": True}
+        )
+        assert forward([refreshed]) != signups
 
     def test_chart_counts_ride_the_lifecycle_events(self) -> None:
         # `charts_appended` / `chart_count` are what a dashboard or CDP destination reads to tell a
