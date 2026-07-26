@@ -3,7 +3,7 @@ import { Message, TopicPartitionOffset } from 'node-rdkafka'
 import { hashImageBytes, imageRef } from './content-ref'
 import { ImageBatcher, OffsetStore } from './image-batcher'
 import { ImageShardStore, ScrubbedImage } from './image-shard-store'
-import { ScrubClient } from './scrub-client'
+import { ScrubClient, ScrubUnavailable } from './scrub-client'
 
 const pt = (n: number): string => String(n).padStart(32, '0')
 const CONTENT_KEY = 'fedcba9876543210fedcba9876543210'
@@ -482,7 +482,10 @@ describe('ImageBatcher', () => {
         ).toThrow('scrubConcurrency')
     })
 
-    it('aborts the batch and replays when scrubbing exceeds the deadline', async () => {
+    it('drops the images still in flight when scrubbing exceeds the deadline, without failing the batch', async () => {
+        // Every capacity failure has to end this way, the deadline included. It reaches the batch as
+        // whatever the concurrency controller rejects an aborted job with rather than as a scrub
+        // error, so classifying by error type alone leaves this one path still killing the pod.
         const store = new FakeStore()
         const offsets = new FakeOffsets()
         const hangingClient = { scrub: () => new Promise<Buffer>(() => {}) } as unknown as ScrubClient
@@ -494,8 +497,79 @@ describe('ImageBatcher', () => {
             0
         )
 
-        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)).rejects.toThrow()
-        expect(offsets.stored).toBe(0)
+        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)).resolves.toBeUndefined()
         expect(store.writes).toHaveLength(0)
+    })
+
+    it('drops an image the sidecar has no capacity for instead of failing the batch', async () => {
+        // The lane's crash loop: a saturated sidecar times out, the batch rethrows, and the Kafka
+        // loop exits the process on any throw. The partitions then land on pods that are just as
+        // busy, so every pod took its turn dying and the lane never recovered on its own.
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        const busyClient = {
+            scrub: () => Promise.reject(new ScrubUnavailable('scrub request timed out')),
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, busyClient, options, 0)
+
+        await expect(
+            batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a')), msg(0, 1, pt(1), Buffer.from('b'))], 1)
+        ).resolves.toBeUndefined()
+        expect(store.writes).toHaveLength(0)
+        expect(offsets.received.flat().map((o) => o.offset)).toEqual([2])
+    })
+
+    it('leaves a dropped ref unmarked so a later copy still gets scrubbed', async () => {
+        // The drop must not look like the permanent 422 rejection, which does mark the ref. Marking
+        // here would let one busy moment permanently exclude that image from the mirror.
+        let attempts = 0
+        const busyOnceClient = {
+            scrub: (b: Buffer) => {
+                attempts += 1
+                return attempts === 1
+                    ? Promise.reject(new ScrubUnavailable('sidecar responded 503'))
+                    : Promise.resolve(b)
+            },
+        } as unknown as ScrubClient
+        const store = new FakeStore()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            busyOnceClient,
+            options,
+            0
+        )
+        const sprite = Buffer.from('sprite')
+
+        await batcher.handleBatch([msg(0, 0, pt(1), sprite)], 1)
+        await batcher.handleBatch([msg(0, 0, pt(1), sprite)], 2)
+
+        expect(store.writes.flat()).toHaveLength(1)
+    })
+
+    it('discards offsets for a partition a rebalance already revoked, rather than exiting', async () => {
+        // librdkafka raises ERR__STATE for a partition we no longer hold. The shard is already on S3,
+        // so the span simply rescrubs under its new owner. Propagating it exits the process, and a
+        // pod exiting is itself what triggers the next rebalance.
+        const store = new FakeStore()
+        const revoked = new FakeOffsets()
+        revoked.offsetsStore = () => {
+            throw Object.assign(new Error('Local: Erroneous state'), { code: -172 })
+        }
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, revoked, scrubClient, options, 0)
+
+        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)).resolves.toBeUndefined()
+        expect(store.writes).toHaveLength(1)
+    })
+
+    it('still fails the batch when storing offsets fails for any other reason', async () => {
+        const store = new FakeStore()
+        const broken = new FakeOffsets()
+        broken.offsetsStore = () => {
+            throw Object.assign(new Error('Broker: Not coordinator'), { code: 16 })
+        }
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, broken, scrubClient, options, 0)
+
+        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)).rejects.toThrow('Not coordinator')
     })
 })
