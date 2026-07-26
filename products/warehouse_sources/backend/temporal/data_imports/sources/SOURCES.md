@@ -514,6 +514,7 @@ the row lists both.
 | sentinelone                      | HTTP                        | requests                                                        | ✅                          |
 | sentry                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow                       | HTTP                        | requests                                                        | ✅                          |
+| sftp                             | SSH (SFTP)                  | paramiko                                                        | ➖                          |
 | shippo                           | HTTP                        | requests                                                        | ✅                          |
 | shipstation                      | HTTP                        | requests                                                        | ✅                          |
 | shopify                          | HTTP                        | requests                                                        | ✅                          |
@@ -1261,7 +1262,6 @@ doesn't conflict with concurrent PRs.
 - servicetrade
 - sevdesk
 - sevenshifts
-- sftp
 - sharepoint
 - sharetribe
 - shippo

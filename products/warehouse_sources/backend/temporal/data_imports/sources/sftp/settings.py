@@ -1,0 +1,31 @@
+from typing import Literal
+
+FileFormat = Literal["csv", "jsonl", "json"]
+ConfiguredFileFormat = Literal["infer", "csv", "jsonl", "json"]
+
+DEFAULT_PORT = 22
+CONNECT_TIMEOUT_SECONDS = 30
+
+# A remote tree is walked breadth-first with both bounds enforced: an SFTP server can expose an
+# arbitrarily deep/wide tree, and discovery has to terminate without the user configuring limits.
+MAX_DIRECTORY_DEPTH = 5
+MAX_FILES = 1000
+
+CHUNK_SIZE = 5000
+
+# Every row carries which file it came from, so a table built from many files stays traceable.
+FILE_PATH_COLUMN = "_file_name"
+FILE_MODIFIED_AT_COLUMN = "_file_modified_at"
+
+EXTENSION_FORMATS: dict[str, FileFormat] = {
+    ".csv": "csv",
+    ".tsv": "csv",
+    ".txt": "csv",
+    ".jsonl": "jsonl",
+    ".ndjson": "jsonl",
+    ".json": "json",
+}
+
+EXTENSION_DELIMITERS: dict[str, str] = {".tsv": "\t"}
+
+DEFAULT_DELIMITER = ","
