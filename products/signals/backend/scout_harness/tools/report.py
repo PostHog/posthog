@@ -619,8 +619,16 @@ def _report_url(team_id: int, report_id: str | None) -> str | None:
 
 def _chart_event_key(chart: ReportChart) -> str:
     """Identity + content of one chart, for the edit event's dedup key. `sort_keys` keeps the query's
-    serialization stable so an identical re-append hashes the same across worker processes."""
-    return f"{chart.chart_id}:{chart.title}:{chart.caption or ''}:{json.dumps(chart.query, sort_keys=True)}"
+    serialization stable so an identical re-append hashes the same across worker processes.
+
+    Encoded as JSON rather than joined on a separator: the fields are scout-authored free text, so any
+    separator can appear inside one of them and two different charts would key the same (a title
+    ending in the separator versus a caption starting with it)."""
+    return json.dumps(
+        [chart.chart_id, chart.title, chart.caption or "", chart.query],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def _report_event_uuid(*parts: object) -> str:

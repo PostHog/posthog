@@ -918,7 +918,14 @@ class SignalReportArtefact(UUIDModel):
         if artefact_type_for(content) not in cls.LOG_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a log artefact content model")
         if isinstance(content, ChartArtefact):
-            cls._assert_chart_headroom(team_id=team_id, report_id=report_id, incoming=content)
+            # The cap is read-then-insert, so it holds only if the two are serialized. Lock the report
+            # row and insert under the same transaction. This sits here rather than in a caller because
+            # every writer reaches the cap through `add_log` — the scout channel and the generic
+            # artefact API alike — and a limit one of them can race past is not a limit.
+            with transaction.atomic():
+                SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
+                cls._assert_chart_headroom(team_id=team_id, report_id=report_id, incoming=content)
+                return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
         artefact = cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
         if isinstance(content, RelatedTo):
             # Same team_id: reports link only within a team (grouping is per-team), so the reverse

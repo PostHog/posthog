@@ -722,6 +722,12 @@ class TestScoutReportAPI(APIBaseTest):
             chart_id="signups-drop", title="Daily signups", query={"kind": "InsightVizNode", "full": True}
         )
         assert forward([refreshed]) != signups
+        # Title and caption are scout-authored free text, so a key that joins them on a separator lets
+        # a colon move across the boundary and hash the same — a real refresh silently deduped away.
+        node = {"kind": "InsightVizNode"}
+        title_carries_it = ReportChart(chart_id="signups-drop", title="Signups: daily", caption="EU", query=node)
+        caption_carries_it = ReportChart(chart_id="signups-drop", title="Signups", caption="daily: EU", query=node)
+        assert forward([title_carries_it]) != forward([caption_carries_it])
 
     def test_chart_counts_ride_the_lifecycle_events(self) -> None:
         # `charts_appended` / `chart_count` are what a dashboard or CDP destination reads to tell a
