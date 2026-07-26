@@ -14,6 +14,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.signals.backend.artefact_schemas import (
+    MAX_REPORT_CHARTS,
     CodeReference,
     NoteArtefact,
     Priority,
@@ -812,6 +813,34 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_post_over_cap_chart_returns_400_not_500(self):
+        # The chart cap is decided at the write, not by the payload, so it raises past the validation
+        # try/except that turns caller errors into a 400. Left unguarded it surfaces as a 500 on an
+        # ordinary input-limit violation.
+        report = self._create_report()
+
+        def post_chart(chart_id: str):
+            return self.client.post(
+                self._list_url(str(report.id)),
+                data=json.dumps(
+                    {
+                        "artefact_type": "chart",
+                        "content": {
+                            "chart_id": chart_id,
+                            "title": "Daily signups",
+                            "query": {"kind": "InsightVizNode"},
+                        },
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        for i in range(MAX_REPORT_CHARTS):
+            assert post_chart(f"chart-{i}").status_code == status.HTTP_201_CREATED
+
+        response = post_chart("one-too-many")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
     @parameterized.expand(
         [
