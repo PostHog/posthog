@@ -116,6 +116,21 @@ export class ImageScrubConsumerMetrics {
         name: 'ml_mirror_image_scrub_consumer_dead_letter_failed_total',
         help: 'Attempts to publish to the dead-letter topic that failed. Each leaves an unscrubbed image holding the head of its partition, so a sustained rate means the topic is misconfigured rather than that images are bad',
     })
+    /**
+     * Parked images pushed back at the source topic by a replay run, and those left behind.
+     *
+     * `exhausted` is the one that needs reading: those images have been round-tripped as often as
+     * they are allowed to be and will not be replayed again, so they stay parked until someone
+     * either fixes what rejects them or accepts losing them to retention.
+     */
+    private static readonly replayed = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_replayed_total',
+        help: 'Parked images published back to the source topic by a replay run',
+    })
+    private static readonly replayExhausted = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_replay_exhausted_total',
+        help: 'Parked images a replay run left in place because they have already been round-tripped the maximum number of times, so the sidecar still cannot process them',
+    })
     private static readonly offsetsDiscarded = new Counter({
         name: 'ml_mirror_image_scrub_consumer_offsets_discarded_total',
         help: 'Offsets that could not be stored because a rebalance had already revoked the partition, so that span rescrubs under its new owner',
@@ -152,6 +167,12 @@ export class ImageScrubConsumerMetrics {
     }
     public static incDeadLetterFailed(): void {
         this.deadLetterFailed.inc()
+    }
+    public static incReplayed(): void {
+        this.replayed.inc()
+    }
+    public static incReplayExhausted(): void {
+        this.replayExhausted.inc()
     }
     public static incOffsetsDiscarded(count: number): void {
         this.offsetsDiscarded.inc(count)

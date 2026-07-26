@@ -1,6 +1,6 @@
 import { LibrdKafkaError, Message, TopicPartitionOffset } from 'node-rdkafka'
 
-import { findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
+import { findOffsetsToCommit, parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
@@ -34,6 +34,15 @@ export interface DeadLetterSink {
  * us. All four have to be here: which one a given revoke produces is a matter of timing, so matching
  * a subset leaves the rest of the window exiting the process.
  */
+/**
+ * Names how many replays an image has already survived.
+ *
+ * Read on the way in and written back on the way out, so re-parking preserves it. If the count reset
+ * on each pass, a replay run against a sidecar that still cannot handle the image would ping-pong it
+ * between the two topics forever, spending scrub capacity on work already known to fail.
+ */
+export const REPLAY_COUNT_HEADER = 'replayCount'
+
 const REVOKED_PARTITION_CODES = new Set([
     -172, // ERR__STATE
     -190, // ERR__UNKNOWN_PARTITION
@@ -52,6 +61,14 @@ interface PlannedScrub {
     sourceTopic: string
     sourcePartition: number
     sourceOffset: number
+    /**
+     * How many times this image has already been replayed out of the dead-letter topic.
+     *
+     * Carried through so re-parking preserves it. Without that the count resets on every pass and a
+     * replay run against a sidecar that still cannot handle the image ping-pongs it forever, which
+     * is worse than leaving it parked: it spends scrub capacity on work already known to fail.
+     */
+    replayCount: number
 }
 
 interface ScrubbedRef {
@@ -341,6 +358,7 @@ export class ImageBatcher {
                 sourceTopic: m.topic,
                 sourcePartition: m.partition,
                 sourceOffset: m.offset,
+                replayCount: Number(parseKafkaHeaders(m.headers)[REPLAY_COUNT_HEADER] ?? 0) || 0,
             })
         }
         return planned
