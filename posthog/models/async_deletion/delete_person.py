@@ -44,19 +44,23 @@ def remove_deleted_person_data():
     name = f"{DELETED_PERSON_IDS_DICTIONARY}_{uuid.uuid4().hex}"
     qualified = f"{CLICKHOUSE_DATABASE}.{name}"
 
+    # Create inside the try so a partial cluster-wide create is still cleaned up by the finally.
     try:
-        # `present` is an unused attribute; the dictionary is only probed with dictHas().
+        # Credentials are passed as query parameters so they are not interpolated into the
+        # traced statement. `present` is an unused attribute; the dictionary is only probed
+        # with dictHas().
         sync_execute(
             f"""
             CREATE OR REPLACE DICTIONARY {qualified} {ON_CLUSTER_CLAUSE()} (id UUID, present UInt8)
             PRIMARY KEY id
             SOURCE(CLICKHOUSE(
                 QUERY 'SELECT id, toUInt8(1) AS present FROM {CLICKHOUSE_DATABASE}.person WHERE is_deleted > 0'
-                USER '{dict_reader_user}' PASSWORD '{dict_reader_password}'
+                USER %(dict_reader_user)s PASSWORD %(dict_reader_password)s
             ))
             LAYOUT(COMPLEX_KEY_HASHED())
             LIFETIME(0)
             """,
+            {"dict_reader_user": dict_reader_user, "dict_reader_password": dict_reader_password},
             workload=Workload.OFFLINE,
         )
 
