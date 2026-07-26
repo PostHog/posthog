@@ -137,6 +137,11 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Filter prompts by the ID of the user who created them.",
     )
+    archived = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, list archived prompts instead of active ones.",
+    )
     content = serializers.ChoiceField(
         choices=CONTENT_MODE_CHOICES,
         required=False,

@@ -15,7 +15,7 @@ function changeBefore(logItem: ActivityLogItem, field: string): string | null {
     return change?.before != null ? String(change.before) : null
 }
 
-// Lifecycle events (create/publish/archive/duplicate) for scope LLMPrompt, written by
+// Lifecycle events (create/publish/archive/unarchive/duplicate) for scope LLMPrompt, written by
 // log_llm_prompt_activity in backend activity_logging.py. detail.name is the prompt name.
 export function promptActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     const user = userNameForLogItem(logItem)
@@ -57,6 +57,18 @@ export function promptActivityDescriber(logItem: ActivityLogItem, asNotification
             description: (
                 <>
                     <strong className="ph-no-capture">{user}</strong> archived prompt <b>{promptName}</b>
+                    {versionCount ? <> ({versionCount} versions)</> : null}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'unarchived') {
+        const versionCount = changeAfter(logItem, 'version_count')
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{user}</strong> restored prompt <b>{promptName}</b>
                     {versionCount ? <> ({versionCount} versions)</> : null}
                 </>
             ),

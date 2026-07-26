@@ -28,6 +28,10 @@ class LLMPromptNotFoundError(Exception):
     pass
 
 
+class LLMPromptActiveNameConflictError(Exception):
+    pass
+
+
 class LLMPromptLabelNotFoundError(Exception):
     pass
 
@@ -111,6 +115,31 @@ def get_active_prompt_queryset(team: Team) -> QuerySet[LLMPrompt]:
 
 def get_latest_prompts_queryset(team: Team) -> QuerySet[LLMPrompt]:
     return get_active_prompt_queryset(team).filter(is_latest=True)
+
+
+def get_archived_prompt_queryset(team: Team) -> QuerySet[LLMPrompt]:
+    return annotate_llm_prompt_version_history_metadata(
+        LLMPrompt.objects.filter(team=team, deleted=True).select_related("created_by").prefetch_related("labels"),
+        deleted=True,
+    )
+
+
+def get_archived_latest_prompts_queryset(team: Team) -> QuerySet[LLMPrompt]:
+    """One representative row per archived prompt name, for the "show archived" list.
+
+    Archiving sets is_latest=False on every row, so there is no is_latest flag to key on.
+    A name can be reused (and re-archived) after archiving, so several archived generations
+    can share a name; the newest generation always has the most recent created_at, so its
+    highest version is the row with the greatest created_at. That is what unarchive restores,
+    so it's the right row to surface here.
+    """
+    representative_ids = list(
+        LLMPrompt.objects.filter(team=team, deleted=True)
+        .order_by("name", "-created_at", "-version", "-id")
+        .distinct("name")
+        .values_list("id", flat=True)
+    )
+    return get_archived_prompt_queryset(team).filter(id__in=representative_ids)
 
 
 def get_prompt_by_name_from_db(
@@ -361,6 +390,58 @@ def archive_prompt(team: Team, prompt_name: str, *, user: User | None = None) ->
         transaction.on_commit(invalidate_caches_on_commit)
 
     return prompt_versions
+
+
+def unarchive_prompt(team: Team, prompt_name: str, *, user: User | None = None) -> LLMPrompt:
+    """Bring an archived prompt back: flip `deleted` off and restore `is_latest`.
+
+    Labels are not restored — archiving hard-deletes them (they'd otherwise block reusing the
+    name), so an unarchived prompt starts with no labels, just like a duplicate.
+    """
+    with transaction.atomic():
+        if LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False).exists():
+            raise LLMPromptActiveNameConflictError()
+
+        deleted_rows = list(
+            LLMPrompt.objects.select_for_update()
+            .filter(team=team, name=prompt_name, deleted=True)
+            .order_by("created_at", "id")
+        )
+        if not deleted_rows:
+            raise LLMPromptNotFoundError()
+
+        # A name can only be reused once its previous generation is archived, so archived
+        # generations never overlap in time. Restore just the newest one — the versions from
+        # the latest version-1 row onward — so restoring can't collide on the version-per-name
+        # uniqueness constraint with an older generation left archived.
+        boundary = max(
+            (row.created_at for row in deleted_rows if row.version == 1),
+            default=deleted_rows[0].created_at,
+        )
+        generation = [row for row in deleted_rows if row.created_at >= boundary]
+        latest_row = max(generation, key=lambda row: (row.version, row.created_at, str(row.id)))
+        restored_versions = sorted(row.version for row in generation)
+
+        LLMPrompt.objects.filter(pk__in=[row.pk for row in generation]).update(deleted=False, is_latest=False)
+        LLMPrompt.objects.filter(pk=latest_row.pk).update(is_latest=True)
+
+        log_llm_prompt_activity(
+            team=team,
+            user=user,
+            prompt_name=prompt_name,
+            activity="unarchived",
+            changes=[Change(type="LLMPrompt", action="created", field="version_count", after=len(restored_versions))],
+        )
+
+        # Bulk updates skip the post_save signal that normally clears these, so do it here.
+        def invalidate_caches_on_commit() -> None:
+            invalidate_prompt_latest_cache(team.id, prompt_name)
+            invalidate_prompt_version_caches(team.id, prompt_name, restored_versions)
+
+        transaction.on_commit(invalidate_caches_on_commit)
+
+    refreshed = get_active_prompt_queryset(team).filter(pk=latest_row.pk).first()
+    return refreshed if refreshed is not None else latest_row
 
 
 @dataclass

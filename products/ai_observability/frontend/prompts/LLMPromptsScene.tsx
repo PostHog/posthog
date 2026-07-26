@@ -10,6 +10,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -25,7 +26,7 @@ import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/type
 
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
 import { PromptLabelChip } from './PromptLabelChip'
-import { openArchivePromptDialog, openDuplicatePromptDialog } from './utils'
+import { openArchivePromptDialog, openDuplicatePromptDialog, openUnarchivePromptDialog } from './utils'
 
 export const scene: SceneExport = {
     component: LLMPromptsScene,
@@ -34,13 +35,14 @@ export const scene: SceneExport = {
 }
 
 export function LLMPromptsScene(): JSX.Element {
-    const { setFilters, deletePrompt } = useActions(llmPromptsLogic)
+    const { setFilters, deletePrompt, unarchivePrompt } = useActions(llmPromptsLogic)
     const { duplicatePrompt } = useAsyncActions(llmPromptsLogic)
     const { prompts, promptsLoading, sorting, pagination, filters, promptCountLabel, shouldShowEmptyState } =
         useValues(llmPromptsLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
+    const showingArchived = filters.archived
     const promptUrl = (name: string): string => combineUrl(urls.aiObservabilityPrompt(name), searchParams).url
 
     const columns: LemonTableColumns<LLMPrompt> = [
@@ -50,6 +52,11 @@ export function LLMPromptsScene(): JSX.Element {
             key: 'name',
             width: '25%',
             render: function renderName(_, prompt) {
+                // Archived prompts have no viewable detail page (every read path filters
+                // them out), so show the name as plain text until it's restored.
+                if (showingArchived) {
+                    return <span className="font-semibold">{prompt.name}</span>
+                }
                 return (
                     <Link to={promptUrl(prompt.name)} className="font-semibold" data-attr="llma-prompt-name-link">
                         {prompt.name}
@@ -115,6 +122,26 @@ export function LLMPromptsScene(): JSX.Element {
         {
             width: 0,
             render: function renderMore(_, prompt) {
+                if (showingArchived) {
+                    return (
+                        <More
+                            overlay={
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        onClick={() => openUnarchivePromptDialog(() => unarchivePrompt(prompt.name))}
+                                        data-attr="llma-prompt-dropdown-restore"
+                                        fullWidth
+                                    >
+                                        Restore
+                                    </LemonButton>
+                                </AccessControlAction>
+                            }
+                        />
+                    )
+                }
                 return (
                     <More
                         overlay={
@@ -189,29 +216,41 @@ export function LLMPromptsScene(): JSX.Element {
             />
 
             {shouldShowEmptyState ? (
-                <ProductIntroduction
-                    productName="Prompt management"
-                    productKey={ProductKey.LLM_PROMPTS}
-                    thingName="prompt"
-                    description="Create and version LLM prompts in PostHog, then fetch them from your code at runtime — update prompts without deploying. Every change is an immutable version you can compare, restore, and A/B test."
-                    docsURL="https://posthog.com/docs/prompt-management"
-                    isEmpty
-                    actionElementOverride={
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
-                            minAccessLevel={AccessControlLevel.Editor}
+                <>
+                    <div className="flex justify-end">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => setFilters({ archived: true, page: 1 })}
+                            data-attr="prompts-empty-state-show-archived"
                         >
-                            <LemonButton
-                                type="primary"
-                                to={promptUrl('new')}
-                                icon={<IconPlusSmall />}
-                                data-attr="llma-prompts-empty-state-new-prompt"
+                            Show archived prompts
+                        </LemonButton>
+                    </div>
+                    <ProductIntroduction
+                        productName="Prompt management"
+                        productKey={ProductKey.LLM_PROMPTS}
+                        thingName="prompt"
+                        description="Create and version LLM prompts in PostHog, then fetch them from your code at runtime — update prompts without deploying. Every change is an immutable version you can compare, restore, and A/B test."
+                        docsURL="https://posthog.com/docs/prompt-management"
+                        isEmpty
+                        actionElementOverride={
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                New prompt
-                            </LemonButton>
-                        </AccessControlAction>
-                    }
-                />
+                                <LemonButton
+                                    type="primary"
+                                    to={promptUrl('new')}
+                                    icon={<IconPlusSmall />}
+                                    data-attr="llma-prompts-empty-state-new-prompt"
+                                >
+                                    New prompt
+                                </LemonButton>
+                            </AccessControlAction>
+                        }
+                    />
+                </>
             ) : (
                 <div className="space-y-4">
                     <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
@@ -225,6 +264,12 @@ export function LLMPromptsScene(): JSX.Element {
                         />
                         <div className="text-muted-alt">{promptCountLabel}</div>
                         <div className="flex-1" />
+                        <LemonSwitch
+                            label="Show archived"
+                            checked={showingArchived}
+                            onChange={(checked) => setFilters({ archived: checked, page: 1 })}
+                            data-attr="prompts-show-archived-switch"
+                        />
                         <span>
                             <b>Created by</b>
                         </span>

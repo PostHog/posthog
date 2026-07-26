@@ -727,6 +727,80 @@ class TestLLMPromptAPI(APIBaseTest):
         assert invalidated_versions == list(range(1, 101))
         mock_delay.assert_called_once_with(self.team.id, "archive-prompt", 101, 105)
 
+    def test_unarchive_endpoint_restores_prompt_and_refetches_by_name(self):
+        self.create_prompt_version(name="restore-me", version=1, is_latest=False, prompt="v1")
+        self.create_prompt_version(name="restore-me", version=2, is_latest=True, prompt="v2")
+
+        with patch("posthog.api.services.llm_prompt.transaction.on_commit", side_effect=lambda callback: callback()):
+            self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/restore-me/archive/")
+            gone = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/restore-me/")
+            unarchive = self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/restore-me/unarchive/")
+            back = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/restore-me/")
+
+        assert gone.status_code == status.HTTP_404_NOT_FOUND
+        assert unarchive.status_code == status.HTTP_200_OK
+        assert unarchive.json()["version"] == 2
+        assert unarchive.json()["is_latest"] is True
+        assert unarchive.json()["version_count"] == 2
+        assert back.status_code == status.HTTP_200_OK
+
+        active = LLMPrompt.objects.filter(team=self.team, name="restore-me", deleted=False)
+        assert active.count() == 2
+        assert list(active.filter(is_latest=True).values_list("version", flat=True)) == [2]
+
+    def test_unarchive_endpoint_conflicts_when_active_prompt_with_same_name_exists(self):
+        self.create_prompt_version(name="taken", version=1, is_latest=False, deleted=True, prompt="old")
+        self.create_prompt_version(name="taken", version=1, is_latest=True, prompt="new")
+
+        response = self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/taken/unarchive/")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert LLMPrompt.objects.filter(team=self.team, name="taken", deleted=True).count() == 1
+
+    def test_unarchive_endpoint_returns_404_when_nothing_archived(self):
+        response = self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/missing/unarchive/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_unarchive_endpoint_restores_only_the_most_recent_archived_generation(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        base = timezone.now()
+        first_gen = [
+            self.create_prompt_version(name="reused", version=1, is_latest=False, deleted=True, prompt="g1v1"),
+            self.create_prompt_version(name="reused", version=2, is_latest=False, deleted=True, prompt="g1v2"),
+        ]
+        second_gen = [
+            self.create_prompt_version(name="reused", version=1, is_latest=False, deleted=True, prompt="g2v1"),
+        ]
+        # A reused name only archives a new generation after the old one is gone, so generations
+        # never overlap in time — pin created_at so the newest one is unambiguous.
+        for offset, prompt in enumerate([*first_gen, *second_gen]):
+            LLMPrompt.objects.filter(pk=prompt.pk).update(created_at=base + timedelta(minutes=offset))
+
+        response = self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/reused/unarchive/")
+
+        assert response.status_code == status.HTTP_200_OK
+        restored = LLMPrompt.objects.filter(team=self.team, name="reused", deleted=False)
+        assert list(restored.values_list("prompt", flat=True)) == ["g2v1"]
+        assert LLMPrompt.objects.filter(team=self.team, name="reused", deleted=True).count() == 2
+
+    def test_list_archived_returns_archived_prompts_and_excludes_active(self):
+        self.create_prompt_version(name="active-prompt", version=1, is_latest=True, prompt="active")
+        self.create_prompt_version(name="archived-prompt", version=1, is_latest=False, deleted=True, prompt="a1")
+        self.create_prompt_version(name="archived-prompt", version=2, is_latest=False, deleted=True, prompt="a2")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?archived=true")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert {prompt["name"] for prompt in results} == {"archived-prompt"}
+        archived = results[0]
+        assert archived["version"] == 2
+        assert archived["version_count"] == 2
+
     def test_resolve_prompt_by_name_supports_explicit_version_for_session_auth(self):
         historical = self.create_prompt_version(name="resolve-prompt", version=1, is_latest=False, prompt="v1")
         self.create_prompt_version(name="resolve-prompt", version=2, is_latest=True, prompt="v2")

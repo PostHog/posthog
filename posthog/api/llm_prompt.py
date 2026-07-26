@@ -33,6 +33,7 @@ from posthog.api.llm_prompt_serializers import (
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.llm_prompt import (
+    LLMPromptActiveNameConflictError,
     LLMPromptDuplicateNameConflictError,
     LLMPromptEditError,
     LLMPromptLabelConflictError,
@@ -44,6 +45,7 @@ from posthog.api.services.llm_prompt import (
     archive_prompt,
     duplicate_prompt,
     get_active_prompt_queryset,
+    get_archived_latest_prompts_queryset,
     get_latest_prompts_queryset,
     get_prompt_by_name_from_db,
     get_prompt_labels,
@@ -51,6 +53,7 @@ from posthog.api.services.llm_prompt import (
     remove_prompt_label,
     resolve_versions_page,
     set_prompt_label,
+    unarchive_prompt,
 )
 from posthog.auth import (
     JwtAuthentication,
@@ -210,7 +213,12 @@ class LLMPromptViewSet(
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMPrompt]:
         params = self._get_list_params(request)
 
-        queryset = get_latest_prompts_queryset(self.team).annotate(
+        base_queryset = (
+            get_archived_latest_prompts_queryset(self.team)
+            if params.get("archived")
+            else get_latest_prompts_queryset(self.team)
+        )
+        queryset = base_queryset.annotate(
             prompt_size_bytes=Func(
                 Cast("prompt", output_field=TextField()), function="OCTET_LENGTH", output_field=IntegerField()
             ),
@@ -425,6 +433,43 @@ class LLMPromptViewSet(
             request=request,
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(responses={200: LLMPromptSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<prompt_name>[^/]+)/unarchive",
+        required_scopes=["llm_prompt:write"],
+    )
+    @llma_track_latency("llma_prompts_unarchive")
+    @monitor(feature=None, endpoint="llma_prompts_unarchive", method="POST")
+    def unarchive(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        try:
+            restored_prompt = unarchive_prompt(self.team, prompt_name, user=cast(User, request.user))
+        except LLMPromptNotFoundError:
+            return self._prompt_not_found_response(prompt_name)
+        except LLMPromptActiveNameConflictError:
+            return Response(
+                {"detail": f"An active prompt named '{prompt_name}' already exists. Rename or archive it first."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        report_user_action(
+            cast(User, request.user),
+            "llma prompt unarchived",
+            {
+                "prompt_id": str(restored_prompt.id),
+                "prompt_name": restored_prompt.name,
+                "prompt_version": restored_prompt.version,
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_prompt(restored_prompt))
 
     @extend_schema(request=LLMPromptDuplicateSerializer, responses={201: LLMPromptSerializer})
     @action(

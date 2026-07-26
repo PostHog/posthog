@@ -2052,6 +2052,10 @@ export class ApiRequest {
         return this.llmPromptByName(name, teamId).addPathComponent('archive')
     }
 
+    public llmPromptUnarchiveByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmPromptByName(name, teamId).addPathComponent('unarchive')
+    }
+
     public llmPromptDuplicateByName(name: string, teamId?: TeamType['id']): ApiRequest {
         return this.llmPromptByName(name, teamId).addPathComponent('duplicate')
     }
@@ -7186,6 +7190,7 @@ const api = {
             order_by?: string
             offset?: number
             limit?: number
+            archived?: boolean
         }): Promise<CountedPaginatedResponse<LLMPrompt>> {
             return new ApiRequest().llmPrompts().withQueryString(params).get()
         },
@@ -7216,6 +7221,10 @@ const api = {
 
         async archiveByName(promptName: string): Promise<void> {
             await new ApiRequest().llmPromptArchiveByName(promptName).create({ data: {} })
+        },
+
+        async unarchiveByName(promptName: string): Promise<LLMPrompt> {
+            return await new ApiRequest().llmPromptUnarchiveByName(promptName).create({ data: {} })
         },
 
         async create(data: { name: LLMPrompt['name']; prompt: LLMPrompt['prompt'] }): Promise<LLMPrompt> {

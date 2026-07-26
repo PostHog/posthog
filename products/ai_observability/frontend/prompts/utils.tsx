@@ -170,6 +170,23 @@ export function openArchivePromptDialog(onArchive: () => void): void {
     })
 }
 
+export function openUnarchivePromptDialog(onUnarchive: () => void): void {
+    LemonDialog.open({
+        title: 'Restore prompt?',
+        description:
+            'This brings back every version of the prompt and makes it resolvable by name again. Labels are not restored — re-apply them after restoring.',
+        primaryButton: {
+            children: 'Restore',
+            type: 'primary',
+            onClick: onUnarchive,
+        },
+        secondaryButton: {
+            children: 'Cancel',
+            type: 'secondary',
+        },
+    })
+}
+
 export async function requestPromptDuplicate(sourceName: string, newName: string): Promise<void> {
     try {
         await api.llmPrompts.duplicateByName(sourceName, newName)
