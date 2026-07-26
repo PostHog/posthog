@@ -6,4 +6,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class NetSuiteSourceConfig(config.Config):
-    pass
+    account_id: str
+    consumer_key: str
+    consumer_secret: str
+    token_id: str
+    token_secret: str
