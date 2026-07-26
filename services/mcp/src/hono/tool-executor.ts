@@ -521,8 +521,11 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
     // tool, bad JSON, unknown verb). That's an agent-recoverable input mistake, not
     // a server fault — bucket it as `validation` so it stays out of the `internal`
     // rate ops alerts on, and so a retry-looping agent can't masquerade as an outage.
+    // `missing_scope` is the exception: the agent can't fix it by sending different
+    // input, the connection has to be reauthorized — which is exactly what the
+    // permission-rate alert watches for.
     if (error instanceof ExecCommandError) {
-        return { errorType: 'validation' }
+        return { errorType: error.reason === 'missing_scope' ? 'permission' : 'validation' }
     }
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }

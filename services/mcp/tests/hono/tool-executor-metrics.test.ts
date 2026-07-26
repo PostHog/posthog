@@ -487,5 +487,19 @@ describe('ToolExecutor metrics', () => {
                 $mcp_error_message: 'Exec command rejected: invalid_json',
             })
         })
+
+        it('classifies a scope-gated tool as permission, not validation', async () => {
+            // The agent can't fix this by sending different input — the connection has
+            // to be reauthorized, which is what the permission-rate alert watches for.
+            const state = execState()
+            state.scopeGatedTools = [{ name: 'gated-tool', missingScopes: ['insight:read'] }] as any
+
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'info gated-tool' } }, state)
+
+            expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'permission' }])
+            expect(trackToolCallExtras('exec')).toMatchObject({
+                $mcp_error_message: 'Exec command rejected: missing_scope',
+            })
+        })
     })
 })
