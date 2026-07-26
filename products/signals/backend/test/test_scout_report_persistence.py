@@ -420,6 +420,22 @@ class TestScoutReportCharts(BaseTest):
             )
         assert len(self._chart_artefacts(report_id)) == MAX_REPORT_CHARTS
 
+    def test_editing_a_chart_cannot_repoint_its_id(self) -> None:
+        # Appending is where the cap lives, so a rename would be a way around it: append rows under
+        # one id (each a free refresh), then rename them apart into distinct charts. It would also
+        # break the `[label](chart:<chart_id>)` reference the summary uses to place the chart.
+        report_id = self._create([self._chart("signups-drop", "Daily signups")])
+        row = self._chart_artefacts(report_id)[0]
+
+        with pytest.raises(ArtefactContentValidationError):
+            row.update_content({"chart_id": "renamed", "title": "Daily signups", "query": {"kind": "InsightVizNode"}})
+        # Editing what the chart shows, keeping its identity, is still allowed.
+        row.update_content(
+            {"chart_id": "signups-drop", "title": "Daily signups (90d)", "query": {"kind": "InsightVizNode"}}
+        )
+        row.refresh_from_db()
+        assert ChartArtefact.model_validate_json(row.content).title == "Daily signups (90d)"
+
     def test_appending_to_another_teams_report_is_refused(self) -> None:
         other_org = Organization.objects.create(name="other")
         other_team = Team.objects.create(organization=other_org, name="other")

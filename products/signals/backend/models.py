@@ -981,6 +981,19 @@ class SignalReportArtefact(UUIDModel):
             raise ArtefactContentValidationError(
                 "task_run content.task_id must match the artefact's task and cannot be reassigned by editing"
             )
+        # Same shape of guard for a chart: `chart_id` is the chart's identity, not part of its content.
+        # Appending is where the per-report cap is enforced, so letting an edit repoint a row to a new
+        # id would be a way around it — append rows under one id (each a free refresh), then rename
+        # them apart. It would also silently break the `[label](chart:<chart_id>)` reference the
+        # summary uses to place the chart. Editing what a chart *shows* is fine; changing which chart
+        # it *is* is not.
+        if isinstance(parsed, ChartArtefact):
+            current_chart_id = ChartArtefact.model_validate_json(self.content).chart_id
+            if parsed.chart_id != current_chart_id:
+                raise ArtefactContentValidationError(
+                    f"chart_id is the chart's identity and cannot be reassigned by editing "
+                    f"(row is {current_chart_id!r}, got {parsed.chart_id!r})"
+                )
         self.content = parsed.model_dump_json()
         self.save(update_fields=["content", "updated_at"])
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
