@@ -559,6 +559,18 @@ class ScoutNoteSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Display name of the user who left the note, or null when unavailable.",
     )
+    # A plain CharField rather than a ChoiceField: `origin` is a collision-prone enum field name
+    # (a saved query carries one too), and the generated enum component isn't worth an
+    # ENUM_NAME_OVERRIDES entry for a two-value read-only projection with no frontend consumer.
+    origin = serializers.CharField(
+        help_text=(
+            "Where the note came from: `human` for one left directly through this API, or "
+            "`report_dismissal` for one forwarded from the note someone typed when they dismissed, "
+            "snoozed, or restored one or more inbox reports. A `report_dismissal` note is one "
+            "reviewer's verdict on the reports its content names, so weigh it as evidence about "
+            "those reports rather than as fleet-level steering."
+        ),
+    )
 
 
 class ScoutNotesQuerySerializer(serializers.Serializer):
