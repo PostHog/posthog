@@ -19,6 +19,7 @@ from products.tasks.backend.presentation.serializers import (
     ChannelFeedMessageWriteSerializer,
     ChannelSerializer,
     ChannelWriteSerializer,
+    TaskActivityPageSerializer,
     TaskActivityQuerySerializer,
     TaskActivitySerializer,
     TaskMentionQuerySerializer,
@@ -180,7 +181,7 @@ class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     ]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
-    http_method_names = ["get", "head", "options"]
+    http_method_names = ["get", "post", "head", "options"]
     serializer_class = TaskMentionSerializer
 
     def _user_id(self) -> int | None:
@@ -223,9 +224,7 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         query_serializer=TaskActivityQuerySerializer,
         responses={
-            200: OpenApiResponse(
-                response=TaskActivitySerializer(many=True), description="Tasks, most-recent activity first"
-            ),
+            200: OpenApiResponse(response=TaskActivityPageSerializer, description="Tasks, most-recent activity first"),
         },
         summary="List the requester's task activity",
         description=(
@@ -234,10 +233,14 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
     )
     def list(self, request, *args, **kwargs):
-        since = request.validated_query_data.get("since")
         limit = request.validated_query_data["limit"]
-        activity = tasks_facade.list_task_activity(self.team_id, self._user_id(), since=since, limit=limit)
-        return Response(TaskActivitySerializer(activity, many=True).data)
+        activity = tasks_facade.list_task_activity(self.team_id, self._user_id(), limit=limit)
+        return Response(TaskActivityPageSerializer(activity).data)
+
+    @action(detail=False, methods=["post"], url_path="mark_read", required_scopes=["task:write"])
+    def mark_read(self, request, *args, **kwargs):
+        tasks_facade.mark_task_activity_read(self.team_id, self._user_id())
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

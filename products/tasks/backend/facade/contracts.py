@@ -50,6 +50,7 @@ class WizardCloudRunDTO:
     Carries only what the FAB's cloud stream needs to reconnect.
     """
 
+    id: UUID
     task_id: UUID
     run_id: UUID
     status: str
@@ -228,6 +229,13 @@ class TaskActivityDTO:
     snippet: str
     latest_author: "TaskUserBasicInfo | None" = None
     latest_message_id: UUID | None = None
+    is_unread: bool = True
+
+
+@dataclass(frozen=True)
+class TaskActivityPageDTO:
+    results: list[TaskActivityDTO]
+    unread_count: int
 
 
 @dataclass(frozen=True)
