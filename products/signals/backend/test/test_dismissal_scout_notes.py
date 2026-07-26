@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -16,10 +18,18 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 
-from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutNote, SignalScoutRun
+from products.signals.backend.artefact_schemas import Dismissal
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalScoutConfig,
+    SignalScoutNote,
+    SignalScoutRun,
+)
 from products.skills.backend.models.skills import LLMSkill
 
 SCOUT_SKILL = "signals-scout-error-tracking"
+UNFORWARDED_NOTE = "feedback that never made it to a note"
 
 
 class TestDismissalScoutNotes(APIBaseTest):
@@ -69,6 +79,12 @@ class TestDismissalScoutNotes(APIBaseTest):
 
     def _notes(self) -> list[SignalScoutNote]:
         return list(SignalScoutNote.objects.filter(team=self.team).order_by("created_at"))
+
+    def _dismissal_notes_on(self, report: SignalReport) -> list[str | None]:
+        artefacts = SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+        ).order_by("created_at")
+        return [Dismissal.model_validate_json(artefact.content).note for artefact in artefacts]
 
     def test_dismissal_note_reaches_the_authoring_scout(self) -> None:
         self._create_scout_skill()
@@ -129,8 +145,17 @@ class TestDismissalScoutNotes(APIBaseTest):
 
         assert self._notes() == []
 
-    @parameterized.expand([("dismiss", "suppressed"), ("snooze", "potential"), ("resolve", "resolved")])
-    def test_every_state_that_captures_feedback_forwards_it(self, _name: str, state: str) -> None:
+    @parameterized.expand(
+        [
+            ("dismiss", "suppressed", 1),
+            ("snooze", "potential", 1),
+            # A resolve says the report did its job, so its note never steers the scout.
+            ("resolve", "resolved", 0),
+        ]
+    )
+    def test_only_transitions_that_judge_the_report_are_forwarded(
+        self, _name: str, state: str, expected_notes: int
+    ) -> None:
         report = self._create_report()
 
         response = self.client.post(
@@ -140,7 +165,9 @@ class TestDismissalScoutNotes(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert len(self._notes()) == 1
+        assert len(self._notes()) == expected_notes
+        # The artefact is the record of truth either way, so a resolve still keeps the feedback.
+        assert self._dismissal_notes_on(report) == ["context the scout should have"]
 
     def test_bulk_dismissal_writes_one_note_per_scout_not_one_per_report(self) -> None:
         self._create_scout_skill()
@@ -189,22 +216,48 @@ class TestDismissalScoutNotes(APIBaseTest):
         assert "restored to ready" in content
         assert "snoozed" not in content
 
-    @parameterized.expand(
-        [
-            ("dismissal_note_cannot_be_written", "products.signals.backend.dismissal_notes.leave_note"),
-            ("note_targets_cannot_be_resolved", "products.signals.backend.dismissal_notes._target_skill_names"),
-            ("authorization_cannot_be_resolved", "products.signals.backend.dismissal_notes._may_steer_scouts"),
-        ]
-    )
-    def test_dismissal_still_succeeds_when_forwarding_fails(self, _name: str, target: str) -> None:
+    def test_dismissal_still_succeeds_when_the_note_cannot_be_written(self) -> None:
         report = self._create_report()
 
-        with patch(target, side_effect=RuntimeError("boom")):
-            self._dismiss(report, dismissal_note="feedback that never made it to a note")
+        with patch("products.signals.backend.dismissal_notes.leave_note", side_effect=RuntimeError("boom")):
+            self._dismiss(report, dismissal_note=UNFORWARDED_NOTE)
 
+        self._assert_dismissed_without_a_note(report)
+
+    def test_dismissal_still_succeeds_when_authorization_blows_up(self) -> None:
+        # The boundary has to wrap authorization too, which reads the database.
+        def boom() -> bool:
+            raise RuntimeError("boom")
+
+        report = self._create_report()
+
+        with self._llm_skill_access(boom):
+            self._dismiss(report, dismissal_note=UNFORWARDED_NOTE)
+
+        self._assert_dismissed_without_a_note(report)
+
+    @contextmanager
+    def _llm_skill_access(self, outcome: Callable[[], bool]) -> Iterator[None]:
+        """Replace only the `llm_skill` leg of the access check.
+
+        Scoped to one resource because DRF's permission pass runs through this same method first,
+        so replacing it wholesale fails the request before the view runs.
+        """
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def replacement(self_: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
+            if resource == "llm_skill":
+                return outcome()
+            return real_check(self_, resource, required_level)
+
+        with patch.object(UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=replacement):
+            yield
+
+    def _assert_dismissed_without_a_note(self, report: SignalReport) -> None:
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
         assert self._notes() == []
+        assert self._dismissal_notes_on(report) == [UNFORWARDED_NOTE]
 
     def test_no_note_for_a_child_environment_report(self) -> None:
         # The note would land on the parent project, readable by people who may have no access to
@@ -262,17 +315,10 @@ class TestDismissalScoutNotes(APIBaseTest):
     def test_no_note_when_the_dismisser_may_not_steer_scouts(self) -> None:
         # Forwarding re-checks the `llm_skill` editor bar that `SignalScoutNoteViewSet` requires, so a
         # member an admin restricted from skill editing can't reach the steering channel by
-        # dismissing instead. Deny only that resource: a blanket False breaks the request cycle.
+        # dismissing instead.
         report = self._create_report()
-        real_check = UserAccessControl.check_access_level_for_resource
 
-        def deny_llm_skill(self_: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel):
-            if resource == "llm_skill":
-                return False
-            return real_check(self_, resource, required_level)
-
-        with patch.object(UserAccessControl, "check_access_level_for_resource", autospec=True) as mock_check:
-            mock_check.side_effect = deny_llm_skill
+        with self._llm_skill_access(lambda: False):
             self._dismiss(report, dismissal_reason="wontfix_irrelevant", dismissal_note="not worth it")
 
         # The dismissal still stands and the artefact still records the feedback.

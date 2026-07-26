@@ -1,11 +1,13 @@
 """Forwarding of inbox dismissal feedback into the scout steering channel.
 
-When someone dismisses (or snoozes, or resolves) an inbox report and types a note, that note is
-the highest-signal feedback the scout fleet ever gets: a human saying why the thing a scout
-surfaced was not worth surfacing. It persists as a `dismissal` artefact on the report, which a
-scout only ever reads if a later run happens to search the inbox and land on that report. This
-module closes that gap by also leaving the feedback as a `SignalScoutNote`, which every run reads
-by name at cold start (`scout-notes-list`, see the run prompt's *Notes left for you* section).
+When someone judges an inbox report and types a note, that note is the highest-signal feedback the
+scout fleet ever gets: a human saying why the thing a scout surfaced was not worth surfacing. It
+persists as a `dismissal` artefact on the report, which a scout only ever reads if a later run
+happens to search the inbox and land on that report. This module closes that gap by also leaving
+the feedback as a `SignalScoutNote`, which every run reads by name at cold start
+(`scout-notes-list`, see the run prompt's *Notes left for you* section).
+
+Dismissing, snoozing, and restoring forward; resolving does not, see `_FORWARDED_STATUS_VERBS`.
 
 Forwarding, not promotion: promotion here is the pipeline moving a report up to `candidate`, and
 nothing in this path changes a report's standing.
@@ -48,16 +50,14 @@ logger = logging.getLogger(__name__)
 # its scratchpad, and the artefact on the report stays the durable record either way.
 DERIVED_NOTE_TTL = timedelta(days=30)
 
-# What the report's resulting status means to the scout reading the note. Keyed on the status the
-# report actually landed in rather than the requested target, because `state="potential"` on a
-# suppressed report restores it to whatever researched status it held before being archived, and
-# telling a scout its report was snoozed when it was restored to ready teaches it the opposite of
-# what happened. Statuses this API can't reach (candidate, in_progress, deleted) have no verb, and
-# a report in one is skipped rather than described wrongly.
-_STATUS_VERBS = {
+# Verbs for the outcomes worth steering a scout on, keyed on the status the report landed in rather
+# than the requested target: `state="potential"` on a suppressed report restores it, and calling that
+# a snooze teaches the scout the opposite of what happened. Absence means never forwarded, so a
+# resolve isn't: it says the report did its job, not that filing it was wrong. Its note stays on the
+# report, which every scout searches before emitting.
+_FORWARDED_STATUS_VERBS = {
     SignalReport.Status.SUPPRESSED: "dismissed",
     SignalReport.Status.POTENTIAL: "snoozed",
-    SignalReport.Status.RESOLVED: "resolved",
     SignalReport.Status.READY: "restored to ready",
     SignalReport.Status.PENDING_INPUT: "restored to awaiting input",
     SignalReport.Status.FAILED: "restored to failed",
@@ -112,6 +112,11 @@ def _forward(
     note: str,
     request: Request,
 ) -> list[str]:
+    # Free filter first: everything below reads the database, and a resolve drops every report here.
+    described = _describe(reports)
+    if not described:
+        return []
+
     # Scout rows persist under the canonical parent team (`RootTeamMixin.save` rewrites child
     # writes), and it is the parent project's scouts that read the note, so both the authorization
     # check and every lookup resolve against the canonical team rather than the possibly-child team
@@ -128,7 +133,7 @@ def _forward(
         return []
 
     user = request.user
-    grouped = _group_reports(canonical_team.id, reports)
+    grouped = _group_by_target(canonical_team.id, described)
     expires_at = timezone.now() + DERIVED_NOTE_TTL
     created_ids: list[str] = []
     for (skill_name, verb), skill_reports in grouped.items():
@@ -190,16 +195,23 @@ def _may_steer_scouts(request: Request, canonical_team: Team) -> bool:
     return UserAccessControl(user=user, team=canonical_team).check_access_level_for_resource("llm_skill", "editor")
 
 
-def _group_reports(team_id: int, reports: Sequence[SignalReport]) -> dict[tuple[str, str], list[SignalReport]]:
-    """Bucket reports by the scout to tell and what happened to them, skipping undescribable ones."""
-    describable = [report for report in reports if SignalReport.Status(report.status) in _STATUS_VERBS]
-    if not describable:
-        return {}
-    targets = _target_skill_names(team_id, [str(report.id) for report in describable])
+def _describe(reports: Sequence[SignalReport]) -> list[tuple[SignalReport, str]]:
+    """Pair each report with the verb to tell a scout, dropping the ones that aren't forwarded."""
+    return [
+        (report, verb)
+        for report in reports
+        if (verb := _FORWARDED_STATUS_VERBS.get(SignalReport.Status(report.status))) is not None
+    ]
+
+
+def _group_by_target(
+    team_id: int, described: Sequence[tuple[SignalReport, str]]
+) -> dict[tuple[str, str], list[SignalReport]]:
+    """Bucket described reports by the scout to tell and what happened to them."""
+    targets = _target_skill_names(team_id, [str(report.id) for report, _ in described])
     grouped: dict[tuple[str, str], list[SignalReport]] = {}
-    for report in describable:
-        key = (targets[str(report.id)], _STATUS_VERBS[SignalReport.Status(report.status)])
-        grouped.setdefault(key, []).append(report)
+    for report, verb in described:
+        grouped.setdefault((targets[str(report.id)], verb), []).append(report)
     return grouped
 
 

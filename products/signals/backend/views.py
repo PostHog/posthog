@@ -1634,9 +1634,10 @@ class SignalReportViewSet(
         Called once per request with every report that transitioned, so one note applied to a bulk
         dismissal reaches each affected scout once instead of once per report. Runs after the
         transitions have committed, because the note is derived context and the `dismissal` artefact
-        written alongside each transition remains the record of the feedback. Forwarding resolves the
-        reports' resulting status itself, and authorizes the caller against the scout-note write
-        gates, so this call site only hands it the request's principal.
+        written alongside each transition remains the record of the feedback. Forwarding resolves
+        the reports' resulting status itself, drops the transitions this channel has nothing to say
+        about, and authorizes the caller against the scout-note write gates, so this call site only
+        hands it the request's principal.
         """
         forward_dismissal_note(
             team=self.team,

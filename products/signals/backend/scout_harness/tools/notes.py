@@ -8,7 +8,7 @@ is blank; `list_notes` is what a run calls to pick up the notes addressed to it.
 
 Most notes are left by hand through that surface. The exception is `origin`
 `report_dismissal`: notes forwarded from the feedback someone typed when they
-dismissed an inbox report (see `dismissal_notes.py`).
+dismissed, snoozed, or restored an inbox report (see `dismissal_notes.py`).
 """
 
 from __future__ import annotations
