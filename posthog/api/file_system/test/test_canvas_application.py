@@ -190,7 +190,7 @@ class TestCanvasApplicationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertEqual(CanvasSourceVersion.objects.for_team(self.team.id).count(), 0)
 
-    @patch("posthog.api.file_system.file_system.FileSystemViewSet._is_sandbox_authenticated", return_value=True)
+    @patch("posthog.api.file_system.file_system.DesktopFileSystemViewSet._is_sandbox_authenticated", return_value=True)
     @patch("posthog.api.file_system.canvas_application.build_canvas.delay")
     @patch("posthog.models.file_system.canvas.object_storage.write")
     def test_sandbox_publish_derives_task_and_run_attribution(
