@@ -21,6 +21,19 @@ pub struct EmbeddingRequest {
     pub metadata: HashMap<String, Value>,
 }
 
+impl EmbeddingRequest {
+    /// Whether this request retracts a previously embedded document rather than
+    /// adding one. Deletion requests carry `metadata.deleted = true` and must
+    /// bypass model inference and the AI opt-in gate — they remove content that
+    /// is already stored, which is exactly what consent revocation asks for.
+    pub fn is_deletion(&self) -> bool {
+        self.metadata
+            .get("deleted")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    }
+}
+
 // Responses from an embedding request - these are written to the response
 // kafka topic, to allow other systems to take a callback action. These differ from
 // the EmbeddingRecord struct by representing all embeddings of a given document -
@@ -254,6 +267,39 @@ impl From<EmbeddingResponse> for Vec<EmbeddingRecord> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn request_with_metadata(metadata: HashMap<String, Value>) -> EmbeddingRequest {
+        EmbeddingRequest {
+            team_id: 1,
+            product: "signals".to_string(),
+            document_type: "signal".to_string(),
+            rendering: "plain".to_string(),
+            document_id: "doc".to_string(),
+            timestamp: Utc::now(),
+            content: "content".to_string(),
+            models: vec![EmbeddingModel::default()],
+            metadata,
+        }
+    }
+
+    #[test]
+    fn test_is_deletion() {
+        // A tombstone carries metadata.deleted = true.
+        let mut meta = HashMap::new();
+        meta.insert("deleted".to_string(), Value::Bool(true));
+        assert!(request_with_metadata(meta).is_deletion());
+
+        // Explicit false, absent key, and empty metadata are all non-deletions.
+        let mut meta = HashMap::new();
+        meta.insert("deleted".to_string(), Value::Bool(false));
+        assert!(!request_with_metadata(meta).is_deletion());
+        assert!(!request_with_metadata(HashMap::new()).is_deletion());
+
+        // A non-boolean `deleted` is not treated as a deletion.
+        let mut meta = HashMap::new();
+        meta.insert("deleted".to_string(), Value::String("true".to_string()));
+        assert!(!request_with_metadata(meta).is_deletion());
+    }
 
     #[test]
     fn test_escape_input() {

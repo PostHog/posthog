@@ -7,6 +7,7 @@ pub const EMBEDDINGS_GENERATED: &str = "embedding_worker_embeddings_generated";
 pub const LIMITS_UPDATED: &str = "embedding_worker_limits_updated";
 pub const LIMIT_BALANCE: &str = "embedding_worker_limit_balance";
 pub const DROPPED_REQUESTS: &str = "embedding_worker_dropped_requests";
+pub const DELETIONS_PROCESSED: &str = "embedding_worker_deletions_processed";
 pub const MESSAGE_TRUNCATED: &str = "embedding_worker_content_truncated";
 pub const EMBEDDING_FAILED: &str = "embedding_worker_embedding_failed";
 pub const EMBEDDING_TOTAL_TIME: &str = "embedding_worker_embedding_total_time";

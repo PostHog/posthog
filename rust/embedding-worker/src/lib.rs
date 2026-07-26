@@ -14,9 +14,9 @@ use tracing::{error, warn};
 use crate::{
     app_context::AppContext,
     metrics_utils::{
-        RequestLabels, DROPPED_REQUESTS, EMBEDDINGS_GENERATED, EMBEDDING_FAILED,
-        EMBEDDING_REQUEST_TIME, EMBEDDING_TOTAL_TIME, EMBEDDING_TOTAL_TOKENS, MESSAGES_RECEIVED,
-        MESSAGE_TRUNCATED, REQUESTS_SENT, RESPONSES_RECEIVED,
+        RequestLabels, DELETIONS_PROCESSED, DROPPED_REQUESTS, EMBEDDINGS_GENERATED,
+        EMBEDDING_FAILED, EMBEDDING_REQUEST_TIME, EMBEDDING_TOTAL_TIME, EMBEDDING_TOTAL_TOKENS,
+        MESSAGES_RECEIVED, MESSAGE_TRUNCATED, REQUESTS_SENT, RESPONSES_RECEIVED,
     },
     organization::apply_ai_opt_in,
 };
@@ -41,9 +41,32 @@ pub async fn handle_batch(
     context: Arc<AppContext>,
 ) -> Result<Vec<EmbeddingResponse>> {
     let mut handles = vec![];
+    let mut tombstones = vec![];
 
     for request in requests.into_iter() {
         let team_id = request.team_id;
+
+        // Deletion tombstones retract content that is already stored, so they must
+        // bypass both model inference and the AI opt-in gate — the gate guards
+        // generating embeddings from customer content, not removing it. Emit an
+        // empty-embedding success so the tombstone row lands in ClickHouse and
+        // supersedes the original embedding. Routing these through the gate would
+        // silently drop them on consent revocation, which is exactly when
+        // retraction matters most, leaving the vector until TTL.
+        if request.is_deletion() {
+            counter!(DELETIONS_PROCESSED, RequestLabels::from(&request).render()).increment(1);
+            let results = request
+                .models
+                .iter()
+                .map(|model| ModelResult {
+                    model: *model,
+                    outcome: EmbeddingResult::Success { embedding: vec![] },
+                })
+                .collect();
+            tombstones.push(EmbeddingResponse { request, results });
+            continue;
+        }
+
         let labels = RequestLabels::from(&request);
         let Some(request) = apply_ai_opt_in(&context, request, team_id).await? else {
             counter!(
@@ -69,12 +92,13 @@ pub async fn handle_batch(
         });
     }
 
-    let results: Result<Vec<_>> = futures::future::join_all(handles)
+    let mut results: Vec<EmbeddingResponse> = futures::future::join_all(handles)
         .await
         .into_iter()
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
+    results.extend(tombstones);
 
-    results
+    Ok(results)
 }
 
 pub async fn handle_single(
