@@ -361,6 +361,7 @@ the row lists both.
 | loops                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | luma                             | HTTP                        | requests                                                        | ✅                          |
 | mailchimp                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| marketo                          | HTTP                        | requests                                                        | ✅                          |
 | mem0                             | HTTP                        | requests                                                        | ✅                          |
 | mailerlite                       | HTTP                        | requests                                                        | ✅                          |
 | mailersend                       | HTTP                        | requests                                                        | ✅                          |
@@ -1069,7 +1070,6 @@ doesn't conflict with concurrent PRs.
 - m3ter
 - mailtrap
 - mantle
-- marketo
 - mastodon
 - meetup
 - memberful
