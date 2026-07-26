@@ -74,6 +74,7 @@ the row lists both.
 | assemblyai                       | HTTP                        | requests                                                        | ✅                          |
 | attentive                        | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| auth0                            | HTTP                        | requests                                                        | ✅                          |
 | automox                          | HTTP                        | requests                                                        | ✅                          |
 | autumn                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | aviationstack                    | HTTP                        | requests                                                        | ✅                          |
@@ -731,7 +732,6 @@ doesn't conflict with concurrent PRs.
 - astronomer
 - athenahealth
 - atlan
-- auth0
 - autodesk_construction_cloud
 - automox
 - avalara
