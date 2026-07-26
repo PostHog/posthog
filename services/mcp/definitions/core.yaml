@@ -117,6 +117,20 @@ tools:
             Atomically publish a complete canvas source project from the current task run. This creates an immutable
             source version and queues an authoritative cloud build. Always pass the version ID read before editing as
             expectedCurrentVersionId so concurrent changes return a conflict instead of being overwritten.
+    canvas-source-patch:
+        operation: desktop_file_system_canvas_source_partial_update
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Patch canvas source
+        description: >
+            Atomically apply file and asset changes to the source version read by the current task run, then queue an
+            authoritative cloud build. Prefer this over replacing the complete project for focused edits. The expected
+            current version is mandatory and stale patches return a conflict without changing source history.
     canvas-source-validate:
         operation: desktop_file_system_canvas_validate_create
         enabled: true

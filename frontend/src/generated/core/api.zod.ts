@@ -9036,6 +9036,34 @@ export const DesktopFileSystemCanvasSourceCreateBody = /* @__PURE__ */ zod.objec
             files: zod
                 .record(zod.string(), zod.string())
                 .describe('Complete map of normalized project-relative paths to UTF-8 source files.'),
+            assets: zod
+                .record(
+                    zod.string(),
+                    zod.object({
+                        encoding: zod.enum(['base64']).describe('\* `base64` - base64'),
+                        contentType: zod
+                            .enum([
+                                'application/wasm',
+                                'application/octet-stream',
+                                'font/otf',
+                                'font/ttf',
+                                'font/woff',
+                                'font/woff2',
+                                'image/avif',
+                                'image/gif',
+                                'image/jpeg',
+                                'image/png',
+                                'image/svg+xml',
+                                'image/webp',
+                            ])
+                            .describe(
+                                '\* `application\/wasm` - application\/wasm\n\* `application\/octet-stream` - application\/octet-stream\n\* `font\/otf` - font\/otf\n\* `font\/ttf` - font\/ttf\n\* `font\/woff` - font\/woff\n\* `font\/woff2` - font\/woff2\n\* `image\/avif` - image\/avif\n\* `image\/gif` - image\/gif\n\* `image\/jpeg` - image\/jpeg\n\* `image\/png` - image\/png\n\* `image\/svg+xml` - image\/svg+xml\n\* `image\/webp` - image\/webp'
+                            ),
+                        content: zod.string(),
+                    })
+                )
+                .optional()
+                .describe('Binary assets mapped by normalized project-relative path.'),
             entryHtml: zod.string().describe('HTML entry file. Must be \"index.html\".'),
             dependencies: zod
                 .record(zod.string(), zod.string())
@@ -9121,6 +9149,132 @@ export const DesktopFileSystemCanvasSourceCreateBody = /* @__PURE__ */ zod.objec
  *
  * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
+export const desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneDeleteFilesMax = 128
+
+export const desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneDeleteAssetsMax = 128
+
+export const desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneCapabilitiesPosthogOneInsightsItemMax = 128
+
+export const desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneCapabilitiesPosthogOneInsightsMax = 256
+
+export const desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneCapabilitiesPosthogOneCaptureEventsItemMax = 200
+
+export const desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneCapabilitiesPosthogOneCaptureEventsMax = 256
+
+export const desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneCapabilitiesNetworkOneOriginsItemMax = 2048
+
+export const desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneCapabilitiesNetworkOneOriginsMax = 64
+
+export const desktopFileSystemCanvasSourcePartialUpdateBodyPromptMax = 10000
+
+export const DesktopFileSystemCanvasSourcePartialUpdateBody = /* @__PURE__ */ zod.object({
+    patch: zod
+        .object({
+            upsertFiles: zod.record(zod.string(), zod.string()).optional(),
+            deleteFiles: zod
+                .array(zod.string())
+                .max(desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneDeleteFilesMax)
+                .optional(),
+            upsertAssets: zod
+                .record(
+                    zod.string(),
+                    zod.object({
+                        encoding: zod.enum(['base64']).describe('\* `base64` - base64'),
+                        contentType: zod
+                            .enum([
+                                'application/wasm',
+                                'application/octet-stream',
+                                'font/otf',
+                                'font/ttf',
+                                'font/woff',
+                                'font/woff2',
+                                'image/avif',
+                                'image/gif',
+                                'image/jpeg',
+                                'image/png',
+                                'image/svg+xml',
+                                'image/webp',
+                            ])
+                            .describe(
+                                '\* `application\/wasm` - application\/wasm\n\* `application\/octet-stream` - application\/octet-stream\n\* `font\/otf` - font\/otf\n\* `font\/ttf` - font\/ttf\n\* `font\/woff` - font\/woff\n\* `font\/woff2` - font\/woff2\n\* `image\/avif` - image\/avif\n\* `image\/gif` - image\/gif\n\* `image\/jpeg` - image\/jpeg\n\* `image\/png` - image\/png\n\* `image\/svg+xml` - image\/svg+xml\n\* `image\/webp` - image\/webp'
+                            ),
+                        content: zod.string(),
+                    })
+                )
+                .optional(),
+            deleteAssets: zod
+                .array(zod.string())
+                .max(desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneDeleteAssetsMax)
+                .optional(),
+            dependencies: zod.record(zod.string(), zod.string()).optional(),
+            capabilities: zod
+                .object({
+                    posthog: zod
+                        .object({
+                            insights: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .min(1)
+                                        .max(
+                                            desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneCapabilitiesPosthogOneInsightsItemMax
+                                        )
+                                )
+                                .max(
+                                    desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneCapabilitiesPosthogOneInsightsMax
+                                )
+                                .describe('Insight short IDs that this canvas may load.'),
+                            inlineQueries: zod
+                                .boolean()
+                                .describe('Whether this canvas may execute inline PostHog queries.'),
+                            captureEvents: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .min(1)
+                                        .max(
+                                            desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneCapabilitiesPosthogOneCaptureEventsItemMax
+                                        )
+                                )
+                                .max(
+                                    desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneCapabilitiesPosthogOneCaptureEventsMax
+                                )
+                                .describe('Event names that this canvas may capture.'),
+                        })
+                        .describe('PostHog data and capture capabilities.'),
+                    network: zod
+                        .object({
+                            origins: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneCapabilitiesNetworkOneOriginsItemMax
+                                        )
+                                )
+                                .max(
+                                    desktopFileSystemCanvasSourcePartialUpdateBodyPatchOneCapabilitiesNetworkOneOriginsMax
+                                )
+                                .describe('HTTPS origins that the canvas may contact directly.'),
+                        })
+                        .describe('Direct network capabilities.'),
+                })
+                .optional(),
+        })
+        .optional()
+        .describe('File, asset, dependency, and capability changes to apply.'),
+    expectedCurrentVersionId: zod.uuid().optional().describe('Current source version that this patch is based on.'),
+    taskId: zod.uuid().optional(),
+    taskRunId: zod.uuid().optional(),
+    prompt: zod.string().max(desktopFileSystemCanvasSourcePartialUpdateBodyPromptMax).optional(),
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
 export const desktopFileSystemCanvasValidateCreateBodySchemaVersionMax = 1
 
 export const desktopFileSystemCanvasValidateCreateBodyCapabilitiesOnePosthogOneInsightsItemMax = 128
@@ -9144,6 +9298,34 @@ export const DesktopFileSystemCanvasValidateCreateBody = /* @__PURE__ */ zod.obj
     files: zod
         .record(zod.string(), zod.string())
         .describe('Complete map of normalized project-relative paths to UTF-8 source files.'),
+    assets: zod
+        .record(
+            zod.string(),
+            zod.object({
+                encoding: zod.enum(['base64']).describe('\* `base64` - base64'),
+                contentType: zod
+                    .enum([
+                        'application/wasm',
+                        'application/octet-stream',
+                        'font/otf',
+                        'font/ttf',
+                        'font/woff',
+                        'font/woff2',
+                        'image/avif',
+                        'image/gif',
+                        'image/jpeg',
+                        'image/png',
+                        'image/svg+xml',
+                        'image/webp',
+                    ])
+                    .describe(
+                        '\* `application\/wasm` - application\/wasm\n\* `application\/octet-stream` - application\/octet-stream\n\* `font\/otf` - font\/otf\n\* `font\/ttf` - font\/ttf\n\* `font\/woff` - font\/woff\n\* `font\/woff2` - font\/woff2\n\* `image\/avif` - image\/avif\n\* `image\/gif` - image\/gif\n\* `image\/jpeg` - image\/jpeg\n\* `image\/png` - image\/png\n\* `image\/svg+xml` - image\/svg+xml\n\* `image\/webp` - image\/webp'
+                    ),
+                content: zod.string(),
+            })
+        )
+        .optional()
+        .describe('Binary assets mapped by normalized project-relative path.'),
     entryHtml: zod.string().describe('HTML entry file. Must be \"index.html\".'),
     dependencies: zod
         .record(zod.string(), zod.string())

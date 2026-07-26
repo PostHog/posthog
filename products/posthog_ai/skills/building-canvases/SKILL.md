@@ -27,8 +27,12 @@ Read [React and Quill](references/react-quill.md) when using React or PostHog UI
 2. Call `posthog:canvas-source-get`. If the canvas has no normalized source yet, convert its legacy single-file React
    source into the standard project shape before publishing the first new version.
 3. Keep the returned version ID. It is the base for optimistic concurrency.
-4. Edit the complete source project in the task workspace. Do not store generated source in a database field or publish
-   only a patch.
+4. Edit the source project in the task workspace. Use a guarded source patch for focused edits and a complete project
+   publish for initial creation or project-wide rewrites. Do not store generated source in a database field.
+
+The pinned browser catalog includes React, Quill, Three.js, D3, ECharts, date-fns, lodash-es, and Zod. Put images,
+fonts, and WebAssembly in the bounded base64 `assets` map with explicit media types. Import self-contained TypeScript
+module workers with the `?worker` suffix.
 
 Every requested edit belongs to a fresh task run. A run publishes at most one source version. Canvas history remains the
 canonical history even when several tasks edit the same canvas.
@@ -46,9 +50,8 @@ Read [Validation and publishing](references/validation-and-publishing.md), then:
 
 1. Call `posthog:canvas-source-validate` until the authoritative build recipe
    succeeds without errors.
-2. Call `posthog:canvas-source-publish` with the complete project and the version
-   ID read before editing. Sandbox attribution supplies the current task and run
-   automatically.
+2. Call `posthog:canvas-source-patch` for focused changes or `posthog:canvas-source-publish` for complete projects,
+   always with the version ID read before editing. Sandbox attribution supplies the current task and run automatically.
 3. If publishing returns `version_conflict`, load the new current source and start a fresh run to reapply the change.
 4. Poll `posthog:canvas-build-get` or read `posthog:canvas-history-get` until the cloud build is ready or failed.
 5. Treat the cloud build as authoritative. A failed build leaves the previous successful artifact active.

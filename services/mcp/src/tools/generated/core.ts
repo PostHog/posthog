@@ -9,6 +9,8 @@ import {
     DesktopFileSystemCanvasPartialUpdateParams,
     DesktopFileSystemCanvasSourceCreateBody,
     DesktopFileSystemCanvasSourceCreateParams,
+    DesktopFileSystemCanvasSourcePartialUpdateBody,
+    DesktopFileSystemCanvasSourcePartialUpdateParams,
     DesktopFileSystemCanvasSourceRetrieveParams,
     DesktopFileSystemCanvasValidateCreateBody,
     DesktopFileSystemCanvasValidateCreateParams,
@@ -122,6 +124,40 @@ const canvasSourcePublish = (): ToolBase<typeof CanvasSourcePublishSchema, Schem
     },
 })
 
+const CanvasSourcePatchSchema = DesktopFileSystemCanvasSourcePartialUpdateParams.omit({ project_id: true }).extend(
+    DesktopFileSystemCanvasSourcePartialUpdateBody.shape
+)
+
+const canvasSourcePatch = (): ToolBase<typeof CanvasSourcePatchSchema, Schemas.CanvasPublishResponse> => ({
+    name: 'canvas-source-patch',
+    schema: CanvasSourcePatchSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasSourcePatchSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.patch !== undefined) {
+            body['patch'] = params.patch
+        }
+        if (params.expectedCurrentVersionId !== undefined) {
+            body['expectedCurrentVersionId'] = params.expectedCurrentVersionId
+        }
+        if (params.taskId !== undefined) {
+            body['taskId'] = params.taskId
+        }
+        if (params.taskRunId !== undefined) {
+            body['taskRunId'] = params.taskRunId
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        const result = await context.api.request<Schemas.CanvasPublishResponse>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/source/`,
+            body,
+        })
+        return result
+    },
+})
+
 const CanvasSourceValidateSchema = DesktopFileSystemCanvasValidateCreateParams.omit({ project_id: true }).extend(
     DesktopFileSystemCanvasValidateCreateBody.shape
 )
@@ -137,6 +173,9 @@ const canvasSourceValidate = (): ToolBase<typeof CanvasSourceValidateSchema, Sch
         }
         if (params.files !== undefined) {
             body['files'] = params.files
+        }
+        if (params.assets !== undefined) {
+            body['assets'] = params.assets
         }
         if (params.entryHtml !== undefined) {
             body['entryHtml'] = params.entryHtml
@@ -722,6 +761,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'desktop-file-system-canvas-partial-update': desktopFileSystemCanvasPartialUpdate,
     'canvas-source-get': canvasSourceGet,
     'canvas-source-publish': canvasSourcePublish,
+    'canvas-source-patch': canvasSourcePatch,
     'canvas-source-validate': canvasSourceValidate,
     'canvas-history-get': canvasHistoryGet,
     'canvas-build-get': canvasBuildGet,

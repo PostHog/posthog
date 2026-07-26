@@ -1577,6 +1577,20 @@
             "readOnlyHint": true
         }
     },
+    "canvas-source-patch": {
+        "description": "Atomically apply file and asset changes to the source version read by the current task run, then queue an authoritative cloud build. Prefer this over replacing the complete project for focused edits. The expected current version is mandatory and stale patches return a conflict without changing source history.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Patch canvas source",
+        "title": "Patch canvas source",
+        "required_scopes": ["file_system:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "canvas-source-publish": {
         "description": "Atomically publish a complete canvas source project from the current task run. This creates an immutable source version and queues an authoritative cloud build. Always pass the version ID read before editing as expectedCurrentVersionId so concurrent changes return a conflict instead of being overwritten.",
         "category": "Core",

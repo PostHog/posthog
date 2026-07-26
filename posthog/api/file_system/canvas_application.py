@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 import json
+import base64
 import hashlib
+import binascii
 from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
@@ -31,12 +33,19 @@ CANVAS_MAX_FILE_BYTES = 1_000_000
 CANVAS_MAX_SOURCE_BYTES = 5_000_000
 CANVAS_MAX_DIAGNOSTICS = 500
 CANVAS_MAX_DEPENDENCIES = 64
+CANVAS_MAX_ASSET_BYTES = 10_000_000
+CANVAS_MAX_PROJECT_BYTES = 18_500_000
 CANVAS_SDK_VERSION = "1.0.0"
 ADMITTED_DEPENDENCIES = {
     "@posthog/quill": "0.3.0-beta.24",
+    "d3": "7.9.0",
+    "date-fns": "4.1.0",
+    "echarts": "6.1.0",
+    "lodash-es": "4.18.1",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "three": "0.183.2",
+    "zod": "4.4.3",
 }
 PACKAGE_NAME = re.compile(r"^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$")
 EXACT_VERSION = re.compile(
@@ -99,11 +108,46 @@ class CanvasCapabilitiesSerializer(StrictSerializer):
     network = CanvasNetworkCapabilitiesSerializer(help_text="Direct network capabilities.")
 
 
+class CanvasAssetSerializer(StrictSerializer):
+    encoding = serializers.ChoiceField(choices=["base64"])
+    contentType = serializers.ChoiceField(
+        choices=[
+            "application/wasm",
+            "application/octet-stream",
+            "font/otf",
+            "font/ttf",
+            "font/woff",
+            "font/woff2",
+            "image/avif",
+            "image/gif",
+            "image/jpeg",
+            "image/png",
+            "image/svg+xml",
+            "image/webp",
+        ]
+    )
+    content = serializers.CharField(trim_whitespace=False)
+
+    def validate_content(self, value: str) -> str:
+        try:
+            decoded = base64.b64decode(value, validate=True)
+        except (binascii.Error, ValueError):
+            raise serializers.ValidationError("Asset content must be canonical base64.")
+        if base64.b64encode(decoded).decode() != value:
+            raise serializers.ValidationError("Asset content must be canonical base64.")
+        return value
+
+
 class CanvasSourceProjectSerializer(StrictSerializer):
     schemaVersion = serializers.IntegerField(min_value=1, max_value=1, help_text="Canvas source schema version.")
     files = serializers.DictField(
         child=serializers.CharField(trim_whitespace=False, allow_blank=True),
         help_text="Complete map of normalized project-relative paths to UTF-8 source files.",
+    )
+    assets = serializers.DictField(
+        child=CanvasAssetSerializer(),
+        required=False,
+        help_text="Binary assets mapped by normalized project-relative path.",
     )
     entryHtml = serializers.CharField(help_text='HTML entry file. Must be "index.html".')
     dependencies = serializers.DictField(
@@ -152,6 +196,26 @@ class CanvasSourceProjectSerializer(StrictSerializer):
                 )
         return dependencies
 
+    def validate_assets(self, assets: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+        if len(assets) > CANVAS_MAX_FILES:
+            raise serializers.ValidationError(f"A canvas may contain at most {CANVAS_MAX_FILES} assets.")
+        total = 0
+        for path, asset in assets.items():
+            segments = path.split("/")
+            if (
+                not path
+                or len(path) > 240
+                or path.startswith("/")
+                or "\\" in path
+                or any(ord(character) < 32 or ord(character) == 127 for character in path)
+                or any(segment in {"", ".", ".."} for segment in segments)
+            ):
+                raise serializers.ValidationError("Asset paths must be normalized project-relative paths.")
+            total += len(base64.b64decode(asset["content"], validate=True))
+        if total > CANVAS_MAX_ASSET_BYTES:
+            raise serializers.ValidationError(f"Canvas assets may contain at most {CANVAS_MAX_ASSET_BYTES} bytes.")
+        return assets
+
     def validate_canvasSdkVersion(self, value: str) -> str:
         if not EXACT_VERSION.fullmatch(value):
             raise serializers.ValidationError("The canvas SDK must use an exact semantic version.")
@@ -165,9 +229,14 @@ class CanvasSourceProjectSerializer(StrictSerializer):
             raise serializers.ValidationError({"entryHtml": 'The canvas entry file must be "index.html".'})
         if attrs["entryHtml"] not in attrs["files"]:
             raise serializers.ValidationError({"entryHtml": "The canvas entry file is missing from files."})
+        collisions = set(attrs["files"]) & set(attrs.get("assets", {}))
+        if collisions:
+            raise serializers.ValidationError({"assets": "Asset paths must not collide with source files."})
         serialized_size = len(json.dumps(attrs, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode())
-        if serialized_size > CANVAS_MAX_SOURCE_BYTES:
-            raise serializers.ValidationError(f"Canvas source may contain at most {CANVAS_MAX_SOURCE_BYTES} bytes.")
+        if serialized_size > CANVAS_MAX_PROJECT_BYTES:
+            raise serializers.ValidationError(
+                f"Serialized canvas projects may contain at most {CANVAS_MAX_PROJECT_BYTES} bytes."
+            )
         return attrs
 
 
@@ -192,6 +261,42 @@ class CanvasPublishRequestSerializer(StrictSerializer):
         trim_whitespace=False,
         help_text="Short description of the requested canvas change.",
     )
+
+
+class CanvasSourcePatchSerializer(StrictSerializer):
+    upsertFiles = serializers.DictField(
+        child=serializers.CharField(trim_whitespace=False, allow_blank=True), required=False, default=dict
+    )
+    deleteFiles = serializers.ListField(child=serializers.CharField(), required=False, default=list, max_length=128)
+    upsertAssets = serializers.DictField(child=CanvasAssetSerializer(), required=False, default=dict)
+    deleteAssets = serializers.ListField(child=serializers.CharField(), required=False, default=list, max_length=128)
+    dependencies = serializers.DictField(child=serializers.CharField(), required=False)
+    capabilities = CanvasCapabilitiesSerializer(required=False)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        if not any(
+            [
+                attrs.get("upsertFiles"),
+                attrs.get("deleteFiles"),
+                attrs.get("upsertAssets"),
+                attrs.get("deleteAssets"),
+                "dependencies" in attrs,
+                "capabilities" in attrs,
+            ]
+        ):
+            raise serializers.ValidationError("A canvas source patch must contain at least one change.")
+        return attrs
+
+
+class CanvasPatchPublishRequestSerializer(StrictSerializer):
+    patch = CanvasSourcePatchSerializer(help_text="File, asset, dependency, and capability changes to apply.")
+    expectedCurrentVersionId = serializers.UUIDField(
+        allow_null=False, help_text="Current source version that this patch is based on."
+    )
+    taskId = serializers.UUIDField(required=False)
+    taskRunId = serializers.UUIDField(required=False)
+    prompt = serializers.CharField(required=False, allow_blank=True, max_length=10_000, trim_whitespace=False)
 
 
 class CanvasApplicationConflictSerializer(StrictSerializer):
@@ -411,6 +516,36 @@ def publish_canvas_source(
 
         transaction.on_commit(lambda: build_canvas.delay(str(build.id), canvas.team_id))
     return version, build
+
+
+def apply_canvas_source_patch(*, canvas: FileSystem, payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        base = CanvasSourceVersion.objects.for_team(canvas.team_id).get(
+            id=payload["expectedCurrentVersionId"], canvas_id=canvas.id
+        )
+    except CanvasSourceVersion.DoesNotExist:
+        application = CanvasApplication.objects.for_team(canvas.team_id).filter(canvas_id=canvas.id).first()
+        raise CanvasVersionConflict(application.current_source_version_id if application else None)
+    project = base.read_project()
+    patch = payload["patch"]
+    files = dict(project["files"])
+    assets = dict(project.get("assets", {}))
+    for path in patch.get("deleteFiles", []):
+        files.pop(path, None)
+    files.update(patch.get("upsertFiles", {}))
+    for path in patch.get("deleteAssets", []):
+        assets.pop(path, None)
+    assets.update(patch.get("upsertAssets", {}))
+    candidate = {
+        **project,
+        "files": files,
+        **({"assets": assets} if assets else {}),
+        "dependencies": patch.get("dependencies", project["dependencies"]),
+        "capabilities": patch.get("capabilities", project["capabilities"]),
+    }
+    serializer = CanvasSourceProjectSerializer(data=candidate)
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data
 
 
 class CanvasVersionConflict(Exception):

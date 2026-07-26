@@ -20,6 +20,7 @@ from posthog.api.file_system.canvas_application import (
     CanvasApplicationConflictSerializer,
     CanvasBuildSerializer,
     CanvasHistorySerializer,
+    CanvasPatchPublishRequestSerializer,
     CanvasPublishRequestSerializer,
     CanvasPublishResponseSerializer,
     CanvasSourceProjectSerializer,
@@ -27,6 +28,7 @@ from posthog.api.file_system.canvas_application import (
     CanvasSourceVersionSerializer,
     CanvasValidationResponseSerializer,
     CanvasVersionConflict,
+    apply_canvas_source_patch,
     canvas_history,
     current_canvas_source,
     publish_canvas_source,
@@ -1336,6 +1338,43 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
         payload = CanvasPublishRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         publish_payload = dict(payload.validated_data)
+        return self._publish_canvas_application(request, dashboard, publish_payload)
+
+    @extend_schema(
+        request=CanvasPatchPublishRequestSerializer,
+        responses={
+            201: CanvasPublishResponseSerializer,
+            409: OpenApiResponse(
+                response=CanvasApplicationConflictSerializer, description="The canvas source changed."
+            ),
+        },
+        operation_id="desktop_file_system_canvas_source_partial_update",
+    )
+    @canvas_source.mapping.patch
+    def patch_canvas_source_application(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+        payload = CanvasPatchPublishRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        publish_payload = dict(payload.validated_data)
+        try:
+            publish_payload["project"] = apply_canvas_source_patch(canvas=dashboard, payload=publish_payload)
+        except CanvasVersionConflict as conflict:
+            return Response(
+                {
+                    "code": "version_conflict",
+                    "detail": "The canvas changed since it was read. Load the current source and apply the edit again.",
+                    "currentVersionId": str(conflict.current_version_id) if conflict.current_version_id else None,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        publish_payload.pop("patch")
+        return self._publish_canvas_application(request, dashboard, publish_payload)
+
+    def _publish_canvas_application(
+        self, request: Request, dashboard: FileSystem, publish_payload: dict[str, Any]
+    ) -> Response:
         if self._is_sandbox_authenticated(request):
             try:
                 header_task_id = UUID((request.headers.get("X-PostHog-Task-Id") or "").strip())

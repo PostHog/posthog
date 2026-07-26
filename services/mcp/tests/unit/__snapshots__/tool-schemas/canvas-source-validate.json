@@ -1,6 +1,45 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "assets": {
+            "additionalProperties": {
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "contentType": {
+                        "description": "* `application/wasm` - application/wasm\n* `application/octet-stream` - application/octet-stream\n* `font/otf` - font/otf\n* `font/ttf` - font/ttf\n* `font/woff` - font/woff\n* `font/woff2` - font/woff2\n* `image/avif` - image/avif\n* `image/gif` - image/gif\n* `image/jpeg` - image/jpeg\n* `image/png` - image/png\n* `image/svg+xml` - image/svg+xml\n* `image/webp` - image/webp",
+                        "enum": [
+                            "application/wasm",
+                            "application/octet-stream",
+                            "font/otf",
+                            "font/ttf",
+                            "font/woff",
+                            "font/woff2",
+                            "image/avif",
+                            "image/gif",
+                            "image/jpeg",
+                            "image/png",
+                            "image/svg+xml",
+                            "image/webp"
+                        ],
+                        "type": "string"
+                    },
+                    "encoding": {
+                        "description": "* `base64` - base64",
+                        "enum": ["base64"],
+                        "type": "string"
+                    }
+                },
+                "required": ["encoding", "contentType", "content"],
+                "type": "object"
+            },
+            "description": "Binary assets mapped by normalized project-relative path.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
         "canvasSdkVersion": {
             "description": "Exact canvas runtime SDK version.",
             "type": "string"

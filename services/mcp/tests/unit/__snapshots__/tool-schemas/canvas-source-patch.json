@@ -1,0 +1,154 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "expectedCurrentVersionId": {
+            "description": "Current source version that this patch is based on.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this file system.",
+            "type": "string"
+        },
+        "patch": {
+            "description": "File, asset, dependency, and capability changes to apply.",
+            "properties": {
+                "capabilities": {
+                    "properties": {
+                        "network": {
+                            "description": "Direct network capabilities.",
+                            "properties": {
+                                "origins": {
+                                    "description": "HTTPS origins that the canvas may contact directly.",
+                                    "items": {
+                                        "maxLength": 2048,
+                                        "type": "string"
+                                    },
+                                    "maxItems": 64,
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["origins"],
+                            "type": "object"
+                        },
+                        "posthog": {
+                            "description": "PostHog data and capture capabilities.",
+                            "properties": {
+                                "captureEvents": {
+                                    "description": "Event names that this canvas may capture.",
+                                    "items": {
+                                        "maxLength": 200,
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "maxItems": 256,
+                                    "type": "array"
+                                },
+                                "inlineQueries": {
+                                    "description": "Whether this canvas may execute inline PostHog queries.",
+                                    "type": "boolean"
+                                },
+                                "insights": {
+                                    "description": "Insight short IDs that this canvas may load.",
+                                    "items": {
+                                        "maxLength": 128,
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "maxItems": 256,
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["insights", "inlineQueries", "captureEvents"],
+                            "type": "object"
+                        }
+                    },
+                    "required": ["posthog", "network"],
+                    "type": "object"
+                },
+                "deleteAssets": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 128,
+                    "type": "array"
+                },
+                "deleteFiles": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 128,
+                    "type": "array"
+                },
+                "dependencies": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                "upsertAssets": {
+                    "additionalProperties": {
+                        "properties": {
+                            "content": {
+                                "type": "string"
+                            },
+                            "contentType": {
+                                "description": "* `application/wasm` - application/wasm\n* `application/octet-stream` - application/octet-stream\n* `font/otf` - font/otf\n* `font/ttf` - font/ttf\n* `font/woff` - font/woff\n* `font/woff2` - font/woff2\n* `image/avif` - image/avif\n* `image/gif` - image/gif\n* `image/jpeg` - image/jpeg\n* `image/png` - image/png\n* `image/svg+xml` - image/svg+xml\n* `image/webp` - image/webp",
+                                "enum": [
+                                    "application/wasm",
+                                    "application/octet-stream",
+                                    "font/otf",
+                                    "font/ttf",
+                                    "font/woff",
+                                    "font/woff2",
+                                    "image/avif",
+                                    "image/gif",
+                                    "image/jpeg",
+                                    "image/png",
+                                    "image/svg+xml",
+                                    "image/webp"
+                                ],
+                                "type": "string"
+                            },
+                            "encoding": {
+                                "description": "* `base64` - base64",
+                                "enum": ["base64"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["encoding", "contentType", "content"],
+                        "type": "object"
+                    },
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                "upsertFiles": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "prompt": {
+            "maxLength": 10000,
+            "type": "string"
+        },
+        "taskId": {
+            "type": "string"
+        },
+        "taskRunId": {
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

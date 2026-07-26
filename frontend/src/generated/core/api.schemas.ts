@@ -3026,9 +3026,60 @@ export interface CanvasHistoryApi {
 }
 
 /**
+ * * `base64` - base64
+ */
+export type EncodingEnumApi = (typeof EncodingEnumApi)[keyof typeof EncodingEnumApi]
+
+export const EncodingEnumApi = {
+    Base64: 'base64',
+} as const
+
+/**
+ * * `application/wasm` - application/wasm
+ * * `application/octet-stream` - application/octet-stream
+ * * `font/otf` - font/otf
+ * * `font/ttf` - font/ttf
+ * * `font/woff` - font/woff
+ * * `font/woff2` - font/woff2
+ * * `image/avif` - image/avif
+ * * `image/gif` - image/gif
+ * * `image/jpeg` - image/jpeg
+ * * `image/png` - image/png
+ * * `image/svg+xml` - image/svg+xml
+ * * `image/webp` - image/webp
+ */
+export type ContentTypeEnumApi = (typeof ContentTypeEnumApi)[keyof typeof ContentTypeEnumApi]
+
+export const ContentTypeEnumApi = {
+    ApplicationWasm: 'application/wasm',
+    ApplicationOctetStream: 'application/octet-stream',
+    FontOtf: 'font/otf',
+    FontTtf: 'font/ttf',
+    FontWoff: 'font/woff',
+    FontWoff2: 'font/woff2',
+    ImageAvif: 'image/avif',
+    ImageGif: 'image/gif',
+    ImageJpeg: 'image/jpeg',
+    ImagePng: 'image/png',
+    ImageSvgXml: 'image/svg+xml',
+    ImageWebp: 'image/webp',
+} as const
+
+export interface CanvasAssetApi {
+    encoding: EncodingEnumApi
+    contentType: ContentTypeEnumApi
+    content: string
+}
+
+/**
  * Complete map of normalized project-relative paths to UTF-8 source files.
  */
 export type CanvasSourceProjectApiFiles = { [key: string]: string }
+
+/**
+ * Binary assets mapped by normalized project-relative path.
+ */
+export type CanvasSourceProjectApiAssets = { [key: string]: CanvasAssetApi }
 
 /**
  * Browser package names mapped to exact admitted semantic versions.
@@ -3044,6 +3095,8 @@ export interface CanvasSourceProjectApi {
     schemaVersion: number
     /** Complete map of normalized project-relative paths to UTF-8 source files. */
     files: CanvasSourceProjectApiFiles
+    /** Binary assets mapped by normalized project-relative path. */
+    assets?: CanvasSourceProjectApiAssets
     /** HTML entry file. Must be "index.html". */
     entryHtml: string
     /** Browser package names mapped to exact admitted semantic versions. */
@@ -3097,6 +3150,34 @@ export interface CanvasApplicationConflictApi {
      * @nullable
      */
     readonly currentVersionId: string | null
+}
+
+export type CanvasSourcePatchApiUpsertFiles = { [key: string]: string }
+
+export type CanvasSourcePatchApiUpsertAssets = { [key: string]: CanvasAssetApi }
+
+export type CanvasSourcePatchApiDependencies = { [key: string]: string }
+
+export interface CanvasSourcePatchApi {
+    upsertFiles?: CanvasSourcePatchApiUpsertFiles
+    /** @maxItems 128 */
+    deleteFiles?: string[]
+    upsertAssets?: CanvasSourcePatchApiUpsertAssets
+    /** @maxItems 128 */
+    deleteAssets?: string[]
+    dependencies?: CanvasSourcePatchApiDependencies
+    capabilities?: CanvasCapabilitiesApi
+}
+
+export interface PatchedCanvasPatchPublishRequestApi {
+    /** File, asset, dependency, and capability changes to apply. */
+    patch?: CanvasSourcePatchApi
+    /** Current source version that this patch is based on. */
+    expectedCurrentVersionId?: string
+    taskId?: string
+    taskRunId?: string
+    /** @maxLength 10000 */
+    prompt?: string
 }
 
 export interface CanvasValidationResponseApi {

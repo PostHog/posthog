@@ -63,6 +63,7 @@ import type {
     PaginatedProjectSecretAPIKeyListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
+    PatchedCanvasPatchPublishRequestApi,
     PatchedCanvasPublishApi,
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
@@ -1550,6 +1551,30 @@ export const desktopFileSystemCanvasSourceCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasPublishRequestApi),
+    })
+}
+
+export const getDesktopFileSystemCanvasSourcePartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/canvas/source/`
+}
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const desktopFileSystemCanvasSourcePartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedCanvasPatchPublishRequestApi?: PatchedCanvasPatchPublishRequestApi,
+    options?: RequestInit
+): Promise<CanvasPublishResponseApi> => {
+    return apiMutator<CanvasPublishResponseApi>(getDesktopFileSystemCanvasSourcePartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedCanvasPatchPublishRequestApi),
     })
 }
 

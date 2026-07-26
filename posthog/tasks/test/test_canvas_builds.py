@@ -37,6 +37,42 @@ class TestCanvasBuilder(SimpleTestCase):
         self.assertIn("Content-Security-Policy", result["artifactFiles"]["index.html"])
         self.assertIn("assets/canvas-runtime.js", result["artifactFiles"])
 
+    def test_builds_binary_assets_and_module_workers(self) -> None:
+        payload = project(
+            'import image from "../assets/pixel.png"; import workerUrl from "./worker.ts?worker"; '
+            'document.body.dataset.image = image; new Worker(workerUrl, { type: "module" })'
+        )
+        payload["files"]["src/worker.ts"] = 'self.postMessage("ready")'
+        payload["assets"] = {
+            "assets/pixel.png": {
+                "encoding": "base64",
+                "contentType": "image/png",
+                "content": "iVBORw0KGgo=",
+            },
+            "assets/module.wasm": {
+                "encoding": "base64",
+                "contentType": "application/wasm",
+                "content": "AGFzbQEAAAA=",
+            },
+        }
+
+        serializer = CanvasSourceProjectSerializer(data=payload)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        result = _run_builder(serializer.validated_data)
+
+        self.assertTrue(result["ok"], result["diagnostics"])
+        self.assertIn("new Blob", result["artifactFiles"]["assets/main.js"])
+
+    @parameterized.expand([("invalid_base64", "%%%", "image/png"), ("active_content", "PGgxLz4=", "text/html")])
+    def test_rejects_unsafe_assets(self, _name: str, content: str, content_type: str) -> None:
+        payload = project("")
+        payload["assets"] = {"assets/file.bin": {"encoding": "base64", "contentType": content_type, "content": content}}
+
+        serializer = CanvasSourceProjectSerializer(data=payload)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("assets", serializer.errors)
+
     def test_validation_returns_manifest_without_executable_artifacts(self) -> None:
         result = validate_canvas_project(project('document.querySelector("#root")!.textContent = "Hello"'))
 
@@ -158,9 +194,14 @@ class TestCanvasBuilder(SimpleTestCase):
         payload = project("")
         payload["dependencies"] = {
             "@posthog/quill": "0.3.0-beta.24",
+            "d3": "7.9.0",
+            "date-fns": "4.1.0",
+            "echarts": "6.1.0",
+            "lodash-es": "4.18.1",
             "react": "19.2.6",
             "react-dom": "19.2.6",
             "three": "0.183.2",
+            "zod": "4.4.3",
         }
 
         serializer = CanvasSourceProjectSerializer(data=payload)

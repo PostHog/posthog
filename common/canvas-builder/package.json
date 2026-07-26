@@ -5,9 +5,14 @@
     "type": "module",
     "dependencies": {
         "@posthog/quill": "0.3.0-beta.24",
+        "d3": "7.9.0",
+        "date-fns": "4.1.0",
+        "echarts": "6.1.0",
         "esbuild": "0.28.1",
+        "lodash-es": "4.18.1",
         "react": "19.2.6",
         "react-dom": "19.2.6",
-        "three": "0.183.2"
+        "three": "0.183.2",
+        "zod": "4.4.3"
     }
 }

@@ -13659,6 +13659,54 @@ export namespace Schemas {
     }
 
     /**
+     * * `base64` - base64
+     */
+    export type EncodingEnum = typeof EncodingEnum[keyof typeof EncodingEnum];
+
+
+    export const EncodingEnum = {
+      Base64: 'base64',
+    } as const;
+
+    /**
+     * * `application/wasm` - application/wasm
+     * * `application/octet-stream` - application/octet-stream
+     * * `font/otf` - font/otf
+     * * `font/ttf` - font/ttf
+     * * `font/woff` - font/woff
+     * * `font/woff2` - font/woff2
+     * * `image/avif` - image/avif
+     * * `image/gif` - image/gif
+     * * `image/jpeg` - image/jpeg
+     * * `image/png` - image/png
+     * * `image/svg+xml` - image/svg+xml
+     * * `image/webp` - image/webp
+     */
+    export type ContentTypeEnum = typeof ContentTypeEnum[keyof typeof ContentTypeEnum];
+
+
+    export const ContentTypeEnum = {
+      ApplicationWasm: 'application/wasm',
+      ApplicationOctetStream: 'application/octet-stream',
+      FontOtf: 'font/otf',
+      FontTtf: 'font/ttf',
+      FontWoff: 'font/woff',
+      FontWoff2: 'font/woff2',
+      ImageAvif: 'image/avif',
+      ImageGif: 'image/gif',
+      ImageJpeg: 'image/jpeg',
+      ImagePng: 'image/png',
+      ImageSvgXml: 'image/svg+xml',
+      ImageWebp: 'image/webp',
+    } as const;
+
+    export interface CanvasAsset {
+      encoding: EncodingEnum;
+      contentType: ContentTypeEnum;
+      content: string;
+    }
+
+    /**
      * * `queued` - Queued
      * * `building` - Building
      * * `ready` - Ready
@@ -13817,6 +13865,11 @@ export namespace Schemas {
     export type CanvasSourceProjectFiles = {[key: string]: string};
 
     /**
+     * Binary assets mapped by normalized project-relative path.
+     */
+    export type CanvasSourceProjectAssets = {[key: string]: CanvasAsset};
+
+    /**
      * Browser package names mapped to exact admitted semantic versions.
      */
     export type CanvasSourceProjectDependencies = {[key: string]: string};
@@ -13830,6 +13883,8 @@ export namespace Schemas {
       schemaVersion: number;
       /** Complete map of normalized project-relative paths to UTF-8 source files. */
       files: CanvasSourceProjectFiles;
+      /** Binary assets mapped by normalized project-relative path. */
+      assets?: CanvasSourceProjectAssets;
       /** HTML entry file. Must be "index.html". */
       entryHtml: string;
       /** Browser package names mapped to exact admitted semantic versions. */
@@ -13864,6 +13919,23 @@ export namespace Schemas {
       readonly version: CanvasSourceVersion;
       /** Queued authoritative cloud build. */
       readonly build: CanvasBuild;
+    }
+
+    export type CanvasSourcePatchUpsertFiles = {[key: string]: string};
+
+    export type CanvasSourcePatchUpsertAssets = {[key: string]: CanvasAsset};
+
+    export type CanvasSourcePatchDependencies = {[key: string]: string};
+
+    export interface CanvasSourcePatch {
+      upsertFiles?: CanvasSourcePatchUpsertFiles;
+      /** @maxItems 128 */
+      deleteFiles?: string[];
+      upsertAssets?: CanvasSourcePatchUpsertAssets;
+      /** @maxItems 128 */
+      deleteAssets?: string[];
+      dependencies?: CanvasSourcePatchDependencies;
+      capabilities?: CanvasCapabilities;
     }
 
     export interface CanvasSourceSnapshot {
@@ -47015,6 +47087,17 @@ export namespace Schemas {
       readonly created_by?: UserBasic | null;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    export interface PatchedCanvasPatchPublishRequest {
+      /** File, asset, dependency, and capability changes to apply. */
+      patch?: CanvasSourcePatch;
+      /** Current source version that this patch is based on. */
+      expectedCurrentVersionId?: string;
+      taskId?: string;
+      taskRunId?: string;
+      /** @maxLength 10000 */
+      prompt?: string;
     }
 
     /**

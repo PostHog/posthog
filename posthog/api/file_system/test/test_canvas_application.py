@@ -15,7 +15,7 @@ from posthog.models.file_system.canvas import CanvasApplication, CanvasBuild, Ca
 from posthog.models.file_system.file_system import FileSystem
 from posthog.tasks.canvas_builds import _complete_build, _fail_build, collect_canvas_objects
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.facade import api as tasks_api
 
 
 def source_project(label: str = "hello") -> dict[str, Any]:
@@ -46,8 +46,13 @@ class TestCanvasApplicationAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.canvas_id = UUID(cast(str, response.json()["id"]))
-        self.task = Task.objects.create(team=self.team, created_by=self.user, title="Canvas task")
-        self.task_run = TaskRun.objects.create(task=self.task, team=self.team)
+        self.task_id = tasks_api.create_task_without_run(
+            team=self.team,
+            user_id=self.user.id,
+            origin_product=tasks_api.TaskOriginProduct.USER_CREATED,
+            title="Canvas task",
+        )
+        self.task_run_id = tasks_api.create_run(self.task_id).id
         self.objects: dict[str, bytes] = {}
 
     def source_url(self) -> str:
@@ -60,8 +65,8 @@ class TestCanvasApplicationAPI(APIBaseTest):
         return {
             "project": source_project(label),
             "expectedCurrentVersionId": expected,
-            "taskId": str(self.task.id),
-            "taskRunId": str(self.task_run.id),
+            "taskId": str(self.task_id),
+            "taskRunId": str(self.task_run_id),
             "prompt": f"Build {label}",
         }
 
@@ -83,8 +88,8 @@ class TestCanvasApplicationAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         body = response.json()
-        self.assertEqual(body["version"]["taskId"], str(self.task.id))
-        self.assertEqual(body["version"]["taskRunId"], str(self.task_run.id))
+        self.assertEqual(body["version"]["taskId"], str(self.task_id))
+        self.assertEqual(body["version"]["taskRunId"], str(self.task_run_id))
         self.assertEqual(body["version"]["parentVersionId"], None)
         self.assertEqual(body["build"]["status"], "queued")
         self.assertNotIn("project", body["version"])
@@ -110,7 +115,7 @@ class TestCanvasApplicationAPI(APIBaseTest):
             first = self.client.post(self.source_url(), self.publish_payload())
         self.assertEqual(first.status_code, status.HTTP_201_CREATED)
 
-        second_run = TaskRun.objects.create(task=self.task, team=self.team)
+        second_run = tasks_api.create_run(self.task_id)
         payload = self.publish_payload("stale", expected="00000000-0000-0000-0000-000000000000")
         payload["taskRunId"] = str(second_run.id)
         response = self.client.post(self.source_url(), payload)
@@ -119,6 +124,38 @@ class TestCanvasApplicationAPI(APIBaseTest):
         self.assertEqual(response.json()["code"], "version_conflict")
         self.assertEqual(response.json()["currentVersionId"], first.json()["version"]["id"])
         self.assertEqual(CanvasSourceVersion.objects.for_team(self.team.id).count(), 1)
+
+    @patch("posthog.api.file_system.canvas_application.build_canvas.delay")
+    @patch("posthog.models.file_system.canvas.object_storage.read_bytes")
+    @patch("posthog.models.file_system.canvas.object_storage.write")
+    def test_patch_publishes_a_diff_without_replacing_untouched_files(self, write: Any, read: Any, delay: Any) -> None:
+        write.side_effect = self.object_write
+        read.side_effect = self.object_read
+        with self.captureOnCommitCallbacks(execute=True):
+            first = self.client.post(self.source_url(), self.publish_payload())
+        next_run = tasks_api.create_run(self.task_id)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            patched = self.client.patch(
+                self.source_url(),
+                {
+                    "patch": {
+                        "upsertFiles": {"src/main.ts": 'document.body.textContent = "patched"'},
+                        "deleteFiles": [],
+                        "upsertAssets": {},
+                        "deleteAssets": [],
+                    },
+                    "expectedCurrentVersionId": first.json()["version"]["id"],
+                    "taskId": str(self.task_id),
+                    "taskRunId": str(next_run.id),
+                },
+                format="json",
+            )
+
+        self.assertEqual(patched.status_code, status.HTTP_201_CREATED, patched.json())
+        current = self.client.get(self.source_url()).json()["project"]
+        self.assertEqual(current["files"]["src/main.ts"], 'document.body.textContent = "patched"')
+        self.assertIn("index.html", current["files"])
 
     @patch("posthog.api.file_system.canvas_application.build_canvas.delay")
     @patch("posthog.models.file_system.canvas.object_storage.read_bytes")
@@ -138,8 +175,13 @@ class TestCanvasApplicationAPI(APIBaseTest):
         self.assertEqual(history.json()["builds"], [published.json()["build"]])
 
     def test_publish_requires_matching_task_run_provenance(self) -> None:
-        other_task = Task.objects.create(team=self.team, created_by=self.user, title="Other")
-        other_run = TaskRun.objects.create(task=other_task, team=self.team)
+        other_task_id = tasks_api.create_task_without_run(
+            team=self.team,
+            user_id=self.user.id,
+            origin_product=tasks_api.TaskOriginProduct.USER_CREATED,
+            title="Other",
+        )
+        other_run = tasks_api.create_run(other_task_id)
         payload = self.publish_payload()
         payload["taskRunId"] = str(other_run.id)
 
@@ -162,13 +204,13 @@ class TestCanvasApplicationAPI(APIBaseTest):
             response = self.client.post(
                 self.source_url(),
                 payload,
-                HTTP_X_POSTHOG_TASK_ID=str(self.task.id),
-                HTTP_X_POSTHOG_TASK_RUN_ID=str(self.task_run.id),
+                HTTP_X_POSTHOG_TASK_ID=str(self.task_id),
+                HTTP_X_POSTHOG_TASK_RUN_ID=str(self.task_run_id),
             )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-        self.assertEqual(response.json()["version"]["taskId"], str(self.task.id))
-        self.assertEqual(response.json()["version"]["taskRunId"], str(self.task_run.id))
+        self.assertEqual(response.json()["version"]["taskId"], str(self.task_id))
+        self.assertEqual(response.json()["version"]["taskRunId"], str(self.task_run_id))
         sandbox_authenticated.assert_called()
 
     def test_canvas_source_is_not_visible_through_another_team(self) -> None:
@@ -220,7 +262,7 @@ class TestCanvasApplicationAPI(APIBaseTest):
         source_read.side_effect = self.object_read
         with self.captureOnCommitCallbacks(execute=True):
             first = self.client.post(self.source_url(), self.publish_payload("first"))
-        second_run = TaskRun.objects.create(task=self.task, team=self.team)
+        second_run = tasks_api.create_run(self.task_id)
         second_payload = self.publish_payload("second", expected=first.json()["version"]["id"])
         second_payload["taskRunId"] = str(second_run.id)
         with self.captureOnCommitCallbacks(execute=True):
@@ -249,7 +291,7 @@ class TestCanvasApplicationAPI(APIBaseTest):
         self.assertIn("/canvas-artifacts/", detail.json()["meta"]["activeBuildArtifactUrl"])
         self.assertEqual(detail.json()["meta"]["activeBuildCapabilities"], manifest["capabilities"])
 
-        third_run = TaskRun.objects.create(task=self.task, team=self.team)
+        third_run = tasks_api.create_run(self.task_id)
         third_payload = self.publish_payload("third", expected=second.json()["version"]["id"])
         third_payload["taskRunId"] = str(third_run.id)
         with self.captureOnCommitCallbacks(execute=True):

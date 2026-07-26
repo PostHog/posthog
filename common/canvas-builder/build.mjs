@@ -1,4 +1,4 @@
-import { build } from 'esbuild'
+import { build, transform } from 'esbuild'
 import { createHash } from 'node:crypto'
 import { builtinModules, createRequire } from 'node:module'
 import path from 'node:path'
@@ -6,9 +6,14 @@ import path from 'node:path'
 const require = createRequire(import.meta.url)
 const admittedDependencies = new Map([
     ['@posthog/quill', '0.3.0-beta.24'],
+    ['d3', '7.9.0'],
+    ['date-fns', '4.1.0'],
+    ['echarts', '6.1.0'],
+    ['lodash-es', '4.18.1'],
     ['react', '19.2.6'],
     ['react-dom', '19.2.6'],
     ['three', '0.183.2'],
+    ['zod', '4.4.3'],
 ])
 const nodeBuiltins = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`)])
 const sourceExtensions = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.css', '.json']
@@ -50,6 +55,10 @@ function loaderFor(filePath) {
         return 'json'
     }
     return 'js'
+}
+
+function assetLoader(contentType) {
+    return contentType === 'application/wasm' || contentType === 'application/octet-stream' ? 'binary' : 'dataurl'
 }
 
 function resolveProjectFile(files, importer, specifier) {
@@ -184,9 +193,15 @@ function projectPlugin(project) {
                     return { path: normalizeProjectPath(args.path), namespace: 'canvas' }
                 }
                 if (args.namespace === 'canvas' && (args.path.startsWith('.') || args.path.startsWith('/'))) {
-                    const resolved = resolveProjectFile(project.files, args.importer, args.path)
-                    return resolved
-                        ? { path: resolved, namespace: 'canvas' }
+                    const workerImport = args.path.endsWith('?worker')
+                    const requestedPath = workerImport ? args.path.slice(0, -7) : args.path
+                    const resolved = resolveProjectFile(project.files, args.importer, requestedPath)
+                    if (resolved) {
+                        return { path: resolved, namespace: workerImport ? 'canvas-worker' : 'canvas' }
+                    }
+                    const asset = resolveProjectFile(project.assets ?? {}, args.importer, requestedPath)
+                    return asset
+                        ? { path: asset, namespace: 'canvas-asset' }
                         : { errors: [{ text: `Canvas source file not found: ${args.path}` }] }
                 }
                 if (args.namespace === 'canvas') {
@@ -213,6 +228,29 @@ function projectPlugin(project) {
                 loader: loaderFor(args.path),
                 resolveDir: '/',
             }))
+            pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas-asset' }, (args) => {
+                const asset = project.assets?.[args.path]
+                return asset
+                    ? { contents: Uint8Array.from(Buffer.from(asset.content, 'base64')), loader: assetLoader(asset.contentType) }
+                    : { errors: [{ text: `Canvas asset not found: ${args.path}` }] }
+            })
+            pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas-worker' }, async (args) => {
+                const source = project.files[args.path]
+                if (source === undefined) return { errors: [{ text: `Canvas worker not found: ${args.path}` }] }
+                if (importSpecifiers(source).length > 0) {
+                    return { errors: [{ text: 'Canvas workers must be self-contained modules' }] }
+                }
+                const compiled = await transform(source, {
+                    format: 'esm',
+                    loader: loaderFor(args.path),
+                    target: 'es2022',
+                    minify: true,
+                })
+                return {
+                    contents: `export default URL.createObjectURL(new Blob([${JSON.stringify(compiled.code)}],{type:"text/javascript"}));`,
+                    loader: 'js',
+                }
+            })
         },
     }
 }
@@ -381,6 +419,7 @@ async function buildCanvas(project) {
     const escapedCsp = contentSecurityPolicy(project).replaceAll('&', '&amp;').replaceAll('"', '&quot;')
     artifactFiles['index.html'] = injectHead(
         artifactFiles['index.html'],
+        // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag -- CSP origins are URL-validated and HTML-attribute escaped; runtimePath is constant.
         `<meta http-equiv="Content-Security-Policy" content="${escapedCsp}" /><script src="./${runtimePath}"></script>`
     )
     const files = Object.entries(artifactFiles)
