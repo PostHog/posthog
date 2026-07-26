@@ -104,6 +104,18 @@ export class ImageScrubConsumerMetrics {
         help: 'Images published to the dead-letter topic after the sidecar repeatedly failed on them while succeeding on others. The bytes are retained, so this is quarantine rather than loss',
         labelNames: ['reason'],
     })
+    /**
+     * Failed attempts to park an image, each of which leaves it at the head of its partition.
+     *
+     * Distinct from the dead-letter counter because the consequence is opposite: this is the lane
+     * stalled on an image it cannot scrub and cannot put anywhere, which is the pre-dead-letter
+     * behaviour and needs the topic looked at (wrong cluster, missing, or max.message.bytes below
+     * what a source image can be).
+     */
+    private static readonly deadLetterFailed = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_dead_letter_failed_total',
+        help: 'Attempts to publish to the dead-letter topic that failed. Each leaves an unscrubbed image holding the head of its partition, so a sustained rate means the topic is misconfigured rather than that images are bad',
+    })
     private static readonly offsetsDiscarded = new Counter({
         name: 'ml_mirror_image_scrub_consumer_offsets_discarded_total',
         help: 'Offsets that could not be stored because a rebalance had already revoked the partition, so that span rescrubs under its new owner',
@@ -137,6 +149,9 @@ export class ImageScrubConsumerMetrics {
     }
     public static incDeadLettered(reason: string): void {
         this.deadLettered.labels(reason).inc()
+    }
+    public static incDeadLetterFailed(): void {
+        this.deadLetterFailed.inc()
     }
     public static incOffsetsDiscarded(count: number): void {
         this.offsetsDiscarded.inc(count)

@@ -7,8 +7,13 @@ import { ImageScrubConsumerMetrics } from './metrics'
 /** The timeout's own message, matched on rather than duplicated, so the reason label cannot drift. */
 const REQUEST_TIMED_OUT = 'scrub request timed out'
 
-/** Why a single attempt did not come back with bytes, for the backpressure metric's label. */
-export type ScrubWaitReason = 'busy' | 'timeout' | 'transport'
+/**
+ * Why a single attempt did not come back with bytes.
+ *
+ * `rejected` is kept apart from `transport` because only it means the sidecar took the image,
+ * looked at it, and could not produce bytes. A refused or reset socket says nothing about content.
+ */
+export type ScrubWaitReason = 'busy' | 'timeout' | 'transport' | 'rejected'
 
 /** Raised only when the caller hangs up, which is the one condition that stops the wait. */
 export class ScrubAborted extends Error {}
@@ -46,7 +51,19 @@ export class ScrubPoisoned extends Error {
  * plenty of them while its neighbours get slots.
  */
 const POISON_MIN_FAILURES = 12
-const POISON_MIN_OTHER_SUCCESSES = 20
+
+/**
+ * Other images the sidecar must scrub while this one keeps being rejected.
+ *
+ * Deliberately small, and it must stay below the pod's scrub concurrency. A batch cannot finish
+ * while one of its images is still in flight, and a pod cannot poll for more work until its batch
+ * finishes, so the only successes that can ever arrive are from the handful of slots running
+ * alongside this image right now. Ask for more than that and an image late in a batch can never
+ * reach the threshold, the batch never returns, and the pod stops consuming for good: a deadlock
+ * rather than the stall the dead-letter topic was added to remove. ImageBatcher asserts the
+ * relationship at construction so a future concurrency change fails at boot instead of in traffic.
+ */
+export const POISON_MIN_OTHER_SUCCESSES = 3
 
 const BACKOFF_BASE_MS = 100
 /**
@@ -58,7 +75,14 @@ const BACKOFF_BASE_MS = 100
  * is different, because the ordinary cause is the sidecar still starting up in the same pod, and
  * waiting half a minute to notice it came up is a needless stall.
  */
-const BACKOFF_MAX_MS: Record<ScrubWaitReason, number> = { busy: 30_000, timeout: 5_000, transport: 5_000 }
+const BACKOFF_MAX_MS: Record<ScrubWaitReason, number> = {
+    busy: 30_000,
+    timeout: 5_000,
+    transport: 5_000,
+    // The sidecar answered, so it is neither full nor unreachable, and re-asking quickly costs it a
+    // whole scrub attempt each time. Backed off like a shed request rather than like a lost socket.
+    rejected: 30_000,
+}
 
 /**
  * Backoff time on one image before it is called out by ref, and the interval between repeats.
@@ -155,11 +179,15 @@ export class ScrubClient {
                 if (status === 422 || status === 413) {
                     return null
                 }
-                if (!isWaitable(status)) {
+                // An empty 200 is deliberately NOT a contract error: the sidecar's success path
+                // returns whatever the scrub produced, so a zero-length result is reachable from
+                // image content. Treating it as a deployment fault would let one image crash-loop
+                // every pod, which is the failure this whole lane has been climbing out of.
+                if (status !== 200 && !isWaitable(status)) {
                     throw new ScrubContractError(`sidecar responded ${status}, which no wait can change`)
                 }
-                reason = status === 503 ? 'busy' : 'transport'
-                detail = `sidecar responded ${status}`
+                reason = status === 503 ? 'busy' : 'rejected'
+                detail = status === 200 ? 'sidecar returned an empty body' : `sidecar responded ${status}`
             } catch (error) {
                 if (error instanceof ScrubAborted || error instanceof ScrubContractError) {
                     throw error
@@ -173,9 +201,12 @@ export class ScrubClient {
                 throw new ScrubAborted('scrub batch aborted')
             }
             ImageScrubConsumerMetrics.incScrubWait(reason)
-            // A 503 is the sidecar declining to look at this image, so it never counts towards
-            // blaming the content. Everything else means it looked and could not produce bytes.
-            if (reason !== 'busy') {
+            // Only a considered answer counts towards blaming the content. A 503 is the sidecar
+            // declining to look at the image at all; a timeout is this caller giving up first, since
+            // its budget is shorter than the sidecar's own job deadline, so an image that is merely
+            // slow trips it while the sidecar is still working; and a refused or reset socket is the
+            // sidecar being unreachable, which is true of every image at once.
+            if (reason === 'rejected') {
                 blamableFailures += 1
             }
             if (

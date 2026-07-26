@@ -511,10 +511,34 @@ describe('ImageBatcher', () => {
         expect(offsets.received.flat().map((o) => o.offset)).toEqual([2])
     })
 
-    it('does not move past a poison image when parking it fails', async () => {
+    it('refuses to start when concurrency is too low for dead-lettering to be reachable', () => {
+        // The poison gate can only ever count successes from slots running alongside the image it is
+        // judging: the batch holding that image cannot finish, and the pod cannot poll for more work
+        // until it does. At or below the threshold the gate is unreachable, so the first image the
+        // sidecar cannot scrub stops the pod consuming for good. Failing at boot beats deadlocking
+        // in traffic, where it presents as a pod that is Ready and quietly doing nothing.
+        expect(
+            () =>
+                new ImageBatcher(
+                    new FakeStore() as unknown as ImageShardStore,
+                    new FakeOffsets(),
+                    scrubClient,
+                    { ...options, scrubConcurrency: 2 },
+                    0,
+                    { park: () => Promise.resolve() }
+                )
+        ).toThrow('scrubConcurrency must exceed')
+    })
+
+    it('retries a failed park rather than failing the batch over it', async () => {
         // Ordering is the whole safety property here. Marking the ref or retiring the slot before the
-        // bytes are durably parked would advance the offset over an image held nowhere at all, which
-        // is the silent loss the dead-letter topic exists to prevent.
+        // bytes are durably parked would advance the offset over an image held nowhere at all.
+        //
+        // Letting the failure escape is worse still than the stall it would replace: the Kafka loop
+        // exits the process on any batch error, so a dead-letter topic that is missing, on the wrong
+        // cluster, or smaller than a source image would crash-loop every pod in the lane on the same
+        // message. Retrying leaves the image where it was, which is what this lane did before a
+        // dead-letter topic existed.
         const store = new FakeStore()
         const offsets = new FakeOffsets()
         const poisonClient = {
@@ -528,14 +552,19 @@ describe('ImageBatcher', () => {
                     })
                 ),
         } as unknown as ScrubClient
+        let parkAttempts = 0
         const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, poisonClient, options, 0, {
-            park: () => Promise.reject(new Error('dlq produce failed')),
+            park: () => {
+                parkAttempts += 1
+                return parkAttempts < 3 ? Promise.reject(new Error('dlq produce failed')) : Promise.resolve()
+            },
         })
 
-        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('poison'))], 1)).rejects.toThrow(
-            'dlq produce failed'
-        )
-        expect(offsets.stored).toBe(0)
+        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('poison'))], 1)).resolves.toBeUndefined()
+
+        expect(parkAttempts).toBe(3)
+        // The offset only moves once the bytes are somewhere, never while parking is still failing.
+        expect(offsets.received.flat().map((o) => o.offset)).toEqual([1])
     })
 
     it('returns when stopped, so shutdown does not wait on an unresponsive sidecar', async () => {

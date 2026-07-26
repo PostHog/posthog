@@ -8,7 +8,7 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 import { parseImageRef } from './content-ref'
 import { ImageShardStore, ScrubbedImage } from './image-shard-store'
 import { ImageScrubConsumerMetrics } from './metrics'
-import { ScrubClient, ScrubPoisoned } from './scrub-client'
+import { POISON_MIN_OTHER_SUCCESSES, ScrubAborted, ScrubClient, ScrubPoisoned } from './scrub-client'
 
 export interface OffsetStore {
     offsetsStore(offsets: TopicPartitionOffset[]): void
@@ -48,6 +48,10 @@ interface PlannedScrub {
     pseudoTeam: string
     hash: string
     value: Buffer
+    /** Where this image came from, carried only so a parked one can be traced back to its source. */
+    sourceTopic: string
+    sourcePartition: number
+    sourceOffset: number
 }
 
 interface ScrubbedRef {
@@ -125,6 +129,15 @@ export class ImageBatcher {
         if (!Number.isInteger(this.maxInFlight) || this.maxInFlight < 1) {
             throw new Error(`scrubConcurrency must be a positive number, got ${options.scrubConcurrency}`)
         }
+        // The poison gate can only ever see successes from slots running alongside the image it is
+        // judging, because the batch holding it cannot finish and the pod cannot poll for more work
+        // until it does. Concurrency at or below the threshold therefore makes the gate unreachable
+        // and the pod deadlocks on the first unscrubbable image, so refuse to start instead.
+        if (deadLetters && this.maxInFlight <= POISON_MIN_OTHER_SUCCESSES) {
+            throw new Error(
+                `scrubConcurrency must exceed ${POISON_MIN_OTHER_SUCCESSES} for dead-lettering to be reachable, got ${this.maxInFlight}`
+            )
+        }
         this.lastFlushMs = nowMs
         this.scrubConcurrency = new ConcurrencyController(this.maxInFlight)
         this.seenRefs = new RefDedupCache('image_scrub_consumer', options.dedupMaxRefs)
@@ -167,11 +180,15 @@ export class ImageBatcher {
         try {
             await this.scrubAndStage(messages, planned, controller, nowMs)
         } finally {
-            ImageScrubConsumerMetrics.observeBatchProgress(
-                this.retiredInBatch,
-                planned.length,
-                (performance.now() - startedAt) / 1000
-            )
+            // Empty polls arrive on a timer under callEachBatchWhenEmpty and would otherwise bury
+            // the real distribution of both histograms in a zero bucket.
+            if (planned.length > 0) {
+                ImageScrubConsumerMetrics.observeBatchProgress(
+                    this.retiredInBatch,
+                    planned.length,
+                    (performance.now() - startedAt) / 1000
+                )
+            }
             // Cleared here rather than on the success path: a throwing batch that left this set would
             // have shutdown abort a controller belonging to a batch that is already over.
             this.activeBatch = null
@@ -271,7 +288,16 @@ export class ImageBatcher {
                 break
             }
         }
-        if (this.stopping || this.partitionsRevoked) {
+        if (this.partitionsRevoked) {
+            // Neither the offsets nor the shard belong to this pod any more. Writing it would only
+            // duplicate what the partition's new owner is already producing, under a fresh key that
+            // nothing later reconciles.
+            this.buffer = []
+            this.bufferBytes = 0
+            this.pendingOffsets.clear()
+            return
+        }
+        if (this.stopping) {
             // Deliberately no tail recordOffsets: past the last retired image nothing was finished,
             // and moving offsets over it here would lose exactly what the wait exists to protect.
             await this.flushOrThrow(nowMs)
@@ -306,7 +332,16 @@ export class ImageBatcher {
                 ImageScrubConsumerMetrics.incDeduped('pod')
                 continue
             }
-            planned.push({ index, ref, pseudoTeam: parsed.pseudoTeam, hash: parsed.hash, value: m.value })
+            planned.push({
+                index,
+                ref,
+                pseudoTeam: parsed.pseudoTeam,
+                hash: parsed.hash,
+                value: m.value,
+                sourceTopic: m.topic,
+                sourcePartition: m.partition,
+                sourceOffset: m.offset,
+            })
         }
         return planned
     }
@@ -353,11 +388,7 @@ export class ImageBatcher {
             // Parked before the ref is marked and before the slot retires, so a failure to park
             // leaves the image exactly where it was: still unscrubbed, still uncommitted, still
             // waiting. Marking first would advance the offset over an image held nowhere.
-            await this.deadLetters.park({
-                ref: planned.ref,
-                bytes: planned.value,
-                detail: { ...error.detail, pseudoTeam: planned.pseudoTeam, hash: planned.hash },
-            })
+            await this.parkUntilAccepted(planned, error, signal)
             logger.warn('☠️', 'image_scrub_dead_lettered', { ref: planned.ref, ...error.detail })
             this.seenRefs.add(planned.ref)
             ImageScrubConsumerMetrics.incDeadLettered(error.detail.reason)
@@ -373,6 +404,52 @@ export class ImageBatcher {
         }
         ImageScrubConsumerMetrics.incScrubbed()
         return { pseudoTeam: planned.pseudoTeam, hash: planned.hash, bytes }
+    }
+
+    /**
+     * Publishes to the dead-letter topic, retrying until it is accepted or the caller hangs up.
+     *
+     * A park that cannot succeed leaves the image at the head of its partition, which is exactly the
+     * behaviour this lane had before a dead-letter topic existed, and it is the only safe fallback:
+     * the image is unscrubbed and held nowhere else, so the alternatives are discarding it or
+     * advancing an offset over it. Letting the failure escape would be worse still, because the
+     * Kafka loop exits on any batch error and the same image is redelivered on restart, turning a
+     * misconfigured or undersized dead-letter topic into a crash loop across every pod in the lane.
+     */
+    private async parkUntilAccepted(
+        planned: PlannedScrub,
+        poisoned: ScrubPoisoned,
+        signal: AbortSignal
+    ): Promise<void> {
+        for (let attempt = 0; ; attempt++) {
+            if (signal.aborted) {
+                throw new ScrubAborted('scrub batch aborted')
+            }
+            try {
+                await this.deadLetters!.park({
+                    ref: planned.ref,
+                    bytes: planned.value,
+                    detail: {
+                        ...poisoned.detail,
+                        pseudoTeam: planned.pseudoTeam,
+                        hash: planned.hash,
+                        sourceTopic: planned.sourceTopic,
+                        sourcePartition: planned.sourcePartition,
+                        sourceOffset: planned.sourceOffset,
+                    },
+                })
+                return
+            } catch (error) {
+                ImageScrubConsumerMetrics.incDeadLetterFailed()
+                logger.error('☠️', 'image_scrub_dead_letter_failed', {
+                    ref: planned.ref,
+                    bytes: planned.value.length,
+                    attempts: attempt + 1,
+                    error: String(error),
+                })
+                await new Promise((resolve) => setTimeout(resolve, Math.min(30_000, 500 * 2 ** attempt)).unref())
+            }
+        }
     }
 
     /** Staged results are counted so a slow slot holding back retirement still applies backpressure. */

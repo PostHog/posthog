@@ -3,11 +3,14 @@ import { S3Client } from '@aws-sdk/client-s3'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB } from '~/common/config/kafka-topics'
 import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import { KafkaDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/dead-letter-sink'
 import { ImageBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-batcher'
 import { ImageShardStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-shard-store'
 import { ScrubClient } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/scrub-client'
+import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
+import { INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 
 import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
@@ -40,7 +43,7 @@ export function buildImageScrubConsumerConfig(config: IngestionSessionReplayMlMi
 export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayMlMirrorServerConfig
-    private dlqProducer: KafkaProducerWrapper | null = null
+    private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
 
     constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
         this.config = buildMlMirrorServerConfig(config)
@@ -68,17 +71,28 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX,
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS
         )
-        // Built before the client, because whether a dead-letter destination exists changes what the
-        // client does with an image it cannot get scrubbed: park it, or keep waiting on it forever.
-        this.dlqProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        const deadLetters = new KafkaDeadLetterSink(
-            this.dlqProducer,
-            this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC
-        )
+        // The lane's own producer slot, not the generic one. It is on the replay cluster that holds
+        // the source topic and carries this lane's message.max.bytes, and a parked image is an
+        // original of the same size as the source message. The generic slot points at a different
+        // cluster with librdkafka's 1 MB default, where every park of a normal image would fail
+        // non-retriably.
+        const dlqTopic = this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC
+        let deadLetters: KafkaDeadLetterSink | null = null
+        if (dlqTopic) {
+            this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+            deadLetters = new KafkaDeadLetterSink(
+                this.producerRegistry.getProducer(INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER),
+                dlqTopic
+            )
+        }
+        // Built after, because whether a dead-letter destination exists changes what the client does
+        // with an image it cannot get scrubbed: park it, or keep waiting on it forever. Clearing the
+        // topic is therefore the rollback, and it reverts to the documented waiting behaviour rather
+        // than to producing at an empty topic name.
         const scrubClient = new ScrubClient(
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL,
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS,
-            true
+            deadLetters !== null
         )
 
         const consumer = new KafkaConsumer(buildImageScrubConsumerConfig(this.config))
@@ -119,7 +133,8 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: this.dlqProducer ? [this.dlqProducer] : [],
+            kafkaProducers: [],
+            additionalCleanup: () => this.producerRegistry?.disconnectAll(),
             redisPools: [],
         }
     }

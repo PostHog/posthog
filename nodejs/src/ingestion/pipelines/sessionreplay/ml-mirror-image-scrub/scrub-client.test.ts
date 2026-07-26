@@ -53,6 +53,9 @@ describe('ScrubClient', () => {
         ['a 500 from a struggling sidecar', 500],
         ['a 502 from a half-started sidecar', 502],
         ['a 429', 429],
+        // Reachable from image content, not from a bad deployment: the sidecar's success path
+        // returns whatever the scrub produced, so a zero-length result is a plain 200 with no body.
+        ['success with no bytes', 200],
     ])('keeps waiting through %s until the sidecar returns bytes', async (_label, status) => {
         // The regression this exists for: a bounded retry that gives up turns a saturated sidecar
         // into permanent data loss, when Kafka is already holding the image durably and the only
@@ -66,7 +69,7 @@ describe('ScrubClient', () => {
     it.each([
         ['a misdirected URL or renamed route', 404, ''],
         ['a drifted request contract', 400, ''],
-        ['success with no bytes', 200, ''],
+        ['a method the sidecar does not serve', 405, ''],
     ])('fails the batch on %s rather than waiting on it', async (_label, status, body) => {
         // Waiting only makes sense for answers a later attempt could change. These say the deployment
         // is wrong, and waiting on them forever would turn a config mistake into a pod that consumes
@@ -116,7 +119,10 @@ describe('ScrubClient', () => {
         replyFor = (body) => (body.startsWith('poison') ? { status: 500, body: '' } : undefined)
         const inFlight = c.scrub(Buffer.from('poison'), undefined, 'ref-1')
         inFlight.catch(() => {}) // settled by the caller; this only stops an unhandled rejection
-        for (let i = 0; i < 40; i++) {
+        // Only a handful, deliberately: a poison image late in a batch has just its few concurrent
+        // neighbours to prove the sidecar works, because the batch cannot finish while it is in
+        // flight and the pod cannot poll for more. A gate needing more than that never opens.
+        for (let i = 0; i < 4; i++) {
             await c.scrub(Buffer.from(`healthy-${i}`))
         }
         return { inFlight }

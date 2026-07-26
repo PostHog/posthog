@@ -38,9 +38,20 @@ Why it was parked travels in headers, so the topic can be triaged without readin
 **What makes an image poison rather than unlucky is the only question that matters here.**
 Under saturation every image waits a long time, so anything keyed on waiting or failure count alone would park the entire stream during a backlog, which is the mass loss the wait exists to prevent arriving through a different door.
 An image is blamed only when it keeps failing **while other images succeed**: a sidecar that is full or wedged fails everything equally, so no image ever meets that condition and the lane keeps waiting, which is correct.
-A 503 never counts towards blame either, because it is the sidecar declining to look at the image at all.
+Only a considered answer counts towards blame, which is the `rejected` reason: the sidecar took the image, looked at it, and could not produce bytes.
+A 503 is it declining to look at all; a timeout is the consumer giving up before the sidecar has, since its per-request budget is shorter than the sidecar's own job deadline, so blaming timeouts would park legitimately expensive images and retire a worker on every attempt; and a refused or reset socket is true of every image at once.
+
+The number of other successes required is deliberately small, and must stay below the pod's scrub concurrency.
+A batch cannot finish while one of its images is in flight, and a pod cannot poll for more work until its batch finishes, so the only successes that can ever arrive are from the few slots running alongside that image.
+Requiring more than that makes the gate unreachable for an image late in a batch: the batch never returns, and the pod stops consuming entirely while still reporting Ready.
+`ImageBatcher` refuses to start if the relationship is broken, so a future concurrency change fails at boot rather than in traffic.
+
+It is published through this lane's own producer slot on the replay cluster, which is where the source topic lives and which carries a `message.max.bytes` sized for these payloads; the generic slot points elsewhere with librdkafka's 1 MB default, where parking a normal image would fail on every attempt.
+The topic must exist before this ships, with `max.message.bytes` at least the source topic's: clearing `SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC` is the rollback, and reverts to waiting.
 
 Parking happens before the ref is marked and before the slot retires, so a failed publish leaves the image exactly where it was, still unscrubbed and still uncommitted.
+A publish that keeps failing is retried rather than raised, because the Kafka loop exits the process on any batch error and a dead-letter topic that is missing, on the wrong cluster, or too small would otherwise crash-loop every pod in the lane on the same image.
+`ml_mirror_image_scrub_consumer_dead_letter_failed_total` is that condition, and it means the topic needs looking at rather than the image.
 With no dead-letter destination configured the client keeps waiting instead, because the only other option would be discarding.
 `ml_mirror_image_scrub_consumer_dead_lettered_total` should sit at zero; anything above a trickle is a sidecar bug reproducing across many images, and the fix belongs in the sidecar.
 
