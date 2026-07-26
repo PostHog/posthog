@@ -249,6 +249,7 @@ the row lists both.
 | fullstory                        | HTTP                        | requests                                                        | ✅                          |
 | fusionauth                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | gainsight_px                     | HTTP                        | requests                                                        | ✅                          |
+| gcp_cloud_billing                | HTTP                        | requests                                                        | ✅                          |
 | gerrit                           | HTTP                        | requests                                                        | ✅                          |
 | gitbook                          | HTTP                        | requests                                                        | ✅                          |
 | gitea                            | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
@@ -938,7 +939,6 @@ doesn't conflict with concurrent PRs.
 - gcp_bigtable
 - gcp_chronicle
 - gcp_cloud_asset_inventory
-- gcp_cloud_billing
 - gcp_cloud_build
 - gcp_cloud_deploy
 - gcp_cloud_dns

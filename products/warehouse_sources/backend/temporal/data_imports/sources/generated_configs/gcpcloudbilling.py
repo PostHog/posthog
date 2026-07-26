@@ -5,5 +5,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 @config.config
+class GcpCloudBillingKeyFileConfig(config.Config):
+    project_id: str
+    private_key: str
+    private_key_id: str
+    client_email: str
+    token_uri: str
+
+
+@config.config
 class GcpCloudBillingSourceConfig(config.Config):
-    pass
+    key_file: GcpCloudBillingKeyFileConfig
+    billing_account_id: str | None = None
