@@ -686,7 +686,7 @@ export interface HogFlowBatchJobApi {
     /** ID of the workflow this batch run belongs to. */
     hog_flow: string
     /** Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters. */
-    filters?: unknown
+    readonly filters: unknown
     /** Variable value overrides applied to this run. */
     variables?: unknown
     readonly created_at: string
@@ -737,6 +737,8 @@ export interface HogFlowGraphOperationApi {
 }
 
 export interface PatchedHogFlowGraphUpdateApi {
+    /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored graph is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
+    base_updated_at?: string
     /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
     operations?: HogFlowGraphOperationApi[]
 }
@@ -1173,6 +1175,8 @@ export interface BlastRadiusApi {
      *
      * * `email` - email */
     dedupe_key: DedupeKeyEnumApi | null
+    /** Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes. */
+    confirm_token: string
 }
 
 export type HogFlowTemplatesListParams = {

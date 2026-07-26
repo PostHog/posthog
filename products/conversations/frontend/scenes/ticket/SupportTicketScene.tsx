@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -19,6 +20,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { Breadcrumb } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
@@ -36,6 +38,18 @@ import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { TicketActivityPanel } from './TicketActivityPanel'
+
+// The list's filters / saved view ride along in the ticket page's query string
+// (the ticket row carries them through on navigation). Rebuild the list URL from
+// them so the back arrow returns to the view the user came from rather than the
+// unfiltered ticket list.
+export function ticketListBackTo(searchParams: Record<string, any>): Breadcrumb {
+    return {
+        name: 'Ticket list',
+        path: combineUrl(urls.supportTickets(), searchParams).url,
+        key: 'supportTickets',
+    }
+}
 
 export const scene: SceneExport<{ ticketId: string; id: string }> = {
     component: SupportTicketScene,
@@ -85,6 +99,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         latestAiMessage,
         feedbackByMessageId,
     } = useValues(logic)
+    // The list's filters / saved view ride along in this page's query string
+    // (the ticket row carries them through on navigation). Preserve them on the
+    // back arrow so it returns to the view the user came from rather than the
+    // unfiltered ticket list (see ticketListBackTo).
+    const { searchParams } = useValues(router)
     const {
         setStatus,
         setPriority,
@@ -178,11 +197,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 }
                 description=""
                 resourceType={{ type: 'conversation' }}
-                forceBackTo={{
-                    name: 'Ticket list',
-                    path: urls.supportTickets(),
-                    key: 'supportTickets',
-                }}
+                forceBackTo={ticketListBackTo(searchParams)}
             />
 
             <div className="flex flex-col lg:flex-row items-start lg:min-h-0 lg:flex-1">
@@ -265,6 +280,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                                   }
                                         }
                                         withIcon
+                                        withCopyEmailButton
                                         withComposeTicketButton
                                     />
                                     <IdentityBadge verified={ticket.identity_verified} />

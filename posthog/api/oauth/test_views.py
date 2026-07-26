@@ -2775,7 +2775,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertFalse(any(scope.endswith(":write") for scope in wildcard_reads))
 
     def test_authorize_wildcard_accepted_when_app_ceiling_empty(self):
-        # Existing clients (the PostHog Code CLI today) still send scope=*
+        # Existing clients (the PostHog Desktop CLI today) still send scope=*
         # against apps that have no explicit ceiling. Until wildcard retirement
         # (#60342) lands, those broad-default apps keep accepting it.
         response = self._authorize_post("*")
