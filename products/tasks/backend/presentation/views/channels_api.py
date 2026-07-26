@@ -219,6 +219,10 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "task"
     http_method_names = ["get", "post", "head", "options"]
     serializer_class = TaskActivitySerializer
+    # `list` returns one page object carrying its own unread total, not a paginated
+    # list. Without this drf-spectacular wraps it and the generated client is typed
+    # for a `results` envelope the endpoint never sends.
+    pagination_class = None
 
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)

@@ -41,6 +41,7 @@ from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
 from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
+from posthog.uuidt import uuid7
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
 from products.tasks.backend.error_telemetry import truncate_error_message
@@ -957,7 +958,10 @@ class TaskActivity(TeamScopedRootMixin):
         MESSAGE = "message", "Message"
         AWAITING_INPUT = "awaiting_input", "Awaiting input"
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # uuid7 rather than the uuid4 the sibling task models use: rows are insert-heavy and
+    # read newest-first, so a time-ordered key keeps the index appends local and makes the
+    # id a meaningful tiebreak when two rows share an activity_at.
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
@@ -1014,7 +1018,7 @@ class TaskActivity(TeamScopedRootMixin):
                        read_at = EXCLUDED.read_at
                  WHERE {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
                 """,
-                [uuid.uuid4(), team_id, user_id, task_id, message_id, kind, activity_at, read_at],
+                [uuid7(), team_id, user_id, task_id, message_id, kind, activity_at, read_at],
             )
 
 
