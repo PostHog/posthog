@@ -21,7 +21,7 @@ exports[`scale geometry, as it currently behaves a 1080p desktop frame 1`] = `
 exports[`scale geometry, as it currently behaves a banner past the tiling threshold 1`] = `
 {
   "frame": "8000x60",
-  "stored": "2019x15",
+  "stored": "1790x13",
   "textCanvas": "8000x64",
   "textContent": "8000x60",
 }
@@ -30,7 +30,7 @@ exports[`scale geometry, as it currently behaves a banner past the tiling thresh
 exports[`scale geometry, as it currently behaves a degenerate column 1`] = `
 {
   "frame": "8x88590",
-  "stored": "1x4272",
+  "stored": "1x1936",
   "textCanvas": "32x16928",
   "textContent": "6x16928",
 }
@@ -39,7 +39,7 @@ exports[`scale geometry, as it currently behaves a degenerate column 1`] = `
 exports[`scale geometry, as it currently behaves a degenerate strip 1`] = `
 {
   "frame": "88590x8",
-  "stored": "4272x1",
+  "stored": "1936x1",
   "textCanvas": "16928x32",
   "textContent": "16928x6",
 }

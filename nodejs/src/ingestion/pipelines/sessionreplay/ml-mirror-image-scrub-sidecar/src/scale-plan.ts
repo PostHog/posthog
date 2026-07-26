@@ -73,6 +73,29 @@ const MIN_FRAME_PIXELS = 96 * 96
 export const FACE_TILE_ABOVE = 3
 export const FACE_TILE_ASPECT = 6
 
+/**
+ * Most inferences one image may spend on faces.
+ *
+ * Tiling covers a long frame with overlapping windows, and the count grows with the aspect ratio,
+ * which the frame's AREA budget does not bound: a 400000x4 source plans a 280149x2 frame and asks for
+ * 28,015 inferences from about 100 KB of PNG. Past the cap the windows widen instead of multiplying,
+ * so coverage is kept and the subject shrinks at the model, which is the same trade the area budget
+ * makes everywhere else.
+ */
+export const FACE_MAX_WINDOWS = 12
+
+/** Window length along the long axis, given the tiling rule and the inference cap. Shared by the
+ *  planner and the detector so one rule produces both the plan and the work. */
+export function faceWindowLong(long: number, short: number, tileAbove: number, tileAspect: number): number {
+    if (long / short <= tileAbove) {
+        return long
+    }
+    // Each window past the first advances by (windowLong - short), so covering `long` within the cap
+    // needs at least this much window.
+    const toFitCap = (long - short) / FACE_MAX_WINDOWS + short
+    return Math.min(long, Math.max(tileAspect * short, toFitCap))
+}
+
 /** Scale that fits `dims` inside an area budget, never above 1 because rule 1 forbids upscaling. */
 export function scaleToArea(dims: Dims, budgetPixels: number): number {
     return Math.min(1, Math.sqrt(budgetPixels / (dims.width * dims.height)))
@@ -147,8 +170,7 @@ export function fitToCanvas(dims: Dims, budgetPixels: number, stride: number): {
 export function faceInputScale(dims: Dims, side: number, tileAbove: number, tileAspect: number): number {
     const long = Math.max(dims.width, dims.height)
     const short = Math.min(dims.width, dims.height)
-    const windowLong = long / short > tileAbove ? Math.min(long, tileAspect * short) : long
-    return Math.min(1, side / windowLong)
+    return Math.min(1, side / faceWindowLong(long, short, tileAbove, tileAspect))
 }
 
 /**

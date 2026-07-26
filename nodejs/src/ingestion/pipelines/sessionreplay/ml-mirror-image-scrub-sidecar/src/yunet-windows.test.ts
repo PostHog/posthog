@@ -1,3 +1,4 @@
+import { FACE_MAX_WINDOWS } from './scale-plan.ts'
 import { detectionWindowsForTest } from './yunet.ts'
 
 describe('detectionWindows', () => {
@@ -23,6 +24,21 @@ describe('detectionWindows', () => {
             expect(w.left + w.width).toBeLessThanOrEqual(W)
             expect(w.top + w.height).toBeLessThanOrEqual(H)
         }
+    })
+
+    it.each([
+        ['a moderately long banner', 8000, 60],
+        ['a degenerate strip', 88_590, 8],
+        ['an extreme strip', 280_149, 2],
+    ])('bounds how many inferences %s costs', (_case, W, H) => {
+        // The window count grows with the aspect ratio, which the frame's AREA budget does not bound:
+        // a 400000x4 source asked for 28,015 face inferences from about 100 KB of PNG, which pins a
+        // worker for minutes and trips its deadline. Past the cap the windows widen rather than
+        // multiply, so the frame is still covered end to end.
+        const windows = detectionWindowsForTest(W, H)
+
+        expect(windows.length).toBeLessThanOrEqual(FACE_MAX_WINDOWS + 1)
+        expect(Math.max(...windows.map((w) => Math.max(w.left + w.width, w.top + w.height)))).toBe(Math.max(W, H))
     })
 
     it('covers the whole long side across its windows', () => {

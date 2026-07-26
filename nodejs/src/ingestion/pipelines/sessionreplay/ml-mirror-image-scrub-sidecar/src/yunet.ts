@@ -20,7 +20,7 @@ import { type Box } from './geometry.ts'
 // Kept in step with PlanLimits.faceTileAbove / faceTileAspect: the planner needs the same rule to
 // know how much of a long frame this stage really sees, and two copies of it is the drift the
 // planner exists to remove.
-import { FACE_TILE_ABOVE, FACE_TILE_ASPECT } from './scale-plan.ts'
+import { FACE_TILE_ABOVE, FACE_TILE_ASPECT, faceWindowLong } from './scale-plan.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
 const YUNET_SIDE = 640 // this YuNet build has a FIXED 640x640 input (dynamic dims are rejected)
@@ -89,7 +89,10 @@ function detectionWindows(W: number, H: number): Window[] {
     // every window started off the left (or top) edge. Face boxes are translated by that offset, so
     // at an aspect just over MAX_ASPECT the shift approached the whole long side and no box survived
     // the width check: face redaction was silently off for every frame between 3:1 and 6:1.
-    const windowLong = Math.min(long, TILE_ASPECT * short)
+    // From the planner, so the work done here and the scale the plan assumed cannot disagree, and so
+    // the inference count is bounded: it grows with the aspect ratio, which the area budget does not
+    // constrain, and an unbounded count is a worker pinned by one small crafted image.
+    const windowLong = faceWindowLong(long, short, MAX_ASPECT, TILE_ASPECT)
     const stride = Math.max(1, windowLong - short) // overlap of one shortSide: no face can straddle two windows undetected
     const windows: Window[] = []
     for (let pos = 0; ; pos += stride) {
