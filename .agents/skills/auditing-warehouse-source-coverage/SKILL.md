@@ -21,9 +21,34 @@ There are ~586 implemented sources.
 You cannot diff all of them against vendor docs in one pass, and a flat list of "source X has N tables"
 tells you nothing, because N should be 3 for some vendors and 40 for others.
 
-So the audit is: **establish our real inventory, rank by who actually uses it, then diff only the top
-of that ranking against authoritative vendor specs.**
-Depth over breadth. Ten spec-verified sources beat 200 guesses.
+So the audit is: **establish our real inventory, rank by who actually uses it, diff the top of that
+ranking by hand, and sweep the long tail with a batched workflow.**
+Depth over breadth on the sources that matter; breadth via fan-out for the rest.
+Ten spec-verified sources beat 200 guesses.
+
+Both halves have been run once. `COVERAGE_GAPS.md` holds the hand-audited high-adoption sources and
+`COVERAGE_GAPS_APPENDIX.md` holds the swept remainder, so a re-run is a refresh, not a cold start.
+
+### Sweeping the long tail with a workflow
+
+The tail is too big to audit inline but parallelizes perfectly, since sources are independent.
+What worked: one `parallel()` fan-out, batches of 8 sources per agent, 69 agents for 547 sources.
+It cost about 6.8M subagent tokens and 3,000 tool calls, and returned 4,540 findings with zero agent
+errors, so budget accordingly before starting.
+Requires explicit user opt-in to run a workflow at that scale.
+
+Design notes that mattered:
+
+- **Pass the payload by file, not inline.** Write `[{s, l, t, d}]` (source type, label, current tables, known docs URLs) to a scratchpad JSON, give each agent an index range, and have it read its own slice. Inlining 136KB of source data into 69 prompts is pure waste.
+- **Give agents our table list up front.** It comes from `get_schemas()` and is authoritative, so agents spend their budget on vendor research instead of re-reading our code.
+- **Force structured output with a schema**, including a `verified` boolean and the exact `doc_url` diffed against. That URL is what makes the result auditable afterwards.
+- **Make "could not verify" an explicit, blessed answer.** Tell agents plainly that a fabricated endpoint wastes an implementer's day and is worse than reporting nothing. On the first run this held perfectly: all 542 `gaps`/`thin`/`adequate` results were `verified: true` and only the 5 genuine failures came back `could-not-verify`.
+
+Then validate the output before trusting it:
+
+- Bulk-check the cited `doc_url`s with `curl -o /dev/null -w "%{http_code}"`. About 95% should return 200; a low rate means agents were inventing sources.
+- Spot-check a handful of findings end to end: fetch the vendor spec, confirm the claimed path exists, and confirm it is genuinely absent from our source's endpoint map.
+- Expect endpoint names to hold up better than the one-line rationales beside them. Agents occasionally justify a lookup table by a field on a table we do not actually sync. Say so in the write-up rather than presenting both at equal confidence.
 
 ## Step 1: dump our real endpoint inventory
 
@@ -145,13 +170,20 @@ which makes it a cheaper item than it looks.
 Before writing up, re-read your per-source findings for repeats.
 Themes are more actionable than 40 separate bullets, and they change how the work gets scheduled.
 
-Patterns found on the first pass, all still open:
+Tag the findings rather than eyeballing them. Regex the `endpoint` and `why` fields of every gap into
+theme buckets and count. A measured prevalence is far more persuasive to whoever schedules the work
+than "this seems common", and it tells you which theme to fund first.
 
+Patterns found so far, all still open, with their measured share of the 4,540 swept gaps:
+
+- **Lookup tables that resolve IDs we already sync — 1,238 items, 27% of everything.** The dominant finding by a wide margin, and the cheapest to fix. We sync a record carrying a foreign key and never sync the table decoding it. Always check for this first on any source.
+- Usage, billing, and cost objects (429).
+- Membership and join tables materializing a many-to-many we currently drop (456).
+- State and change history (424), so no time-in-state question is answerable.
+- Comments, notes, and conversations attached to records we already sync (238).
 - Every ad platform except LinkedIn ships no creative metadata.
 - Every ad platform except Google Ads ships no breakdown dimensions (age, gender, geo, placement, device).
-- CRM and support sources return opaque foreign keys with no lookup table.
 - Email tools ship campaign metadata but not per-recipient engagement.
-- State-transition history is missing nearly everywhere, so no time-in-state question is answerable.
 
 When you find a new theme, add it to the patterns section of `COVERAGE_GAPS.md`.
 

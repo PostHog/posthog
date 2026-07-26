@@ -11,6 +11,17 @@ Produced 2026-07-26 by the [auditing-warehouse-source-coverage skill](/.agents/s
 Re-run that skill to refresh this file.
 Tick items off as they ship rather than deleting them, so the next audit can tell "done" from "never found".
 
+**Coverage is complete.** All 586 implemented sources have been diffed against a vendor spec or
+reference.
+This file carries the method, the cross-source patterns, and the highest-adoption sources in depth.
+Per-source detail for the remaining 547 lives in
+[COVERAGE_GAPS_APPENDIX.md](COVERAGE_GAPS_APPENDIX.md), which is generated and covers every source
+with its assessment, the doc URL it was diffed against, and its gap list.
+
+Headline numbers: **4,540 missing endpoints across 547 sources**, of which 1,704 are high priority.
+466 sources have at least one high-priority gap.
+55 sources are adequately covered.
+
 ## How sources were prioritized
 
 Coverage alone says nothing about impact, so sources were ranked by how many production projects
@@ -23,6 +34,11 @@ Tiers below are relative bands, not thresholds.
 - **Tier 1** — among the most-connected sources. A gap here affects a large share of warehouse users.
 - **Tier 2** — widely connected. Worth doing.
 - **Tier 3** — real but modest adoption. Do opportunistically.
+
+The tiered sections below are the sources with meaningful production adoption, audited by hand.
+Everything else was swept in a second pass and lives in the appendix.
+Adoption should still drive scheduling: an appendix source with a high-priority gap is usually worth
+less than a tier 1 source with a medium one.
 
 SQL and file sources (Postgres, MySQL, BigQuery, Snowflake, MongoDB, Supabase, Redshift, MSSQL,
 ClickHouse, Neon, Convex, Google Sheets, Custom) introspect user-defined schemas and are out of scope.
@@ -42,6 +58,29 @@ so the "what we have today" column is accurate in all cases.
 ## Cross-source patterns worth fixing as a batch
 
 These recur across many sources and are probably better tackled as themes than one source at a time.
+The counts come from tagging all 4,540 swept gap items, so they are a measured prevalence rather than
+an impression.
+A single gap can carry more than one theme, so these do not sum to the total.
+
+| Theme                                          | Gap items | Shape of the fix                                              |
+| ---------------------------------------------- | --------: | ------------------------------------------------------------- |
+| Lookup tables that resolve IDs we already sync |     1,238 | Small endpoint, one join, unblocks a category of analysis     |
+| Usage, billing, and cost objects               |       429 | Often a whole missing product surface                         |
+| Membership and join tables                     |       456 | Materialize a many-to-many we currently drop                  |
+| State and change history                       |       424 | New table, usually cheap, enables all time-in-state questions |
+| Comments, notes, and conversations             |       238 | Text content attached to records we already sync              |
+| Breakdown and segmented reporting              |       210 | New report dimensions on an existing stats call               |
+| Engagement events (opens, clicks, delivery)    |       161 | The fact table behind email and messaging sources             |
+| Line items and order detail                    |        83 | Splits a single total into its components                     |
+
+**Lookup tables are 27% of every gap found and are the clearest theme in the whole audit.**
+The pattern is always the same: we sync a record carrying a foreign key, and never sync the table that
+decodes it. Pipedrive activities carry a type key with no `activityTypes`; Discourse user badges have no
+`badges`; Ably stats are scoped to app IDs with no `apps`; Mollie payments carry a `profileId` with no
+`profiles`. These are the cheapest work in this document and should probably be swept as one project
+rather than trickled out per source.
+
+The five narrative patterns below were found in the hand-audited tier 1 and 2 sources and still hold.
 
 1. **Ad platforms expose no creative metadata.**
    Meta, Reddit, TikTok, Snapchat, and Pinterest all ship campaign / ad group / ad plus a stats table,
@@ -566,20 +605,59 @@ Fourteen tables and solid coverage.
 
 ### Webflow, WordPress, Calendly, ActiveCampaign, Pipedrive
 
-Coverage looks proportionate to each API's size.
-No specific gaps identified in this pass beyond the cross-source themes above.
-Worth a spec diff on a future run rather than treating this as a clean bill of health.
+The first pass punted on these without a real diff. The sweep has since done one, and all five have
+gaps, so that earlier "looks proportionate" read was wrong. See the appendix for each.
 
-## Sources examined and considered adequately covered
+The two worth pulling forward, because both are higher-adoption than most appendix entries:
 
-`GoogleAds` (21 tables), `CustomerIO` (17), `Sentry` (14), `Intercom` (14), `Salesforce` (14 standard
-objects, though see the custom-object gap), `Pipedrive` (13), `ActiveCampaign` (12), and `WooCommerce`
-(10) are the broadest sources we ship.
-They still have gaps, listed above, but none are structural.
+- **ActiveCampaign** — no `emailActivities` (per-contact opens and clicks), no e-commerce objects at all (`ecomOrders`, `ecomOrderProducts`, `ecomCustomers`), and no membership tables joining the contacts we sync to the lists and automations we also sync.
+- **Pipedrive** — no deal line items (`deals/{id}/products`), so deal revenue is only readable as a single number; `/deals` excludes archived deals, so closed pipeline history is silently missing; and no `deals/{id}/flow` changelog, so stage-transition and velocity analysis is impossible.
+
+## Full sweep results
+
+The remaining 547 sources were swept in a single pass, each diffed against a vendor spec or reference
+fetched at audit time. Per-source detail is in [COVERAGE_GAPS_APPENDIX.md](COVERAGE_GAPS_APPENDIX.md).
+
+| Assessment       | Sources | Meaning                                        |
+| ---------------- | ------: | ---------------------------------------------- |
+| `gaps`           |     411 | Specific valuable endpoints missing            |
+| **thin**         |      76 | Source exposes a small fraction of a large API |
+| `adequate`       |      55 | Coverage proportionate to the API              |
+| could not verify |       5 | No reachable API reference found               |
+
+### Thin sources, worst coverage first by business relevance
+
+These 76 expose a small fraction of a large API. The ones below stand out because the product is
+widely used or the missing surface is the reason people connect it at all.
+
+`Square` (payments and orders, but not the catalog or inventory), `Segment`, `Plaid`, `GitLab`,
+`Mixpanel`, `SendGrid`, `Zoom`, `Pendo`, `AppsFlyer`, `AmazonAds`, `AdRoll` (no reporting metrics at
+all, which is the point of an ads connector), `Deel`, `BambooHR`, `Personio`, `HiBob`, `Factorial`,
+`Matomo`, `FullStory`, `Iterable`, `Fastly`, `AzureDevOps`, `Smartsheet`, `Coupa`, `Ramp`,
+`CheckoutCom`, `Cloudbeds`, `Planhat`, `Sourcegraph`, `Jumpcloud`, `Kandji`, `JamfPro`, `Veracode`,
+`TenableVulnerabilityManagement`, `Kubecost`, `Scaleway`, `Telnyx`, `Plain`, `Svix`, `Ably`.
+
+Full list of all 76 in the appendix.
+
+### Adequately covered
+
+55 sources need nothing. Mostly small, single-purpose APIs where we already expose everything
+queryable: `PyPI`, `Packagist`, `GNews`, `NewsApi`, `Guardian`, `Firecrawl`, `Imagga`,
+`GooglePageSpeedInsights`, `MicrosoftClarity`, `Mailosaur`, `Healthchecks.io`, `Coveralls`,
+`OnePassword`, `LemonSqueezy`, `Granola`, and others listed in the appendix.
+
+### Could not verify
+
+`Decagon`, `Height`, `OPUSWatch`, `OrcaSecurity`, `Sentinelone`.
+No reachable machine-readable reference was found for these during the sweep, usually because the
+docs sit behind auth or a customer portal.
+They are recorded so their empty gap lists are not mistaken for good coverage.
+Each needs a manual pass, likely with vendor credentials.
 
 ## What this audit did not cover
 
-- Only the sources with meaningful production adoption were diffed. Roughly 586 implemented sources exist; the long tail was not examined.
-- Column-level coverage was not audited at all. A table can exist while missing most of the vendor's fields (sparse fieldsets, `fields[...]` params, `properties` allowlists). That is a separate and probably larger audit.
-- Incremental-sync quality was not audited. Some tables exist but only support full refresh, which is its own class of gap.
-- Nothing here was validated against a live vendor account, so "needs confirmation" entries may include endpoints that are deprecated, gated behind a plan tier, or unavailable on the API version we pin.
+- **Column-level coverage was not audited at all.** A table can exist while missing most of the vendor's fields (sparse fieldsets, `fields[...]` params, `properties` allowlists). This is the largest remaining blind spot and is probably a bigger body of work than everything in this document.
+- **Incremental-sync quality was not audited.** Some tables exist but only support full refresh, which is its own class of gap and is invisible to an endpoint diff.
+- **Nothing was validated against a live vendor account.** Endpoints listed here may be deprecated, gated behind a plan tier, or unavailable on the API version we pin. Confirm before building.
+- **Sweep rationales are less reliable than sweep endpoints.** The endpoint names were read from fetched specs and spot-checks found them accurate, but the one-line justification beside each is the auditing agent's reasoning and occasionally over-claims (for example asserting a lookup resolves a field on a table we do not actually sync). Trust the endpoint, re-derive the rationale.
+- **The five "could not verify" sources are unknowns, not clean bills of health.**
