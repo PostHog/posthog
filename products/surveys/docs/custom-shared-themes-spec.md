@@ -176,10 +176,10 @@ Follow `/improving-drf-endpoints`:
      precedent.
   2. **Any survey editor can create; creator + admins can edit/delete.** Lower friction for the
      "I just built a look, save it" flow that motivates this feature.
-  > **Decision point.** Default to option 2 for the create path (the whole point is saving from
-  > the editor without an admin round-trip) with admin-or-creator for destructive edits. Confirm
-  > with product/security. Wire through the standard surveys access-control layer rather than
-  > hand-rolled checks.
+     > **Decision point.** Default to option 2 for the create path (the whole point is saving from
+     > the editor without an admin round-trip) with admin-or-creator for destructive edits. Confirm
+     > with product/security. Wire through the standard surveys access-control layer rather than
+     > hand-rolled checks.
 - Gate the whole feature behind `AvailableFeature.SURVEYS_STYLING`, matching existing styling
   gating. On the free tier the "Save as theme" affordance shows an upsell, and custom themes are
   hidden from the picker.
@@ -222,7 +222,7 @@ hand-write it).
 
 5. **Types.** Add a `SurveyThemeType` (persisted) distinct from the existing client-only
    `SurveyTheme` preset interface, or unify them under one shape with a `source: 'builtin' |
-   'custom'` discriminator so the picker can treat both uniformly. Prefer the generated API type
+'custom'` discriminator so the picker can treat both uniformly. Prefer the generated API type
    as the source of truth for the persisted shape.
 
 ## Behavior details & edge cases
