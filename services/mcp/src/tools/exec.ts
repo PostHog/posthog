@@ -333,7 +333,12 @@ export function createExecTool(
                 case 'learn': {
                     const helpCatalog = options.helpCatalog
                     if (!helpCatalog) {
-                        throw new ExecCommandError('The learning catalog is not available for this client.', 'usage')
+                        // `learn` is only advertised when a catalog exists, so without one
+                        // it's an unsupported verb rather than a misuse of a real command.
+                        throw new ExecCommandError(
+                            'The learning catalog is not available for this client.',
+                            'unknown_command'
+                        )
                     }
                     if (!rest) {
                         return JSON.stringify(helpCatalog.list())
