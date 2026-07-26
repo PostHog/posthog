@@ -28,6 +28,7 @@ _LAZY = {
     "is_node_suspended": "logic.node_suspension",
     "mark_node_suspended": "logic.node_suspension",
     "query_fingerprint": "logic.node_suspension",
+    "resume_nodes": "logic.node_suspension",
     "resume_saved_query": "logic.node_suspension",
     "suspension_reset_at": "logic.node_suspension",
     "suspension_state": "logic.node_suspension",
