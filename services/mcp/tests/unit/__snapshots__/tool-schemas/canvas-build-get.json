@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "build_id": {
+            "description": "Immutable canvas build ID.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this file system.",
+            "type": "string"
+        }
+    },
+    "required": ["build_id", "id"],
+    "type": "object"
+}
