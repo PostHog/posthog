@@ -83,6 +83,9 @@ rules:
                               |BatchImport
                               |BriefConfig
                               |ButtonTile
+                              |CanvasApplication
+                              |CanvasBuild
+                              |CanvasSourceVersion
                               |ChangeRequest
                               |ClusteringConfig
                               |ClusteringJob
@@ -403,6 +406,9 @@ rules:
                         |BatchImport
                         |BriefConfig
                         |ButtonTile
+                        |CanvasApplication
+                        |CanvasBuild
+                        |CanvasSourceVersion
                         |ChangeRequest
                         |ClusteringConfig
                         |ClusteringJob

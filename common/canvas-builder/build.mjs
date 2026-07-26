@@ -34,11 +34,21 @@ function normalizeProjectPath(filePath) {
 
 function loaderFor(filePath) {
     const extension = path.posix.extname(filePath)
-    if (extension === '.ts') return 'ts'
-    if (extension === '.tsx') return 'tsx'
-    if (extension === '.jsx') return 'jsx'
-    if (extension === '.css') return 'css'
-    if (extension === '.json') return 'json'
+    if (extension === '.ts') {
+        return 'ts'
+    }
+    if (extension === '.tsx') {
+        return 'tsx'
+    }
+    if (extension === '.jsx') {
+        return 'jsx'
+    }
+    if (extension === '.css') {
+        return 'css'
+    }
+    if (extension === '.json') {
+        return 'json'
+    }
     return 'js'
 }
 
@@ -61,12 +71,15 @@ function importSpecifiers(source) {
 
 function validateProject(project) {
     const diagnostics = []
-    if (project.canvasSdkVersion !== '1.0.0')
+    if (project.canvasSdkVersion !== '1.0.0') {
         diagnostics.push(diagnostic('unsupported_sdk', `Canvas SDK version ${project.canvasSdkVersion} is unavailable`))
+    }
     const imported = new Map()
     for (const [file, source] of Object.entries(project.files)) {
         for (const specifier of importSpecifiers(source)) {
-            if (specifier.startsWith('.') || specifier.startsWith('/')) continue
+            if (specifier.startsWith('.') || specifier.startsWith('/')) {
+                continue
+            }
             const name = packageName(specifier)
             if (
                 nodeBuiltins.has(specifier) ||
@@ -106,16 +119,17 @@ function validateProject(project) {
     const insights = new Set(project.capabilities.posthog.insights)
     const events = new Set(project.capabilities.posthog.captureEvents)
     const origins = new Set(project.capabilities.network.origins)
-    if (origins.size > 0)
+    if (origins.size > 0) {
         diagnostics.push(
             diagnostic(
                 'network_capability_unavailable',
                 'External network access is unavailable until canvas capability approval is implemented'
             )
         )
+    }
     for (const [file, source] of Object.entries(project.files)) {
         for (const match of source.matchAll(/\bph\.loadInsight\s*\(\s*["']([^"']+)["']/g)) {
-            if (!insights.has(match[1]))
+            if (!insights.has(match[1])) {
                 diagnostics.push(
                     diagnostic(
                         'undeclared_insight',
@@ -123,6 +137,7 @@ function validateProject(project) {
                         file
                     )
                 )
+            }
         }
         if (/\bph\.query\s*\(/.test(source) && !project.capabilities.posthog.inlineQueries) {
             diagnostics.push(
@@ -134,7 +149,7 @@ function validateProject(project) {
             )
         }
         for (const match of source.matchAll(/\bph\.capture\s*\(\s*["']([^"']+)["']/g)) {
-            if (!events.has(match[1]))
+            if (!events.has(match[1])) {
                 diagnostics.push(
                     diagnostic(
                         'undeclared_capture_event',
@@ -142,10 +157,11 @@ function validateProject(project) {
                         file
                     )
                 )
+            }
         }
         for (const match of source.matchAll(/\b(?:fetch|WebSocket|EventSource)\s*\(\s*["'](https:\/\/[^"']+)["']/g)) {
             const origin = new URL(match[1]).origin
-            if (!origins.has(origin))
+            if (!origins.has(origin)) {
                 diagnostics.push(
                     diagnostic(
                         'undeclared_network_origin',
@@ -153,6 +169,7 @@ function validateProject(project) {
                         file
                     )
                 )
+            }
         }
     }
     return diagnostics.slice(0, 500)
@@ -163,7 +180,9 @@ function projectPlugin(project) {
         name: 'canvas-project',
         setup(pluginBuild) {
             pluginBuild.onResolve({ filter: /.*/ }, (args) => {
-                if (args.kind === 'entry-point') return { path: normalizeProjectPath(args.path), namespace: 'canvas' }
+                if (args.kind === 'entry-point') {
+                    return { path: normalizeProjectPath(args.path), namespace: 'canvas' }
+                }
                 if (args.namespace === 'canvas' && (args.path.startsWith('.') || args.path.startsWith('/'))) {
                     const resolved = resolveProjectFile(project.files, args.importer, args.path)
                     return resolved
@@ -178,8 +197,9 @@ function projectPlugin(project) {
                         args.path.includes('\\') ||
                         args.path.split('/').includes('..') ||
                         project.dependencies[name] !== admittedDependencies.get(name)
-                    )
+                    ) {
                         return { errors: [{ text: `Canvas dependency is not declared: ${args.path}` }] }
+                    }
                     try {
                         return { path: require.resolve(args.path) }
                     } catch {
@@ -215,23 +235,33 @@ function contentSecurityPolicy(project) {
 }
 
 function injectHead(html, markup) {
-    if (/<head(?:\s[^>]*)?>/i.test(html)) return html.replace(/<head(?:\s[^>]*)?>/i, (head) => `${head}${markup}`)
+    if (/<head(?:\s[^>]*)?>/i.test(html)) {
+        return html.replace(/<head(?:\s[^>]*)?>/i, (head) => `${head}${markup}`)
+    }
     const doctype = html.match(/^\s*<!doctype[^>]*>/i)?.[0]
     return doctype ? html.replace(doctype, `${doctype}<head>${markup}</head>`) : `<head>${markup}</head>${html}`
 }
 
 function contentType(filePath) {
-    if (filePath.endsWith('.html')) return 'text/html; charset=utf-8'
-    if (filePath.endsWith('.css')) return 'text/css; charset=utf-8'
-    if (filePath.endsWith('.js')) return 'text/javascript; charset=utf-8'
-    if (filePath.endsWith('.json')) return 'application/json; charset=utf-8'
+    if (filePath.endsWith('.html')) {
+        return 'text/html; charset=utf-8'
+    }
+    if (filePath.endsWith('.css')) {
+        return 'text/css; charset=utf-8'
+    }
+    if (filePath.endsWith('.js')) {
+        return 'text/javascript; charset=utf-8'
+    }
+    if (filePath.endsWith('.json')) {
+        return 'application/json; charset=utf-8'
+    }
     return 'application/octet-stream'
 }
 
 async function buildCanvas(project) {
     const diagnostics = validateProject(project)
     const html = project.files[project.entryHtml]
-    if (remoteScript.test(html))
+    if (remoteScript.test(html)) {
         diagnostics.push(
             diagnostic(
                 'remote_script',
@@ -239,7 +269,8 @@ async function buildCanvas(project) {
                 project.entryHtml
             )
         )
-    if (inlineScript.test(html))
+    }
+    if (inlineScript.test(html)) {
         diagnostics.push(
             diagnostic(
                 'inline_script',
@@ -247,7 +278,8 @@ async function buildCanvas(project) {
                 project.entryHtml
             )
         )
-    if (inlineEventHandler.test(html))
+    }
+    if (inlineEventHandler.test(html)) {
         diagnostics.push(
             diagnostic(
                 'inline_event_handler',
@@ -255,13 +287,17 @@ async function buildCanvas(project) {
                 project.entryHtml
             )
         )
-    if (javascriptUrl.test(html))
+    }
+    if (javascriptUrl.test(html)) {
         diagnostics.push(
             diagnostic('javascript_url', 'JavaScript URLs are not allowed in canvas HTML', project.entryHtml)
         )
-    if (diagnostics.length) return { ok: false, diagnostics: diagnostics.slice(0, 500) }
+    }
+    if (diagnostics.length) {
+        return { ok: false, diagnostics: diagnostics.slice(0, 500) }
+    }
     const moduleMatches = [...html.matchAll(moduleScript)]
-    if (moduleMatches.length > 1)
+    if (moduleMatches.length > 1) {
         return {
             ok: false,
             diagnostics: [
@@ -272,16 +308,18 @@ async function buildCanvas(project) {
                 ),
             ],
         }
+    }
     const artifactFiles = {}
     let builtHtml = html
     const moduleSource = moduleMatches[0]?.[1]
     if (moduleSource) {
         const entry = normalizeProjectPath(moduleSource)
-        if (!(entry in project.files))
+        if (!(entry in project.files)) {
             return {
                 ok: false,
                 diagnostics: [diagnostic('missing_entry', `Canvas module entry "${entry}" does not exist`)],
             }
+        }
         try {
             const output = await build({
                 absWorkingDir: process.cwd(),
@@ -315,8 +353,9 @@ async function buildCanvas(project) {
                 artifactFiles[relative] = file.text
             }
             builtHtml = builtHtml.replace(moduleScript, '<script type="module" src="./assets/main.js"></script>')
-            if (artifactFiles['assets/main.css'])
+            if (artifactFiles['assets/main.css']) {
                 builtHtml = builtHtml.replace(/<\/head>/i, '<link rel="stylesheet" href="./assets/main.css" /></head>')
+            }
         } catch (error) {
             const errors = error?.errors ?? []
             return {
@@ -368,7 +407,9 @@ async function buildCanvas(project) {
 }
 
 let input = ''
-for await (const chunk of process.stdin) input += chunk
+for await (const chunk of process.stdin) {
+    input += chunk
+}
 try {
     const request = JSON.parse(input)
     process.stdout.write(JSON.stringify(await buildCanvas(request.project)))
