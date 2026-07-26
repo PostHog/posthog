@@ -19,6 +19,13 @@ describe('detectionWindows', () => {
 
         expect(windows.length).toBeGreaterThan(0)
         for (const w of windows) {
+            // These become sharp crop rectangles, which reject fractions. A fractional window is a
+            // 500 on every image of that shape, which the consumer retries and then replays as a
+            // failed batch, so it has to be caught here rather than in production.
+            expect(Number.isInteger(w.left)).toBe(true)
+            expect(Number.isInteger(w.top)).toBe(true)
+            expect(Number.isInteger(w.width)).toBe(true)
+            expect(Number.isInteger(w.height)).toBe(true)
             expect(w.left).toBeGreaterThanOrEqual(0)
             expect(w.top).toBeGreaterThanOrEqual(0)
             expect(w.left + w.width).toBeLessThanOrEqual(W)

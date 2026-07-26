@@ -91,8 +91,10 @@ export function faceWindowLong(long: number, short: number, tileAbove: number, t
         return long
     }
     // Each window past the first advances by (windowLong - short), so covering `long` within the cap
-    // needs at least this much window.
-    const toFitCap = (long - short) / FACE_MAX_WINDOWS + short
+    // needs at least this much window. Ceiled to an integer: this length becomes a crop rectangle,
+    // and sharp rejects a fractional one, so a fraction here is a 500 on every extreme-aspect image
+    // rather than a rounding difference. Up rather than down, so the cap still holds.
+    const toFitCap = Math.ceil((long - short) / FACE_MAX_WINDOWS + short)
     return Math.min(long, Math.max(tileAspect * short, toFitCap))
 }
 

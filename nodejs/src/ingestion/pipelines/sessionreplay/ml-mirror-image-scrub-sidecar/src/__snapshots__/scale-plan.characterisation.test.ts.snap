@@ -21,7 +21,7 @@ exports[`scale geometry, as it currently behaves a 1080p desktop frame 1`] = `
 exports[`scale geometry, as it currently behaves a banner past the tiling threshold 1`] = `
 {
   "frame": "8000x60",
-  "stored": "1790x13",
+  "stored": "1789x13",
   "textCanvas": "8000x64",
   "textContent": "8000x60",
 }
