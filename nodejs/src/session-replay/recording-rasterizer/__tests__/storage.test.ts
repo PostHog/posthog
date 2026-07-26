@@ -104,6 +104,11 @@ jest.mock('@aws-sdk/credential-provider-node', () => ({
     defaultProvider: (init: unknown) => mockDefaultProvider(init),
 }))
 
+jest.mock('@smithy/node-http-handler', () => ({
+    NodeHttpHandler: jest.fn().mockImplementation(() => ({ __directHandler: true })),
+}))
+const { NodeHttpHandler: NodeHttpHandlerMock } = require('@smithy/node-http-handler')
+
 const ORIGINAL_ENV = process.env
 
 describe('S3 client proxy routing', () => {
@@ -137,6 +142,7 @@ describe('S3 client proxy routing', () => {
             jest.doMock('@aws-sdk/credential-provider-node', () => ({
                 defaultProvider: (init: unknown) => mockDefaultProvider(init),
             }))
+            jest.doMock('@smithy/node-http-handler', () => ({ NodeHttpHandler: NodeHttpHandlerMock }))
             const { uploadToS3: fresh } = require('~/session-replay/recording-rasterizer/storage')
             await fresh('/tmp/v.mp4', 'b', 'p', 'i')
             mock = require('@aws-sdk/client-s3').S3Client as jest.Mock
@@ -151,6 +157,7 @@ describe('S3 client proxy routing', () => {
         expect(config).not.toHaveProperty('credentials')
         expect(HttpsProxyAgentMock).not.toHaveBeenCalled()
         expect(mockDefaultProvider).not.toHaveBeenCalled()
+        expect(NodeHttpHandlerMock).not.toHaveBeenCalled()
     })
 
     it.each([
@@ -171,10 +178,12 @@ describe('S3 client proxy routing', () => {
             })
             // IRSA credential refresh must NOT be routed through the proxy. The SDK's
             // nested STS client inherits the parent client's requestHandler, so the
-            // credential provider needs an explicit unproxied handler config.
-            expect(mockDefaultProvider).toHaveBeenCalledWith({ clientConfig: { requestHandler: {} } })
+            // credential provider gets its own direct handler, distinct from the proxied one.
+            expect(mockDefaultProvider).toHaveBeenCalledWith({
+                clientConfig: { requestHandler: { __directHandler: true } },
+            })
             expect(config.credentials).toEqual({
-                __credentialsProvider: { clientConfig: { requestHandler: {} } },
+                __credentialsProvider: { clientConfig: { requestHandler: { __directHandler: true } } },
             })
         }
     )
@@ -190,6 +199,7 @@ describe('S3 client proxy routing', () => {
             expect(config).not.toHaveProperty('credentials')
             expect(HttpsProxyAgentMock).not.toHaveBeenCalled()
             expect(mockDefaultProvider).not.toHaveBeenCalled()
+            expect(NodeHttpHandlerMock).not.toHaveBeenCalled()
         }
     )
 

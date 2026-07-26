@@ -1,6 +1,7 @@
 import { S3Client } from '@aws-sdk/client-s3'
 import { defaultProvider } from '@aws-sdk/credential-provider-node'
 import { Upload } from '@aws-sdk/lib-storage'
+import { NodeHttpHandler } from '@smithy/node-http-handler'
 import * as fs from 'fs'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 
@@ -36,10 +37,13 @@ function getS3Client(): S3Client {
             region: config.s3Region,
             ...(config.s3Endpoint ? { endpoint: config.s3Endpoint, forcePathStyle: true } : {}),
             ...(requestHandler ? { requestHandler } : {}),
-            // Credential refresh must dial direct: the SDK's nested STS client inherits
-            // the parent client's requestHandler (parentClientConfig), so an explicit
-            // unproxied handler config is required to keep IRSA STS calls off the proxy.
-            ...(requestHandler ? { credentials: defaultProvider({ clientConfig: { requestHandler: {} } }) } : {}),
+            // DO NOT REMOVE this credentials override. The SDK's nested STS client inherits
+            // the parent's requestHandler (parentClientConfig); without an explicit unproxied
+            // handler, IRSA STS credential refresh gets routed through the proxy, which rejects
+            // it (407) and fails every S3 upload.
+            ...(requestHandler
+                ? { credentials: defaultProvider({ clientConfig: { requestHandler: new NodeHttpHandler() } }) }
+                : {}),
         })
     }
     return s3Client
