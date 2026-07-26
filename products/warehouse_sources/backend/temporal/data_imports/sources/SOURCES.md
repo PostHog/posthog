@@ -46,6 +46,7 @@ the row lists both.
 | -------------------------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | ably                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | adroll                           | HTTP                        | requests                                                        | ✅                          |
+| adyen                            | HTTP                        | requests                                                        | ✅                          |
 | agilecrm                         | HTTP                        | requests                                                        | ✅                          |
 | aha                              | HTTP                        | requests                                                        | ✅                          |
 | airbrake                         | HTTP                        | requests                                                        | ✅                          |
@@ -692,7 +693,6 @@ doesn't conflict with concurrent PRs.
 - adobe_analytics
 - adobe_commerce
 - adp_workforce_now
-- adyen
 - aftership
 - aha_ideas
 - ahrefs
