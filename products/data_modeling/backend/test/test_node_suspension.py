@@ -1,9 +1,11 @@
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
+from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
 from products.data_modeling.backend.logic.node_suspension import (
     mark_node_suspended,
     query_fingerprint,
@@ -78,6 +80,28 @@ class TestResumeNodes(BaseTest):
         self.assertEqual(suspension_state(node), {})
         # Without the watermark the next single failure re-suspends it.
         self.assertIsNotNone(suspension_reset_at(node, ENGINE))
+
+    def test_resume_keeps_a_properties_change_committed_after_the_caller_read_the_node(self) -> None:
+        # properties is a single JSON blob, so resuming off the caller's in-memory copy would drop
+        # whatever a materialization committed to the same row in the meantime.
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="raced_model",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+        node = sync_saved_query_to_dag(saved_query)
+        assert node is not None
+        mark_node_suspended(node, engine=ENGINE, reason="boom", job_id=str(uuid4()), fingerprint=None)
+        node.save()
+
+        stale = Node.objects.get(id=node.id)
+        set_declared_target(Node.objects.get(id=node.id), timedelta(hours=1))
+
+        self.assertEqual(resume_nodes([stale], by="api"), 1)
+
+        node.refresh_from_db()
+        self.assertEqual(suspension_state(node), {})
+        self.assertEqual(get_declared_target(node), timedelta(hours=1))
 
     def test_resume_is_a_no_op_on_a_node_that_is_not_suspended(self) -> None:
         saved_query = DataWarehouseSavedQuery.objects.create(

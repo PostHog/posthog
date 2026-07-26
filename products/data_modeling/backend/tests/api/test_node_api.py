@@ -1,6 +1,7 @@
 from datetime import timedelta
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
@@ -13,6 +14,7 @@ from products.data_modeling.backend.logic.node_frequency import set_declared_tar
 from products.data_modeling.backend.logic.node_suspension import mark_node_suspended, suspension_state
 from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 
 
 class TestNodeViewSet(APIBaseTest):
@@ -602,6 +604,69 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.view_node.refresh_from_db()
         self.assertEqual(self.view_node.dag_id, self.dag.id)
+
+
+@pytest.mark.ee
+class TestNodeAccessControl(WarehouseAccessControlTestMixin):
+    # NodeViewSet is scope_object = "INTERNAL", so AccessControlPermission does not gate it on any
+    # resource — the actions re-apply warehouse RBAC by hand. warehouse_view inherits from
+    # warehouse_objects, so grant at the umbrella.
+    resource = "warehouse_objects"
+
+    def setUp(self):
+        super().setUp()
+        self.dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        self.node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=DataWarehouseSavedQuery.objects.create(
+                name="suspended_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            ),
+            type=NodeType.VIEW,
+        )
+        mark_node_suspended(self.node, engine="clickhouse", reason="boom", job_id=str(uuid4()), fingerprint=None)
+        self.node.save()
+
+    def _list_url(self) -> str:
+        return f"/api/environments/{self.team.id}/data_modeling_nodes/"
+
+    @parameterized.expand(
+        [
+            ("viewer", status.HTTP_403_FORBIDDEN),
+            ("editor", status.HTTP_200_OK),
+        ]
+    )
+    def test_resume_requires_warehouse_write_access(self, access_level, expected_status):
+        user = self.viewer_user if access_level == "viewer" else self.editor_user
+        self._create_access_control(user, access_level=access_level)
+        self.client.force_login(user)
+
+        response = self.client.post(f"{self._list_url()}{self.node.id}/resume/")
+
+        self.assertEqual(response.status_code, expected_status)
+        self.node.refresh_from_db()
+        self.assertEqual(suspension_state(self.node) == {}, expected_status == status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            ("list_granted", False, "viewer", status.HTTP_200_OK),
+            ("list_denied", False, None, status.HTTP_403_FORBIDDEN),
+            ("retrieve_granted", True, "viewer", status.HTTP_200_OK),
+            ("retrieve_denied", True, None, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_reading_nodes_requires_warehouse_read_access(self, _name, detail, access_level, expected_status):
+        # The serialized `suspended` state carries the raw materialization error, so a project member
+        # denied warehouse access must not be able to read nodes at all.
+        if access_level is None:
+            self._create_project_default(access_level="none")
+        else:
+            self._create_access_control(self.viewer_user, access_level=access_level)
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"{self._list_url()}{self.node.id}/" if detail else self._list_url())
+
+        self.assertEqual(response.status_code, expected_status)
 
 
 class TestEdgeViewSet(APIBaseTest):

@@ -6,8 +6,10 @@ materialization that would clear it. Every path here exists to give a node a way
 
 import hashlib
 import datetime as dt
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
+
+from django.db import transaction
 
 from products.data_modeling.backend.models.node import Node
 
@@ -86,14 +88,27 @@ def clear_node_suspension(node: Node, *, engine: str | None = None, by: str = "m
     return True
 
 
+def _persist_change(node: Node, change: Callable[[Node], bool]) -> bool:
+    """Apply a change to the node's suspension state as a locked read-modify-write.
+
+    `properties` is one JSON blob, so writing it from a caller's in-memory instance would drop
+    anything a materialization committed to the same row since that instance was read. Every other
+    writer of this field takes the row lock too (see the data-modeling Temporal activities).
+    """
+    with transaction.atomic():
+        locked = Node.objects.select_for_update().filter(pk=node.pk, team_id=node.team_id).first()
+        if locked is None or not change(locked):
+            return False
+        locked.save(update_fields=["properties"])
+    node.properties = locked.properties
+    return True
+
+
 def resume_nodes(nodes: Iterable[Node], *, by: str, engine: str | None = None) -> int:
     """Returns how many of the nodes were actually suspended, not how many were passed in."""
-    resumed = 0
-    for node in nodes:
-        if clear_node_suspension(node, engine=engine, by=by):
-            node.save(update_fields=["properties"])
-            resumed += 1
-    return resumed
+    return sum(
+        _persist_change(node, lambda locked: clear_node_suspension(locked, engine=engine, by=by)) for node in nodes
+    )
 
 
 def resume_saved_query(saved_query: "DataWarehouseSavedQuery", *, by: str = "api") -> int:
@@ -106,8 +121,12 @@ def resume_saved_query(saved_query: "DataWarehouseSavedQuery", *, by: str = "api
 
 
 def clear_suspension_if_query_changed(node: Node, query: dict | None) -> bool:
-    """A marker with no fingerprint predates fingerprinting; free it rather than strand it."""
     fingerprint = query_fingerprint(query)
+    return _persist_change(node, lambda locked: _clear_stale_fingerprints(locked, fingerprint))
+
+
+def _clear_stale_fingerprints(node: Node, fingerprint: str | None) -> bool:
+    """A marker with no fingerprint predates fingerprinting; free it rather than strand it."""
     stale = [
         engine for engine, entry in suspension_state(node).items() if entry.get("query_fingerprint") != fingerprint
     ]

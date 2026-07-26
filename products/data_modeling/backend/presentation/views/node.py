@@ -20,6 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
+from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
@@ -143,6 +144,11 @@ class NodePagination(PageNumberPagination):
     page_size = 1000
 
 
+# Nodes expose warehouse view/table names, types, edges, and the error that suspended a
+# materialization, so reading them needs the same warehouse access as reading the views themselves.
+_READ_DENIED = "Reading data models requires data warehouse read access."
+
+
 # TODO: consolidate graph traversal logic. similar implementations exist in:
 # - posthog/temporal/data_modeling/workflows/execute_dag.py (_get_edge_lookup, _get_downstream_lookup)
 # - products/data_modeling/backend/graph.py (Graph) — shared in-memory graph used by list endpoint
@@ -237,8 +243,20 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be deleted.")
         instance.delete()
 
+    def _require_warehouse_access(self, *, level: AccessControlLevel, message: str) -> None:
+        """`scope_object = "INTERNAL"` makes AccessControlPermission skip this viewset entirely, so
+        warehouse RBAC has to be re-applied by hand (warehouse_view inherits warehouse_objects)."""
+        if not self.user_access_control.check_access_level_for_resource("warehouse_view", required_level=level):
+            raise PermissionDenied(message)
+
+    def retrieve(self, request, *args, **kwargs):
+        self._require_warehouse_access(level="viewer", message=_READ_DENIED)
+        return super().retrieve(request, *args, **kwargs)
+
     def list(self, request, *args, **kwargs):
         from products.data_modeling.backend.facade.models import Graph
+
+        self._require_warehouse_access(level="viewer", message=_READ_DENIED)
 
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
@@ -376,12 +394,9 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
 
-        # NodeViewSet is `scope_object = "INTERNAL"`, so AccessControlPermission does not gate it on
-        # any resource. Lineage exposes warehouse view/table names, types, and edges — the same
-        # metadata the deleted `warehouse_view`-scoped upstream endpoint gated on. Re-apply that gate
-        # here so warehouse RBAC still governs the read (warehouse_view inherits warehouse_objects).
-        if not self.user_access_control.check_access_level_for_resource("warehouse_view", required_level="viewer"):
-            raise PermissionDenied("Reading lineage requires data warehouse read access.")
+        # Lineage exposes the same metadata the deleted `warehouse_view`-scoped upstream endpoint
+        # gated on.
+        self._require_warehouse_access(level="viewer", message="Reading lineage requires data warehouse read access.")
 
         node_id = req.query_params.get("node_id")
         saved_query_id = req.query_params.get("saved_query_id")
@@ -451,6 +466,9 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         on its own. Resuming also gives it a fresh failure window rather than re-suspending on the
         next failure.
         """
+        # Resuming puts a model back on the materialization schedule, so it needs write access.
+        self._require_warehouse_access(level="editor", message="Resuming a node requires data warehouse write access.")
+
         resumed = resume_nodes([self.get_object()], by="api")
 
         return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)

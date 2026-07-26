@@ -161,8 +161,6 @@ def sync_saved_query_to_dag(
     )
     # update type (name is automatically synced from saved_query in Node.save())
     target.type = node_type
-    # Persisted by target.save() below.
-    clear_suspension_if_query_changed(target, saved_query.query)
 
     # Internal DAG sync (no user); bypass warehouse HogQL access control so dependency resolution
     # sees every referenced table/view.
@@ -189,6 +187,9 @@ def sync_saved_query_to_dag(
 
     # name is included in update_fields because Node.save() auto-syncs it from saved_query
     target.save(update_fields=["name", "type", "properties"])
+    # After the save, so it reads fresh state under a row lock rather than riding along on the
+    # whole-blob write above.
+    clear_suspension_if_query_changed(target, saved_query.query)
     if reconcile:
         maybe_reconcile_dag(dag)
     return target
