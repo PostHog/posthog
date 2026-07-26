@@ -160,4 +160,9 @@ def emit_embedding_request(
     }
 
     producer = get_producer(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC)
-    return producer.produce(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC, data=payload)
+    # Key by document_id so all updates for the same document land on one partition and are
+    # consumed in order. Without this, a stale re-emission can be inserted after a newer one and,
+    # because the destination ReplacingMergeTree picks its winner by inserted_at (stamped at worker
+    # insert time), win — e.g. a soft-delete tombstone losing to a slower live-content re-emission
+    # and resurrecting a deleted document.
+    return producer.produce(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC, data=payload, key=document_id)
