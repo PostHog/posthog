@@ -19,6 +19,7 @@ export const INBOX_EVENTS = {
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_ACTION: 'Inbox report action',
     REPORT_FEEDBACK: 'Inbox report feedback',
+    REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
     SOURCE_CONNECTED: 'Signal source connected',
     SOURCE_INTEREST: 'signals source interest',
 } as const
@@ -247,6 +248,27 @@ export function captureInboxReportFeedback(params: {
         sentiment: params.sentiment,
         has_pr: !!params.report.implementation_pr_url,
         ...(params.note ? { note: params.note } : {}),
+        surface: params.surface,
+    })
+}
+
+/**
+ * Optional free-text note, offered only once a rating is already recorded. It rides on its own
+ * event rather than re-firing {@link captureInboxReportFeedback} so sentiment stays exactly one
+ * event per rating; join back to the rating on `report_id`. Carries `sentiment` too so a note can
+ * be read without that join.
+ */
+export function captureInboxReportFeedbackNote(params: {
+    report: SignalReport
+    sentiment: InboxReportFeedbackSentiment
+    note: string
+    surface: InboxReportActionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK_NOTE, {
+        ...baseReportProperties(params.report),
+        sentiment: params.sentiment,
+        has_pr: !!params.report.implementation_pr_url,
+        note: params.note,
         surface: params.surface,
     })
 }

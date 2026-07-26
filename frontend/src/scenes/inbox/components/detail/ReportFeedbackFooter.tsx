@@ -3,19 +3,26 @@ import { useActions, useValues } from 'kea'
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+
 import { InboxReportFeedbackSentiment } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 
+// Matches the cap on the sibling inbox dialogs (Dismiss, Refund, Discuss); the note rides along as
+// an analytics property, so keep it under the client's per-property limit.
+const FEEDBACK_NOTE_MAX_LENGTH = 4000
+
 /**
- * Thumbs rating at the end of the report body, where someone has just finished reading. One click
- * submits, so there's no text field to mistake for the dismissal reason; the row then reads the
- * choice back and stays clickable so a rating can be changed.
+ * Thumbs rating at the end of the report body, where someone has just finished reading. The rating
+ * submits on the first click, so there's no text field to mistake for the dismissal reason. Only
+ * once it's recorded does an optional note appear, so the note can never gate the rating, and
+ * ignoring it leaves the flow exactly as it was.
  */
 export function ReportFeedbackFooter({ report }: { report: SignalReport }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { feedbackSentiment } = useValues(logic)
-    const { rateReport } = useActions(logic)
+    const { feedbackSentiment, feedbackNoteOpen, feedbackNoteDraft, feedbackNoteSent } = useValues(logic)
+    const { rateReport, openFeedbackNote, setFeedbackNoteDraft, submitFeedbackNote } = useActions(logic)
 
     const isPositive = feedbackSentiment === 'positive'
     const isNegative = feedbackSentiment === 'negative'
@@ -27,30 +34,65 @@ export function ReportFeedbackFooter({ report }: { report: SignalReport }): JSX.
     }
 
     return (
-        <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary pt-1 select-none">
-            <span>{feedbackSentiment ? 'Thanks for the feedback' : 'Was this report useful?'}</span>
-            <div className="flex items-center gap-1">
-                <LemonButton
-                    size="xsmall"
-                    type={isPositive ? 'primary' : 'secondary'}
-                    icon={isPositive ? <IconThumbsUpFilled /> : <IconThumbsUp />}
-                    tooltip="Yes, this was useful"
-                    aria-label="This report was useful"
-                    aria-pressed={isPositive}
-                    onClick={() => rate('positive')}
-                    data-attr="inbox-report-feedback-thumbs-up"
-                />
-                <LemonButton
-                    size="xsmall"
-                    type={isNegative ? 'primary' : 'secondary'}
-                    icon={isNegative ? <IconThumbsDownFilled /> : <IconThumbsDown />}
-                    tooltip="No, this wasn't useful"
-                    aria-label="This report was not useful"
-                    aria-pressed={isNegative}
-                    onClick={() => rate('negative')}
-                    data-attr="inbox-report-feedback-thumbs-down"
-                />
+        <div className="flex flex-col gap-2 pt-1 select-none">
+            <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary">
+                <span>{feedbackSentiment ? 'Thanks for the feedback' : 'Was this report useful?'}</span>
+                <div className="flex items-center gap-1">
+                    <LemonButton
+                        size="xsmall"
+                        type={isPositive ? 'primary' : 'secondary'}
+                        icon={isPositive ? <IconThumbsUpFilled /> : <IconThumbsUp />}
+                        tooltip="Yes, this was useful"
+                        aria-label="This report was useful"
+                        aria-pressed={isPositive}
+                        onClick={() => rate('positive')}
+                        data-attr="inbox-report-feedback-thumbs-up"
+                    />
+                    <LemonButton
+                        size="xsmall"
+                        type={isNegative ? 'primary' : 'secondary'}
+                        icon={isNegative ? <IconThumbsDownFilled /> : <IconThumbsDown />}
+                        tooltip="No, this wasn't useful"
+                        aria-label="This report was not useful"
+                        aria-pressed={isNegative}
+                        onClick={() => rate('negative')}
+                        data-attr="inbox-report-feedback-thumbs-down"
+                    />
+                </div>
+                {feedbackSentiment && !feedbackNoteOpen && !feedbackNoteSent && (
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        onClick={openFeedbackNote}
+                        data-attr="inbox-report-feedback-add-note"
+                    >
+                        Add a note
+                    </LemonButton>
+                )}
+                {feedbackNoteSent && <span>Note added</span>}
             </div>
+            {feedbackNoteOpen && (
+                <div className="flex flex-col items-start gap-2 max-w-prose">
+                    <LemonTextArea
+                        value={feedbackNoteDraft}
+                        onChange={setFeedbackNoteDraft}
+                        placeholder="What was useful or off?"
+                        maxLength={FEEDBACK_NOTE_MAX_LENGTH}
+                        rows={3}
+                        autoFocus
+                        data-attr="inbox-report-feedback-note"
+                    />
+                    <LemonButton
+                        size="xsmall"
+                        type="primary"
+                        disabledReason={feedbackNoteDraft.trim() ? undefined : 'Write a note first'}
+                        onClick={() => submitFeedbackNote(feedbackNoteDraft)}
+                        data-attr="inbox-report-feedback-note-send"
+                    >
+                        Send
+                    </LemonButton>
+                </div>
+            )}
         </div>
     )
 }
