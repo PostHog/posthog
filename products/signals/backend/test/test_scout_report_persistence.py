@@ -33,7 +33,6 @@ from products.signals.backend.scout_report import (
     InvalidScoutReportError,
     ScoutReportSignal,
     append_report_charts,
-    assert_report_chart_headroom,
     create_scout_report,
     soft_delete_scout_signal,
     update_scout_report,
@@ -393,19 +392,6 @@ class TestScoutReportCharts(BaseTest):
                 attribution=ArtefactAttribution.system(),
             )
         assert len(self._chart_artefacts(report_id)) == MAX_REPORT_CHARTS
-
-    def test_chart_headroom_is_judged_over_the_whole_batch(self) -> None:
-        # The edit path clears capacity before it writes anything, so the check has to weigh the batch
-        # as a whole. Judged one chart at a time, a pair that only busts the cap together looks fine
-        # and the rejection lands after the rest of the edit has committed.
-        report_id = self._create([self._chart(f"chart-{i}", f"Chart {i}") for i in range(MAX_REPORT_CHARTS - 1)])
-
-        with pytest.raises(InvalidScoutReportError):
-            assert_report_chart_headroom(
-                team_id=self.team.id,
-                report_id=report_id,
-                charts=[self._chart("extra-a", "A"), self._chart("extra-b", "B")],
-            )
 
     def test_refreshing_an_existing_chart_costs_no_headroom(self) -> None:
         # Counted over distinct ids, so a scout at the cap can still refresh what it already has —

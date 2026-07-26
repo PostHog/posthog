@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
+from django.db import transaction
 
 import posthoganalytics
 from asgiref.sync import async_to_sync
@@ -68,7 +69,6 @@ from products.signals.backend.scout_report import (
     ScoutReportSignal,
     append_report_charts,
     append_report_note,
-    assert_report_chart_headroom,
     create_scout_report,
     get_scout_report_status,
     get_scout_report_title,
@@ -1088,43 +1088,45 @@ def _do_edit_report(
     # provenance is stamped so a picked owner still can't become the autostart identity, regardless of
     # which report the edit targets.
     reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=run.skill_name)
-    # Same reasoning for charts: the cap is a function of what the report already holds, so it can
-    # only be judged here rather than in `_build_charts`. Checked before the content write for the
-    # reason above — a combined edit that busts the cap must not leave a rewritten title behind.
-    assert_report_chart_headroom(team_id=team.id, report_id=report_id, charts=charts)
-
     updated_fields: list[str] = []
-    if title is not None or summary is not None:
-        updated_fields = update_scout_report(
-            team_id=team.id,
-            report_id=report_id,
-            title=title,
-            summary=summary,
-            attribution=attribution,
-            author=run.skill_name,
-        )
-    # Replace the report's `suggested_reviewers` status artefact (latest-wins). This is the routing
-    # fix — a report authored without a reviewer (so it routes to no one) can have one added after the
-    # fact. `reviewers` is None for empty/all-blank input, which leaves existing reviewers untouched.
-    reviewers_set = (
-        set_scout_report_reviewers(
-            team_id=team.id,
-            report_id=report_id,
-            suggested_reviewers=reviewers,
-            attribution=attribution,
-            author=run.skill_name,
-        )
-        if reviewers is not None
-        else False
-    )
     note_appended = False
-    if append_note is not None:
-        append_report_note(
-            team_id=team.id, report_id=report_id, note=append_note, attribution=attribution, author=run.skill_name
+    # One edit is one transaction. Not every input can be validated before the writes start: the chart
+    # cap depends on what the report already holds, so it is only decided at the append, by which point
+    # a title rewrite would otherwise have committed. Grouping the four content writes means a rejected
+    # chart takes the whole edit with it instead of leaving the report half-changed. The side effects
+    # below (autostart, telemetry, delivery) stay outside, and the `on_commit` hooks these writes
+    # register now fire on this block's commit.
+    with transaction.atomic():
+        if title is not None or summary is not None:
+            updated_fields = update_scout_report(
+                team_id=team.id,
+                report_id=report_id,
+                title=title,
+                summary=summary,
+                attribution=attribution,
+                author=run.skill_name,
+            )
+        # Replace the report's `suggested_reviewers` status artefact (latest-wins). This is the routing
+        # fix — a report authored without a reviewer (so it routes to no one) can have one added after
+        # the fact. `reviewers` is None for empty/all-blank input, which leaves existing ones untouched.
+        reviewers_set = (
+            set_scout_report_reviewers(
+                team_id=team.id,
+                report_id=report_id,
+                suggested_reviewers=reviewers,
+                attribution=attribution,
+                author=run.skill_name,
+            )
+            if reviewers is not None
+            else False
         )
-        note_appended = True
-    if charts:
-        append_report_charts(team_id=team.id, report_id=report_id, charts=charts, attribution=attribution)
+        if append_note is not None:
+            append_report_note(
+                team_id=team.id, report_id=report_id, note=append_note, attribution=attribution, author=run.skill_name
+            )
+            note_appended = True
+        if charts:
+            append_report_charts(team_id=team.id, report_id=report_id, charts=charts, attribution=attribution)
     # Re-run autostart only when reviewers changed: it's idempotent (a report with an implementation
     # task already started no-ops), but a report that was missing a qualifying reviewer can now open a
     # draft PR. Fired outside any txn since it spawns a Task — mirrors emit's post-commit hand-off.
