@@ -1419,7 +1419,12 @@ describe('sessionRecordingPlayerLogic', () => {
         })
 
         it('waits for the replay iframe to mount instead of failing the first attempt', async () => {
-            // Reproduce the timing race: rootFrame exists but rrweb hasn't mounted the iframe yet
+            // The export listener polls with a real timer; an earlier describe leaves fake timers on.
+            jest.useRealTimers()
+            // Reproduce the timing race: rootFrame exists but rrweb hasn't mounted the iframe yet.
+            // Stub tryInitReplayer so setRootFrame neither clears the frame nor spins up a player.
+            jest.spyOn(logic.actions, 'tryInitReplayer').mockImplementation(() => {})
+
             const rootFrame = document.createElement('div')
             logic.actions.setRootFrame(rootFrame)
 
