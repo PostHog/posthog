@@ -98,6 +98,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         onChange,
         onFocus,
         onBlur,
+        onKeyDown,
         onPressEnter,
         status = 'default',
         allowClear, // Default handled inside the component
@@ -274,9 +275,13 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                         if (stopPropagation) {
                             event.stopPropagation()
                         }
-                        if (onPressEnter && event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                        if (event.key === 'Enter' && event.nativeEvent.isComposing) {
+                            return
+                        }
+                        if (onPressEnter && event.key === 'Enter') {
                             onPressEnter(event)
                         }
+                        onKeyDown?.(event)
                     }}
                     {...props}
                 />
