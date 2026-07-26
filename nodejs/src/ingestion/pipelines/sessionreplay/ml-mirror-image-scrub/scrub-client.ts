@@ -66,20 +66,25 @@ const POISON_MIN_FAILURES = 12
 export const POISON_MIN_OTHER_SUCCESSES = 3
 
 /**
- * Accumulated wait after which a sidecar that keeps answering is taken at its word.
+ * Accumulated backoff after which a sidecar that keeps answering is taken at its word.
  *
  * The success test cannot be satisfied when nothing else is succeeding, and the images in a batch
  * are chosen by whoever produced them: fill one with content the sidecar rejects and no peer is left
- * to prove it works, so the gate never opens and the partition stalls for every team sharing it.
- * This is the way out. It only applies while the sidecar is still returning considered answers, so a
- * full or unreachable one still waits forever, and half an hour of rejections on a single image is
- * far outside anything ordinary load produces.
+ * to prove it works, so the gate never opens. This is the way out. It only applies while the sidecar
+ * is still returning considered answers, so a full or unreachable one still waits forever.
  *
- * The trade is deliberate. A sidecar genuinely broken for this long would park images rather than
- * hold them, which is loud in the dead-letter counter and keeps every byte, against a silent stall
- * that holds a shared partition hostage and keeps nothing moving.
+ * It has to fire comfortably inside Kafka's max.poll.interval.ms (300s), and that is the binding
+ * constraint rather than a preference. A batch cannot return while one of its images is in flight,
+ * so a threshold above the lease can never be reached: the group fences the pod first, the partition
+ * moves, and its new owner repeats the same work and is fenced in turn. The gate would be dead code
+ * and the images would circle the fleet. This counts backoff only, and real elapsed time is longer,
+ * so the margin below the lease has to be generous rather than exact.
+ *
+ * The trade is deliberate. A sidecar broken for this long parks images rather than holding them,
+ * which keeps every byte, is loud in the dead-letter counter, and is replayable, against a silent
+ * stall that holds a shared partition hostage and moves nothing.
  */
-export const POISON_MAX_WAITED_MS = 30 * 60_000
+export const POISON_MAX_WAITED_MS = 120_000
 
 const BACKOFF_BASE_MS = 100
 /**

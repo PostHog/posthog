@@ -102,9 +102,11 @@ describe('ScrubClient', () => {
 
     it('holds an image through a sidecar failing everything, rather than parking it for the outage', async () => {
         // A sidecar 500ing on every image is the sidecar, not the content, and parking images for it
-        // would quarantine the whole stream for a bug that has nothing to do with them. It must ride
-        // out an outage far longer than any real one before it concedes.
-        replies = Array.from({ length: 60 }, () => ({ status: 500, body: '' }))
+        // would quarantine the whole stream for a bug that has nothing to do with them. How long it
+        // rides out is bounded by Kafka's poll lease rather than chosen: the batch cannot return
+        // while this image is in flight, so a pod that waits past the lease is fenced and the work
+        // simply moves to another pod to be repeated.
+        replies = Array.from({ length: 8 }, () => ({ status: 500, body: '' }))
 
         await expect(client(true).scrub(Buffer.from('image'))).resolves.toEqual(Buffer.from('scrubbed'))
     })
