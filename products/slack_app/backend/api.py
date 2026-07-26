@@ -5,6 +5,7 @@ import uuid
 import asyncio
 import hashlib
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Literal
 from urllib.parse import urlparse, urlunparse
 
@@ -3332,16 +3333,28 @@ def _post_signals_dismiss_feedback(payload: dict, *, dismissed: bool, slack_user
 
 # Snoozes an insight alert from the button on its firing Slack message.
 INSIGHT_ALERT_SNOOZE_ACTION_ID = "insight_alert_snooze"
+INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID = "insight_alert_snooze_until"
+# Slack's datetimepicker element can't carry a custom value, so the alert id rides on the
+# actions block's block_id instead (set by the alert-firing sub-template).
+INSIGHT_ALERT_SNOOZE_BLOCK_ID_PREFIX = "insight_alert_snooze:"
 
 INSIGHT_ALERT_SNOOZE_DURATION_LABELS: dict[str, str] = {
     "1h": "1 hour",
+    "6h": "6 hours",
     "1d": "1 day",
     "1w": "1 week",
 }
 
 
 def _insight_alert_snooze_action(payload: dict) -> dict | None:
-    return next((a for a in payload.get("actions", []) if a.get("action_id") == INSIGHT_ALERT_SNOOZE_ACTION_ID), None)
+    return next(
+        (
+            a
+            for a in payload.get("actions", [])
+            if a.get("action_id") in (INSIGHT_ALERT_SNOOZE_ACTION_ID, INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID)
+        ),
+        None,
+    )
 
 
 def _parse_insight_alert_snooze_value(value: str) -> tuple[uuid.UUID, str] | None:
@@ -3358,15 +3371,46 @@ def _parse_insight_alert_snooze_value(value: str) -> tuple[uuid.UUID, str] | Non
     return alert_uuid, duration
 
 
-def _extract_alert_snooze_hints(payload: dict) -> uuid.UUID | None:
-    """Alert UUID carried by the snooze button, used for region-ownership routing."""
-    action = _insight_alert_snooze_action(payload)
-    if not action:
-        return None
-    value = action.get("value", "")
+def _parse_insight_alert_snooze_action(action: dict) -> tuple[uuid.UUID, str | None, datetime | None] | None:
+    """Normalize the three snooze action shapes to (alert_uuid, duration_token, until).
+
+    Shapes: the preset static_select (value on selected_option), the legacy single button from
+    already-posted messages (value on the action itself), and the datetimepicker (unix timestamp
+    on selected_date_time, alert id on the block_id).
+    """
+    if action.get("action_id") == INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID:
+        block_id = action.get("block_id", "")
+        if not isinstance(block_id, str) or not block_id.startswith(INSIGHT_ALERT_SNOOZE_BLOCK_ID_PREFIX):
+            return None
+        try:
+            alert_uuid = uuid.UUID(block_id[len(INSIGHT_ALERT_SNOOZE_BLOCK_ID_PREFIX) :])
+        except (ValueError, AttributeError, TypeError):
+            return None
+        selected = action.get("selected_date_time")
+        if not isinstance(selected, int):
+            return None
+        try:
+            until = datetime.fromtimestamp(selected, tz=UTC)
+        except (OverflowError, OSError, ValueError):
+            return None
+        return alert_uuid, None, until
+
+    selected_option = action.get("selected_option")
+    value = selected_option.get("value") if isinstance(selected_option, dict) else action.get("value", "")
     if not isinstance(value, str):
         return None
     parsed = _parse_insight_alert_snooze_value(value)
+    if parsed is None:
+        return None
+    return parsed[0], parsed[1], None
+
+
+def _extract_alert_snooze_hints(payload: dict) -> uuid.UUID | None:
+    """Alert UUID carried by a snooze interaction, used for region-ownership routing."""
+    action = _insight_alert_snooze_action(payload)
+    if not action:
+        return None
+    parsed = _parse_insight_alert_snooze_action(action)
     return parsed[0] if parsed else None
 
 
@@ -3382,17 +3426,14 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
     if not action or not slack_team_id:
         return HttpResponse(status=200)
 
-    value = action.get("value", "")
-    if not isinstance(value, str):
-        return HttpResponse(status=200)
-
-    parsed = _parse_insight_alert_snooze_value(value)
+    parsed = _parse_insight_alert_snooze_action(action)
     if parsed is None:
         logger.info("insight_alert_snooze_malformed_value")
         return HttpResponse(status=200)
-    alert_uuid, duration = parsed
+    alert_uuid, duration, until = parsed
 
     from products.alerts.backend.facade.api import (  # noqa: PLC0415 — cross-product calls kept off the slack import path
+        SLACK_SNOOZE_MAX_DAYS,
         get_alert_team_id,
         snooze_alert_from_slack,
     )
@@ -3420,7 +3461,7 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
 
     # Everything below this point is untrusted alert_id/duration re-derived from the alert row
     # itself, not the Slack button value — see snooze_alert_from_slack's docstring.
-    outcome = snooze_alert_from_slack(alert_uuid, duration=duration, user=org_member)
+    outcome = snooze_alert_from_slack(alert_uuid, duration=duration, until=until, user=org_member)
 
     if outcome == "not_found":
         # Existed at get_alert_team_id but is gone now (race, e.g. concurrent delete) — same
@@ -3434,10 +3475,28 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
         logger.info("insight_alert_snooze_alert_disabled", alert_id=str(alert_uuid))
         _replace_message_stripping_actions(payload, "This alert is disabled, so there is nothing to snooze.")
         return HttpResponse(status=200)
+    if outcome == "invalid_until":
+        logger.info("insight_alert_snooze_invalid_until", alert_id=str(alert_uuid))
+        response_url = payload.get("response_url")
+        if response_url:
+            # Ephemeral so a bad pick doesn't clobber the alert message — the pickers stay usable.
+            inbox_interactivity.post_response_url(
+                response_url,
+                {
+                    "response_type": "ephemeral",
+                    "replace_original": False,
+                    "text": f"Pick a time in the next {SLACK_SNOOZE_MAX_DAYS} days.",
+                },
+            )
+        return HttpResponse(status=200)
 
-    human_duration = INSIGHT_ALERT_SNOOZE_DURATION_LABELS[duration]
+    if duration is not None:
+        snoozed_wording = f"for {INSIGHT_ALERT_SNOOZE_DURATION_LABELS[duration]}"
+    else:
+        assert until is not None
+        snoozed_wording = f"until {until.strftime('%Y-%m-%d %H:%M')} UTC"
     actor = f"<@{slack_user_id}>" if slack_user_id else "a teammate"
-    _replace_message_stripping_actions(payload, f"😴 Snoozed for {human_duration} by {actor}")
+    _replace_message_stripping_actions(payload, f"😴 Snoozed {snoozed_wording} by {actor}")
     return HttpResponse(status=200)
 
 
@@ -3663,7 +3722,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_channel_approval_deny(payload)
             if action_id == SIGNALS_DISMISS_REPORT_ACTION_ID:
                 return _handle_signals_dismiss_report(payload)
-            if action_id == INSIGHT_ALERT_SNOOZE_ACTION_ID:
+            if action_id in (INSIGHT_ALERT_SNOOZE_ACTION_ID, INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID):
                 return _handle_insight_alert_snooze(payload)
             if action_id == onboarding.INBOX_CREATE_ACTION_ID:
                 return inbox_interactivity.handle_inbox_create(payload)

@@ -1,8 +1,10 @@
 import uuid
+from datetime import datetime, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 
@@ -30,7 +32,11 @@ from products.alerts.backend.models.alert import AlertConfiguration
 
 logger = structlog.get_logger(__name__)
 
-SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found"]
+SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "invalid_until"]
+
+# Mirrors the in-app SnoozeButton's DateFilter max — Slack's datetimepicker has no bounds of
+# its own, so the cap has to live here.
+SLACK_SNOOZE_MAX_DAYS = 31
 
 
 def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
@@ -47,8 +53,15 @@ def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
     return AlertConfiguration.objects.filter(id=alert_id).values_list("team_id", flat=True).first()
 
 
-def snooze_alert_from_slack(alert_id: uuid.UUID, *, duration: str, user: User) -> SlackSnoozeOutcome:
-    """Snooze an alert on behalf of a Slack "Snooze" button click.
+def snooze_alert_from_slack(
+    alert_id: uuid.UUID, *, user: User, duration: str | None = None, until: datetime | None = None
+) -> SlackSnoozeOutcome:
+    """Snooze an alert on behalf of a Slack snooze interaction.
+
+    Takes exactly one of ``duration`` (a preset token like ``"1d"``, resolved with the same
+    ``relative_date_parse`` call the alerts API uses) or ``until`` (an absolute time from
+    Slack's datetimepicker, which must be in the future and at most ``SLACK_SNOOZE_MAX_DAYS``
+    out).
 
     Owns all alert-side authorization and the mutation itself. `user` must already be confirmed
     as a member of the alert's Slack-connected organization by the caller — the alert_id and
@@ -56,6 +69,8 @@ def snooze_alert_from_slack(alert_id: uuid.UUID, *, duration: str, user: User) -
     every access decision here is re-derived from the alert row, never taken on trust from the
     caller.
     """
+    if (duration is None) == (until is None):
+        raise ValueError("Pass exactly one of duration or until")
     try:
         # Slack webhook: no team context, and alert_id/duration come from an untrusted Slack
         # button value. Authorization is derived below from the alert row itself (project
@@ -85,9 +100,16 @@ def snooze_alert_from_slack(alert_id: uuid.UUID, *, duration: str, user: User) -
         # for the common case.
         return "disabled"
 
-    # always store snoozed_until as UTC time, as we look at current UTC time to check when to
-    # run alerts — same call the alerts API uses so "1d" means the same thing everywhere.
-    snoozed_until = relative_date_parse(duration, ZoneInfo("UTC"), increase=True, always_truncate=True)
+    if duration is not None:
+        # always store snoozed_until as UTC time, as we look at current UTC time to check when to
+        # run alerts — same call the alerts API uses so "1d" means the same thing everywhere.
+        snoozed_until = relative_date_parse(duration, ZoneInfo("UTC"), increase=True, always_truncate=True)
+    else:
+        assert until is not None
+        now = timezone.now()
+        if until <= now or until > now + timedelta(days=SLACK_SNOOZE_MAX_DAYS):
+            return "invalid_until"
+        snoozed_until = until.astimezone(ZoneInfo("UTC"))
 
     with transaction.atomic():
         try:
@@ -113,6 +135,7 @@ __all__ = [
     "AlertDestinationData",
     "AlertDestinationValidationError",
     "DestinationType",
+    "SLACK_SNOOZE_MAX_DAYS",
     "SlackSnoozeOutcome",
     "build_alert_destination_config",
     "create_alert_destination_hog_functions",
