@@ -354,7 +354,7 @@ def _reconcile_report_embedding_with_verdict(instance: SignalReportArtefact) -> 
         try:
             # Both reads happen post-commit rather than in the receiver body. Only then is the canonical
             # verdict settled, whether this change was an append, an in-place edit, or a delete that
-            # promoted an older row — and a cascade that removed the report along with its artefacts
+            # promoted an older row, and a cascade that removed the report along with its artefacts
             # exits on the first query instead of paying for two per deleted verdict.
             #
             # Team-scoped: an artefact and the report it judges always belong to the same team, so

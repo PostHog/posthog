@@ -21,7 +21,7 @@ class Command(BaseCommand):
         # The document_type filter is load-bearing: 'signals' also holds report-level documents,
         # which carry none of the signal metadata this importer reads and would be ingested as
         # bogus signals defaulted to source_product/source_type 'unknown'.
-        "The document_type filter matters — the signals product also stores report documents."
+        "The document_type filter matters: the signals product also stores report documents."
     )
 
     def add_arguments(self, parser):

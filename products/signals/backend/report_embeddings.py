@@ -1,7 +1,7 @@
 """Report-level embeddings: one `document_embeddings` row per `SignalReport`.
 
 The grouping pipeline already embeds each *signal* that backs a report (`document_type='signal'`).
-This module embeds the *report itself* — the LLM-written title and summary the inbox shows — so a
+This module embeds the *report itself*, the LLM-written title and summary the inbox shows, so a
 report has a vector of its own instead of only a cloud of constituent-signal vectors that every
 reader has to re-aggregate.
 
@@ -31,7 +31,7 @@ EMBEDDING_RENDERING = "title_summary_v1"
 
 # Tombstones carry this fixed text instead of the report's own, which is what makes it safe to write
 # one without first knowing whether a live row exists. A tombstone only has to match the ReplacingMergeTree
-# key — team, date(timestamp), product, document_type, model_name, rendering, document_id — and content
+# key (team, date(timestamp), product, document_type, model_name, rendering, document_id), and content
 # is not part of that key, so the placeholder supersedes a live row just as well as a copy of its text
 # would. Carrying the real text instead would mean a speculative tombstone could *introduce* content the
 # safety judge rejected, and an empty string would put an embedding of "" through the worker. This is a
@@ -105,8 +105,8 @@ def emit_report_tombstone(*, team_id: int, report_id: str, created_at: datetime)
 
     Callers do not need to know if a live row exists. Because the tombstone carries `TOMBSTONE_CONTENT`
     rather than the report's text, writing one for a report that was never embedded costs an extra row
-    and leaks nothing, which is what lets every retraction path — deletion, an unsafe verdict, an
-    unreviewed edit — emit unconditionally instead of guessing.
+    and leaks nothing, which is what lets every retraction path (deletion, an unsafe verdict, an
+    unreviewed edit) emit unconditionally instead of guessing.
 
     Readers must filter these out the way every signals query already does, with
     `NOT JSONExtractBool(metadata, 'deleted')`.
