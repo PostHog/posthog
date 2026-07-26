@@ -1,8 +1,5 @@
 """Suspension state for DAG nodes — the materialization circuit breaker.
 
-Canonical home for the ``properties["system"]["suspended"]`` shape. The materialization
-activities write it after repeated failures; the DAG sync, the node API and manual runs clear it.
-
 A suspended node is skipped by every scheduled DAG run, so it can never produce the successful
 materialization that would clear it. Every path here exists to give a node a way back.
 """
@@ -30,11 +27,8 @@ def _system(node: Node) -> dict:
 
 
 def query_fingerprint(query: dict | None) -> str | None:
-    """Fingerprint of a saved query's SQL, recorded when a node suspends.
-
-    Lets a later edit be recognized as a genuine change, so re-syncing an unchanged query
-    (backfills, resync commands, managed-viewset sync) doesn't silently resume everything.
-    """
+    """Recorded when a node suspends, so re-syncing an unchanged query (backfills, resync commands,
+    managed-viewset sync) doesn't read as an edit and silently resume everything."""
     sql = (query or {}).get("query")
     if not isinstance(sql, str):
         return None
@@ -50,7 +44,7 @@ def is_node_suspended(node: Node, engine: str) -> bool:
 
 
 def suspension_reset_at(node: Node, engine: str) -> str | None:
-    """When this engine was last resumed. Failures before it no longer count toward suspension."""
+    """Failures before this point no longer count toward suspension."""
     return ((_system(node).get(RESET_KEY) or {}).get(str(engine)) or {}).get("at")
 
 
@@ -70,10 +64,10 @@ def mark_node_suspended(node: Node, *, engine: str, reason: str, job_id: str, fi
 
 
 def clear_node_suspension(node: Node, *, engine: str | None = None, by: str = "materialization") -> bool:
-    """Clear suspension for one engine (or all) and stamp when it happened.
+    """Clears one engine, or all of them when engine is None.
 
-    The watermark matters: the failures that caused the suspension are still the most recent jobs,
-    so without it the node re-suspends on its very next failure instead of getting a fresh window.
+    Stamps a watermark because the failures that caused the suspension are still the most recent
+    jobs — without it the node re-suspends on its very next failure.
     """
     suspended = suspension_state(node)
     engines = [str(engine)] if engine is not None else list(suspended)
@@ -93,7 +87,7 @@ def clear_node_suspension(node: Node, *, engine: str | None = None, by: str = "m
 
 
 def resume_nodes(nodes: Iterable[Node], *, by: str, engine: str | None = None) -> int:
-    """Resume suspended nodes, returning how many were actually suspended."""
+    """Returns how many of the nodes were actually suspended, not how many were passed in."""
     resumed = 0
     for node in nodes:
         if clear_node_suspension(node, engine=engine, by=by):
@@ -103,11 +97,8 @@ def resume_nodes(nodes: Iterable[Node], *, by: str, engine: str | None = None) -
 
 
 def resume_saved_query(saved_query: "DataWarehouseSavedQuery", *, by: str = "api") -> int:
-    """Resume every node backing a saved query.
-
-    The saved query is the unit users act on, and one can back more than one node when it landed in
-    duplicate DAGs — "resume this model" means all of them.
-    """
+    """One query can back several nodes when it landed in duplicate DAGs, and "resume this model"
+    means all of them."""
     return resume_nodes(
         Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id),
         by=by,
@@ -115,12 +106,7 @@ def resume_saved_query(saved_query: "DataWarehouseSavedQuery", *, by: str = "api
 
 
 def clear_suspension_if_query_changed(node: Node, query: dict | None) -> bool:
-    """Resume a node whose query no longer matches the one that got it suspended.
-
-    Fixing the SQL is the most common remedy, and on the scheduled path it is the only one the
-    user can reach — a suspended node is never executed, so it can never succeed its way out.
-    A marker with no fingerprint predates fingerprinting; free it rather than strand it.
-    """
+    """A marker with no fingerprint predates fingerprinting; free it rather than strand it."""
     fingerprint = query_fingerprint(query)
     stale = [
         engine for engine, entry in suspension_state(node).items() if entry.get("query_fingerprint") != fingerprint

@@ -21,8 +21,8 @@ from products.data_modeling.backend.facade.models import (
     Node,
 )
 
-# The suspension state itself lives in products/data_modeling/backend/logic/node_suspension.py,
-# alongside the API and DAG-sync paths that clear it; re-exported here for the activities.
+# Suspension state lives in products/data_modeling/backend/logic/node_suspension.py, alongside the
+# API and DAG-sync paths that clear it. Re-exported so the activities keep importing from here.
 __all__ = [
     "CONSECUTIVE_FAILURES_TO_SUSPEND",
     "clear_node_suspension",
@@ -90,8 +90,8 @@ def update_node_system_properties(
 def _count_leading_failures(saved_query_id: UUID, engine: str, *, since: str | None = None) -> int:
     jobs = DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=str(engine))
     if since is not None:
-        # Jobs from before the node was resumed don't count — otherwise the failures that caused
-        # the suspension are still the most recent ones and one new failure re-suspends it.
+        # Otherwise the failures that caused the suspension are still the most recent jobs, and one
+        # new failure re-suspends the node we just resumed.
         jobs = jobs.filter(created_at__gt=dt.datetime.fromisoformat(since))
     statuses = jobs.order_by("-created_at").values_list("status", flat=True)[:CONSECUTIVE_FAILURES_TO_SUSPEND]
     count = 0

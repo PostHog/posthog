@@ -161,8 +161,7 @@ def sync_saved_query_to_dag(
     )
     # update type (name is automatically synced from saved_query in Node.save())
     target.type = node_type
-    # Editing the query is the user's only way back from suspension: a suspended node is skipped by
-    # every scheduled run, so it can never succeed its way out. Persisted by target.save() below.
+    # Persisted by target.save() below.
     clear_suspension_if_query_changed(target, saved_query.query)
 
     # Internal DAG sync (no user); bypass warehouse HogQL access control so dependency resolution

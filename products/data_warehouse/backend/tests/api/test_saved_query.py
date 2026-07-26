@@ -1937,8 +1937,8 @@ class TestSavedQuery(APIBaseTest):
         self.assertIn("Cancelled", returned_statuses)
 
     def test_resume_clears_suspension_for_every_node_of_the_query(self):
-        # A personal API key is the point of this surface: the node-level resume is on an INTERNAL
-        # viewset, which no API key can reach.
+        # Key access is the point of this surface: the node-level resume is on an INTERNAL viewset,
+        # which no API key can reach.
         api_key = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
 

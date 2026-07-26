@@ -50,8 +50,7 @@ class TestSuspensionClearedOnQueryChange(BaseTest):
         self.assertEqual(suspension_state(node) == {}, expect_cleared)
 
     def test_sync_clears_a_suspension_recorded_without_a_fingerprint(self) -> None:
-        # Markers written before fingerprinting existed can't be compared, so an edit must still
-        # free them — otherwise they stay suspended for good.
+        # Nothing to compare against, so an edit must free them or they stay suspended for good.
         saved_query, node = self._suspended_node(fingerprint=None)
 
         sync_saved_query_to_dag(saved_query)
@@ -77,8 +76,7 @@ class TestResumeNodes(BaseTest):
         self.assertEqual(resumed, 1)
         node.refresh_from_db()
         self.assertEqual(suspension_state(node), {})
-        # Without the watermark the next single failure re-suspends immediately, since the five
-        # failures that caused the suspension are still the five most recent jobs.
+        # Without the watermark the next single failure re-suspends it.
         self.assertIsNotNone(suspension_reset_at(node, ENGINE))
 
     def test_resume_is_a_no_op_on_a_node_that_is_not_suspended(self) -> None:

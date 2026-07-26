@@ -304,8 +304,8 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         node_ids.add(str(node.id))
 
-        # ExecuteDAGWorkflow skips suspended nodes, so resume everything the user asked to run —
-        # otherwise this request is a silent no-op for exactly the nodes that need it most.
+        # ExecuteDAGWorkflow skips suspended nodes, so without this the request is a silent no-op
+        # for exactly the nodes that need it most.
         resume_nodes(Node.objects.filter(team_id=self.team_id, id__in=node_ids), by="manual_run")
 
         if _is_v2_backend_enabled(cast(User, req.user), self.team):
