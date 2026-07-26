@@ -422,8 +422,10 @@ def unarchive_prompt(team: Team, prompt_name: str, *, user: User | None = None) 
         latest_row = max(generation, key=lambda row: (row.version, row.created_at, str(row.id)))
         restored_versions = sorted(row.version for row in generation)
 
-        LLMPrompt.objects.filter(pk__in=[row.pk for row in generation]).update(deleted=False, is_latest=False)
-        LLMPrompt.objects.filter(pk=latest_row.pk).update(is_latest=True)
+        LLMPrompt.objects.filter(team=team, pk__in=[row.pk for row in generation]).update(
+            deleted=False, is_latest=False
+        )
+        LLMPrompt.objects.filter(team=team, pk=latest_row.pk).update(is_latest=True)
 
         log_llm_prompt_activity(
             team=team,

@@ -763,11 +763,9 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_unarchive_endpoint_restores_only_the_most_recent_archived_generation(self):
-        from datetime import timedelta
+        from datetime import UTC, datetime, timedelta
 
-        from django.utils import timezone
-
-        base = timezone.now()
+        base = datetime(2026, 1, 1, tzinfo=UTC)
         first_gen = [
             self.create_prompt_version(name="reused", version=1, is_latest=False, deleted=True, prompt="g1v1"),
             self.create_prompt_version(name="reused", version=2, is_latest=False, deleted=True, prompt="g1v2"),
