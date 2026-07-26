@@ -332,7 +332,9 @@ export class ToolExecutor {
         } catch (error: unknown) {
             const metricTool = execToolName()
             if (!execMetrics.innerToolName) {
-                toolCallsTotal.inc({ tool: 'exec', status: 'error' })
+                // Match the inner-tool path, which labels rejected input `validation_error`.
+                const status = error instanceof ExecCommandError ? 'validation_error' : 'error'
+                toolCallsTotal.inc({ tool: 'exec', status })
             }
             const classification = classifyToolError(error, metricTool)
 

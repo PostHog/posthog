@@ -439,7 +439,7 @@ describe('ToolExecutor metrics', () => {
 
             const execErrors = callsFor(mockToolCallsInc, 'exec')
             expect(execErrors.length).toBeGreaterThan(0)
-            expect(execErrors[0].status).toBe('error')
+            expect(execErrors[0].status).toBe('validation_error')
 
             expect(callsFor(mockToolErrorsInc, 'exec').length).toBeGreaterThan(0)
         })
