@@ -8,11 +8,11 @@ from django.db import models
 from django.utils import timezone
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import uuid7
+from posthog.models.utils import UUIDModel, uuid7
 from posthog.storage import object_storage
 
 
-class CanvasApplication(TeamScopedRootMixin):
+class CanvasApplication(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     canvas = models.OneToOneField(
         "posthog.FileSystem",
