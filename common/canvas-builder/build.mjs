@@ -236,7 +236,9 @@ function projectPlugin(project) {
             })
             pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas-worker' }, async (args) => {
                 const source = project.files[args.path]
-                if (source === undefined) return { errors: [{ text: `Canvas worker not found: ${args.path}` }] }
+                if (source === undefined) {
+                    return { errors: [{ text: `Canvas worker not found: ${args.path}` }] }
+                }
                 if (importSpecifiers(source).length > 0) {
                     return { errors: [{ text: 'Canvas workers must be self-contained modules' }] }
                 }
