@@ -584,6 +584,7 @@ the row lists both.
 | tiktok_ads                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | tinyemail                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | tmdb                             | HTTP                        | requests                                                        | ✅                          |
+| toast                            | HTTP                        | requests                                                        | ✅                          |
 | todoist                          | HTTP                        | requests                                                        | ✅                          |
 | together_ai                      | HTTP                        | requests                                                        | ✅                          |
 | torii                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1331,7 +1332,6 @@ doesn't conflict with concurrent PRs.
 - tiny_erp
 - tinybird
 - tipalti
-- toast
 - toggl
 - track_pms
 - transistor
