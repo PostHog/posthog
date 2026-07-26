@@ -16,6 +16,38 @@ export class ScrubAborted extends Error {}
 /** A response no amount of waiting can turn into bytes, so the batch fails loudly instead. */
 export class ScrubContractError extends Error {}
 
+/**
+ * This image, specifically, is one the sidecar cannot process. Its bytes belong in the dead-letter
+ * topic so the partition can move on.
+ */
+export class ScrubPoisoned extends Error {
+    constructor(
+        message: string,
+        readonly detail: { reason: ScrubWaitReason; lastError: string; attempts: number; waitedMs: number }
+    ) {
+        super(message)
+    }
+}
+
+/**
+ * What makes an image poison rather than unlucky.
+ *
+ * This is the whole safety question for the dead-letter path, because under saturation every image
+ * waits a long time, so anything keyed on waiting alone would dead-letter the entire stream during a
+ * backlog. That is the mass loss the wait exists to prevent, arriving through a different door.
+ *
+ * A poison image is distinguished by failing WHILE OTHER IMAGES SUCCEED. A sidecar that is full or
+ * wedged fails everything equally, so no image ever meets the second condition and the lane keeps
+ * waiting, which is correct. Only once the sidecar has demonstrably scrubbed other images can a
+ * persistent failure be attributed to this one.
+ *
+ * A 503 is excluded from the count for the same reason: it is the sidecar declining to look at the
+ * image at all, so it says nothing about the content, and under load an unlucky image can collect
+ * plenty of them while its neighbours get slots.
+ */
+const POISON_MIN_FAILURES = 12
+const POISON_MIN_OTHER_SUCCESSES = 20
+
 const BACKOFF_BASE_MS = 100
 /**
  * Ceilings on the wait, by what the failure says about the sidecar.
@@ -64,10 +96,22 @@ function isWaitable(status: number): boolean {
 
 export class ScrubClient {
     private readonly url: URL
+    /**
+     * Images this pod has scrubbed, ever. Only ever read as a difference, to answer "has the sidecar
+     * been working while this one image kept failing", which is what separates poison from load.
+     */
+    private successes = 0
 
     constructor(
         baseUrl: string,
         private readonly timeoutMs: number,
+        /**
+         * Whether a dead-letter destination exists. Without one there is nowhere to put a poison
+         * image, and the only alternative to waiting would be discarding it, so the client keeps
+         * waiting instead. Failing safe here means a misconfigured producer costs throughput on one
+         * partition rather than data.
+         */
+        private readonly deadLetters: boolean = false,
         // unref'd: an abort stops the wait but leaves this timer scheduled, and a referenced one
         // holds the event loop open for the rest of its interval, which on the busy path is half a
         // minute of a process that has already finished shutting down.
@@ -94,6 +138,8 @@ export class ScrubClient {
     public async scrub(bytes: Buffer, signal?: AbortSignal, ref?: string): Promise<Buffer | null> {
         let waitedMs = 0
         let stuckReports = 0
+        let blamableFailures = 0
+        const successesAtStart = this.successes
         for (let attempt = 0; ; attempt++) {
             if (signal?.aborted) {
                 throw new ScrubAborted('scrub batch aborted')
@@ -103,6 +149,7 @@ export class ScrubClient {
             try {
                 const { status, body } = await this.post(bytes, signal)
                 if (status === 200 && body.length > 0) {
+                    this.successes += 1
                     return body
                 }
                 if (status === 422 || status === 413) {
@@ -126,6 +173,23 @@ export class ScrubClient {
                 throw new ScrubAborted('scrub batch aborted')
             }
             ImageScrubConsumerMetrics.incScrubWait(reason)
+            // A 503 is the sidecar declining to look at this image, so it never counts towards
+            // blaming the content. Everything else means it looked and could not produce bytes.
+            if (reason !== 'busy') {
+                blamableFailures += 1
+            }
+            if (
+                this.deadLetters &&
+                blamableFailures >= POISON_MIN_FAILURES &&
+                this.successes - successesAtStart >= POISON_MIN_OTHER_SUCCESSES
+            ) {
+                throw new ScrubPoisoned(`sidecar cannot process this image: ${detail}`, {
+                    reason,
+                    lastError: detail,
+                    attempts: attempt + 1,
+                    waitedMs,
+                })
+            }
             const delayMs = backoffMs(attempt, reason, this.random)
             waitedMs += delayMs
             // Repeated rather than emitted once: a single increment lets a rate() alert fire and then

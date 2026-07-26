@@ -91,6 +91,19 @@ export class ImageScrubConsumerMetrics {
         help: 'Wall time per poll batch. Read against Kafka max.poll.interval.ms (300s): batches approaching it get the pod evicted mid-batch, and the partition is redone by whoever picks it up',
         buckets: [1, 5, 15, 30, 60, 120, 240, 300, 600],
     })
+    /**
+     * Images parked on the dead-letter topic because the sidecar could not process them.
+     *
+     * Not a loss counter: the bytes are still in Kafka, and the reason this exists at all is that
+     * one such image otherwise holds the head of its partition against every team whose records
+     * share it. It should sit at zero. Anything above a trickle is a sidecar bug reproducing across
+     * many images rather than a genuinely odd one, and the fix is in the sidecar, not here.
+     */
+    private static readonly deadLettered = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_dead_lettered_total',
+        help: 'Images published to the dead-letter topic after the sidecar repeatedly failed on them while succeeding on others. The bytes are retained, so this is quarantine rather than loss',
+        labelNames: ['reason'],
+    })
     private static readonly offsetsDiscarded = new Counter({
         name: 'ml_mirror_image_scrub_consumer_offsets_discarded_total',
         help: 'Offsets that could not be stored because a rebalance had already revoked the partition, so that span rescrubs under its new owner',
@@ -121,6 +134,9 @@ export class ImageScrubConsumerMetrics {
             this.batchRetiredRatio.observe(retired / planned)
         }
         this.batchDuration.observe(durationSeconds)
+    }
+    public static incDeadLettered(reason: string): void {
+        this.deadLettered.labels(reason).inc()
     }
     public static incOffsetsDiscarded(count: number): void {
         this.offsetsDiscarded.inc(count)

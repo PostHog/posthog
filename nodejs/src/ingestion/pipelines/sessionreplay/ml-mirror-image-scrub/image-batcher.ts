@@ -8,10 +8,21 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 import { parseImageRef } from './content-ref'
 import { ImageShardStore, ScrubbedImage } from './image-shard-store'
 import { ImageScrubConsumerMetrics } from './metrics'
-import { ScrubClient } from './scrub-client'
+import { ScrubClient, ScrubPoisoned } from './scrub-client'
 
 export interface OffsetStore {
     offsetsStore(offsets: TopicPartitionOffset[]): void
+}
+
+/**
+ * Where an image the sidecar cannot process goes.
+ *
+ * Deliberately the original bytes rather than anything derived: the image was never scrubbed, so it
+ * carries whatever PII it always did and must not reach the ML bucket, but discarding it would make
+ * the sidecar bug behind it unreproducible. Parking it keeps both properties.
+ */
+export interface DeadLetterSink {
+    park(image: { ref: string; bytes: Buffer; detail: Record<string, unknown> }): Promise<void>
 }
 
 /**
@@ -105,7 +116,8 @@ export class ImageBatcher {
         private readonly offsetStore: OffsetStore,
         private readonly scrubClient: ScrubClient,
         private readonly options: ImageBatcherOptions,
-        nowMs: number
+        nowMs: number,
+        private readonly deadLetters: DeadLetterSink | null = null
     ) {
         // 0 would admit nothing and spin the loop forever; NaN would skip it entirely, committing
         // offsets for unprocessed messages. Fail at boot rather than either.
@@ -331,7 +343,26 @@ export class ImageBatcher {
     }
 
     private async scrubOne(planned: PlannedScrub, signal: AbortSignal): Promise<ScrubbedImage | null> {
-        const bytes = await this.scrubClient.scrub(planned.value, signal, planned.ref)
+        let bytes: Buffer | null
+        try {
+            bytes = await this.scrubClient.scrub(planned.value, signal, planned.ref)
+        } catch (error) {
+            if (!(error instanceof ScrubPoisoned) || !this.deadLetters) {
+                throw error
+            }
+            // Parked before the ref is marked and before the slot retires, so a failure to park
+            // leaves the image exactly where it was: still unscrubbed, still uncommitted, still
+            // waiting. Marking first would advance the offset over an image held nowhere.
+            await this.deadLetters.park({
+                ref: planned.ref,
+                bytes: planned.value,
+                detail: { ...error.detail, pseudoTeam: planned.pseudoTeam, hash: planned.hash },
+            })
+            logger.warn('☠️', 'image_scrub_dead_lettered', { ref: planned.ref, ...error.detail })
+            this.seenRefs.add(planned.ref)
+            ImageScrubConsumerMetrics.incDeadLettered(error.detail.reason)
+            return null
+        }
         if (bytes === null) {
             // Null is only ever a 422/413, a verdict on the content itself, so no retry can succeed.
             // Marking it stops every later copy from re-earning the same rejection, and there is

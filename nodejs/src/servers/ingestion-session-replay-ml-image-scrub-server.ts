@@ -3,6 +3,8 @@ import { S3Client } from '@aws-sdk/client-s3'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB } from '~/common/config/kafka-topics'
 import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/dead-letter-sink'
 import { ImageBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-batcher'
 import { ImageShardStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-shard-store'
 import { ScrubClient } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/scrub-client'
@@ -38,6 +40,7 @@ export function buildImageScrubConsumerConfig(config: IngestionSessionReplayMlMi
 export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayMlMirrorServerConfig
+    private dlqProducer: KafkaProducerWrapper | null = null
 
     constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
         this.config = buildMlMirrorServerConfig(config)
@@ -65,9 +68,17 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX,
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS
         )
+        // Built before the client, because whether a dead-letter destination exists changes what the
+        // client does with an image it cannot get scrubbed: park it, or keep waiting on it forever.
+        this.dlqProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
+        const deadLetters = new KafkaDeadLetterSink(
+            this.dlqProducer,
+            this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC
+        )
         const scrubClient = new ScrubClient(
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL,
-            this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS
+            this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS,
+            true
         )
 
         const consumer = new KafkaConsumer(buildImageScrubConsumerConfig(this.config))
@@ -82,7 +93,8 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
                 scrubConcurrency: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY,
                 dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS,
             },
-            Date.now()
+            Date.now(),
+            deadLetters
         )
         await consumer.connect((messages) => {
             const heartbeat = setInterval(() => consumer.heartbeat(), BATCH_HEARTBEAT_INTERVAL_MS)
@@ -107,7 +119,7 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [],
+            kafkaProducers: this.dlqProducer ? [this.dlqProducer] : [],
             redisPools: [],
         }
     }

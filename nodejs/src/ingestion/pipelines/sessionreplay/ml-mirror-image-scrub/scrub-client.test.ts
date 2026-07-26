@@ -1,7 +1,7 @@
 import { Server, createServer } from 'node:http'
 import { AddressInfo } from 'node:net'
 
-import { ScrubAborted, ScrubClient, ScrubContractError } from './scrub-client'
+import { ScrubAborted, ScrubClient, ScrubContractError, ScrubPoisoned } from './scrub-client'
 
 type Reply = { status: number; body?: string }
 
@@ -9,6 +9,7 @@ describe('ScrubClient', () => {
     let server: Server
     let replies: Reply[]
     let requests: number
+    let replyFor: ((body: string) => Reply | undefined) | undefined
 
     // A real loopback server rather than a mocked `request`: the retry loop only matters in terms of
     // what it does with actual responses, and the 503 shed path in particular is a status the sidecar
@@ -16,11 +17,19 @@ describe('ScrubClient', () => {
     beforeEach(async () => {
         replies = []
         requests = 0
+        replyFor = undefined
         server = createServer((req, res) => {
             requests += 1
-            req.resume()
-            const reply = replies.shift() ?? { status: 200, body: 'scrubbed' }
-            req.on('end', () => res.writeHead(reply.status).end(reply.body ?? ''))
+            const chunks: Buffer[] = []
+            req.on('data', (c: Buffer) => chunks.push(c))
+            req.on('end', () => {
+                // Keyed on the request body when a rule is set, so a poison image and its healthy
+                // neighbours can be in flight at once, which is the only arrangement in which the
+                // "failing while others succeed" rule means anything.
+                const reply = replyFor?.(Buffer.concat(chunks).toString()) ??
+                    replies.shift() ?? { status: 200, body: 'scrubbed' }
+                res.writeHead(reply.status).end(reply.body ?? '')
+            })
         })
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     })
@@ -29,10 +38,11 @@ describe('ScrubClient', () => {
         await new Promise((resolve) => server.close(resolve))
     })
 
-    const client = (): ScrubClient =>
+    const client = (deadLetters = false): ScrubClient =>
         new ScrubClient(
             `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
             1000,
+            deadLetters,
             // Backoff is asserted separately; sleeping for real would only make this slow and flaky.
             () => Promise.resolve(),
             () => 1
@@ -75,6 +85,59 @@ describe('ScrubClient', () => {
 
         await expect(client().scrub(Buffer.from('image'))).resolves.toBeNull()
         expect(requests).toBe(1)
+    })
+
+    it('never dead-letters on saturation alone, however long the sidecar sheds', async () => {
+        // The safety property of the whole dead-letter path. Under a backlog every image waits a
+        // long time, so anything keyed on waiting or failure count alone would park the entire
+        // stream, which is the mass loss the wait exists to prevent arriving through another door.
+        // Nothing succeeds here, so nothing may be blamed on any one image.
+        replies = Array.from({ length: 400 }, () => ({ status: 503, body: '' }))
+
+        await expect(client(true).scrub(Buffer.from('image'))).resolves.toEqual(Buffer.from('scrubbed'))
+    })
+
+    it('never dead-letters while the sidecar is failing everything, even on non-503 errors', async () => {
+        // A wedged sidecar 500s on every image. That is the sidecar, not the content, and parking
+        // images for it would quarantine the whole stream for a bug that has nothing to do with them.
+        replies = Array.from({ length: 400 }, () => ({ status: 500, body: '' }))
+
+        await expect(client(true).scrub(Buffer.from('image'))).resolves.toEqual(Buffer.from('scrubbed'))
+    })
+
+    /**
+     * One image the sidecar always 500s on, alongside a stream it scrubs fine, in flight together.
+     *
+     * Returned wrapped, because awaiting an async function that returns a promise adopts that
+     * promise instead of handing it back, which would await the poison scrub here rather than in the
+     * assertion.
+     */
+    const poisonAmongHealthy = async (c: ScrubClient): Promise<{ inFlight: Promise<Buffer | null> }> => {
+        replyFor = (body) => (body.startsWith('poison') ? { status: 500, body: '' } : undefined)
+        const inFlight = c.scrub(Buffer.from('poison'), undefined, 'ref-1')
+        inFlight.catch(() => {}) // settled by the caller; this only stops an unhandled rejection
+        for (let i = 0; i < 40; i++) {
+            await c.scrub(Buffer.from(`healthy-${i}`))
+        }
+        return { inFlight }
+    }
+
+    it('dead-letters an image that keeps failing while the sidecar succeeds on others', async () => {
+        // The case the dead-letter topic exists for: the sidecar demonstrably works, and this one
+        // image still cannot get through, so it is the content and it must stop holding the head of
+        // its partition.
+        const { inFlight } = await poisonAmongHealthy(client(true))
+
+        await expect(inFlight).rejects.toThrow(ScrubPoisoned)
+    })
+
+    it('keeps waiting on a poison image when there is nowhere to park it', async () => {
+        // Without a dead-letter destination the only alternative to waiting is discarding, so a
+        // misconfigured producer must cost throughput on one partition rather than the image.
+        const { inFlight } = await poisonAmongHealthy(client(false))
+        replyFor = undefined
+
+        await expect(inFlight).resolves.toEqual(Buffer.from('scrubbed'))
     })
 
     it('stops waiting when the caller hangs up', async () => {

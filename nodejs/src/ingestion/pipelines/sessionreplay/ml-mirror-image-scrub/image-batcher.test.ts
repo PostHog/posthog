@@ -3,7 +3,7 @@ import { Message, TopicPartitionOffset } from 'node-rdkafka'
 import { hashImageBytes, imageRef } from './content-ref'
 import { ImageBatcher, OffsetStore } from './image-batcher'
 import { ImageShardStore, ScrubbedImage } from './image-shard-store'
-import { ScrubClient } from './scrub-client'
+import { ScrubClient, ScrubPoisoned } from './scrub-client'
 
 const pt = (n: number): string => String(n).padStart(32, '0')
 const CONTENT_KEY = 'fedcba9876543210fedcba9876543210'
@@ -480,6 +480,62 @@ describe('ImageBatcher', () => {
                     0
                 )
         ).toThrow('scrubConcurrency')
+    })
+
+    it('parks a poison image and lets the batch move past it', async () => {
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        const parked: string[] = []
+        const poisonClient = {
+            scrub: (b: Buffer) =>
+                b.toString() === 'poison'
+                    ? Promise.reject(
+                          new ScrubPoisoned('cannot process', {
+                              reason: 'transport',
+                              lastError: 'sidecar responded 500',
+                              attempts: 12,
+                              waitedMs: 60_000,
+                          })
+                      )
+                    : Promise.resolve(b),
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, poisonClient, options, 0, {
+            park: (image) => Promise.resolve(void parked.push(image.ref)),
+        })
+
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('poison')), msg(0, 1, pt(1), Buffer.from('ok'))], 1)
+
+        expect(parked).toHaveLength(1)
+        // The healthy image behind it still gets written, and the offset advances over both.
+        expect(store.writes.flat()).toHaveLength(1)
+        expect(offsets.received.flat().map((o) => o.offset)).toEqual([2])
+    })
+
+    it('does not move past a poison image when parking it fails', async () => {
+        // Ordering is the whole safety property here. Marking the ref or retiring the slot before the
+        // bytes are durably parked would advance the offset over an image held nowhere at all, which
+        // is the silent loss the dead-letter topic exists to prevent.
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        const poisonClient = {
+            scrub: () =>
+                Promise.reject(
+                    new ScrubPoisoned('cannot process', {
+                        reason: 'transport',
+                        lastError: 'sidecar responded 500',
+                        attempts: 12,
+                        waitedMs: 60_000,
+                    })
+                ),
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, poisonClient, options, 0, {
+            park: () => Promise.reject(new Error('dlq produce failed')),
+        })
+
+        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('poison'))], 1)).rejects.toThrow(
+            'dlq produce failed'
+        )
+        expect(offsets.stored).toBe(0)
     })
 
     it('returns when stopped, so shutdown does not wait on an unresponsive sidecar', async () => {

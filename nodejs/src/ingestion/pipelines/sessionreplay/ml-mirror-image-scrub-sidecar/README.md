@@ -25,7 +25,24 @@ Keeping batches far inside the interval is what stops ordinary saturation reachi
 If a revoke does land mid-batch, the batch stops as soon as a flush finds it no longer owns the partitions, rather than scrubbing on and writing a second shard for a span the new owner is already writing.
 
 A wedged sidecar still blocks its partitions rather than draining them, and no batch size prevents that.
-And an image that makes the sidecar fail forever would block its partition indefinitely; 422/413 covers the common undecodable case, and the fix if a genuine poison pill ever appears is a dead-letter topic, which keeps the bytes in Kafka rather than discarding them.
+
+## Images the sidecar cannot process
+
+An image that fails the same way forever would otherwise hold the head of its partition against every team whose records share it, and the bytes are user-controlled, so that is a stall anyone can cause.
+Such an image is parked on `session_replay_image_scrub_dlq` and the partition moves on.
+
+The bytes published there are the **originals, never scrubbed**, so that topic holds unredacted content and nothing may treat it as scrubbed.
+Keeping them is the point: discarding would destroy the only reproduction of the sidecar bug that rejected them, and 30 days of retention is the window to fix the sidecar and replay.
+Why it was parked travels in headers, so the topic can be triaged without reading image content.
+
+**What makes an image poison rather than unlucky is the only question that matters here.**
+Under saturation every image waits a long time, so anything keyed on waiting or failure count alone would park the entire stream during a backlog, which is the mass loss the wait exists to prevent arriving through a different door.
+An image is blamed only when it keeps failing **while other images succeed**: a sidecar that is full or wedged fails everything equally, so no image ever meets that condition and the lane keeps waiting, which is correct.
+A 503 never counts towards blame either, because it is the sidecar declining to look at the image at all.
+
+Parking happens before the ref is marked and before the slot retires, so a failed publish leaves the image exactly where it was, still unscrubbed and still uncommitted.
+With no dead-letter destination configured the client keeps waiting instead, because the only other option would be discarding.
+`ml_mirror_image_scrub_consumer_dead_lettered_total` should sit at zero; anything above a trickle is a sidecar bug reproducing across many images, and the fix belongs in the sidecar.
 
 Waiting only applies to answers a later attempt could change: 5xx, 408, 429, and transport failures (a refused socket is the ordinary case while the sidecar is still starting in the same pod).
 Any other status, and a 200 carrying no bytes, is the sidecar answering a question we did not think we were asking, so it fails the batch loudly instead.
