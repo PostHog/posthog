@@ -117,6 +117,9 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         return inner_query
 
     def _build_base_query_data_warehouse(self, unit: str, count: int) -> ast.SelectQuery:
+        # Breakdowns are out of scope for this path: apply_breakdown references events.timestamp / events.properties,
+        # which aren't in scope when the start entity is a data warehouse table. Global property filters,
+        # test-account filters, and sampling are rejected upstream by DisallowUnsupportedDataWarehouseSettings.
         first_event_cte = self._build_data_warehouse_first_event_cte()
 
         return_is_dwh = self.return_event.type == EntityType.DATA_WAREHOUSE
