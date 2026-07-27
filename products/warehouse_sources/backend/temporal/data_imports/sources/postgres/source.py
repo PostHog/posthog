@@ -318,10 +318,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                         name="database_stats",
                         label="Sync database statistics",
                         caption=(
-                            "Adds database_stats_* schemas that snapshot Postgres' own statistics catalogs "
-                            "(query, table, index, and server stats) on every sync, so you can query your "
-                            "database's health from the warehouse. Needs only read access — stats families "
-                            "your user can't read are skipped."
+                            "Syncs Postgres' own statistics catalogs — pg_stat_user_tables, "
+                            "pg_stat_statements, pg_settings and more — as extra tables, so you can query "
+                            "your database's health from the warehouse. Each sync appends a snapshot. "
+                            "Needs only read access: catalogs your user can't read are skipped, and "
+                            "settings or query text that could carry a credential are never collected."
                         ),
                         default=False,
                         fields=cast(list[FieldType], []),
@@ -744,8 +745,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         They go through the generic hook instead, which records the column list for the
         picker without inventing a source location.
         """
-        stats_schemas = [schema for schema in source_schemas if schema.name in self.database_stats_catalogs]
-        table_schemas = [schema for schema in source_schemas if schema.name not in self.database_stats_catalogs]
+        # Partition by the injected marker, never by name: discovery skips injecting over
+        # a real table, so a schema carrying a catalog's name here is the customer's own
+        # and must keep the table path.
+        stats_schemas = [schema for schema in source_schemas if is_database_stats_row(schema.schema_metadata)]
+        table_schemas = [schema for schema in source_schemas if not is_database_stats_row(schema.schema_metadata)]
 
         deleted = reconcile_postgres_schemas(source=source, source_schemas=table_schemas, team_id=team_id)
         if stats_schemas:
@@ -938,7 +942,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     # Statistics catalogs declare the columns this server actually has, so
                     # the synthetic tables match its Postgres version. Best-effort like the
                     # metadata above: a failure here only leaves the statistics tables out.
-                    if database_stats_enabled(config):
+                    if self.database_stats_catalogs and database_stats_enabled(config):
                         try:
                             stats_columns = fetch_postgres_stats_columns(conn)
                         except Exception as e:

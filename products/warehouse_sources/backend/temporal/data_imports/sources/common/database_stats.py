@@ -7,15 +7,22 @@ after the catalog itself (``pg_stat_user_tables``). They materialize as ordinary
 warehouse tables.
 
 The catalog name is the schema name is the warehouse table name — there is no mapping to
-keep in step, and routing a sync is a dict lookup against the source's catalogs.
+keep in step. Routing a sync is a lookup against the source's catalogs plus a check of
+the row's own marker, so a customer table that happens to share a catalog's name still
+syncs as a table.
 
-Each sync run appends one snapshot of the catalog **as the engine exposes it**: the
-engine's own column names, plus ``collected_at``/``snapshot_id`` to identify the
-snapshot and, where a size or definition is only available as a function call rather
-than a column, a small number of clearly-named computed columns. Nothing is renamed,
-reshaped, or dropped — a normalized cross-engine view belongs downstream, where it can
-be rewritten without re-syncing, rather than baked into collection where it would be
-lossy and permanent.
+Each sync run appends one snapshot of the catalog, by default **as the engine exposes
+it**: the engine's own column names, plus ``collected_at``/``snapshot_id`` to identify
+the snapshot and, where a value is only available through a function rather than a
+column, a small number of clearly-named computed columns. Renaming and reshaping are not
+the collector's job — a normalized cross-engine view belongs downstream, where it can be
+rewritten without re-syncing, rather than baked into collection where it would be lossy
+and permanent.
+
+An engine may still narrow a catalog it cannot expose safely, since these tables are
+readable by every project member while the source's credentials are not. Those
+deviations belong with the engine and should be stated on the catalog itself (see the
+Postgres module docstring for its four).
 
 Counters stay raw and cumulative; deltas are derived downstream over consecutive
 snapshots.
@@ -163,7 +170,6 @@ def build_database_stats_schemas(
 def build_database_stats_source_response(
     *,
     schema_name: str,
-    catalogs: Mapping[str, DatabaseStatsCatalog],
     collectors: Mapping[str, DatabaseStatsCollector],
     open_connection: Callable[[], AbstractContextManager[Any]],
     logger: FilteringBoundLogger,
@@ -174,9 +180,9 @@ def build_database_stats_source_response(
     lifecycle, the collection-failure guard (a catalog the credentials can't read appends
     an empty snapshot, never a failed job), and the SourceResponse shape.
     """
-    if schema_name not in catalogs:
+    collector = collectors.get(schema_name)
+    if collector is None:
         raise ValueError(f"Unknown database stats table: {schema_name}")
-    collector = collectors[schema_name]
 
     def items() -> Iterator[dict[str, Any]]:
         collected_at = datetime.now(UTC)
@@ -196,17 +202,11 @@ def build_database_stats_source_response(
     return SourceResponse(name=schema_name, items=items, primary_keys=None)
 
 
-def snapshot_rows(
-    cursor: Any, collected_at: datetime, snapshot_id: str, limit: int | None = None
-) -> list[dict[str, Any]]:
+def snapshot_rows(cursor: Any, collected_at: datetime, snapshot_id: str) -> list[dict[str, Any]]:
     """Materialize an executed cursor as snapshot rows, keyed by the engine's own columns.
 
     The catalog's columns pass through untouched; only the snapshot identity is added.
     """
+    identity = dict(zip((name for name, _, _ in SNAPSHOT_COLUMNS), (collected_at, snapshot_id)))
     column_names = [column.name for column in cursor.description]
-    rows: list[dict[str, Any]] = []
-    for row in cursor:
-        rows.append({"collected_at": collected_at, "snapshot_id": snapshot_id, **dict(zip(column_names, row))})
-        if limit is not None and len(rows) >= limit:
-            break
-    return rows
+    return [{**identity, **dict(zip(column_names, row))} for row in cursor]

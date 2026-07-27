@@ -1,10 +1,22 @@
 """Postgres statistics catalogs for the opt-in database-statistics schemas.
 
-Each catalog is snapshotted as the server exposes it — ``SELECT *`` plus the snapshot
-identity, and, where Postgres only offers a value as a function call (relation sizes,
-index definitions, slot lag), one clearly-named computed column. No renaming, no
-reshaping, no dropped columns: ``pg_stat_user_tables`` in the warehouse has the columns
-a DBA expects from ``pg_stat_user_tables``.
+The default is to snapshot a catalog as the server exposes it — ``SELECT *`` plus the
+snapshot identity, and named computed columns where Postgres only offers a value through
+a function (relation sizes, index definitions, slot lag). So ``pg_stat_user_tables`` in
+the warehouse has the columns a DBA expects from ``pg_stat_user_tables``, and a column
+added by a later Postgres release arrives without a code change.
+
+Four catalogs deviate, in every case to keep a secret out of the warehouse — these
+tables are readable by every project member, which the source's own credentials are not:
+
+- ``pg_settings`` is collected by allowlist, since custom GUC namespaces are
+  user-defined and can hold application secrets (see ``_COLLECTED_SETTINGS``).
+- ``pg_stat_statements`` keeps every row's counters but nulls query text outside
+  ``_SAFE_STATEMENT_TEXT``, since utility statements are recorded verbatim.
+- ``pg_stat_user_indexes`` truncates each definition before its ``WHERE`` clause, since
+  a partial index's predicate embeds column values.
+- ``pg_stat_activity`` is aggregated to counts rather than mirrored, since its rows
+  carry client addresses and session query text.
 
 Every catalog degrades independently: one the credentials can't read appends an empty
 snapshot with a warning rather than failing the sync, so a plain read-only user still
@@ -16,7 +28,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import _GeneratorContextManager, contextmanager
 from datetime import datetime
 from functools import partial
-from typing import Any, Protocol
+from typing import Any
 
 import psycopg
 from psycopg import sql
@@ -33,8 +45,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     pg_connection,
 )
 
-# Row caps per snapshot. Statements are ranked by cumulative execution time and tables
-# and indexes by size, so the cap keeps the rows that matter.
+# Row caps per snapshot. Every capped catalog is ranked first — statements by cumulative
+# execution time, tables and indexes by size, buffer I/O by blocks touched — so the cap
+# drops the least interesting rows rather than an arbitrary slice.
 STATEMENTS_SNAPSHOT_LIMIT = 500
 TABLES_SNAPSHOT_LIMIT = 5_000
 INDEXES_SNAPSHOT_LIMIT = 10_000
@@ -159,19 +172,6 @@ _SAFE_STATEMENT_TEXT = re.compile(
 _REDACTED_QUERY_COLUMN = "query"
 
 
-class _PostgresStatsCollector(Protocol):
-    """A Postgres collector: the generic contract plus this engine's schema scope."""
-
-    def __call__(
-        self,
-        conn: psycopg.Connection,
-        logger: FilteringBoundLogger,
-        collected_at: datetime,
-        snapshot_id: str,
-        source_schema: str | None = None,
-    ) -> list[dict[str, Any]]: ...
-
-
 def _scope_predicate(source_schema: str | None) -> sql.SQL | sql.Composed:
     if not source_schema:
         return sql.SQL("")
@@ -217,7 +217,8 @@ def _collect_statements(
     than scope it, so on a schema-restricted source the normalized text here can mention
     objects in other schemas of the same database.
 
-    Role-management statements are excluded — see `_ROLE_STATEMENT_PATTERN`.
+    Statement text outside `_SAFE_STATEMENT_TEXT` is nulled; the row and its counters
+    are kept.
     """
     with conn.cursor() as cur:
         relation = _pg_stat_statements_relation(cur)
@@ -327,6 +328,7 @@ def _collect_statio_tables(
                 """
                 SELECT s.* FROM pg_statio_user_tables s
                 {scope}
+                ORDER BY coalesce(s.heap_blks_read, 0) + coalesce(s.heap_blks_hit, 0) DESC
                 LIMIT {limit}
                 """
             ).format(scope=_scope_predicate(source_schema), limit=sql.Literal(TABLES_SNAPSHOT_LIMIT))
@@ -468,7 +470,10 @@ POSTGRES_STATS_CATALOGS: dict[str, DatabaseStatsCatalog] = {
         DatabaseStatsCatalog(
             table_name="pg_stat_user_indexes",
             description=(
-                "Snapshots of pg_stat_user_indexes: per-index scan counts, plus index_size_bytes and index_definition."
+                "Snapshots of pg_stat_user_indexes: per-index scan counts, plus index_size_bytes, "
+                "index_definition and is_partial. The definition stops before any WHERE clause, so a "
+                "partial index's predicate — which can embed column values — is never collected; "
+                "is_partial records that one existed."
             ),
             collector=_collect_indexes,
             computed_columns=(
@@ -530,7 +535,10 @@ POSTGRES_STATS_CATALOGS: dict[str, DatabaseStatsCatalog] = {
 
 
 def fetch_postgres_stats_columns(conn: psycopg.Connection) -> dict[str, list[tuple[str, str, bool]]]:
-    """Column metadata for each catalog, as this server reports it.
+    """Column metadata for the mirrored catalogs, as this server reports it.
+
+    Catalogs that declare `static_columns` are skipped: they are projections we define
+    (`pg_settings`, `pg_stat_activity_summary`), not mirrors of a server relation.
 
     Read from information_schema so the declared schema matches the server's version
     instead of a hardcoded guess, and so a catalog the server doesn't expose (an
@@ -566,7 +574,7 @@ def postgres_database_stats_source(
 ) -> SourceResponse:
     """Build the response for one statistics table.
 
-    `schema_name` is the table being synced (`system_tables.<catalog>`); `source_schema`
+    `schema_name` is the catalog being synced (`pg_stat_user_tables`); `source_schema`
     is the Postgres schema the source imports from, which scopes the catalogs that carry
     schema attribution.
     """
@@ -589,7 +597,6 @@ def postgres_database_stats_source(
     }
     return build_database_stats_source_response(
         schema_name=schema_name,
-        catalogs=POSTGRES_STATS_CATALOGS,
         collectors=collectors,
         open_connection=open_connection,
         logger=logger,

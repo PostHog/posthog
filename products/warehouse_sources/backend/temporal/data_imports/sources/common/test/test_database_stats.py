@@ -251,6 +251,29 @@ class TestSQLSourceStatsRouting:
         implementation.build_pipeline.assert_called_once_with(config, inputs)
 
 
+class TestSQLSourceReconcile:
+    @pytest.mark.django_db
+    def test_reconcile_keeps_stats_rows_routable(self, team):
+        # The rebuilt metadata drops caller-owned keys, so the marker has to be
+        # re-stamped. Without it the row stops being recognised and the next sync looks
+        # for a table by that name — the failure the Postgres source already hit once.
+        row = _schema_row(team, "some_stat_view", {DATABASE_STATS_MARKER: True})
+        source = row.source
+        stats_schema = SourceSchema(
+            name="some_stat_view",
+            supports_incremental=False,
+            supports_append=True,
+            columns=[("collected_at", "timestamp with time zone", False), ("relname", "name", True)],
+            schema_metadata={DATABASE_STATS_MARKER: True},
+        )
+
+        _StubSQLSource(MagicMock(), catalogs=_CATALOGS).reconcile_schema_metadata(source, [stats_schema], team.pk)
+
+        row.refresh_from_db()
+        assert is_database_stats_row(row.schema_metadata)
+        assert [c["name"] for c in row.schema_metadata["columns"]] == ["collected_at", "relname"]
+
+
 class TestBuildDatabaseStatsSourceResponse:
     def _open_connection(self) -> MagicMock:
         open_connection = MagicMock()
@@ -262,7 +285,6 @@ class TestBuildDatabaseStatsSourceResponse:
         with pytest.raises(ValueError):
             build_database_stats_source_response(
                 schema_name="not_a_catalog",
-                catalogs=_CATALOGS,
                 collectors={},
                 open_connection=MagicMock(),
                 logger=logger,
@@ -274,7 +296,6 @@ class TestBuildDatabaseStatsSourceResponse:
 
         response = build_database_stats_source_response(
             schema_name="some_stat_view",
-            catalogs=_CATALOGS,
             collectors={"some_stat_view": _boom},
             open_connection=self._open_connection(),
             logger=logger,
@@ -291,7 +312,6 @@ class TestBuildDatabaseStatsSourceResponse:
 
         response = build_database_stats_source_response(
             schema_name="some_stat_view",
-            catalogs=_CATALOGS,
             collectors={"some_stat_view": _collector},
             open_connection=self._open_connection(),
             logger=logger,

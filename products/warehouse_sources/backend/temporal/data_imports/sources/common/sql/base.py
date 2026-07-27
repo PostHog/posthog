@@ -10,8 +10,9 @@ Every SQL source decomposes into two concerns:
 
 The wrapper stays thin: `get_schemas` opens a connection once via
 `impl.connect(config)`, threads it through each query method, and
-assembles `SourceSchema` rows; `source_for_pipeline` delegates straight
-to `impl.build_pipeline`. Subclasses usually only define:
+assembles `SourceSchema` rows; `source_for_pipeline` delegates to
+`impl.build_pipeline` unless the schema is an injected statistics table.
+Subclasses usually only define:
 
     get_implementation → MyDriverImplementation()
     source_type, get_source_config, validate_credentials
@@ -34,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ConfigType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
+    DATABASE_STATS_MARKER,
     DatabaseStatsCatalog,
     build_database_stats_schemas,
     database_stats_enabled,
@@ -134,7 +136,13 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         stats_columns: dict[str, list[tuple[str, str, bool]]] = {}
         with impl.connect(config) as conn:
             if self.database_stats_catalogs and database_stats_enabled(config):
-                stats_columns = self.fetch_database_stats_columns(conn, config)
+                # Best-effort, like the metadata lookups below it: a permissions or version
+                # failure here leaves the statistics tables out of this listing rather than
+                # failing discovery for the source's real tables.
+                try:
+                    stats_columns = self.fetch_database_stats_columns(conn, config)
+                except Exception as e:
+                    log.warning("sql_source.database_stats.column_fetch_failed", error=str(e))
 
             columns_by_table = impl.get_columns(conn, config, names)
             if not columns_by_table:
@@ -183,7 +191,10 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         names: list[str] | None,
         stats_columns: dict[str, list[tuple[str, str, bool]]],
     ) -> list[SourceSchema]:
-        if not self.database_stats_catalogs or not database_stats_enabled(config):
+        # No columns means the fetch above failed: offer no statistics tables this round
+        # rather than the handful that declare their own columns and need no server
+        # lookup. The next discovery pass surfaces the full set.
+        if not self.database_stats_catalogs or not database_stats_enabled(config) or not stats_columns:
             return []
         return build_database_stats_schemas(
             self.database_stats_catalogs, stats_columns, [s.name for s in discovered], names
@@ -192,8 +203,8 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
     def fetch_database_stats_columns(self, conn: Any, config: ConfigType) -> dict[str, list[tuple[str, str, bool]]]:
         """Column metadata for this source's statistics catalogs, as the server reports it.
 
-        Sources that expose `database_stats_catalogs` override this; the default keeps
-        every other source untouched.
+        Sources that use this class's `get_schemas` override this. Postgres replaces
+        `get_schemas` wholesale and fetches inside it instead, so it never calls this.
         """
         return {}
 
@@ -228,8 +239,22 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
 
         Returns schema names this hook soft-deleted (default impl never does;
         override to handle direct-query table cleanup).
+
+        Statistics rows are re-stamped with their marker, which the rebuilt metadata would
+        otherwise drop — losing it makes the row unroutable, so the next sync would look
+        for a table by that name and fail. Sources with no catalogs take the same path as
+        before.
         """
-        return reconcile_source_schema_metadata(source, source_schemas, team_id)
+        # Partition by the injected marker, never by name: discovery skips injecting over
+        # a real table, so a schema carrying a catalog's name here is the customer's own.
+        stats_schemas = [schema for schema in source_schemas if is_database_stats_row(schema.schema_metadata)]
+        if not stats_schemas:
+            return reconcile_source_schema_metadata(source, source_schemas, team_id)
+
+        table_schemas = [schema for schema in source_schemas if not is_database_stats_row(schema.schema_metadata)]
+        deleted = reconcile_source_schema_metadata(source, table_schemas, team_id)
+        reconcile_source_schema_metadata(source, stats_schemas, team_id, extra_metadata={DATABASE_STATS_MARKER: True})
+        return deleted
 
 
 def reconcile_source_schema_metadata(
