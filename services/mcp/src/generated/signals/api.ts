@@ -1069,6 +1069,17 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                             .max(signalsScoutEditReportBodyChartsItemCaptionMax)
                             .nullish()
                             .describe('Optional one-line note on what to look at in the chart.'),
+                        size: zod
+                            .union([
+                                zod
+                                    .enum(['small', 'medium', 'large'])
+                                    .describe('\* `small` - small\n\* `medium` - medium\n\* `large` - large'),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.\n\n\* `small` - small\n\* `medium` - medium\n\* `large` - large'
+                            ),
                     })
                     .describe(
                         'One chart attached to a report — rendered in the inbox and referenceable from the summary.'
@@ -1273,6 +1284,17 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                             .max(signalsScoutEmitReportBodyChartsItemCaptionMax)
                             .nullish()
                             .describe('Optional one-line note on what to look at in the chart.'),
+                        size: zod
+                            .union([
+                                zod
+                                    .enum(['small', 'medium', 'large'])
+                                    .describe('\* `small` - small\n\* `medium` - medium\n\* `large` - large'),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.\n\n\* `small` - small\n\* `medium` - medium\n\* `large` - large'
+                            ),
                     })
                     .describe(
                         'One chart attached to a report — rendered in the inbox and referenceable from the summary.'

@@ -143,6 +143,7 @@ class TestValidateArtefactContent(SimpleTestCase):
                     "title": "Daily signups",
                     "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
                     "caption": "The drop starts on the 6th.",
+                    "size": "large",
                 },
             ),
         ]
@@ -188,6 +189,9 @@ class TestValidateArtefactContent(SimpleTestCase):
                 },
             ),
             ("chart", {"chart_id": "ok", "title": "t", "query": {"kind": "InsightVizNode", "bytecode": ["_H", 1]}}),
+            # An unknown `size` has no height behind it, so accepting it would store a layout choice
+            # the renderer silently ignores rather than telling the author it didn't take.
+            ("chart", {"chart_id": "ok", "title": "t", "query": {"kind": "InsightVizNode"}, "size": "huge"}),
         ]
     )
     def test_rejects_invalid_content_for_type(self, artefact_type, content):

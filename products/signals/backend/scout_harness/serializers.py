@@ -23,6 +23,7 @@ from posthog.models.integration import Integration
 from posthog.permissions import get_authenticator_scopes
 
 from products.signals.backend.artefact_schemas import (
+    CHART_SIZES,
     MAX_CHART_CAPTION_LENGTH,
     MAX_CHART_ID_LENGTH,
     MAX_CHART_TITLE_LENGTH,
@@ -844,6 +845,17 @@ class ReportChartSerializer(serializers.Serializer):
         allow_null=True,
         max_length=MAX_CHART_CAPTION_LENGTH,
         help_text="Optional one-line note on what to look at in the chart.",
+    )
+    size = serializers.ChoiceField(
+        choices=CHART_SIZES,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "How much height the chart gets: `small` for a single number or a short series, `medium` "
+            "for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, "
+            "a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart "
+            "from its query, and two charts referenced from the same paragraph sit side by side."
+        ),
     )
 
 

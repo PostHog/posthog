@@ -53,6 +53,7 @@ from posthog.permissions import AccessControlPermission, APIScopePermission, get
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.temporal.common.client import sync_connect
 
+from products.signals.backend.artefact_schemas import ChartSize
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -350,6 +351,8 @@ def _to_report_charts(entries: list[dict] | None) -> list[ReportChart] | None:
             title=entry["title"],
             query=entry["query"],
             caption=entry.get("caption") or None,
+            # Narrowed by the serializer's choices; the cast only crosses the untyped DRF dict.
+            size=cast("ChartSize | None", entry.get("size") or None),
         )
         for entry in entries
     ]

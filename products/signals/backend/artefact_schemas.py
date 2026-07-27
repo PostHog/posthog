@@ -418,6 +418,13 @@ MAX_REPORT_CHARTS = 4
 MAX_CHART_ID_LENGTH = 100
 MAX_CHART_TITLE_LENGTH = 200
 MAX_CHART_CAPTION_LENGTH = 500
+
+# How tall a chart draws in the report body. Three named steps rather than a pixel height: the report
+# column is responsive and the author is writing from a sandbox, so it can pick the weight a chart
+# should carry but not the space it will have. Left unset, the renderer infers a step from the node
+# (a single big number needs a fraction of what a retention grid does).
+ChartSize = Literal["small", "medium", "large"]
+CHART_SIZES: tuple[ChartSize, ...] = ("small", "medium", "large")
 # Bounds the JSON a single chart can carry into the report log and, from there, into the safety-judge
 # prompt. Generous next to a real query node; small enough that a malformed one can't blow up a call.
 _MAX_CHART_QUERY_CHARS = 20_000
@@ -478,6 +485,15 @@ class ChartArtefact(BaseModel):
     caption: str | None = Field(
         default=None,
         description="Optional one-line note on what to look at in the chart.",
+    )
+    size: Literal["small", "medium", "large"] | None = Field(
+        default=None,
+        description=(
+            "How much vertical space the chart gets: `small` for a single number or a short series, "
+            "`medium` for an ordinary graph, `large` for something with rows or a grid to read "
+            "(retention, paths, a wide breakdown). Leave unset to let the inbox size it from the "
+            "query, which is right for most charts."
+        ),
     )
 
     @field_validator("chart_id")

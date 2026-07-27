@@ -43,6 +43,7 @@ from products.signals.backend.artefact_schemas import (
     ActionabilityChoice,
     ArtefactContentValidationError,
     ChartArtefact,
+    ChartSize,
     Priority,
     PriorityAssessment,
     SuggestedReviewerEntry,
@@ -115,6 +116,7 @@ class ReportChart:
     title: str
     query: dict[str, Any]
     caption: str | None = None
+    size: ChartSize | None = None
 
 
 @dataclass(frozen=True)
@@ -226,7 +228,11 @@ def _build_charts(charts: list[ReportChart] | None) -> list[ChartArtefact]:
     for chart in charts:
         try:
             content = ChartArtefact(
-                chart_id=chart.chart_id, title=chart.title, query=chart.query, caption=chart.caption
+                chart_id=chart.chart_id,
+                title=chart.title,
+                query=chart.query,
+                caption=chart.caption,
+                size=chart.size,
             )
         except ValidationError as exc:
             raise InvalidScoutReportError(f"invalid chart {chart.chart_id!r}: {exc}")
@@ -625,7 +631,7 @@ def _chart_event_key(chart: ReportChart) -> str:
     separator can appear inside one of them and two different charts would key the same (a title
     ending in the separator versus a caption starting with it)."""
     return json.dumps(
-        [chart.chart_id, chart.title, chart.caption or "", chart.query],
+        [chart.chart_id, chart.title, chart.caption or "", chart.size or "", chart.query],
         sort_keys=True,
         separators=(",", ":"),
     )

@@ -5,11 +5,11 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { DataVisualizationNode, Node, SavedInsightNode } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, InsightVizNode, Node, SavedInsightNode } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode, isInsightVizNode, isSavedInsightNode } from '~/queries/utils'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
-import { ChartContent } from './artefactTypes'
+import { ChartContent, ChartSize } from './artefactTypes'
 
 /**
  * Strip the chrome a query node carries for the insight scene (filter bar, header, results table)
@@ -35,6 +35,43 @@ function isGraphicalSqlNode(query: Node): boolean {
     }
     const { display } = query as DataVisualizationNode
     return !!display && display !== ChartDisplayType.ActionsTable
+}
+
+// Written out per size rather than built from one map: Tailwind only emits classes it can read
+// literally in the source, so a height assembled at runtime would compile to nothing.
+const SIZE_HEIGHTS: Record<ChartSize, string> = {
+    small: 'h-[9rem]',
+    medium: 'h-[18rem]',
+    large: 'h-[28rem]',
+}
+const SIZE_MAX_HEIGHTS: Record<ChartSize, string> = {
+    small: 'max-h-[9rem]',
+    medium: 'max-h-[18rem]',
+    large: 'max-h-[28rem]',
+}
+
+/**
+ * The height a chart gets when its author didn't pick one. A single fixed height suits an ordinary
+ * time series and little else — a big single number is then mostly empty box, and a retention grid
+ * is cut off — so the node decides, and `size` on the artefact overrides it.
+ */
+export function inferChartSize(query: Node): ChartSize {
+    if (!isInsightVizNode(query)) {
+        return 'medium'
+    }
+    const source = (query as InsightVizNode).source as any
+    // Retention draws a grid and paths a fan of rows; both read as clipped at the default height.
+    if (source?.kind === 'RetentionQuery' || source?.kind === 'PathsQuery') {
+        return 'large'
+    }
+    const display = source?.trendsFilter?.display ?? source?.stickinessFilter?.display
+    if (display === ChartDisplayType.BoldNumber) {
+        return 'small'
+    }
+    if (display === ChartDisplayType.WorldMap) {
+        return 'large'
+    }
+    return 'medium'
 }
 
 /**
@@ -73,9 +110,16 @@ export function ReportChart({ chart }: { chart: ChartContent }): JSX.Element | n
         return null
     }
 
+    // `size` arrives as stored JSON, so an unknown value falls back to the inferred height rather
+    // than dropping the box altogether.
+    const size = chart.size && chart.size in SIZE_HEIGHTS ? chart.size : null
     // A graph fills whatever box it's given and collapses without one. A data table sizes itself to
-    // its rows, so forcing the same height on it would just pad short results with blank space.
-    const needsFixedHeight = isInsightVizNode(query) || isSavedInsightNode(query) || isGraphicalSqlNode(query)
+    // its rows, so it only takes a box when its author asked for one — and then that box is a
+    // ceiling it scrolls within rather than a height it has to fill. Either way the box scrolls, so
+    // a grid taller than its size is reachable instead of cut off.
+    const isSelfSizing = !(isInsightVizNode(query) || isSavedInsightNode(query) || isGraphicalSqlNode(query))
+    const height = isSelfSizing ? (size ? SIZE_MAX_HEIGHTS[size] : null) : SIZE_HEIGHTS[size ?? inferChartSize(query)]
+    const bodyClass = height ? `flex flex-col overflow-y-auto ${height}` : 'flex flex-col'
     // The SQLEditor prefix opts into container-governed chart sizing
     // (dataVisualizationLogic.presetChartHeight). Without it a graphical SQL chart renders at 60vh
     // and swallows the report, which is why NotebookNodeSQLV2 prefixes its key the same way.
@@ -87,7 +131,7 @@ export function ReportChart({ chart }: { chart: ChartContent }): JSX.Element | n
             data-attr="report-chart"
         >
             <h4 className="m-0 text-sm font-semibold text-primary">{chart.title}</h4>
-            <div className={needsFixedHeight ? 'h-[18rem] flex flex-col' : 'flex flex-col'}>
+            <div className={bodyClass}>
                 {isSavedInsightNode(query) ? (
                     <SavedInsightChartBody query={query} uniqueKey={uniqueKey} />
                 ) : (
