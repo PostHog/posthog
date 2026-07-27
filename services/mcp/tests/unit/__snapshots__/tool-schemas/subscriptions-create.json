@@ -8,6 +8,12 @@
                 "window": {
                     "description": "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery).",
                     "properties": {
+                        "end_at": {
+                            "default": "now",
+                            "description": "Where the analysis window ends in the project's timezone. Use a complete-period option to prevent partial days, weeks, or months from skewing comparisons.\n\n* `now` - Now\n* `last_complete_day` - Last complete day\n* `last_complete_week` - Last complete week\n* `last_complete_month` - Last complete month",
+                            "enum": ["now", "last_complete_day", "last_complete_week", "last_complete_month"],
+                            "type": "string"
+                        },
                         "end_days_ago": {
                             "anyOf": [
                                 {
