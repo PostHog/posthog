@@ -10,13 +10,10 @@ if TYPE_CHECKING:
 
 
 def _assert_can_read_action(action: "Action", context: HogQLContext, node: ast.Expr) -> None:
-    """Apply access control to a directly referenced action.
+    """Mirror the object-level check that guards `system.actions`, which this direct lookup skips.
 
-    `matchesAction(<id>)` resolves an action from the ORM, so it needs the same check that guards
-    `system.actions` — otherwise a member who can't read an action can still evaluate its steps
-    against events and read its name off the notice below. A userless database (background query
-    runs, shared links) carries no access control and denies nothing, matching the printer's
-    `build_access_control_guard`.
+    A userless database (background query runs, shared links) carries no access control, so
+    nothing is denied there, matching the printer's `build_access_control_guard`.
     """
     user_access_control = context.database.user_access_control if context.database is not None else None
     if user_access_control is None:
@@ -37,8 +34,8 @@ def matches_action(node: ast.Expr, args: list[ast.Expr], context: HogQLContext, 
     from products.actions.backend.models.action import Action
 
     if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
-        # select_related("created_by"): the access check below compares the action's creator to the
-        # querying user, so without it resolving that FK costs a second query.
+        # The access check compares the action's creator to the querying user, so without
+        # select_related that FK dereference costs a second query.
         actions = (
             Action.objects.filter(id=int(arg.value), team__project_id=context.project_id)
             .select_related("created_by")
