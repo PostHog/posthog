@@ -170,6 +170,14 @@ fn blur_blob_image(ctx: &Ctx<'_>, blob: &mut Object<'_>) -> bool {
         Some(s) => s.to_string(),
         None => return false,
     };
+    // A content ref left by an earlier pass. Reassembling it into `data:{mime};base64,image:...`
+    // below would produce a URI that cannot decode, and `scrub_image` would fail it safe to a
+    // blank pixel — destroying the join key and stranding the image. It is opaque and its bytes
+    // were scrubbed out of band, so leave the blob untouched; this is what makes a re-scrub of
+    // mirrored output idempotent.
+    if is_image_ref(&base64) {
+        return false;
+    }
     let original = format!("data:{mime};base64,{base64}");
     // scrub_image never fails outward (fallbacks are baked in). The collection lane's ref
     // replaces the payload wholesale (it is the consumer's join key, not decodable bytes); the

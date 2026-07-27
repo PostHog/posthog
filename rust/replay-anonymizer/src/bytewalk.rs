@@ -15,6 +15,7 @@
 
 use crate::assets::{is_media_src_attr, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC};
 use crate::blur::is_image_data_uri;
+use crate::collect::is_image_ref;
 use crate::context::Ctx;
 use crate::css;
 use crate::dom::{
@@ -897,6 +898,12 @@ impl<'c, 'a> Walker<'c, 'a> {
         }
         let end = scan::skip_string(bytes, vstart).ok()?;
         let existing = scan::unescape(bytes, (vstart, end)).ok()?;
+        // See `assets::apply_blur`: a ref from an earlier pass is opaque and its bytes were
+        // scrubbed out of band, so it copies through untouched (and does not mark the event
+        // changed) rather than being redacted into the placeholder.
+        if is_image_ref(&existing) {
+            return self.copy_value(vstart, out);
+        }
         if is_image_data_uri(&existing) {
             let blurred = self.ctx.scrub_image(&existing, ImageFallback::Placeholder);
             scan::write_json_string(&blurred, out);
