@@ -61,6 +61,10 @@ class SourceResponse:
     rows_to_sync: Optional[int] = None
     has_duplicate_primary_keys: Optional[bool] = None
     """Whether incremental tables have non-unique primary keys"""
+    webhook_only: bool = False
+    """Webhook-fed resource whose poll path does no backfill: after a wipe the poll cannot
+    rebuild the table, so a requested pipeline reset preserves the Delta table and resumes
+    webhook ingestion instead."""
     chunk_size: Optional[int] = None
     """Override the batcher's rows-per-chunk (defaults to DEFAULT_CHUNK_SIZE)."""
     chunk_size_bytes: Optional[int] = None
@@ -96,6 +100,9 @@ class SourceInputs:
     # Multi-schema import context, read by `resolve_source_location`.
     schema_metadata: Optional[dict[str, Any]] = None
     s3_folder_name: Optional[str] = None
+    # Effective vendor API version: the source instance's pin resolved through the source's
+    # `default_version`. Sources with a versioned vendor API thread it to their request layer.
+    api_version: Optional[str] = None
 
 
 class PipelineResult(TypedDict):

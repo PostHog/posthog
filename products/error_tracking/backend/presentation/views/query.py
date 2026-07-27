@@ -5,9 +5,12 @@ from typing import Literal, cast
 import structlog
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import DateRange, ErrorTrackingIssueAssignee, ErrorTrackingQuery, EventsQuery
+
+from posthog.hogql.errors import ResolutionError
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -21,10 +24,11 @@ from products.error_tracking.backend.facade import (
 )
 from products.error_tracking.backend.facade.query_utils import (
     CONTEXT_EVENT_SELECTS,
-    EVENT_SELECTS,
+    DEFAULT_EVENT_CONTEXT_INCLUDES,
     ISSUE_FIELDS,
     LIST_ISSUE_FIELDS,
     build_date_range,
+    build_event_selects,
     build_fingerprint_event_where,
     build_fingerprint_where,
     build_impact,
@@ -181,9 +185,14 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     tags={"productKey": "error_tracking"},
                 )
                 with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-                    event_data = (
-                        EventsQueryRunner(team=self.team, query=context_event_query).calculate().model_dump(mode="json")
-                    )
+                    try:
+                        event_data = (
+                            EventsQueryRunner(team=self.team, query=context_event_query, user=request.user)
+                            .calculate()
+                            .model_dump(mode="json")
+                        )
+                    except ResolutionError as error:
+                        raise ValidationError(str(error)) from error
                 if event_data.get("error"):
                     logger.warning(
                         "error_tracking_issue_context_query_failed",
@@ -230,13 +239,20 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not facade_api.issue_exists_by_id(self.team.id, issue_id):
             return Response(status=status.HTTP_404_NOT_FOUND)
         date_range = build_date_range(params.get("dateRange"))
+        requested_includes = params.get("include")
+        includes = (
+            cast(list[str], requested_includes)
+            if isinstance(requested_includes, list)
+            else DEFAULT_EVENT_CONTEXT_INCLUDES
+        )
+        event_selects = build_event_selects(includes)
         fingerprints = facade_api.resolve_fingerprints(self.team.pk, [issue_id])
         if not fingerprints:
             return Response({"results": [], "hasMore": False, "limit": limit, "offset": offset})
         query = EventsQuery(
             kind="EventsQuery",
             event="$exception",
-            select=EVENT_SELECTS,
+            select=event_selects,
             where=build_fingerprint_event_where(fingerprints, cast(str | None, params.get("searchQuery"))),
             properties=cast(list[dict[str, object]], params.get("filterGroup", [])),
             filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
@@ -248,14 +264,25 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             tags={"productKey": "error_tracking"},
         )
         with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-            data = EventsQueryRunner(team=self.team, query=query).calculate().model_dump(mode="json")
+            try:
+                data = (
+                    EventsQueryRunner(team=self.team, query=query, user=request.user)
+                    .calculate()
+                    .model_dump(mode="json")
+                )
+            except ResolutionError as error:
+                raise ValidationError(str(error)) from error
         raw_columns = data.get("columns")
-        columns = [str(column) for column in raw_columns] if isinstance(raw_columns, list) else EVENT_SELECTS
+        columns = [str(column) for column in raw_columns] if isinstance(raw_columns, list) else event_selects
         raw_results_value = data.get("results")
         raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
-        verbosity = cast(str, params.get("verbosity", "summary"))
+        include_stacktrace = "stacktrace" in includes or "code_variables" in includes
         only_app_frames = cast(bool, params.get("onlyAppFrames", True))
-        results = [map_event_row(row, columns, verbosity, only_app_frames) for row in raw_results[:limit]]
+        include_code_variables = "code_variables" in includes
+        results = [
+            map_event_row(row, columns, include_stacktrace, only_app_frames, include_code_variables)
+            for row in raw_results[:limit]
+        ]
         has_more, next_offset = get_page_info(data, limit, offset)
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:

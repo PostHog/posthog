@@ -13,9 +13,6 @@
                         "type": "posthog",
                         "scopes": ["agents:read", "agents:write", "agent_session:read"],
                         "audience": "organization"
-                    },
-                    {
-                        "type": "posthog_internal"
                     }
                 ]
             }
@@ -30,22 +27,8 @@
                     {
                         "type": "posthog",
                         "audience": "organization"
-                    },
-                    {
-                        "type": "posthog_internal"
                     }
                 ]
-            }
-        },
-        {
-            "type": "slack",
-            "config": {
-                "mention_only": true,
-                "auto_resume_threads": true,
-                "allow_workspace_participants": false,
-                "allow_direct_messages": true,
-                "trusted_workspaces": "*",
-                "ack_reaction": "eyes"
             }
         }
     ],
@@ -79,7 +62,7 @@
         {
             "kind": "client",
             "id": "focus_tab",
-            "description": "Open one of the agent detail tabs in the read panel: overview, configuration, connections, sessions, memory. Use BEFORE a corresponding read so the user's panel transitions in parallel. ALWAYS pass `slug` \u2014 `focus_*` calls never infer the target agent from the user's current page (the user navigates while you're thinking; relying on URL state silently misroutes). Returns { focused: true } or { focused: false, reason } if follow-mode is off; `unhandled_client_tool` / `client_tool_timeout` outside PostHog Code \u2014 degrade to text.",
+            "description": "Open one of the agent detail tabs in the read panel: overview, configuration, connections, sessions, memory. Use BEFORE a corresponding read so the user's panel transitions in parallel. ALWAYS pass `slug` \u2014 `focus_*` calls never infer the target agent from the user's current page (the user navigates while you're thinking; relying on URL state silently misroutes). Returns { focused: true } or { focused: false, reason } if follow-mode is off; `unhandled_client_tool` / `client_tool_timeout` outside PostHog Desktop \u2014 degrade to text.",
             "args_schema": {
                 "type": "object",
                 "properties": {
@@ -202,7 +185,7 @@
             "kind": "client",
             "id": "set_secret",
             "interactive": true,
-            "description": "Punch out to the user to set one secret on an agent. INTERACTIVE: this call returns a synthetic `{queued:true, interactive:true, call_id}` envelope immediately \u2014 that is NOT the user's answer. End your turn after a brief acknowledgement. The session parks; the user fills out the inline form on their own time. On a fresh turn you receive a wake message `{call_id, ok, result|error}` carrying the real outcome (`{key, action: 'set'}` on success, `user_cancelled` if they cancel). Match by `call_id`. Use this whenever an agent needs a credential set or rotated; check `agent-applications-env-keys-get` first to decide between `set` and `rotate`. The value never reaches your tool-call history \u2014 `purpose` is the only string you see. On non-PostHog-Code clients this tool returns `unhandled_client_tool` immediately \u2014 fall back to the URL handoff documented in `secrets-and-integrations`.",
+            "description": "Punch out to the user to set one secret on an agent. INTERACTIVE: this call returns a synthetic `{queued:true, interactive:true, call_id}` envelope immediately \u2014 that is NOT the user's answer. End your turn after a brief acknowledgement. The session parks; the user fills out the inline form on their own time. On a fresh turn you receive a wake message `{call_id, ok, result|error}` carrying the real outcome (`{key, action: 'set'}` on success, `user_cancelled` if they cancel). Match by `call_id`. Use this whenever an agent needs a credential set or rotated; check `agent-applications-env-keys-get` first to decide between `set` and `rotate`. The value never reaches your tool-call history \u2014 `purpose` is the only string you see. On non-PostHog-Desktop clients this tool returns `unhandled_client_tool` immediately \u2014 fall back to the URL handoff documented in `secrets-and-integrations`.",
             "args_schema": {
                 "type": "object",
                 "properties": {
@@ -230,7 +213,7 @@
             "kind": "client",
             "id": "connect_mcp",
             "interactive": true,
-            "description": "Punch out to the user to connect an MCP server to an agent, then reference it from the agent's spec. INTERACTIVE: returns a synthetic `{queued:true, interactive:true, call_id}` envelope immediately — that is NOT the result. End your turn after a brief acknowledgement. The session parks; the user reviews the PREFILLED connect form (you supply `name`/`url`) and completes the auth themselves — OAuth consent or an API key. You NEVER see tokens or secrets. On a fresh turn you receive a wake message `{call_id, ok, result|error}`: on success `{connected:true, connection_id, mcp_id, url}` (the agent's spec now has an `mcps[]` entry with `connection: connection_id` — one shared credential for every asker of that agent), or `user_cancelled`. Match by `call_id`. Use this whenever the user wants the agent to use a third-party MCP server (e.g. incident.io, Linear). Prefill `url` with the server's MCP endpoint when you know it. Only offered where the client can render the form (declared in the session's `supported_client_tools`, e.g. PostHog Code); on other surfaces it isn't exposed.",
+            "description": "Punch out to the user to connect an MCP server to an agent, then reference it from the agent's spec. INTERACTIVE: returns a synthetic `{queued:true, interactive:true, call_id}` envelope immediately — that is NOT the result. End your turn after a brief acknowledgement. The session parks; the user reviews the PREFILLED connect form (you supply `name`/`url`) and completes the auth themselves — OAuth consent or an API key. You NEVER see tokens or secrets. On a fresh turn you receive a wake message `{call_id, ok, result|error}`: on success `{connected:true, connection_id, mcp_id, url}` (the agent's spec now has an `mcps[]` entry with `connection: connection_id` — one shared credential for every asker of that agent), or `user_cancelled`. Match by `call_id`. Use this whenever the user wants the agent to use a third-party MCP server (e.g. incident.io, Linear). Prefill `url` with the server's MCP endpoint when you know it. Only offered where the client can render the form (declared in the session's `supported_client_tools`, e.g. PostHog Desktop); on other surfaces it isn't exposed.",
             "args_schema": {
                 "type": "object",
                 "properties": {
@@ -266,6 +249,9 @@
             "url": "http://localhost:8787/mcp",
             "auth": {
                 "provider": "posthog"
+            },
+            "headers": {
+                "x-posthog-mcp-mode": "tools"
             },
             "default_tool_approval": "deny",
             "tools": [
@@ -331,21 +317,7 @@
             ]
         }
     ],
-    "identity_providers": [
-        {
-            "kind": "posthog",
-            "scopes": [
-                "openid",
-                "profile",
-                "email",
-                "user:read",
-                "agents:read",
-                "agents:write",
-                "query:read",
-                "insight:read"
-            ]
-        }
-    ],
+    "identity_providers": [],
     "secrets": [],
     "limits": {
         "max_turns": 80,

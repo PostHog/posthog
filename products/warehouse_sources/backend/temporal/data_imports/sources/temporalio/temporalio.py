@@ -16,7 +16,9 @@ from posthog.temporal.common.client import connect
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TemporalIOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.temporalio import (
+    TemporalIOSourceConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
@@ -57,13 +59,35 @@ T = TypeVar("T")
 
 # Temporal Cloud surfaces transient server-side conditions as gRPC errors that a short backoff
 # usually clears: per-namespace throttling (RESOURCE_EXHAUSTED — e.g. "namespace rate limit
-# exceeded") and request deadlines on the visibility/history services (DEADLINE_EXCEEDED — e.g.
-# "downstream duration timeout"). Riding these out in-process keeps a brief blip from failing the
-# whole import activity (which would rebuild the client and restart pagination) and avoids
-# error-tracking noise. Persistent failures re-raise so Temporal's activity retry still applies.
+# exceeded"), request deadlines on the visibility/history services (DEADLINE_EXCEEDED — e.g.
+# "downstream duration timeout"), and connection-level failures (UNAVAILABLE — e.g. a DNS lookup
+# blip resolving the cluster's frontend host). Riding these out in-process keeps a brief blip from
+# failing the whole import activity (which would rebuild the client and restart pagination) and
+# avoids error-tracking noise. Persistent failures re-raise so Temporal's activity retry still applies.
 _MAX_TRANSIENT_RPC_ATTEMPTS = 6
 
-_RETRYABLE_RPC_STATUSES = frozenset({RPCStatusCode.RESOURCE_EXHAUSTED, RPCStatusCode.DEADLINE_EXCEEDED})
+_RETRYABLE_RPC_STATUSES = frozenset(
+    {RPCStatusCode.RESOURCE_EXHAUSTED, RPCStatusCode.DEADLINE_EXCEEDED, RPCStatusCode.UNAVAILABLE}
+)
+
+# tonic/hyper surface a mid-stream HTTP/2 transport interruption (a reset stream or a response
+# body read cut short) as an RPCError with status UNKNOWN and an "h2 protocol error" message,
+# rather than one of the transient statuses above. It's a connection blip, not the server
+# rejecting the request, so ride it out the same way. Match the stable transport phrase, not the
+# whole UNKNOWN status, so genuine server-side UNKNOWN failures still surface.
+#
+# tonic's timeout layer cancels a call that outruns the core client's per-request RPC deadline and
+# surfaces it as status CANCELLED with the message "Timeout expired" — a client-side timeout on a
+# single read (ListWorkflowExecutions / GetWorkflowExecutionHistory), not the server rejecting the
+# request. It's the client-side analog of the DEADLINE_EXCEEDED case above, so ride it out too.
+# Match the phrase rather than the whole CANCELLED status so a genuine cancellation still surfaces.
+_RETRYABLE_RPC_MESSAGES = ("h2 protocol error", "Timeout expired")
+
+
+def _is_retryable_rpc_error(error: RPCError) -> bool:
+    if error.status in _RETRYABLE_RPC_STATUSES:
+        return True
+    return any(phrase in error.message for phrase in _RETRYABLE_RPC_MESSAGES)
 
 
 async def _with_transient_rpc_retry(
@@ -78,7 +102,7 @@ async def _with_transient_rpc_retry(
             return await operation()
         except RPCError as e:
             attempt += 1
-            if attempt >= max_attempts or e.status not in _RETRYABLE_RPC_STATUSES:
+            if attempt >= max_attempts or not _is_retryable_rpc_error(e):
                 raise
             backoff = min(2 * attempt, 30)
             logger.debug(

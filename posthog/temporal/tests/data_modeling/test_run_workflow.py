@@ -28,6 +28,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.event.util import bulk_create_events
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling import run_workflow as run_workflow_module
@@ -59,7 +60,13 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
-TEST_TIME = dt.datetime.now(dt.UTC)
+
+@pytest.fixture
+def test_time() -> dt.datetime:
+    # Freeze from test start rather than module import: boto3 signs S3 requests with the frozen
+    # clock, and the object store rejects a signature skewed by more than 15 minutes, so a shard
+    # that reaches this file late enough would fail every S3 call.
+    return dt.datetime.now(dt.UTC)
 
 
 @pytest_asyncio.fixture
@@ -246,12 +253,14 @@ def mock_to_object_store_rs_credentials(class_self):
 
 @pytest_asyncio.fixture
 async def truncate_events_table(clickhouse_client):
-    await truncate_table(clickhouse_client, "sharded_events")
+    table = EVENTS_JSON_DATA_TABLE if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else EVENTS_DATA_TABLE()
+    await truncate_table(clickhouse_client, table)
 
 
 @pytest_asyncio.fixture
 async def pageview_events(clickhouse_client, ateam, truncate_events_table):
     start_time, end_time = dt.datetime.now(dt.UTC) - dt.timedelta(days=1), dt.datetime.now(dt.UTC)
+    table = EVENTS_JSON_DATA_TABLE if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else EVENTS_DATA_TABLE()
     events, _, events_from_other_team = await generate_test_events_in_clickhouse(
         clickhouse_client,
         ateam.pk,
@@ -261,7 +270,7 @@ async def pageview_events(clickhouse_client, ateam, truncate_events_table):
         count=50,
         count_outside_range=0,
         distinct_ids=["a", "b"],
-        table="sharded_events",
+        table=table,
     )
     return (events, events_from_other_team)
 
@@ -736,6 +745,7 @@ async def test_run_workflow_with_minio_bucket(
     pageview_events,
     saved_queries,
     temporal_client,
+    test_time,
 ):
     """Test run workflow end-to-end using a local MinIO bucket."""
     events, _ = pageview_events
@@ -761,7 +771,7 @@ async def test_run_workflow_with_minio_bucket(
             DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
-        freeze_time(TEST_TIME),
+        freeze_time(test_time),
     ):
         async with temporalio.worker.Worker(
             temporal_client,
@@ -842,7 +852,7 @@ async def test_run_workflow_with_minio_bucket(
                     assert row == expected_data[index]
 
                 assert query.status == DataWarehouseSavedQuery.Status.COMPLETED
-                assert query.last_run_at == TEST_TIME
+                assert query.last_run_at == test_time
                 assert query.is_materialized is True
 
                 # Verify row count was updated in the DataWarehouseTable
@@ -868,6 +878,7 @@ async def test_run_workflow_with_minio_bucket_with_errors(
     pageview_events,
     saved_queries,
     temporal_client,
+    test_time,
 ):
     workflow_id = str(uuid.uuid4())
     inputs = RunWorkflowInputs(
@@ -886,7 +897,7 @@ async def test_run_workflow_with_minio_bucket_with_errors(
             DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
-        freeze_time(TEST_TIME),
+        freeze_time(test_time),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.materialize_model", mock_materialize_model),
     ):
         async with temporalio.worker.Worker(
@@ -928,6 +939,7 @@ async def test_run_workflow_revert_materialization(
     pageview_events,
     saved_queries,
     temporal_client,
+    test_time,
 ):
     workflow_id = str(uuid.uuid4())
     inputs = RunWorkflowInputs(team_id=ateam.pk)
@@ -943,7 +955,7 @@ async def test_run_workflow_revert_materialization(
             DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
-        freeze_time(TEST_TIME),
+        freeze_time(test_time),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
     ):
         async with temporalio.worker.Worker(
@@ -989,6 +1001,7 @@ async def test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_
     pageview_events,
     saved_queries,
     temporal_client,
+    test_time,
 ):
     """Timeout should not pause the schedule when there aren't 5 consecutive timeout failures."""
     for query in saved_queries:
@@ -1006,7 +1019,7 @@ async def test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_
             DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
-        freeze_time(TEST_TIME),
+        freeze_time(test_time),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table") as mock_hogql_table,
         unittest.mock.patch(
             "posthog.temporal.data_modeling.run_workflow.a_pause_saved_query_schedule"
@@ -1062,6 +1075,7 @@ async def test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures
     pageview_events,
     saved_queries,
     temporal_client,
+    test_time,
 ):
     """Timeout should pause the schedule when there are 5 consecutive timeout failures."""
     parent_query = saved_queries[0]
@@ -1087,7 +1101,7 @@ async def test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures
             DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
-        freeze_time(TEST_TIME),
+        freeze_time(test_time),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table") as mock_hogql_table,
         unittest.mock.patch(
             "posthog.temporal.data_modeling.run_workflow.a_pause_saved_query_schedule"

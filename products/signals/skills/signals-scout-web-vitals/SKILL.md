@@ -32,8 +32,8 @@ four metrics against fixed Google thresholds; your job is to find the pages that
 **slow against those thresholds** — whether they just regressed or have been slow all
 along — and file a report that names the metric, the band, the likely cause, and the fix.
 
-You author reports directly via the report channel (`signals-scout-emit-report` /
-`signals-scout-edit-report`): you've done the research, so you own each report 1:1
+You author reports directly via the report channel (`scout-emit-report` /
+`scout-edit-report`): you've done the research, so you own each report 1:1
 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is
 correspondingly high — file a report only for a volume-gated, band-classified page finding
 you'd stand behind as a standalone inbox item a human will act on. A page the inbox
@@ -126,13 +126,13 @@ Cycle between these moves; skip what's not useful.
 
 Four cheap reads cold-start a run:
 
-- `signals-scout-scratchpad-search` (`text=web vitals` or `text=lcp`) — durable steering
+- `scout-scratchpad-search` (`text=web vitals` or `text=lcp`) — durable steering
   from past runs. `pattern:` entries hold the project's per-page band baselines (which
   pages are chronically slow and already known), `addressed:` what the team has fixed,
   `dedupe:` what's already in the inbox, `noise:` synthetic/bot sources; `report:` /
   `reviewer:` entries point at the open report for a page and who owns it.
-- `signals-scout-runs-list` (last 7d) — what prior vitals runs found and ruled out.
-- `signals-scout-project-profile-get` — confirm `$web_vitals` is in `top_events` and read
+- `scout-runs-list` (last 7d) — what prior vitals runs found and ruled out.
+- `scout-project-profile-get` — confirm `$web_vitals` is in `top_events` and read
   its `count` / `recent_24h_count` to size the surface before querying.
 - `inbox-reports-list` (`search`=a path/metric term, `ordering=-updated_at`) — the reports
   already in the inbox. A page you've reported before is an **edit**, not a fresh report;
@@ -376,7 +376,7 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   directly); with no pointer, `inbox-reports-list` by the page's specific terms (the path,
   host, or metric name — `ordering=-updated_at`), never a broad word like `performance`.
   A page with a live report and no material change is a **skip**.
-- **Edit** (`signals-scout-edit-report`) when a still-live report already covers the same
+- **Edit** (`scout-edit-report`) when a still-live report already covers the same
   page+metric problem — the page still standing in `poor`, the regression still holding,
   the p75 deepening or recovering. `append_note` the fresh window's numbers (p75, band,
   sample count), or rewrite the title/summary on a report you authored. This is the
@@ -384,7 +384,7 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   one per run. `edit-report` can't change status, so if the matched report is `resolved` /
   `suppressed` / `failed`, don't append (it won't resurface) — author a fresh report for
   the relapse and repoint the `report:` key.
-- **Author** (`signals-scout-emit-report`) only when nothing live covers it — one report
+- **Author** (`scout-emit-report`) only when nothing live covers it — one report
   per page+metric problem, never one per query row. A **report-worthy finding**
   (confidence ≥ 0.8): names the **page** (host + path), the **metric**, the **p75 value
   and band**, the **sample count** behind the percentile, whether it's standing-poor or a
@@ -400,7 +400,7 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   context. Set `priority` + `priority_explanation`: standing-poor or a band-crossing
   regression on a top-3 landing surface P2; any other single-page finding P3; a site-wide
   step P2; an in-band early warning or improvement opportunity P3. Set
-  `suggested_reviewers` via `signals-scout-members-list` (objects — a `{github_login}` or
+  `suggested_reviewers` via `scout-members-list` (objects — a `{github_login}` or
   `{user_uuid}`, not bare strings; cache under `reviewer:web_vitals:<area>`); left empty
   the report reaches no one. After authoring, write the
   `report:web_vitals:<host><path>-<metric>` pointer with the `report_id` so the next run
@@ -431,7 +431,7 @@ per-page metric value against the threshold.
 
 Summarize the run in one paragraph: which metrics/pages you checked, which reports you
 authored or edited, what you remembered and ruled out. The harness saves it as the run summary; future runs read it
-via `signals-scout-runs-list` — don't write a separate "run metadata" scratchpad entry.
+via `scout-runs-list` — don't write a separate "run metadata" scratchpad entry.
 "All gated pages comfortably in the good band" is a real, useful outcome.
 
 ## Disqualifiers (skip these)
@@ -476,17 +476,17 @@ Inbox & reviewer routing:
   check before authoring so you edit instead of duplicating (`ordering=-updated_at`).
 - `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed
   `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
-- `signals-scout-members-list` — this project's members with their resolved
+- `scout-members-list` — this project's members with their resolved
   `github_login`, to route `suggested_reviewers` (wrap as a `{github_login}` object, or
   pass the member's `{user_uuid}` and let the server resolve). The in-run roster; the
   org-scoped resolver tools aren't available in a scout run.
 
 Harness-level:
 
-- `signals-scout-project-profile-get` / `signals-scout-scratchpad-search` /
-  `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
-- `signals-scout-emit-report` / `signals-scout-edit-report` /
-  `signals-scout-scratchpad-remember` / `signals-scout-scratchpad-forget` — author a
+- `scout-project-profile-get` / `scout-scratchpad-search` /
+  `scout-runs-list` / `scout-runs-retrieve` — orientation + dedupe.
+- `scout-emit-report` / `scout-edit-report` /
+  `scout-scratchpad-remember` / `scout-scratchpad-forget` — author a
   report / edit an existing one / remember / prune stale memory keys.
 
 ## When to stop

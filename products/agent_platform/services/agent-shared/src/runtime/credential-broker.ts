@@ -55,6 +55,11 @@ export type Credential =
  */
 export type CredentialMap = Record<string, Credential>
 
+export interface CredentialWriteReceipt {
+    /** Restore the previous credential map only if this write is still current. */
+    rollback(): Promise<void>
+}
+
 export interface CredentialBroker {
     /**
      * Write the credential map for a session. Overwrites any prior
@@ -62,6 +67,16 @@ export interface CredentialBroker {
      * automatic expiry on the implementation side; default = 24h.
      */
     write(sessionId: string, credentials: CredentialMap, opts?: { ttlMs?: number }): Promise<void>
+    /**
+     * Replace credentials and return a conditional rollback receipt. Rollback
+     * restores the previous map only while this write remains current, so it
+     * cannot overwrite a newer successful refresh.
+     */
+    writeWithRollback(
+        sessionId: string,
+        credentials: CredentialMap,
+        opts?: { ttlMs?: number }
+    ): Promise<CredentialWriteReceipt>
     /**
      * Resolve a credential for `(session, target)`. Returns null when
      * the session has no creds, the target isn't bound, or the entry
@@ -90,8 +105,30 @@ export class MemoryCredentialBroker implements CredentialBroker {
     private readonly entries = new Map<string, MemoryEntry>()
 
     async write(sessionId: string, credentials: CredentialMap, opts: { ttlMs?: number } = {}): Promise<void> {
+        await this.writeWithRollback(sessionId, credentials, opts)
+    }
+
+    async writeWithRollback(
+        sessionId: string,
+        credentials: CredentialMap,
+        opts: { ttlMs?: number } = {}
+    ): Promise<CredentialWriteReceipt> {
+        const previous = this.entries.get(sessionId)
         const ttlMs = opts.ttlMs ?? DEFAULT_CREDENTIAL_TTL_MS
-        this.entries.set(sessionId, { credentials, expires_at: Date.now() + ttlMs })
+        const current = { credentials, expires_at: Date.now() + ttlMs }
+        this.entries.set(sessionId, current)
+        return {
+            rollback: async (): Promise<void> => {
+                if (this.entries.get(sessionId) !== current) {
+                    return
+                }
+                if (previous) {
+                    this.entries.set(sessionId, previous)
+                } else {
+                    this.entries.delete(sessionId)
+                }
+            },
+        }
     }
 
     async resolve(sessionId: string, target: string): Promise<Credential | null> {

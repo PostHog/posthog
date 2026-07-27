@@ -1,4 +1,5 @@
 import time
+import uuid
 from contextlib import contextmanager
 from typing import Any
 
@@ -6,6 +7,9 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import psycopg
+from asgiref.sync import async_to_sync
+
+from posthog.models import DuckgresSinkSchemaState, Organization, Team
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     OwnershipLostError,
@@ -15,6 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DuckgresBatchConsumer,
     DuckgresBatchConsumerAdapter,
     DuckgresConsumerConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
+    duckgres_sink_enablement,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     PendingBatch,
@@ -222,6 +229,21 @@ class TestDuckgresProcessSingle:
 
 
 class TestDuckgresEnablementGating:
+    @pytest.mark.asyncio
+    async def test_enabled_team_ids_refresh_uses_connection_safe_wrapper(self):
+        """The refresh crosses from the asyncio poll loop into a worker thread; a bare
+        sync_to_async never recovers a connection killed by the DB/proxy since the last
+        refresh, so this must go through database_sync_to_async_pool instead."""
+        adapter = DuckgresBatchConsumerAdapter()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.database_sync_to_async_pool",
+        ) as mock_wrapper:
+            mock_wrapper.return_value = AsyncMock(return_value=None)
+            await adapter._enabled_team_ids()
+
+        mock_wrapper.assert_called_once_with(duckgres_sink_enablement)
+
     @pytest.mark.asyncio
     async def test_fetch_returns_empty_without_querying_when_no_teams_enabled(self):
         adapter = DuckgresBatchConsumerAdapter()
@@ -748,3 +770,54 @@ class TestPermanentApplyErrors:
 
         mock_fail.assert_called_once()
         mock_diverged.assert_not_called()
+
+
+# transaction=True: the stamp helper runs via sync_to_async in a separate thread and calls
+# close_old_connections, so the row must be committed for that thread to see it.
+@pytest.mark.django_db(transaction=True)
+class TestLiveApplyStamp:
+    def _sink_state(self) -> DuckgresSinkSchemaState:
+        team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
+        return DuckgresSinkSchemaState.objects.create(
+            team=team, schema_id=uuid.uuid4(), state=DuckgresSinkSchemaState.State.PRIMED
+        )
+
+    def test_live_apply_stamps_the_sink_state_row(self) -> None:
+        # This stamp is the only thing the Data ops Overview tab has for "last applied to
+        # warehouse" — if the hook stops writing it, the UI silently freezes in time.
+        state = self._sink_state()
+        adapter = DuckgresBatchConsumerAdapter()
+        batch = _make_batch(schema_id=str(state.schema_id))
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.mark_applied",
+            new=AsyncMock(),
+        ) as mock_mark_applied:
+            async_to_sync(adapter.after_batch_processed)(_make_healthy_conn(), batch=batch)
+
+        mock_mark_applied.assert_awaited_once()
+        state.refresh_from_db()
+        assert state.queue_last_applied_at is not None
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"metadata": {"duckgres_backfill": True, "chunk_paths": ["s3://b/f"], "chunk_count": 1}},
+            {"is_final_batch": True},
+        ],
+    )
+    def test_backfill_and_final_batches_do_not_stamp(self, overrides: dict[str, Any]) -> None:
+        # Backfill chunks report through the chunk counters, and final markers apply nothing;
+        # stamping either would misreport historical or zero-work processing as a live import.
+        state = self._sink_state()
+        adapter = DuckgresBatchConsumerAdapter()
+        batch = _make_batch(schema_id=str(state.schema_id), **overrides)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.mark_applied",
+            new=AsyncMock(),
+        ):
+            async_to_sync(adapter.after_batch_processed)(_make_healthy_conn(), batch=batch)
+
+        state.refresh_from_db()
+        assert state.queue_last_applied_at is None

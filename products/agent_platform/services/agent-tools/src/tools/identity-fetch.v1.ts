@@ -10,6 +10,7 @@ import { defineNativeTool, Type } from '@posthog/agent-shared'
 
 export const identityFetchV1 = defineNativeTool({
     id: '@posthog/identity-fetch',
+    approval: 'allow',
     description:
         "Call a linked identity provider's API as the current user. If the user hasn't " +
         'linked that provider yet, returns an `auth_required` link to send them. The URL ' +

@@ -28,6 +28,7 @@ from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
     deliver_email,
     deliver_slack,
+    strip_null_bytes,
 )
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_DIAGNOSTICS_KEY,
@@ -105,13 +106,15 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
         # No DoesNotExist guard: create_delivery_record always writes this row before
         # generation runs, so a missing row is a wiring bug — let it raise loudly.
         delivery = SubscriptionDelivery.objects.get(pk=delivery_id)
+        # LLM output and the user prompt can carry NUL bytes that Postgres text/jsonb reject;
+        # scrub them here (payloads are small) as they are the untrusted inputs on this write path.
         delivery.content_snapshot = {
             **(delivery.content_snapshot or {}),
-            AI_REPORT_SNAPSHOT_KEY: result.markdown,
-            AI_REPORT_DIAGNOSTICS_KEY: [dataclasses.asdict(d) for d in result.diagnostics],
+            AI_REPORT_SNAPSHOT_KEY: strip_null_bytes(result.markdown),
+            AI_REPORT_DIAGNOSTICS_KEY: strip_null_bytes([dataclasses.asdict(d) for d in result.diagnostics]),
             AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
             # prompt is None for non-AI subs; "" if cleared — omit either.
-            **({AI_REPORT_PROMPT_SNAPSHOT_KEY: prompt} if prompt else {}),
+            **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
         }
         delivery.save(update_fields=["content_snapshot", "last_updated_at"])
 

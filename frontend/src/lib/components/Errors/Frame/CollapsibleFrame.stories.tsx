@@ -139,6 +139,38 @@ export function UnresolvedFrame(): JSX.Element {
     )
 }
 
+const rustFrame: ErrorTrackingStackFrame = {
+    ...baseFrame,
+    raw_id: 'rust-1',
+    mangled_name: '_ZN7example4main17h5c8e...',
+    resolved_name: 'example::main',
+    source: 'src/main.rs',
+    line: 12,
+    column: 5,
+    lang: 'rust',
+}
+
+const rustRecord: ErrorTrackingStackFrameRecord = {
+    ...baseRecord,
+    raw_id: 'rust-1',
+    context: {
+        before: [
+            { number: 9, line: 'fn main() {' },
+            { number: 10, line: '    let config = Config::load().expect("config should be present");' },
+            { number: 11, line: '    let values: Vec<u32> = vec![1, 2, 3];' },
+        ],
+        line: { number: 12, line: '    let first = values.get(10).unwrap(); // panics' },
+        after: [
+            { number: 13, line: '    println!("first: {first}, name: {}", config.name);' },
+            { number: 14, line: '}' },
+        ],
+    },
+}
+
+export function RustFrameWithContext(): JSX.Element {
+    return <Wrapper frame={rustFrame} record={rustRecord} initialExpanded />
+}
+
 export function NoContext(): JSX.Element {
     return <Wrapper frame={baseFrame} record={{ ...baseRecord, context: null }} />
 }

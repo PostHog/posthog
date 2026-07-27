@@ -3,31 +3,44 @@ import '~/styles'
 import './buffer-polyfill'
 
 import { Suspense, lazy } from 'react'
-import { createRoot } from 'react-dom/client'
+import { createRoot, type Root } from 'react-dom/client'
 
-import { retryImport } from 'lib/utils/retryImport'
+import { retryBootImport } from 'lib/utils/retryImport'
 
 import { RootErrorBoundary } from './RootErrorBoundary'
 import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
 
 // Lazy-load App so the entry chunk stays minimal: the entire transitive dependency
 // graph (kea, posthog-js, scene logic, UI components) is only fetched when it renders.
-// bootApp() runs the chunk's one-time boot side effects (posthog-js, kea) after the
-// chunk loads and before <App /> first renders.
+// bootApp() runs the one-time boot side effects (posthog-js, kea) after the chunks
+// load and before <App /> first renders. It lives in its own module so scenes/App
+// keeps component-only exports and stays a React Fast Refresh boundary.
 const App = lazy(() =>
-    retryImport(() => import('scenes/App')).then((mod) => {
-        mod.bootApp()
-        return { default: mod.App }
-    })
+    Promise.all([retryBootImport(() => import('scenes/App')), retryBootImport(() => import('scenes/bootApp'))]).then(
+        ([appModule, bootModule]) => {
+            bootModule.bootApp()
+            return { default: appModule.App }
+        }
+    )
 )
 
+declare global {
+    interface Window {
+        __posthogAppRoot?: Root
+    }
+}
+
 function renderApp(): void {
-    const root = document.getElementById('root')
-    if (!root) {
+    const rootElement = document.getElementById('root')
+    if (!rootElement) {
         console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')
         return
     }
-    createRoot(root).render(
+    // Vite 8 can serve this entry module twice after an HMR invalidation reaches it (the script
+    // tag's bare URL plus a timestamped copy), and a second createRoot on an already-rooted
+    // container crashes React. Reuse one root so a repeat execution re-renders instead.
+    const root = (window.__posthogAppRoot ??= createRoot(rootElement))
+    root.render(
         <RootErrorBoundary>
             {/* Auto-reloads once on a chunk-load failure (stale deploy). Repeated or non-chunk
                 errors bubble to RootErrorBoundary, which reports them and shows the failure UI. */}

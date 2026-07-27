@@ -250,14 +250,19 @@ describe('slack trigger: real e2e', () => {
         )
         expect(ok.status).toBe(200)
         expect(ok.body.session_id).toBeTruthy()
-        // An untrusted envelope is still rejected.
-        const rejected = await c.slackPost(
+        // An untrusted envelope is dropped, not enqueued — but acked 200 with a
+        // drop indication, never a 4xx: a signed delivery that fails the workspace
+        // allowlist is a routing decision, and providers retry non-2xx (Slack
+        // redelivery storms). The drop is what matters; the status is 2xx.
+        const dropped = await c.slackPost(
             'ws-fallback',
             'events',
             slackEvent({ eventType: 'message', ts: '2.0', team_id: 'T-OTHER', text: 'hello' }),
             SLACK_SECRET
         )
-        expect(rejected.status).toBe(403)
+        expect(dropped.status).toBe(200)
+        expect(dropped.body.dropped).toBe('workspace_not_trusted')
+        expect(dropped.body.session_id).toBeFalsy()
     })
 
     it('thread_ts falls back to ts when the mention is a top-level channel message', async () => {

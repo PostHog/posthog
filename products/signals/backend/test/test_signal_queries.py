@@ -9,11 +9,14 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
-from products.signals.backend.temporal.signal_queries import (
+from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
-    fetch_signals_for_report_sync,
     fetch_source_products_for_reports,
+)
+from products.signals.backend.temporal.signal_queries import (
+    fetch_report_ids_for_scout_names,
+    fetch_signals_for_report_sync,
 )
 
 _MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
@@ -179,6 +182,52 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
         )
 
         assert fetch_source_products_for_reports(self.team, report_ids) == expected
+
+
+class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
+    def test_returns_only_reports_authored_by_the_named_scouts(self) -> None:
+        # Guards the nested `extra.skill_name` extraction driving the inbox scout filter — a broken
+        # JSON path would silently match nothing and the filter would empty every filtered view.
+        self._emit_version(
+            document_id="d1",
+            report_id="rErrors",
+            source_product="signals_scout",
+            inserted_at=self.base,
+            skill_name="signals-scout-error-tracking",
+        )
+        self._emit_version(
+            document_id="d2",
+            report_id="rReplay",
+            source_product="signals_scout",
+            inserted_at=self.base,
+            skill_name="signals-scout-session-replay",
+        )
+        self._emit_version(document_id="d3", report_id="rPipeline", source_product="errors", inserted_at=self.base)
+
+        assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-error-tracking"]) == {"rErrors"}
+        assert fetch_report_ids_for_scout_names(
+            self.team, ["signals-scout-error-tracking", "signals-scout-session-replay"]
+        ) == {"rErrors", "rReplay"}
+        assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-unknown"]) == set()
+
+    def test_deleted_in_latest_version_drops_out(self) -> None:
+        self._emit_version(
+            document_id="moving",
+            report_id="rA",
+            source_product="signals_scout",
+            inserted_at=self.base,
+            skill_name="signals-scout-apm",
+        )
+        self._emit_version(
+            document_id="moving",
+            report_id="rA",
+            source_product="signals_scout",
+            inserted_at=self.base + timedelta(hours=1),
+            deleted=True,
+            skill_name="signals-scout-apm",
+        )
+
+        assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-apm"]) == set()
 
 
 class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):

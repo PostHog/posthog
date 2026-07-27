@@ -118,6 +118,7 @@
         "services/mcp/src/**/*.md",
         "services/mcp/worker-configuration.d.ts",
         "frontend/src/taxonomy/core-filter-definitions-by-group.json",
+        "products/review_hog/backend/reviewer/prompts/**/schema.json",
         "frontend/dist/",
         "frontend/**/*LogicType.ts",
         "bin/validate-setup-tasks.mjs",

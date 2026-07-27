@@ -243,6 +243,55 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert mock_autostart.call_args.kwargs["report_id"] == str(report.id)
         assert mock_autostart.call_args.kwargs["team_id"] == self.team.id
 
+    def test_put_adding_reviewer_notifies_added_reviewer_on_commit(self):
+        # Manually adding a reviewer enqueues a Slack ping (after commit) for only the newly-added
+        # login, attributed so the actor is excluded — the point of this feature.
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+
+        with (
+            patch("products.signals.backend.views.send_reviewer_added_slack_notifications") as mock_task,
+            patch(
+                "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts",
+                new_callable=AsyncMock,
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    self._detail_url(str(report.id), str(artefact.id)),
+                    data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]}),
+                    content_type="application/json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_task.delay.assert_called_once()
+        kwargs = mock_task.delay.call_args.kwargs
+        assert kwargs["added_github_logins"] == ["bob"]
+        assert kwargs["team_id"] == self.team.id
+        assert kwargs["exclude_user_id"] == self.user.id
+
+    def test_put_removing_reviewer_does_not_notify(self):
+        # Removing a reviewer is not an add, so nobody is pinged.
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}, {"github_login": "bob"}])
+
+        with (
+            patch("products.signals.backend.views.send_reviewer_added_slack_notifications") as mock_task,
+            patch(
+                "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts",
+                new_callable=AsyncMock,
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    self._detail_url(str(report.id), str(artefact.id)),
+                    data=json.dumps({"content": [{"github_login": "alice"}]}),
+                    content_type="application/json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_task.delay.assert_not_called()
+
     def test_put_reviewers_autostart_delegates_when_report_complete(self):
         # With actionability + repo + priority + reviewers all present, the reconstruction reaches
         # the actual autostart decision (delegated to maybe_autostart_implementation_task).
@@ -305,6 +354,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
                     "github_login": "alice",
                     "github_name": "Alice A.",
                     "relevant_commits": [{"sha": "abc123", "url": "u", "reason": "r"}],
+                    "reason": "Top recent author on the affected surface",
                 },
                 {
                     "github_login": "bob",
@@ -314,10 +364,12 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             ],
         )
 
-        # Keep alice (existing commits should survive), add a new reviewer dave (commits empty).
+        # Keep alice (existing commits + reason should survive), add dave (explicit reason honoured).
         response = self.client.put(
             self._detail_url(str(report.id), str(artefact.id)),
-            data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "dave"}]}),
+            data=json.dumps(
+                {"content": [{"github_login": "alice"}, {"github_login": "dave", "reason": "Owns this area"}]}
+            ),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_200_OK
@@ -325,7 +377,9 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         stored = {r["github_login"]: r for r in self._latest_reviewers(report)}
         assert stored["alice"]["relevant_commits"] == [{"sha": "abc123", "url": "u", "reason": "r"}]
         assert stored["alice"]["github_name"] == "Alice A."  # carried over from prior
+        assert stored["alice"]["reason"] == "Top recent author on the affected surface"  # carried over from prior
         assert stored["dave"]["relevant_commits"] == []
+        assert stored["dave"]["reason"] == "Owns this area"
         assert "bob" not in stored
 
     def test_put_resolves_user_uuid_to_github_login(self):
@@ -371,6 +425,27 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not an org member" in response.json()["error"]
+
+    # --- PUT reviewers (report-level, works with no existing artefact) ---
+
+    def test_reviewers_action_assigns_first_reviewer_when_none_exist(self):
+        # A report that never had a suggested_reviewers artefact must still be assignable: the
+        # report-level PUT creates the first status row from scratch (the artefact PUT couldn't,
+        # since it required an existing artefact to address).
+        member = self._create_org_member("alice@example.com", github_login="AliceCase")
+        report = self._create_report()
+        assert self._reviewers_count(report) == 0
+
+        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/"
+        response = self.client.put(
+            url,
+            data=json.dumps({"content": [{"user_uuid": str(member.uuid)}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        assert self._reviewers_count(report) == 1
+        assert [r["github_login"] for r in self._latest_reviewers(report)] == ["alicecase"]
 
     def test_put_user_uuid_not_in_org_returns_400(self):
         # Random UUID not tied to anyone in this org.
@@ -486,7 +561,11 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert not ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
 
-    def test_put_task_attributed_reviewer_change_writes_no_activity_log(self):
+    def test_put_reviewers_ignores_task_header_and_attributes_to_requesting_user(self):
+        # The reviewers write is app/user-only, so a supplied X-PostHog-Task-Id must be ignored and
+        # the row attributed to the requesting user. A task-attributed row (created_by_id=None) would
+        # flip auto-start into the agent path and run the implementation task as the named colleague
+        # rather than the editor — reviewer impersonation the triggering_user_id guard exists to stop.
         report = self._create_report()
         artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
         task = Task.objects.create(
@@ -503,7 +582,17 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             headers={"X-PostHog-Task-Id": str(task.id)},
         )
         assert response.status_code == status.HTTP_200_OK
-        assert not ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
+
+        latest = (
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        assert latest is not None
+        assert latest.created_by_id == self.user.id
+        assert latest.task_id is None
 
     def test_put_response_is_enriched_with_user(self):
         member = self._create_org_member("alice@example.com", github_login="alice")
@@ -845,6 +934,31 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         response = self.client.post(
             self._list_url(str(report.id)),
             data=json.dumps({"artefact_type": "video_segment", "content": content}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
+
+    def test_post_rejects_system_generated_code_review_type(self):
+        # code_review receipts are written only by the ReviewHog workflow; accepting them through the
+        # API would let a caller fabricate review receipts for reviews that never ran. The payload is
+        # schema-valid on purpose — the rejection must be type-based, not a validation accident.
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps(
+                {
+                    "artefact_type": "code_review",
+                    "content": {
+                        "review_report_id": "11111111-1111-1111-1111-111111111111",
+                        "repository": "posthog/posthog",
+                        "head_sha": "abc123",
+                        "head_branch": "feat",
+                        "base_branch": "master",
+                        "outcome": "published",
+                    },
+                }
+            ),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

@@ -1,10 +1,12 @@
 // Weekly engineering-analytics CI digest, posted to #alerts-devex on Monday.
 //
 // PULL model: this script reads the engineering_analytics product's repo_overview
-// endpoint (the same curated layer that backs its MCP tools and UI) for the last
-// 7 days and the 7 days before, and relays one week-over-week table to Slack. It
-// does NOT re-derive any metric from the GitHub API — the product owns the
-// numbers, this owns the cadence + the Slack relay.
+// endpoint (the same curated layer that backs its MCP tools and UI) ONCE for the
+// last 7 days — every headline ships with its equal-length previous-window twin,
+// so one call carries the whole week-over-week table — and relays it to Slack. It
+// asks for headlines only (include_series=false; the chart series exist for the
+// UI) and does NOT re-derive any metric from the GitHub API — the product owns
+// the numbers, this owns the cadence + the Slack relay.
 //
 //   GHA cron ──> GET /api/projects/:id/engineering_analytics/repo_overview/ ──> Slack
 //
@@ -52,20 +54,50 @@ async function api(action, params = {}) {
     if (SOURCE_ID) {
         url.searchParams.set('source_id', SOURCE_ID)
     }
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${API_KEY}` } })
+    // Bounds every attempt (the gateway answers within ~2min; this only catches a hung connection)
+    // so worst-case retries stay well inside the workflow's timeout-minutes.
+    const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${API_KEY}` },
+        signal: AbortSignal.timeout(150_000),
+    })
     const body = await res.text()
+    const fail = (detail, retryable) => {
+        throw Object.assign(new Error(`${action} -> ${res.status}: ${detail}`), { retryable })
+    }
     let parsed
     try {
         parsed = JSON.parse(body)
     } catch {
-        // A 200 with a non-JSON body (proxy interstitial, maintenance HTML) is still a failure.
-        throw new Error(`${action} -> ${res.status}: non-JSON response (${body.slice(0, 120)})`)
+        // A non-JSON body (proxy interstitial, maintenance HTML) is still a failure whatever the
+        // status — the endpoint only speaks JSON — but it's infra noise, so always worth retrying.
+        fail(`non-JSON response (${body.slice(0, 120)})`, true)
     }
     if (!res.ok) {
-        // The endpoint 400s with a clear `detail` when no GitHub source is connected.
-        throw new Error(`${action} -> ${res.status}: ${parsed.detail || body}`)
+        // The endpoint 400s with a clear `detail` when no GitHub source is connected — a
+        // configuration error a retry can't fix; 5xx/429 are transients worth riding out.
+        fail(parsed?.detail || body, res.status >= 500 || res.status === 429)
     }
     return parsed
+}
+
+const RETRY_ATTEMPTS = 3
+const RETRY_DELAY_MS = 30_000
+
+// The warehouse queries share a ClickHouse cluster with everything else; a contended Monday
+// morning can push one attempt past the API gateway's timeout. Ride transients out instead of
+// failing the week's digest. Errors without a retryable flag (network failures, aborts) retry too.
+async function apiWithRetry(action, params) {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            return await api(action, params)
+        } catch (err) {
+            if (err.retryable === false || attempt >= RETRY_ATTEMPTS) {
+                throw err
+            }
+            console.warn(`${err.message} — attempt ${attempt}/${RETRY_ATTEMPTS}, retrying in ${RETRY_DELAY_MS / 1000}s`)
+            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+        }
+    }
 }
 
 function fmtInt(n) {
@@ -112,23 +144,14 @@ function fmtDelta(current, previous) {
     return s.startsWith('-') ? `${s}%` : `+${s}%`
 }
 
-// Merged-PR count for an overview window: the cost_series buckets are zero-filled and
-// bucket-local (merges counted by merged_at), so their sum is the window's exact count.
-// The series is empty until the github_workflow_jobs source syncs — null then.
-function sumMerges(overview) {
-    if (!overview.cost_series || overview.cost_series.length === 0) {
-        return null
-    }
-    return overview.cost_series.reduce((total, bucket) => total + bucket.merges, 0)
-}
-
 function cell(text) {
     return { type: 'raw_text', text }
 }
 
 // One table row per metric, added only when both windows carry the value, so a
-// not-yet-synced jobs source degrades to fewer rows instead of a broken message.
-function tableRows(cur, prev) {
+// not-yet-synced jobs source (null cost fields) or an old backend (no merged_pr_count)
+// degrades to fewer rows instead of a broken message.
+function tableRows(overview) {
     const rows = []
     const add = (metric, curValue, prevValue, format) => {
         if (curValue == null || prevValue == null) {
@@ -138,11 +161,21 @@ function tableRows(cur, prev) {
     }
     // Null-propagating so `add`'s missing-value guard stays the only degradation path.
     const perPr = (minutes, merges) => (minutes != null && merges ? minutes / merges : null)
-    add('CI minutes', cur.billable_minutes, prev.billable_minutes, fmtMinutes)
-    add('min / merged PR', perPr(cur.billable_minutes, sumMerges(cur)), perPr(prev.billable_minutes, sumMerges(prev)), fmtInt)
-    add('est. Depot $', cur.estimated_cost_usd, prev.estimated_cost_usd, fmtUsd)
-    add('open→merge median', cur.median_open_to_merge_seconds, prev.median_open_to_merge_seconds, fmtLongDuration)
-    add('re-run cycles', cur.rerun_cycles, prev.rerun_cycles, fmtInt)
+    add('CI minutes', overview.billable_minutes, overview.billable_minutes_prev, fmtMinutes)
+    add(
+        'min / merged PR',
+        perPr(overview.billable_minutes, overview.merged_pr_count),
+        perPr(overview.billable_minutes_prev, overview.merged_pr_count_prev),
+        fmtInt
+    )
+    add('est. Depot $', overview.estimated_cost_usd, overview.estimated_cost_usd_prev, fmtUsd)
+    add(
+        'open→merge median',
+        overview.median_open_to_merge_seconds,
+        overview.median_open_to_merge_seconds_prev,
+        fmtLongDuration
+    )
+    add('re-run cycles', overview.rerun_cycles, overview.rerun_cycles_prev, fmtInt)
     return rows
 }
 
@@ -189,14 +222,15 @@ async function main() {
     }
     const now = new Date()
     const thisFrom = new Date(now.getTime() - WEEK_MS).toISOString()
-    const priorFrom = new Date(now.getTime() - 2 * WEEK_MS).toISOString()
-    // Two window-scoped calls (not the endpoint's baked _prev twins) so the merged-count
-    // sum and the other rows share windows exactly.
-    const [cur, prev] = await Promise.all([
-        api('repo_overview', { date_from: thisFrom, date_to: now.toISOString() }),
-        api('repo_overview', { date_from: priorFrom, date_to: thisFrom }),
-    ])
-    const rows = tableRows(cur, prev)
+    // One headline-only call: the endpoint bakes every metric's equal-length previous-window
+    // twin (prev = [date_from - 7d, date_from)) and the merged-PR counts into the same scans,
+    // so the rows share windows exactly without a second call.
+    const overview = await apiWithRetry('repo_overview', {
+        date_from: thisFrom,
+        date_to: now.toISOString(),
+        include_series: 'false',
+    })
+    const rows = tableRows(overview)
     if (rows.length === 0) {
         // Every metric was null (key valid but nothing synced). Fail the job so the
         // breakage is visible instead of posting an empty table.

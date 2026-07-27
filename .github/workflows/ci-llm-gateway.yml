@@ -13,7 +13,6 @@ on:
         branches:
             - master
     pull_request:
-    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -74,7 +73,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Install dependencies
               run: uv sync --frozen --dev
@@ -104,10 +103,14 @@ jobs:
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing job. Internal PRs only (needs the
             # secret); cli-version pinned, not 'latest' (skips the release redirect).
+            # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
+            # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
+            # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
+            # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: services/llm-gateway/junit.xml
@@ -120,7 +123,7 @@ jobs:
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
             # also covers the skipped gate on fork/Dependabot.
             - name: Fail on test failure
-              if: ${{ !cancelled() && steps.run-tests.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
+              if: ${{ !cancelled() && steps.run-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 

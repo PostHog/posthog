@@ -12,7 +12,7 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cursor import CursorResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.source import CursorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CursorSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cursor import CursorSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -49,7 +49,6 @@ class TestCursorSource:
 
         assert config.name == SchemaExternalDataSourceType.CURSOR
         assert config.label == "Cursor"
-        assert config.unreleasedSource is True
         field = config.fields[0]
         assert isinstance(field, SourceFieldInputConfig)
         assert len(config.fields) == 1

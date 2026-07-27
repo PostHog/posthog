@@ -51,6 +51,14 @@ SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=Tru
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
+# OTLP destinations for agent-server run telemetry (PostHog Logs/APM).
+# Full ingest URLs (e.g. https://us.i.posthog.com/i/v1/logs and .../i/v1/traces)
+# plus the project API key of the telemetry project. Telemetry stays off unless
+# URL + token are set; the traces URL additionally enables APM spans.
+SANDBOX_AGENT_OTEL_LOGS_URL: str | None = get_from_env("SANDBOX_AGENT_OTEL_LOGS_URL", None, optional=True)
+SANDBOX_AGENT_OTEL_LOGS_TOKEN: str | None = get_from_env("SANDBOX_AGENT_OTEL_LOGS_TOKEN", None, optional=True)
+SANDBOX_AGENT_OTEL_TRACES_URL: str | None = get_from_env("SANDBOX_AGENT_OTEL_TRACES_URL", None, optional=True)
+
 # client_id of the OAuthApplication used to mint the access token the PostHog setup wizard
 # uses when it runs inside a task sandbox (the "run the wizard in the cloud" onboarding path).
 # It must be the wizard's own app so the LLM gateway authorizes the token like a normal wizard
@@ -67,6 +75,20 @@ TASKS_USE_MODAL_RESUME_SNAPSHOTS: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
+# Force-enables process_task continue_as_new regardless of the tasks-continue-as-new flag
+# (for local E2E / emergency on). The flag is the normal cloud toggle. continue_as_new bounds
+# replay cost so long runs don't trip the 2s workflow-task deadlock detector on eviction.
+TASKS_CONTINUE_AS_NEW_ENABLED: bool = get_from_env(
+    "TASKS_CONTINUE_AS_NEW_ENABLED",
+    False,
+    type_cast=str_to_bool,
+)
+
+# Event-count threshold for the above; 0 relies on Temporal's is_continue_as_new_suggested().
+TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD: int = get_from_env(
+    "TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD", 4000, type_cast=int
+)
+
 # Override the process_task workflow's inactivity timeout (default 2 hours).
 # Set this to e.g. 30 for local testing of the shutdown / resume flow. When
 # set, the CI-follow-up floor is also bypassed so the timer actually fires
@@ -79,6 +101,24 @@ TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_S
 TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS: int = get_from_env(
     "TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS", 0, type_cast=int
 )
+
+# Mirror persisted task-run logs into the PostHog Logs product (dogfooding).
+# Entries appended to a run's S3 JSONL log are also emitted as structured stdout log lines;
+# the per-cluster OTel collector already ships container stdout into the region's internal
+# PostHog project's Logs, so no transport or credentials are needed here. Only runs whose
+# task origin_product is in this list are mirrored — scoped to signals scouts for now;
+# widen the list to cover more task origins, or set it empty to disable.
+TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS: list[str] = get_list(
+    os.getenv("TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS", "signals_scout")
+)
+
+# Direct OTLP delivery for the mirror above. The token pins the destination: scout runs
+# execute for customer teams, but their mirrored logs must only ever land in (and bill)
+# PostHog's own internal logs project — so this is the internal project's API key, never
+# derived from the run's team. Point locally at the dev logs ingest to see mirrored runs
+# in /logs. Unset disables the direct leg (stdout emission for the collector remains).
+TASK_RUN_LOGS_MIRROR_OTLP_URL: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_URL", None, optional=True)
+TASK_RUN_LOGS_MIRROR_OTLP_TOKEN: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_TOKEN", None, optional=True)
 
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
@@ -116,10 +156,17 @@ BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("batch-exports-task-queue")
 DATA_MODELING_TASK_QUEUE = _set_temporal_task_queue("data-modeling-task-queue")
 SYNC_BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("no-sandbox-python-django")
 GENERAL_PURPOSE_TASK_QUEUE = _set_temporal_task_queue("general-purpose-task-queue")
+# Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
+# "signup-enrichment-task-queue" to route unauthenticated signup enrichment to a dedicated,
+# separately-scalable worker once one is deployed.
+SIGNUP_ENRICHMENT_TASK_QUEUE = _set_temporal_task_queue(
+    os.getenv("SIGNUP_ENRICHMENT_TASK_QUEUE", "general-purpose-task-queue")
+)
 EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-task-queue")
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
+STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
@@ -138,6 +185,7 @@ LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 MCPA_TASK_QUEUE = _set_temporal_task_queue("mcp-analytics-task-queue")
 ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue")
+ERROR_TRACKING_LIFECYCLE_TASK_QUEUE = _set_temporal_task_queue("error-tracking-lifecycle-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process

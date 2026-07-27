@@ -4,10 +4,16 @@ import request from 'supertest'
 
 import {
     AgentSpecSchema,
+    DirectHttpClient,
+    EncryptedFields,
     PgApprovalStore,
     PgCredentialBroker,
+    PgIdentityCredentialStore,
+    PgIdentityLinkStateStore,
+    PgIdentityStore,
     PgRevisionStore,
     PgSessionQueue,
+    PgTransportBindingStore,
     RedisSessionEventBus,
 } from '@posthog/agent-shared'
 import type { AgentApplication, AgentRevision } from '@posthog/agent-shared'
@@ -165,6 +171,7 @@ describe('ingress HTTP server (path mode)', () => {
         revisions: PgRevisionStore
         queue: PgSessionQueue
         approvals: PgApprovalStore
+        credentialBroker: PgCredentialBroker
         bus: RedisSessionEventBus
         app: ReturnType<typeof buildApp>
     } {
@@ -180,6 +187,14 @@ describe('ingress HTTP server (path mode)', () => {
             approvals,
             bus,
             credentialBroker,
+            identities: new PgIdentityStore(pool),
+            http: new DirectHttpClient(),
+            identityCredentials: new PgIdentityCredentialStore(pool, {
+                encryptionSaltKeys: HARNESS_ENCRYPTION_SALT_KEYS,
+            }),
+            identityLinks: new PgIdentityLinkStateStore(pool),
+            transportBindings: new PgTransportBindingStore(pool),
+            envEncryption: new EncryptedFields(HARNESS_ENCRYPTION_SALT_KEYS),
             // Opt in to the PostHog identity verifiers for the principal-authed
             // read-route tests; default stays public-only like the rest.
             ...(opts?.withAuth ? { authProvider: testAuthProvider } : {}),
@@ -196,7 +211,7 @@ describe('ingress HTTP server (path mode)', () => {
                 },
             },
         })
-        return { revisions, queue, approvals, bus, app }
+        return { revisions, queue, approvals, credentialBroker, bus, app }
     }
 
     it('GET /healthz returns ok', async () => {
@@ -220,6 +235,72 @@ describe('ingress HTTP server (path mode)', () => {
         expect(res.body.session_id).not.toBeUndefined()
         const session = await queue.get(res.body.session_id)
         expect(session!.conversation[0]).toMatchObject({ role: 'user', content: 'hi' })
+    })
+
+    it('makes credentials available before a chat session becomes claimable', async () => {
+        const { revisions, queue, credentialBroker, app } = mk(undefined, { withAuth: true })
+        await seedPosthogApp(revisions, 'credential-ordering')
+
+        const enqueue = queue.enqueue.bind(queue)
+        vi.spyOn(queue, 'enqueue').mockImplementation(async (session) => {
+            await expect(credentialBroker.resolve(session.id, 'posthog_api')).resolves.toEqual({
+                kind: 'posthog_bearer',
+                token: OWNER_TOKEN,
+            })
+            await enqueue(session)
+        })
+
+        const run = await request(app)
+            .post('/agents/credential-ordering/run')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ message: 'first' })
+        expect(run.status).toBe(200)
+
+        const sessionId = run.body.session_id
+        await credentialBroker.clear(sessionId)
+        const update = queue.update.bind(queue)
+        vi.spyOn(queue, 'update').mockImplementation(async (id, patch) => {
+            if (patch.state === 'queued') {
+                await expect(credentialBroker.resolve(id, 'posthog_api')).resolves.toEqual({
+                    kind: 'posthog_bearer',
+                    token: OWNER_TOKEN,
+                })
+            }
+            await update(id, patch)
+        })
+
+        const send = await request(app)
+            .post('/agents/credential-ordering/send')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ session_id: sessionId, message: 'second' })
+        expect(send.status).toBe(200)
+    })
+
+    it('restores prior credentials when a send fails before requeue', async () => {
+        const { revisions, queue, credentialBroker, app } = mk(undefined, { withAuth: true })
+        await seedPosthogApp(revisions, 'credential-rollback')
+
+        const run = await request(app)
+            .post('/agents/credential-rollback/run')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ message: 'first' })
+        expect(run.status).toBe(200)
+        const sessionId = run.body.session_id
+        await credentialBroker.write(sessionId, {
+            posthog_api: { kind: 'posthog_bearer', token: 'prior-token' },
+        })
+
+        vi.spyOn(queue, 'update').mockRejectedValueOnce(new Error('queue update failed'))
+        const send = await request(app)
+            .post('/agents/credential-rollback/send')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ session_id: sessionId, message: 'second' })
+
+        expect(send.status).toBe(500)
+        await expect(credentialBroker.resolve(sessionId, 'posthog_api')).resolves.toEqual({
+            kind: 'posthog_bearer',
+            token: 'prior-token',
+        })
     })
 
     it('POST /send buffers into pending_inputs (drained by runner at next turn)', async () => {
@@ -674,6 +755,56 @@ describe('ingress HTTP server (path mode)', () => {
         expect(res.status).toBe(200)
         expect(res.body.url).toBe('https://dom-agent.agents.test/mcp')
         expect(res.body.snippets.mcp_json.mcpServers['dom-agent'].url).toBe('https://dom-agent.agents.test/mcp')
+    })
+
+    it('domain mode serves /run at root and via the path alias for internal hosts', async () => {
+        const { revisions, app } = mk({ routingMode: 'domain', domainSuffix: '.agents.test' })
+        await seedApp(revisions, 'alias-agent')
+        // Public edge shape: slug in Host, route at root.
+        const domainRes = await request(app).post('/run').set('Host', 'alias-agent.agents.test').send({ message: 'hi' })
+        expect(domainRes.status).toBe(200)
+        expect(domainRes.body.session_id).not.toBeUndefined()
+        // In-cluster shape: Django (preview-proxy, IngressClient) addresses the
+        // ingress Service directly, so Host is the Service DNS name and the slug
+        // rides in the path. Before the alias mount this 404ed in domain mode.
+        const pathRes = await request(app)
+            .post('/agents/alias-agent/run')
+            .set('Host', 'agent-ingress.svc.cluster.local:3030')
+            .send({ message: 'hi' })
+        expect(pathRes.status).toBe(200)
+        expect(pathRes.body.session_id).not.toBeUndefined()
+    })
+
+    it('domain mode resolves a non-live revision through the path alias (preview-proxy URL shape)', async () => {
+        const { revisions, queue, app } = mk({ routingMode: 'domain', domainSuffix: '.agents.test' })
+        const { app: agentApp, rev: liveRev } = await seedApp(revisions, 'alias-draft')
+        const draft = await revisions.createRevision({
+            application_id: agentApp.id,
+            parent_revision_id: liveRev.id,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: liveRev.spec,
+        })
+        const res = await request(app)
+            .post(`/agents/alias-draft-${draft.id.replace(/-/g, '')}/run`)
+            .set('Host', 'agent-ingress.svc.cluster.local:3030')
+            .send({ message: 'hi' })
+        expect(res.status).toBe(200)
+        const session = await queue.get(res.body.session_id)
+        expect(session!.revision_id).toBe(draft.id)
+    })
+
+    it('domain mode rejects path-form URLs on public *.domainSuffix hosts', async () => {
+        const { revisions, app } = mk({ routingMode: 'domain', domainSuffix: '.agents.test' })
+        await seedApp(revisions, 'fenced-agent')
+        // The alias exists for in-cluster callers only; the public edge keeps
+        // exactly one URL shape per agent (slug in Host, routes at root).
+        const res = await request(app)
+            .post('/agents/fenced-agent/run')
+            .set('Host', 'fenced-agent.agents.test')
+            .send({ message: 'hi' })
+        expect(res.status).toBe(404)
+        expect(res.body.error).toBe('use_host_routing')
     })
 
     it('GET /mcp/connect-info renders Bearer placeholder for a PAT-gated agent', async () => {

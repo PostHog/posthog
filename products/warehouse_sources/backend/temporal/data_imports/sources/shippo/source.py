@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ShippoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shippo import ShippoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ShippoSource(ResumableSource[ShippoSourceConfig, ShippoResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.goshippo.com/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -56,7 +57,6 @@ You can find your live (`shippo_live_...`) and test (`shippo_test_...`) API toke
 """,
             iconPath="/static/services/shippo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/shippo",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
@@ -92,6 +92,7 @@ You can find your live (`shippo_live_...`) and test (`shippo_test_...`) API toke
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only shipments supports incremental sync — it is the one endpoint with a server-side
         # creation-date filter (object_created_gt/lte). Everything else is full refresh.
@@ -114,7 +115,11 @@ You can find your live (`shippo_live_...`) and test (`shippo_test_...`) API toke
         return schemas
 
     def validate_credentials(
-        self, config: ShippoSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ShippoSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API token is account-wide, so a single probe validates access to every schema.
         return validate_shippo_credentials(config.api_key)

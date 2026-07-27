@@ -19,8 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GuardianSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.guardian import (
+    GuardianSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.guardian import (
     GuardianResumeConfig,
     guardian_source,
@@ -28,7 +33,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.g
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.settings import (
     ENDPOINTS,
-    GUARDIAN_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -36,6 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GuardianSource(ResumableSource[GuardianSourceConfig, GuardianResumeConfig]):
+    api_docs_url = "https://open-platform.theguardian.com/documentation/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -49,7 +54,6 @@ class GuardianSource(ResumableSource[GuardianSourceConfig, GuardianResumeConfig]
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="The Guardian",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Guardian Open Platform API key to pull Guardian news content into the PostHog Data warehouse.
 
 You can request a free developer key from the [Guardian Open Platform](https://open-platform.theguardian.com/access/). Free keys are rate-limited (~12 requests/second, ~5,000 requests/day), so an initial backfill of the full content archive can take a while.
@@ -94,25 +98,16 @@ You can request a free developer key from the [Guardian Open Platform](https://o
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = GUARDIAN_ENDPOINTS[endpoint]
-            return SourceSchema(
-                name=endpoint,
-                supports_incremental=endpoint_config.supports_incremental,
-                supports_append=endpoint_config.supports_incremental,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=endpoint_config.should_sync_default,
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: GuardianSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GuardianSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_guardian_credentials(config.api_key):
             return True, None
@@ -131,9 +126,9 @@ You can request a free developer key from the [Guardian Open Platform](https://o
         return guardian_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,

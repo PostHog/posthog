@@ -393,11 +393,11 @@ def _hash_email(email: str) -> str:
 
 
 def _get_esp_suppression_cache_key(email: str) -> str:
-    return f"email_mfa_suppressed:{_hash_email(email)}"
+    return f"code_based_verification_suppressed:{_hash_email(email)}"
 
 
 def _get_esp_suppression_error_cache_key(email: str) -> str:
-    return f"email_mfa_suppressed_error:{_hash_email(email)}"
+    return f"code_based_verification_suppressed_error:{_hash_email(email)}"
 
 
 def _capture_esp_suppression_analytics(

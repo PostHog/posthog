@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { ReactNode } from 'react'
 
 import { IconWarning } from '@posthog/icons'
@@ -588,28 +588,35 @@ export function getFunnelDatasetKey(dataset: { breakdown_value?: BreakdownKeyTyp
     return JSON.stringify(payload)
 }
 
+/** Identifies the base series — deliberately excludes `compare_label`, so that current and
+ * previous period datasets share a single result customization. */
 export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
+    // for formulas, the position (not seriesIndex) identifies the base series: with compare
+    // enabled, previous-period datasets have offset series indexes, but share the position
+    // with their current-period counterpart
+    const formulaPosition = getTrendDatasetPosition(dataset)
     const payload = {
         series: Number.isInteger(dataset.action?.order)
             ? dataset.action?.order
-            : dataset.seriesIndex > 0
-              ? `formula${dataset.seriesIndex + 1}`
+            : formulaPosition > 0
+              ? `formula${formulaPosition + 1}`
               : 'formula',
         breakdown_value:
             dataset.breakdown_value !== undefined && !Array.isArray(dataset.breakdown_value)
                 ? [dataset.breakdown_value]
                 : dataset.breakdown_value,
-        compare_label: dataset.compare_label,
     }
 
     return JSON.stringify(payload)
 }
 
 export function getTrendDatasetPosition(dataset: IndexedTrendResult): number {
-    return dataset.seriesIndex ?? dataset.colorIndex ?? ((dataset as any).index as number)
+    // colorIndex is shared by current/previous period pairs, so position-based
+    // customizations apply to the base series rather than each period separately
+    return dataset.colorIndex ?? dataset.seriesIndex ?? ((dataset as any).index as number)
 }
 
-/** Type guard to determine wether we have a FunnelStepWithConversionMetrics or a FlattenedFunnelStepByBreakdown */
+/** Type guard to determine whether we have a FunnelStepWithConversionMetrics or a FlattenedFunnelStepByBreakdown */
 function isFunnelStepWithConversionMetrics(
     dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
 ): dataset is FunnelStepWithConversionMetrics {
@@ -675,15 +682,9 @@ export function getTrendResultCustomizationColorToken(
     const resultCustomization = getTrendResultCustomization(resultCustomizationBy, dataset, resultCustomizations)
 
     // for result customizations without a configuration, the color is determined
-    // by the position in the dataset. colors repeat after all options
-    // have been exhausted.
-    // For comparison data (current vs previous periods), use colorIndex to ensure
-    // they get the same base color when customizing by value
-    const isValueBasedCustomization = !resultCustomizationBy || resultCustomizationBy === ResultCustomizationBy.Value
-    const datasetPosition =
-        isValueBasedCustomization && dataset.colorIndex !== undefined
-            ? dataset.colorIndex
-            : getTrendDatasetPosition(dataset)
+    // by the position in the dataset (shared by current/previous period pairs).
+    // colors repeat after all options have been exhausted.
+    const datasetPosition = getTrendDatasetPosition(dataset)
     const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
 
     return resultCustomization && resultCustomization.color

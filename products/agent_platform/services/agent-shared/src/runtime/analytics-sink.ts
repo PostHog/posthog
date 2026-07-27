@@ -26,6 +26,7 @@
 
 import { PostHog } from 'posthog-node'
 
+import { assertGatewayProvenance, type GatewaySettledCost } from './gateway-wire'
 import { createLogger } from './logger'
 
 /**
@@ -80,11 +81,11 @@ export interface AnalyticsGenerationEvent extends AnalyticsEventBase {
     /** Wall-clock duration of the pi-ai call, milliseconds. */
     latency_ms: number
     /**
-     * Total cost in USD. No longer set by the runner — the gateway emits cost on
-     * the gateway path, and ingestion prices direct-path events from the
-     * catalog. pi-ai's estimate is never used. Kept on the shape for consumers.
+     * Settled cost, when known. Provenance-tagged (see `./gateway-wire`) so a
+     * pi-ai/provider estimate can't be assigned without a type error;
+     * `buildAnalyticsProperties` also throws on a wrong-provenance value cast in.
      */
-    cost_usd?: number
+    cost?: GatewaySettledCost
     /** pi-ai stopReason — `stop`, `length`, `toolUse`, `error`, `aborted`. */
     stop_reason?: string
     /** 0-based index of the model in the policy list that answered. >0 means a fallback. */
@@ -211,8 +212,11 @@ export function buildAnalyticsProperties(event: AnalyticsEvent): Record<string, 
             base.$ai_total_tokens = event.total_tokens
         }
         base.$ai_latency = event.latency_ms / 1000
-        if (event.cost_usd !== undefined) {
-            base.$ai_total_cost_usd = event.cost_usd
+        if (event.cost !== undefined) {
+            // Throws (caught by the sinks around this call) on anything that
+            // isn't a genuine gateway-settled figure — the single choke point
+            // that keeps a client-side cost estimate out of analytics.
+            base.$ai_total_cost_usd = assertGatewayProvenance(event.cost).usd
         }
         if (event.stop_reason) {
             base.$ai_stop_reason = event.stop_reason
@@ -478,7 +482,17 @@ export class RoutingAnalyticsSink implements AnalyticsSink {
             const resolved = keyByTeam.get(event.team_id) ?? null
             const apiKey = resolved ?? this.opts.fallbackApiKey ?? null
             const eventName = eventNameFor(event)
-            const properties = buildAnalyticsProperties(event)
+            let properties: Record<string, unknown>
+            try {
+                // Can throw — e.g. the cost-provenance guard rejecting a
+                // non-gateway-settled figure. Drop just this event rather than
+                // letting a bad property bag reach `tap`/`capture`.
+                properties = buildAnalyticsProperties(event)
+            } catch (err) {
+                this.log.error('dropping event: invalid properties', { event: eventName, error: String(err) })
+                dropped++
+                continue
+            }
             this.opts.tap?.({ apiKey, eventName, event, properties })
             if (!apiKey) {
                 dropped++

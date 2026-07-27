@@ -20,13 +20,16 @@
  * <phs_…>` (it reads only that header). pi-ai's openai shapes already send the
  * apiKey as `Authorization: Bearer`, but its anthropic-messages shape sends it
  * as `x-api-key` with no `Authorization` — so a Claude model would 401 at the
- * gateway's auth tier. We pin `Authorization: Bearer <key>` on the model so
- * every shape authenticates the way the gateway expects. pi-ai still sends the
- * key as the provider credential too (x-api-key for Anthropic), which the
+ * gateway's auth tier. We pin the header via agent-shared's
+ * `gatewayAuthHeader` (the same builder every other gateway caller uses) so
+ * every shape authenticates the way the gateway expects. pi-ai still sends
+ * the key as the provider credential too (x-api-key for Anthropic), which the
  * gateway overrides when it forwards to the upstream provider.
  */
 
 import type { Model } from '@earendil-works/pi-ai'
+
+import { gatewayAuthHeader } from '@posthog/agent-shared'
 
 import { resolveModel } from './pi-client'
 
@@ -64,7 +67,7 @@ export function posthogAiGatewayModel(opts: AiGatewayModelOpts): Model<string> {
         baseUrl: gatewayBaseUrlForApi(native.api, opts.baseUrl),
         headers: {
             ...native.headers,
-            Authorization: `Bearer ${opts.apiKey}`,
+            ...gatewayAuthHeader(opts.apiKey),
         },
     }
 }

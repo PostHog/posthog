@@ -1,151 +1,249 @@
+import json
 import time
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
-import requests
 from parameterized import parameterized
+from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired import shopwired
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.settings import (
-    PAGE_SIZE,
-    SHOPWIRED_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.settings import PAGE_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.shopwired import (
     ShopWiredResumeConfig,
-    ShopWiredRetryableError,
-    check_access,
-    get_rows,
     shopwired_source,
     to_unix_timestamp,
     validate_credentials,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = shopwired._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the shopwired module.
+SHOPWIRED_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.shopwired.make_tracked_session"
+)
 
 
-class _FakeResumableManager:
-    def __init__(self, state: ShopWiredResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[ShopWiredResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> ShopWiredResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: ShopWiredResumeConfig) -> None:
-        self.saved.append(data)
+def _response(body: Any, status: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-def _full_page(start_id: int) -> list[dict]:
+def _full_page(start_id: int) -> list[dict[str, Any]]:
     return [{"id": start_id + i} for i in range(PAGE_SIZE)]
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: dict[int, list[dict]],
-        endpoint: str = "products",
-        db_incremental_field_last_value: Any = None,
-        requested_params: list[dict] | None = None,
-    ) -> list[dict]:
-        def fake_fetch(session: Any, path: str, params: dict[str, Any], logger: Any) -> list[dict]:
-            if requested_params is not None:
-                requested_params.append(params)
-            return pages[params.get("offset", 0)]
+def _make_manager(resume_state: ShopWiredResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
-        monkeypatch.setattr(shopwired, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(shopwired, "_make_session", lambda *args: MagicMock())
 
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="sw-key",
-            api_secret="sw-secret",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ):
-            rows.extend(batch)
-        return rows
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params AT SEND TIME.
 
-    def test_short_page_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {0: [{"id": 1}, {"id": 2}]})
-        assert rows == [{"id": 1}, {"id": 2}]
-        # The page is short, so we stop without persisting resume state.
-        assert manager.saved == []
+    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
+    request is prepared rather than inspecting the shared dict after the run.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
 
-    def test_follows_offset_pagination_until_short_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {0: _full_page(0), PAGE_SIZE: [{"id": 999}]}
-        rows = self._collect(manager, monkeypatch, pages)
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
+    return shopwired_source(
+        api_key="sw-key",
+        api_secret="sw-secret",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="job-1",
+        resumable_source_manager=manager,
+        **kwargs,
+    )
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_and_progresses_offset(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response(_full_page(0)), _response([{"id": 999}])])
+
+        manager = _make_manager()
+        rows = _rows(_source("products", manager))
+
         assert len(rows) == PAGE_SIZE + 1
-        # State is saved after the full first page (offset advances by its row count), then we stop.
-        assert [s.offset for s in manager.saved] == [PAGE_SIZE]
+        assert rows[-1] == {"id": 999}
+        # count/offset are ShopWired's pagination params (limit_param="count").
+        assert params[0]["offset"] == 0
+        assert params[0]["count"] == PAGE_SIZE
+        assert params[1]["offset"] == PAGE_SIZE
+        # Checkpoint saved once after the full first page (points at the next page); short page ends it.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == ShopWiredResumeConfig(offset=PAGE_SIZE, from_timestamp=None)
 
-    def test_resumes_from_saved_offset_and_pinned_window(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(ShopWiredResumeConfig(offset=200, from_timestamp=1700000000))
-        requested: list[dict] = []
-        rows = self._collect(
-            manager,
-            monkeypatch,
-            {200: [{"id": 5}]},
-            endpoint="orders",
-            # A watermark that advanced mid-run must not replace the pinned window from the resume state.
-            db_incremental_field_last_value=datetime(2024, 6, 1, tzinfo=UTC),
-            requested_params=requested,
-        )
-        assert rows == [{"id": 5}]
-        assert requested[0]["offset"] == 200
-        assert requested[0]["from"] == 1700000000
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}, {"id": 2}])])
 
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {0: []})
+        manager = _make_manager()
+        rows = _rows(_source("products", manager))
+
+        assert rows == [{"id": 1}, {"id": 2}]
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        manager = _make_manager()
+        rows = _rows(_source("products", manager))
+
         assert rows == []
-        assert manager.saved == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-    def test_incremental_run_sends_from_and_sort_params(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        requested: list[dict] = []
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_offset_and_pinned_window(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": 5}])])
+
+        manager = _make_manager(ShopWiredResumeConfig(offset=200, from_timestamp=1700000000))
+        rows = _rows(
+            _source(
+                "orders",
+                manager,
+                should_use_incremental_field=True,
+                # A watermark that advanced mid-run must not replace the pinned window from resume state.
+                db_incremental_field_last_value=datetime(2024, 6, 1, tzinfo=UTC),
+            )
+        )
+
+        assert rows == [{"id": 5}]
+        assert params[0]["offset"] == 200
+        assert params[0]["from"] == 1700000000
+
+
+class TestIncrementalParams:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_run_sends_from_and_sort(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": 1}])])
+
         watermark = datetime(2024, 1, 1, tzinfo=UTC)
-        self._collect(
-            manager,
-            monkeypatch,
-            {0: [{"id": 1}]},
-            endpoint="orders",
-            db_incremental_field_last_value=watermark,
-            requested_params=requested,
+        _rows(
+            _source(
+                "orders",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=watermark,
+            )
         )
-        assert requested[0]["from"] == int(watermark.timestamp())
-        assert requested[0]["sort"] == "date"
 
-    def test_full_refresh_run_omits_from_param(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        requested: list[dict] = []
-        self._collect(manager, monkeypatch, {0: [{"id": 1}]}, endpoint="products", requested_params=requested)
-        assert "from" not in requested[0]
-        assert "sort" not in requested[0]
+        assert params[0]["from"] == int(watermark.timestamp())
+        assert params[0]["sort"] == "date"
 
-    def test_unpaginated_endpoint_fetches_once(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        requested: list[dict] = []
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_run_omits_from_and_sort(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": 1}])])
+
+        _rows(_source("products", _make_manager()))
+
+        assert "from" not in params[0]
+        assert "sort" not in params[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_orders_full_refresh_omits_from_but_keeps_sort(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": 1}])])
+
+        # Orders always sort by date so the ascending watermark advances correctly, even on a full
+        # refresh where no `from` window is applied.
+        _rows(_source("orders", _make_manager(), should_use_incremental_field=False))
+
+        assert "from" not in params[0]
+        assert params[0]["sort"] == "date"
+
+
+class TestUnpaginatedEndpoint:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_order_statuses_fetches_once_without_pagination_params(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
         # A full-size page must not trigger a second request — order statuses document no pagination.
-        rows = self._collect(
-            manager, monkeypatch, {0: _full_page(0)}, endpoint="order_statuses", requested_params=requested
-        )
+        params = _wire(session, [_response(_full_page(0))])
+
+        manager = _make_manager()
+        rows = _rows(_source("order_statuses", manager))
+
         assert len(rows) == PAGE_SIZE
-        assert len(requested) == 1
-        assert requested[0] == {}
-        assert manager.saved == []
+        assert session.send.call_count == 1
+        assert params[0] == {}
+        manager.save_state.assert_not_called()
+
+
+class TestErrorClassification:
+    @staticmethod
+    def _no_sleep() -> Any:
+        # The client retries retryable errors with exponential backoff; neutralize the sleep so
+        # retry-path tests stay instant and deterministic.
+        return mock.patch.object(RESTClient._send_request.retry, "sleep", lambda *a, **k: None)  # type: ignore[attr-defined]
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_raise(self, _name: str, status: int, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"error": "nope"}, status=status)])
+
+        # 4xx is permanent — it must surface (not retry, not silently sync 0 rows).
+        with pytest.raises(HTTPError):
+            _rows(_source("products", _make_manager()))
+        assert session.send.call_count == 1
+
+    @parameterized.expand([("server_error", 500), ("service_unavailable", 503), ("rate_limited", 429)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_statuses_are_retried_then_succeed(
+        self, _name: str, status: int, MockSession: mock.MagicMock
+    ) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({}, status=status), _response([{"id": 1}])])
+
+        with self._no_sleep():
+            rows = _rows(_source("products", _make_manager()))
+
+        assert rows == [{"id": 1}]
+        assert session.send.call_count == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_body_is_retried_not_yielded(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        # A 200 whose body isn't the expected bare array is treated as transient and retried rather
+        # than wrapped as a single stray row.
+        _wire(session, [_response({"error": "unexpected"}), _response([{"id": 1}])])
+
+        with self._no_sleep():
+            rows = _rows(_source("products", _make_manager()))
+
+        assert rows == [{"id": 1}]
+        assert session.send.call_count == 2
 
 
 class TestToUnixTimestamp:
@@ -163,6 +261,7 @@ class TestToUnixTimestamp:
             ("naive_iso_string", "2024-01-01T00:00:00", 1704067200),
             ("unparseable_string", "not-a-date-at-all-99", None),
             ("empty_string", "", None),
+            ("bool", True, None),
         ]
     )
     def test_conversion(self, _name: str, value: Any, expected: int | None) -> None:
@@ -182,90 +281,7 @@ class TestToUnixTimestamp:
             time.tzset()
 
 
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else []
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
-
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(ShopWiredRetryableError):
-            _fetch_page_unwrapped(session, "/products", {"count": PAGE_SIZE, "offset": 0}, MagicMock())
-
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, "/products", {"count": PAGE_SIZE, "offset": 0}, MagicMock())
-
-    def test_success_returns_bare_array(self) -> None:
-        session = self._session_returning(200, [{"id": 1}])
-        assert _fetch_page_unwrapped(session, "/products", {}, MagicMock()) == [{"id": 1}]
-
-    def test_non_list_body_is_retryable(self) -> None:
-        session = self._session_returning(200, {"error": "unexpected"})
-        with pytest.raises(ShopWiredRetryableError):
-            _fetch_page_unwrapped(session, "/products", {}, MagicMock())
-
-    def test_params_are_passed_through(self) -> None:
-        session = self._session_returning(200, [])
-        params = {"count": PAGE_SIZE, "offset": 300, "sort": "date", "from": 1700000000}
-        _fetch_page_unwrapped(session, "/orders", params, MagicMock())
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == params
-
-
-class TestCheckAccess:
-    @staticmethod
-    def _session(response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "ShopWired returned HTTP 500"),
-        ]
-    )
-    @patch(f"{shopwired.__name__}.make_tracked_session")
-    def test_status_mapping(
-        self,
-        _name: str,
-        status: int,
-        ok: bool,
-        expected_status: int,
-        expected_message: str | None,
-        mock_session: MagicMock,
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        mock_session.return_value = self._session(response)
-        assert check_access("sw-key", "sw-secret") == (expected_status, expected_message)
-
-    @patch(f"{shopwired.__name__}.make_tracked_session")
-    def test_connection_error_maps_to_zero(self, mock_session: MagicMock) -> None:
-        mock_session.return_value = self._session(requests.ConnectionError("boom"))
-        status, message = check_access("sw-key", "sw-secret")
-        assert status == 0
-        assert message is not None and "boom" in message
-
+class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
@@ -274,54 +290,43 @@ class TestCheckAccess:
             ("server_error", 500, False, "ShopWired returned HTTP 500"),
         ]
     )
-    @patch(f"{shopwired.__name__}.make_tracked_session")
-    def test_validate_credentials(
+    @mock.patch(SHOPWIRED_SESSION_PATCH)
+    def test_status_mapping(
         self,
         _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
-        mock_session: MagicMock,
+        mock_session: mock.MagicMock,
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        mock_session.return_value = self._session(response)
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
         assert validate_credentials("sw-key", "sw-secret") == (expected_valid, expected_message)
+
+    @mock.patch(SHOPWIRED_SESSION_PATCH)
+    def test_connection_error_is_not_valid(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+        valid, message = validate_credentials("sw-key", "sw-secret")
+        assert valid is False
+        assert message == "Could not connect to ShopWired"
 
 
 class TestShopWiredSourceResponse:
-    @parameterized.expand([(name,) for name in SHOPWIRED_ENDPOINTS])
+    @parameterized.expand([("products",), ("orders",), ("order_statuses",), ("vouchers",)])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = shopwired_source(
-            api_key="sw-key",
-            api_secret="sw-secret",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         assert response.sort_mode == "asc"
+        assert response.partition_count == 1
+        assert response.partition_size == 1
 
     def test_orders_partition_on_stable_created_field(self) -> None:
-        response = shopwired_source(
-            api_key="sw-key",
-            api_secret="sw-secret",
-            endpoint="orders",
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source("orders", _make_manager())
         assert response.partition_mode == "datetime"
+        assert response.partition_format == "month"
         assert response.partition_keys == ["created"]
 
     def test_non_order_endpoints_have_no_datetime_partition(self) -> None:
-        response = shopwired_source(
-            api_key="sw-key",
-            api_secret="sw-secret",
-            endpoint="products",
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source("products", _make_manager())
         assert response.partition_mode is None
         assert response.partition_keys is None

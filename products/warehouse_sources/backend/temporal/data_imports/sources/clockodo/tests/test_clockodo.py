@@ -1,44 +1,89 @@
+import json
 from datetime import UTC, datetime
 from typing import Any
 
 from freezegun import freeze_time
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
-import pyarrow as pa
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo import clockodo
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.clockodo import (
     EXTERNAL_APPLICATION_NAME,
     ClockodoResumeConfig,
-    _build_headers,
     _endpoint_params,
     _format_z,
     clockodo_source,
-    get_rows,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the clockodo module.
+CLOCKODO_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.clockodo.make_tracked_session"
 )
 
 
-def _row_count(tables: list[pa.Table]) -> int:
-    return sum(t.num_rows for t in tables)
+def _response(
+    items: list[dict[str, Any]] | None,
+    *,
+    data_key: str = "customers",
+    count_pages: int | None = None,
+    drop_data: bool = False,
+) -> Response:
+    body: dict[str, Any] = {}
+    if count_pages is not None:
+        body["paging"] = {"count_pages": count_pages}
+    if not drop_data:
+        body[data_key] = items or []
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-def _ids(tables: list[pa.Table]) -> list[Any]:
-    ids: list[Any] = []
-    for t in tables:
-        ids.extend(t.column("id").to_pylist())
-    return ids
+def _make_manager(resume_state: ClockodoResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
 
-class TestHeaders:
-    def test_includes_mandatory_external_application_header(self) -> None:
-        headers = _build_headers("me@example.com", "key123")
-        assert headers["X-ClockodoApiUser"] == "me@example.com"
-        assert headers["X-ClockodoApiKey"] == "key123"
-        # The API rejects every request without this identification header.
-        assert headers["X-Clockodo-External-Application"] == f"{EXTERNAL_APPLICATION_NAME};me@example.com"
+def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[Any]]:
+    """Wire a mock session; capture each request's params and auth AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
+    run shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+    auth_snapshots: list[Any] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        auth_snapshots.append(request.auth)
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots, auth_snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(endpoint: str, manager: mock.MagicMock):
+    return clockodo_source(
+        api_user="me@example.com",
+        api_key="key123",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+    )
 
 
 class TestFormatZ:
@@ -68,149 +113,160 @@ class TestEndpointParams:
         assert "time_until" not in params
 
 
-# Force a 1-row chunk so every row yields a table — exercises the resume save path.
-def _patch_small_batcher() -> Any:
-    def _factory(*_args: Any, logger: Any = None, **_kwargs: Any) -> Batcher:
-        return Batcher(logger=logger or MagicMock(), chunk_size=1, chunk_size_bytes=10**12)
+class TestHeadersAndAuth:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_identification_headers_and_api_key_auth(self, MockSession) -> None:
+        session = MockSession.return_value
+        _params, auths = _wire(session, [_response([{"id": 1}], count_pages=1)])
 
-    return patch.object(clockodo, "Batcher", side_effect=_factory)
+        _rows(_source("customers", _make_manager()))
+
+        # The API rejects every request without the identification headers.
+        assert session.headers["X-ClockodoApiUser"] == "me@example.com"
+        assert session.headers["X-Clockodo-External-Application"] == f"{EXTERNAL_APPLICATION_NAME};me@example.com"
+        # The API key travels via the framework auth config so its value is redacted from logs.
+        auth = auths[0]
+        assert isinstance(auth, APIKeyAuth)
+        assert auth.name == "X-ClockodoApiKey"
+        assert auth.api_key == "key123"
+        assert auth.location == "header"
 
 
-class TestGetRows:
-    def test_paginated_walks_all_pages_and_saves_state(self) -> None:
-        pages = {
-            1: {"paging": {"count_pages": 2}, "customers": [{"id": 1}, {"id": 2}]},
-            2: {"paging": {"count_pages": 2}, "customers": [{"id": 3}]},
-        }
-        seen_pages: list[int] = []
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginated_walks_all_pages_and_saves_state(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _auths = _wire(
+            session,
+            [
+                _response([{"id": 1}, {"id": 2}], count_pages=2),
+                _response([{"id": 3}], count_pages=2),
+            ],
+        )
 
-        def fake_fetch(_session: Any, _url: str, _headers: Any, params: dict, _logger: Any) -> dict:
-            seen_pages.append(params["page"])
-            return pages[params["page"]]
+        manager = _make_manager()
+        rows = _rows(_source("customers", manager))
 
-        manager = MagicMock()
-        manager.can_resume.return_value = False
+        assert [r["id"] for r in rows] == [1, 2, 3]
+        assert params[0]["page"] == 1
+        assert params[1]["page"] == 2
+        # Checkpoint saved after the first page (points at the next page to fetch); the paging
+        # block says page 2 is the last, so no further checkpoint is written.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == ClockodoResumeConfig(next_page=2)
 
-        with (
-            patch.object(clockodo, "make_tracked_session", return_value=MagicMock()),
-            patch.object(clockodo, "_fetch_page", side_effect=fake_fetch),
-            _patch_small_batcher(),
-        ):
-            tables = list(get_rows("u", "k", "customers", MagicMock(), manager))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_after_count_pages_without_extra_request(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}], count_pages=1)])
 
-        assert seen_pages == [1, 2]
-        assert _ids(tables) == [1, 2, 3]
-        # State is saved once per page, pointing at the oldest unflushed page (the page being
-        # processed here, since every row yields), so a crash re-fetches it rather than skipping its tail.
-        saved = [c.args[0].next_page for c in manager.save_state.call_args_list]
-        assert saved == [1, 2]
+        manager = _make_manager()
+        rows = _rows(_source("customers", manager))
 
-    def test_paginated_saves_state_per_page_even_without_a_yield(self) -> None:
-        # Realistic batcher: pages are far under the chunk threshold, so nothing yields mid-walk.
-        # State must still be saved once per page (pointing at page 1, the oldest unflushed page)
-        # so a crash resumes near where it stopped rather than always from page 1.
-        pages = {
-            1: {"paging": {"count_pages": 2}, "customers": [{"id": 1}, {"id": 2}]},
-            2: {"paging": {"count_pages": 2}, "customers": [{"id": 3}]},
-        }
-
-        def fake_fetch(_session: Any, _url: str, _headers: Any, params: dict, _logger: Any) -> dict:
-            return pages[params["page"]]
-
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-
-        with (
-            patch.object(clockodo, "make_tracked_session", return_value=MagicMock()),
-            patch.object(clockodo, "_fetch_page", side_effect=fake_fetch),
-        ):
-            tables = list(get_rows("u", "k", "customers", MagicMock(), manager))
-
-        assert _ids(tables) == [1, 2, 3]
-        saved = [c.args[0].next_page for c in manager.save_state.call_args_list]
-        assert saved == [1, 1]
-
-    def test_resumes_from_saved_page(self) -> None:
-        pages = {2: {"paging": {"count_pages": 2}, "customers": [{"id": 3}]}}
-        seen_pages: list[int] = []
-
-        def fake_fetch(_session: Any, _url: str, _headers: Any, params: dict, _logger: Any) -> dict:
-            seen_pages.append(params["page"])
-            return pages[params["page"]]
-
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = ClockodoResumeConfig(next_page=2)
-
-        with (
-            patch.object(clockodo, "make_tracked_session", return_value=MagicMock()),
-            patch.object(clockodo, "_fetch_page", side_effect=fake_fetch),
-            _patch_small_batcher(),
-        ):
-            tables = list(get_rows("u", "k", "customers", MagicMock(), manager))
-
-        # Picks up at the saved page rather than restarting at page 1.
-        assert seen_pages == [2]
-        assert _ids(tables) == [3]
-
-    def test_non_paginated_single_fetch(self) -> None:
-        seen_params: list[dict] = []
-
-        def fake_fetch(_session: Any, _url: str, _headers: Any, params: dict, _logger: Any) -> dict:
-            seen_params.append(dict(params))
-            return {"services": [{"id": 1}, {"id": 2}]}
-
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-
-        with (
-            patch.object(clockodo, "make_tracked_session", return_value=MagicMock()),
-            patch.object(clockodo, "_fetch_page", side_effect=fake_fetch),
-            _patch_small_batcher(),
-        ):
-            tables = list(get_rows("u", "k", "services", MagicMock(), manager))
-
-        assert len(seen_params) == 1
-        # Non-paginated endpoints never send a page param.
-        assert "page" not in seen_params[0]
-        assert _ids(tables) == [1, 2]
+        assert [r["id"] for r in rows] == [1]
+        assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
-    def test_empty_response_yields_nothing(self) -> None:
-        def fake_fetch(_session: Any, _url: str, _headers: Any, params: dict, _logger: Any) -> dict:
-            return {"paging": {"count_pages": 1}, "customers": []}
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_page_terminates_before_count_pages(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": 1}], count_pages=3),
+                _response([], count_pages=3),
+            ],
+        )
 
-        manager = MagicMock()
-        manager.can_resume.return_value = False
+        rows = _rows(_source("customers", _make_manager()))
 
-        with (
-            patch.object(clockodo, "make_tracked_session", return_value=MagicMock()),
-            patch.object(clockodo, "_fetch_page", side_effect=fake_fetch),
-            _patch_small_batcher(),
-        ):
-            tables = list(get_rows("u", "k", "customers", MagicMock(), manager))
+        # An empty page ends the walk even when the paging block promises more pages.
+        assert [r["id"] for r in rows] == [1]
+        assert session.send.call_count == 2
 
-        assert _row_count(tables) == 0
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _auths = _wire(session, [_response([{"id": 3}], count_pages=2)])
+
+        manager = _make_manager(ClockodoResumeConfig(next_page=2))
+        rows = _rows(_source("customers", manager))
+
+        # Picks up at the saved page rather than restarting at page 1.
+        assert params[0]["page"] == 2
+        assert [r["id"] for r in rows] == [3]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_paginated_single_fetch(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _auths = _wire(session, [_response([{"id": 1}, {"id": 2}], data_key="services")])
+
+        manager = _make_manager()
+        rows = _rows(_source("services", manager))
+
+        assert session.send.call_count == 1
+        # Non-paginated endpoints never send a page param.
+        assert "page" not in params[0]
+        assert [r["id"] for r in rows] == [1, 2]
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @freeze_time("2026-06-29T12:00:00Z")
+    def test_entries_sends_time_window(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _auths = _wire(session, [_response([{"id": 1}], data_key="entries", count_pages=1)])
+
+        _rows(_source("entries", _make_manager()))
+
+        assert params[0]["time_since"] == "2000-01-01T00:00:00Z"
+        assert params[0]["time_until"] == "2027-06-29T12:00:00Z"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_response_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([], count_pages=1)])
+
+        rows = _rows(_source("customers", _make_manager()))
+
+        assert rows == []
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_data_key_yields_no_rows(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(None, count_pages=1, drop_data=True)])
+
+        rows = _rows(_source("customers", _make_manager()))
+
+        assert rows == []
 
 
 class TestClockodoSourceResponse:
     @parameterized.expand([("customers",), ("entries",), ("users",)])
-    def test_primary_keys_default_to_id(self, endpoint: str) -> None:
-        response = clockodo_source("u", "k", endpoint, MagicMock(), MagicMock())
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_primary_keys_default_to_id(self, endpoint: str, MockSession) -> None:
+        response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_validate_credentials_status_mapping(self, _name: str, status: int, expected: bool) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=status)
-        with patch.object(clockodo, "make_tracked_session", return_value=session):
-            assert validate_credentials("u", "k") is expected
+    @mock.patch(CLOCKODO_SESSION_PATCH)
+    def test_validate_credentials_status_mapping(self, _name: str, status: int, expected: bool, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
+        assert validate_credentials("u", "k") is expected
 
-    def test_validate_credentials_swallows_transport_errors(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = Exception("boom")
-        with patch.object(clockodo, "make_tracked_session", return_value=session):
-            assert validate_credentials("u", "k") is False
+    @mock.patch(CLOCKODO_SESSION_PATCH)
+    def test_validate_credentials_swallows_transport_errors(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+        assert validate_credentials("u", "k") is False
+
+    @mock.patch(CLOCKODO_SESSION_PATCH)
+    def test_probe_sends_credentials(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        validate_credentials("me@example.com", "key123")
+        _args, kwargs = mock_session.return_value.get.call_args
+        headers = kwargs["headers"]
+        assert headers["X-ClockodoApiUser"] == "me@example.com"
+        assert headers["X-ClockodoApiKey"] == "key123"
+        assert headers["X-Clockodo-External-Application"] == f"{EXTERNAL_APPLICATION_NAME};me@example.com"

@@ -3,7 +3,6 @@ on:
         branches:
             - master
     pull_request:
-    merge_group:
 
 name: Security
 
@@ -307,9 +306,11 @@ jobs:
                       --exclude-rule dockerfile.security.no-sudo-in-dockerfile.no-sudo-in-dockerfile \
                       --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
                       --exclude-rule trailofbits.yaml.docker-compose.port-all-interfaces.port-all-interfaces \
+                      --exclude-rule yaml.github-actions.security.audit.unsafe-add-mask-workflow-command.unsafe-add-mask-workflow-command \
                       --error \
                       --metrics=off \
                       --verbose \
+                      --jobs 4 \
                       --timeout 300 \
                       --exclude ./cli/ \
                       --exclude ./common/ \

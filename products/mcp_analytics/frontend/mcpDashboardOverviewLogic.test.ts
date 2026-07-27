@@ -14,7 +14,6 @@ import { HARNESS_BY_LABEL, harnessLogo } from './dashboard/harnessRegistry'
 import {
     type ActivityRow,
     type BucketRow,
-    buildBucketKeys,
     buildDailyActivity,
     buildKPIs,
     buildKpiWindow,
@@ -22,7 +21,6 @@ import {
     deltaPct,
     lastBucketIsInProgress,
     mcpDashboardOverviewLogic,
-    normalizeBucket,
     pickNotableSessions,
     type SessionRow,
     type ToolDailyRow,
@@ -181,32 +179,6 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
-    describe('buildBucketKeys', () => {
-        it('emits one key per day across the resolved window, including empty trailing days', () => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
-            try {
-                expect(buildBucketKeys({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')).toEqual([
-                    '2026-06-11 00:00:00',
-                    '2026-06-12 00:00:00',
-                    '2026-06-13 00:00:00',
-                    '2026-06-14 00:00:00',
-                    '2026-06-15 00:00:00',
-                    '2026-06-16 00:00:00',
-                    '2026-06-17 00:00:00',
-                    '2026-06-18 00:00:00',
-                ])
-            } finally {
-                jest.useRealTimers()
-            }
-        })
-
-        it('truncates weekly buckets to ISO Monday starts (matching ClickHouse dateTrunc)', () => {
-            // 2026-06-01 is a Monday; every key should land on a Monday.
-            const keys = buildBucketKeys({ dateFrom: '2026-06-01', dateTo: '2026-06-21' }, 'UTC', 'week')
-            expect(keys).toEqual(['2026-06-01 00:00:00', '2026-06-08 00:00:00', '2026-06-15 00:00:00'])
-        })
-    })
-
     describe('buildDailyActivity', () => {
         it('projects rows onto the bucket keys, defaulting missing buckets to zero', () => {
             const rows: ActivityRow[] = [
@@ -265,34 +237,6 @@ describe('mcpDashboardOverviewLogic', () => {
             const now = dayjs.tz('2026-06-29 09:15:00', tz)
             expect(lastBucketIsInProgress(['2026-06-29 00:00:00'], tz, 'day', now)).toBe(false)
             expect(lastBucketIsInProgress([], tz, 'day', now)).toBe(false)
-        })
-    })
-
-    describe('normalizeBucket', () => {
-        // The query API serializes dateTrunc buckets as ISO datetimes; they must come back in the
-        // same format buildBucketKeys emits, otherwise the zero-fill join misses every bucket.
-        it.each([
-            ['2026-06-19T00:00:00Z', 'UTC', '2026-06-19 00:00:00'],
-            ['2026-06-19T00:00:00+00:00', 'UTC', '2026-06-19 00:00:00'],
-            ['2026-06-19T11:30:00Z', 'UTC', '2026-06-19 11:30:00'],
-        ])('normalizes %s (%s) to %s', (raw, timezone, expected) => {
-            expect(normalizeBucket(raw, timezone)).toBe(expected)
-        })
-
-        it('returns empty string for missing values', () => {
-            expect(normalizeBucket(null, 'UTC')).toBe('')
-            expect(normalizeBucket('', 'UTC')).toBe('')
-        })
-
-        it('produces keys that match buildBucketKeys so the activity join lands', () => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
-            try {
-                const bucketKeys = buildBucketKeys({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')
-                const normalized = normalizeBucket('2026-06-18T00:00:00Z', 'UTC')
-                expect(bucketKeys).toContain(normalized)
-            } finally {
-                jest.useRealTimers()
-            }
         })
     })
 

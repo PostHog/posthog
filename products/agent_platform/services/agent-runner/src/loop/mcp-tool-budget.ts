@@ -12,9 +12,9 @@ export interface McpExposureBudget {
     maxInlineChars: number
 }
 
-/** incident.io (38 tools, ~85k chars) stays inline; the PostHog MCP (603, ~2.7M) proxies. */
+/** Curated catalogs up to 50 tools stay inline; the PostHog MCP (603 tools, ~2.7M chars) proxies. */
 export const DEFAULT_MCP_EXPOSURE_BUDGET: McpExposureBudget = {
-    maxInlineTools: 40,
+    maxInlineTools: 50,
     maxInlineChars: 100_000,
 }
 

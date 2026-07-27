@@ -6,7 +6,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SquarespaceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.squarespace import (
+    SquarespaceSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.settings import (
     ENDPOINTS,
     SQUARESPACE_ENDPOINTS,

@@ -17,6 +17,12 @@ class DisplayType(StrEnum):
     SELECT = "select"
 
 
+class TargetType(StrEnum):
+    ACCOUNT = "account"
+    PERSON = "person"
+    GROUP = "group"
+
+
 class DataType(StrEnum):
     STRING = "string"
     NUMERIC = "numeric"
@@ -43,6 +49,19 @@ NUMERIC_DISPLAY_TYPES = [
 class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
+    target_type = models.CharField(
+        choices=[(t.value, t.value) for t in TargetType],
+        default=TargetType.ACCOUNT,
+        max_length=20,
+        help_text="What entity this property is attached to: an account (default), a person, or a group.",
+    )
+    # Only set for group targets: which group type (0-4) the property attaches to. Groups are keyed by
+    # (group_type_index, group_key), so this pins the type; the source's key_column supplies the key.
+    group_type_index = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="For group targets only: the group type index (0-4). Null for account/person targets.",
+    )
     name = models.CharField(max_length=400)
     description = models.TextField(null=True)
     display_type = models.CharField(
@@ -67,6 +86,10 @@ class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields
             models.CheckConstraint(
                 condition=models.Q(is_big_number=False) | models.Q(display_type__in=NUMERIC_DISPLAY_TYPES),
                 name="is_big_number_requires_numeric_display_type",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(target_type=TargetType.GROUP.value) | models.Q(group_type_index__isnull=False),
+                name="group_target_requires_group_type_index",
             ),
         ]
 

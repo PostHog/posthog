@@ -15,7 +15,9 @@ import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
+import { buildToolDomainsCompact } from '@/lib/instructions'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
+import { getToolDefinition } from '@/tools/toolDefinitions'
 
 // A tool with a renderable (dispatchable) UI app — used to exercise the render-ui path.
 const uiAppTool = {
@@ -231,8 +233,15 @@ describe('ToolExecutor', () => {
 
                 const result = await executor.handleToolsList(state)
                 const commandDesc = (result.tools[0]!.inputSchema.properties as any).command.description as string
+                const compactDomains = buildToolDomainsCompact(
+                    tools.map(({ name }) => ({ name, category: getToolDefinition(name).category }))
+                )
 
                 expect(commandDesc).toContain('PostHog tools have lowercase kebab-case naming')
+                expect(commandDesc.includes('**LEARN FIRST: HARD REQUIREMENT**')).toBe(isClaudeChatHost)
+                expect(commandDesc.includes('- analytics:')).toBe(isClaudeChatHost)
+                expect(commandDesc.includes('### Retrieving data')).toBe(!isClaudeChatHost)
+                expect(commandDesc.includes(compactDomains)).toBe(isClaudeChatHost)
                 if (expectEnv) {
                     expect(commandDesc).toContain(metadataMarker)
                 } else {
@@ -241,6 +250,37 @@ describe('ToolExecutor', () => {
             }
         )
 
+        it('serves multiple optional guidance topics through exec learn for Claude web/desktop', async () => {
+            const state = makeState(
+                catalog
+                    .getPreBuiltEntries()
+                    .slice(0, 5)
+                    .map(({ name }) => ({ name })),
+                {
+                    useSingleExec: true,
+                    renderUiEnabled: true,
+                    clientProfile: {
+                        capabilities: { supportsInstructions: true },
+                        isCliModeEnabled: vi.fn(() => true),
+                        isClaudeUiHost: vi.fn(() => false),
+                        isInlineExecUiHost: vi.fn(() => false),
+                        isClaudeChatHost: vi.fn(() => true),
+                    } as any,
+                }
+            )
+
+            const result = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'learn analytics visualizations' } },
+                state
+            )) as { content: { text: string }[] }
+
+            expect(result.content[0]!.text).toContain('## Analytics')
+            expect(result.content[0]!.text).toContain('### Retrieving data')
+            expect(result.content[0]!.text).toContain('### Examples')
+            expect(result.content[0]!.text).toContain('## Visualizations')
+            expect(result.content[0]!.text).toContain('### Rendering visualizations')
+        })
+
         it('lists render-ui alongside exec when render-ui is enabled and a UI-app tool is available', async () => {
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
 
@@ -248,13 +288,16 @@ describe('ToolExecutor', () => {
             expect(result.tools.map((t) => t.name)).toEqual(['exec', 'render-ui'])
 
             // The advertised schema is derived from the zod validation schema —
-            // pin the contract the agent writes calls against.
+            // pin the contract the agent writes calls against. The analytics
+            // client injects a required `context` intent parameter into every
+            // advertised tool (surfaced as `$mcp_intent`).
             const renderUiEntry = result.tools[1]!
             const properties = renderUiEntry.inputSchema.properties as Record<string, Record<string, unknown>>
             expect(properties.tool_name!.enum).toEqual(['survey-get'])
             expect(properties.tool_name!.description).toBeTruthy()
             expect(properties.tool_input!.description).toBeTruthy()
-            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name'])
+            expect(properties.context!.description).toBeTruthy()
+            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context'])
         })
 
         it('omits render-ui when render-ui is disabled, even with a UI-app tool available', async () => {

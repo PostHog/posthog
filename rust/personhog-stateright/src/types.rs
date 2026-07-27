@@ -155,6 +155,10 @@ pub struct SystemState {
     /// warm cutoff and is invisible to it forever. This is the
     /// acked-write loss the drain/fence/HWM machinery exists to prevent.
     pub lost_acked_write: bool,
+    /// Set when a rebalance plans a partition that already has an
+    /// in-flight handoff, clobbering it — the overlap
+    /// `plan_partial_rebalance`'s pinning must make unreachable.
+    pub double_planned_handoff: bool,
     /// Set when a strong read is served by a pod whose visible prefix
     /// (`cutoff + accepted`) is behind the changelog — the read returned
     /// state missing at least one acked write.

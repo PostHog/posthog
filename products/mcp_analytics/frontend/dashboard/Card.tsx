@@ -19,7 +19,8 @@ export function Card({
                     <CardTitle>{title}</CardTitle>
                 </CardHeader>
             ) : null}
-            <CardContent className="flex flex-1 flex-col">{children}</CardContent>
+            {/* min-h-0 lets a height-constrained card's content shrink instead of overflowing the card's clip. */}
+            <CardContent className="flex flex-1 flex-col min-h-0">{children}</CardContent>
         </QuillCard>
     )
 }

@@ -437,8 +437,8 @@
 
 .MarkdownNotebook__blockquote-group .MarkdownNotebook__block-comment-button {
     left: calc(
-        var(--markdown-notebook-content-offset) * -1 -
-            1rem - var(--markdown-notebook-quote-indent) - var(--markdown-notebook-inline-control-width)
+        var(--markdown-notebook-content-offset) * -1 - 1rem - var(--markdown-notebook-quote-indent) -
+            var(--markdown-notebook-inline-control-width)
     );
 }
 
@@ -1666,9 +1666,10 @@ h3.MarkdownNotebook__text-block--heading {
     flex: 1 1 0;
     min-width: 0;
     overflow: hidden;
-    font-size: 0.8125rem;
+    font-size: 1rem;
+    font-weight: 500;
     line-height: 1.4;
-    color: var(--color-text-secondary);
+    color: var(--color-text-primary);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1695,6 +1696,34 @@ h3.MarkdownNotebook__text-block--heading {
         border-color: var(--color-accent);
         outline: none;
     }
+}
+
+.MarkdownNotebook__component-toolbar-title--button {
+    padding: 0.125rem 0.375rem;
+    font-family: inherit;
+    text-align: left;
+    appearance: none;
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+    transition:
+        background-color 120ms ease,
+        border-color 120ms ease;
+
+    &:hover {
+        background: var(--color-bg-fill-tertiary);
+    }
+
+    &:focus-visible {
+        border-color: var(--color-accent);
+        outline: none;
+    }
+}
+
+.MarkdownNotebook__component-toolbar-title-placeholder {
+    font-weight: 400;
+    color: var(--color-text-tertiary);
 }
 
 .MarkdownNotebook__component-actions {

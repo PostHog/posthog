@@ -1084,7 +1084,7 @@ describe('hog-charts canvas-renderer', () => {
 
         function makeSelectionArgs(
             ctx: CanvasRenderingContext2D,
-            dragRect: { x0: number; x1: number } | null
+            dragRect: { x0: number; x1: number; y0?: number; y1?: number } | null
         ): ChartDrawArgs {
             return makeDrawArgs(ctx, { dragRect })
         }
@@ -1126,6 +1126,27 @@ describe('hog-charts canvas-renderer', () => {
             const ctx = mockCanvasContext()
             composeDrawHoverWithSelection(jest.fn())(makeSelectionArgs(ctx, { x0: plotLeft + 10, x1: plotLeft + 10 }))
             expect(ctx.fillRect).not.toHaveBeenCalled()
+        })
+
+        it('clamps a 2D drag rect to its vertical range instead of the full plot height', () => {
+            const ctx = mockCanvasContext()
+            composeDrawHoverWithSelection(jest.fn())(
+                makeSelectionArgs(ctx, {
+                    x0: plotLeft + 100,
+                    x1: plotLeft + 250,
+                    y0: plotTop + 150, // unordered on purpose — bottom first
+                    y1: plotTop + 50,
+                })
+            )
+            expect(ctx.fillRect).toHaveBeenCalledWith(plotLeft + 100, plotTop + 50, 150, 100)
+        })
+
+        it('clamps a 2D drag that extends past the vertical plot edges', () => {
+            const ctx = mockCanvasContext()
+            composeDrawHoverWithSelection(jest.fn())(
+                makeSelectionArgs(ctx, { x0: plotLeft + 100, x1: plotLeft + 250, y0: -500, y1: plotTop + plotHeight + 500 })
+            )
+            expect(ctx.fillRect).toHaveBeenCalledWith(plotLeft + 100, plotTop, 150, plotHeight)
         })
     })
 

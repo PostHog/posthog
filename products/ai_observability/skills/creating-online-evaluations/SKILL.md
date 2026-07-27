@@ -2,22 +2,22 @@
 name: creating-online-evaluations
 description: >
   Author continuously-running online evaluations in PostHog AI observability, grounded in a real failure
-  mode you've identified. Use when the user wants an evaluation that automatically scores new
-  `$ai_generation` events going forward — "create an eval to catch X", "continuously check that responses
-  do Y", "turn this failure into an eval". Covers choosing the eval type (hog / llm_judge / sentiment),
-  requiring a valid provider and model for an llm_judge eval (pinning a provider key is optional), scoping
-  which events fire via conditions (property filters + rollout sampling), creating it disabled, verifying
-  scope, and enabling.
+  mode you've identified. Use when the user wants an evaluation that automatically scores new generations
+  or whole traces going forward — "create an eval to catch X", "continuously check that responses do Y",
+  "turn this failure into an eval". Covers choosing the target and eval type (hog / llm_judge / sentiment),
+  configuring a provider, model, and usable provider key for an llm_judge eval, scoping which generations
+  trigger it via conditions (property filters + rollout sampling), creating it disabled, verifying scope,
+  and enabling.
   Finding and ranking the failure modes worth evaluating is its own job — use exploring-ai-failures first.
   To debug or manage evaluations that already exist, use exploring-llm-evaluations.
 ---
 
 # Creating online evaluations
 
-An **online evaluation** scores `$ai_generation` events automatically as they arrive, forever, until
-disabled. A good eval comes from a real failure mode you've found in production traffic, not from a guess
-or a generic metric like "hallucination" or "helpfulness". This skill starts once that failure mode is
-identified and turns it into a scoped, continuously-running eval.
+An **online evaluation** automatically scores either each matching `$ai_generation` or the whole trace
+containing it, until disabled. A good eval comes from a real failure mode you've found in production traffic,
+not from a guess or a generic metric like "hallucination" or "helpfulness". This skill starts once that
+failure mode is identified and turns it into a scoped, continuously-running eval.
 
 **First, know what you're evaluating.** Finding and ranking the failure modes worth catching is a
 separate job. If the user doesn't specify what they want to evaluate, ask them. If they are still vague
@@ -31,7 +31,8 @@ debugging a live eval), defer to `exploring-llm-evaluations`.
 
 | Tool                                   | Purpose                                                               |
 | -------------------------------------- | --------------------------------------------------------------------- |
-| `posthog:llma-provider-key-list`       | Find a usable (`ok` state) provider key to optionally pin (llm_judge) |
+| `posthog:llma-evaluation-config-get`   | Check the active provider key used by unpinned judges                  |
+| `posthog:llma-provider-key-list`       | Find a usable (`ok` state) provider key to pin                         |
 | `posthog:llma-evaluation-judge-models` | List valid provider+model combos                                      |
 | `posthog:llma-evaluation-test-hog`     | Dry-run Hog source against recent generations before creating         |
 | `posthog:llma-evaluation-create`       | Create the evaluation (always `enabled: false` first)                 |
@@ -61,43 +62,89 @@ tool call must include an `order_id`". Then move to Phase 2.
 
 ### 2.1 — Choose the eval type
 
-| Use…        | When the criterion is…                                                                                                                               |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hog`       | Structural / rule-based (JSON parses, length, regex, tool-call shape). Cheap, deterministic, **no provider key needed.**                             |
-| `llm_judge` | Subjective / fuzzy (tone, factuality, on-topic). Costs an LLM call per run; needs a valid `provider` + `model` (pinning a provider key is optional). |
-| `sentiment` | You want sentiment labels on user messages, not a pass/fail (unless very specifically asked for, usually not relevant to this skill).                |
+| Use…        | When the criterion is…                                                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `hog`       | Structural / rule-based (JSON parses, length, regex, tool-call shape). Cheap, deterministic, **no provider key needed.**              |
+| `llm_judge` | Subjective / fuzzy (tone, factuality, on-topic). Costs an LLM call per run; needs a provider, model, and usable provider key.          |
+| `sentiment` | You want sentiment labels on user messages, not a pass/fail (unless very specifically asked for, usually not relevant to this skill). |
 
 Reach for `hog` first, escalate to `llm_judge` if there is no deterministic way to check for what we want to check.
 
-### 2.2 — Pick a provider and model (llm_judge only)
+### 2.2 — Choose the target
 
-An `llm_judge` eval requires a valid `provider` and `model` in `model_configuration` — that's the gate.
-Pinning a provider key is optional: `provider_key_id` may be `null` when no key is pinned. Hog and
-sentiment skip this entirely.
+| Target       | Behavior                                                                                                           |
+| ------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `generation` | Runs once for each matching `$ai_generation`, immediately after ingestion. This is the default.                    |
+| `trace`      | Runs once for the whole trace after the first matching generation and a configurable wait for the trace to finish. |
+
+For a trace target, send `"target": "trace"` plus a settle config that controls when the trace is
+evaluated, discriminated on `strategy`:
+
+- `{ "strategy": "fixed_window", "window_seconds": 1800 }` — evaluate a fixed wait after the first
+  matching generation. Between 10 seconds and 2 hours, defaults to 30 minutes. A `target_config`
+  without a `strategy` key means this.
+- `{ "strategy": "inactivity", "quiet_period_seconds": 300, "max_age_seconds": 7200 }` — evaluate once
+  the trace has had no new activity for the quiet period (10 seconds to 30 minutes,
+  defaults to 5 minutes). `max_age_seconds` caps the total wait from the first matching generation
+  (1 minute to 2 hours, defaults to 2 hours, must be at least the quiet period).
+
+Conditions still match the generation that triggers the run; the evaluator itself receives
+the complete trace. Sentiment evaluations support only the generation target.
+
+New Hog source should use the globals shared by both targets:
+
+| Global                                 | Meaning                                                                                           |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `evaluation_events`                    | One generation event for a generation target, or every captured event for a trace target.         |
+| `target`                               | The target's `type`, `id`, `total_cost_usd`, and `total_latency_seconds`.                         |
+| `item.input_text` / `item.output_text` | Best-effort readable projections; use these for length, keyword, and regex checks.                |
+| `item.input` / `item.output`           | Original serialized values; use these when the evaluator needs to parse the captured JSON itself. |
+
+Generation evaluations still expose top-level `input`, `output`, `properties`, and `event`. Trace evaluations
+still expose their original `events` and `trace` globals. Those globals are kept for compatibility with saved
+evaluators. Do not use target-specific globals in new source that needs to work for both targets. The text
+projections recognize common provider payloads but are not authoritative; use `item.input` / `item.output` when
+exact structure matters.
+
+### 2.3 — Configure the LLM judge
+
+An `llm_judge` evaluation requires a valid `provider` and `model`. It also needs a usable provider key
+when it runs. `provider_key_id` controls whether the evaluation pins one specific key:
+
+- Set `provider_key_id` to the UUID of an `ok`-state key for the same provider to pin it.
+- Set `provider_key_id` to `null` to use the team's active provider key. The active key must be in the
+  `ok` state and use the same provider as `model_configuration.provider`.
+
+Hog and sentiment evaluations skip this step.
 
 ```json
+posthog:llma-evaluation-config-get        // check active_provider_key for an unpinned judge
+posthog:llma-provider-key-list            // find an ok-state key to pin
 posthog:llma-evaluation-judge-models      // { "provider": "openai" } → valid models
-posthog:llma-provider-key-list            // optional: pick a key whose state == "ok" to pin
 ```
 
-Confirm the `provider` + `model` combo is valid with `llma-evaluation-judge-models`. If you want to pin a
-specific key, pick an `ok`-state key from `llma-provider-key-list` and set it as
-`model_configuration.provider_key_id`; otherwise leave `provider_key_id` as `null`. Don't stop just
-because there's no `ok` key — an unpinned judge is allowed.
+Confirm the provider and model with `llma-evaluation-judge-models`. Prefer pinning the chosen key so a later
+team-wide active-key change does not change how the evaluation runs. Leave `provider_key_id` as `null` only
+after `llma-evaluation-config-get` confirms the active key is usable and its provider matches.
 
-### 2.3 — Create it disabled
+If there is no usable key, you may still create a disabled draft for the user to review. Do not spot-run or
+enable it. Ask the user to add or validate a key in the UI before continuing.
+
+### 2.4 — Create it disabled
 
 Create with `enabled: false` so nothing fires until the scope is verified. Minimal `hog` example:
 
 ```json
 posthog:llma-evaluation-create
 {
-  "name": "Output is valid JSON",
-  "description": "Fails when the assistant message can't be parsed as JSON",
+  "name": "Output is not empty",
+  "description": "Fails when a generation has no readable output",
   "evaluation_type": "hog",
-  "evaluation_config": { "source": "try { jsonParse(jsonParse(output)[1].message.content); return true; } catch { return false; }" },
+  "evaluation_config": { "source": "let count := 0\nfor (let i, item in evaluation_events) {\n    if (item.event == '$ai_generation') {\n        count := count + 1\n        if (length(trim(item.output_text)) == 0) { return false }\n    }\n}\nreturn count > 0" },
   "output_type": "boolean",
   "output_config": { "allows_na": false },
+  "target": "generation",
+  "target_config": {},
   "conditions": [
     { "id": "default", "rollout_percentage": 100, "properties": [{ "key": "$ai_model", "type": "event", "operator": "icontains", "value": "gpt" }] }
   ],
@@ -106,12 +153,11 @@ posthog:llma-evaluation-create
 ```
 
 For `llm_judge`, swap `evaluation_config` to `{ "prompt": "…" }` and add
-`"model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": null }` — set
-`provider_key_id` to the UUID of an `ok`-state key from `llma-provider-key-list` if you want to pin one,
-or leave it `null` when no key is pinned. Full field reference:
+`"model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": "<uuid of an ok-state key from llma-provider-key-list>" }`.
+Use `null` only when the active team key is `ok` and uses the same provider. Full field reference:
 [references/evaluation-payload.md](references/evaluation-payload.md).
 
-### 2.4 — Verify the scope before enabling
+### 2.5 — Verify the scope before enabling
 
 `conditions` is where online evals go wrong: too broad and you evaluate (and bill) a firehose; too narrow
 and it never fires. Confirm the filter matches the events you expect, and roughly how many per day:
@@ -125,29 +171,35 @@ WHERE event = '$ai_generation'
     AND timestamp >= now() - INTERVAL 7 DAY
 ```
 
+For generation targets, `count()` is the run volume. For trace targets, count distinct non-empty
+`$ai_trace_id` values because matching generations from the same trace schedule only one run.
+
 If volume is high, set `rollout_percentage` below 100 to sample. Spot-check the evaluator with
 `llma-evaluation-test-hog` (hog) or `llma-evaluation-run` against one generation (llm_judge).
+Both tools currently use generation samples; for a trace target they can check shared source or prompt behavior,
+but they do not reproduce the complete settled trace. Review the first live trace results before increasing rollout.
 
 > **Watch out:** some orgs reuse a single `$ai_trace_id` across 100k+ events. Scoping by trace-ID prefix
 > can match far more than expected — verify volume with the SQL above before enabling.
 
-### 2.5 — Enable, then close the loop
+### 2.6 — Enable, then close the loop
 
 ```json
 posthog:llma-evaluation-update
 { "evaluationId": "<uuid>", "enabled": true }
 ```
 
-It now runs on every new matching `$ai_generation`. This isn't one-and-done: the user should be aware that
-they need to keep an eye on results and iterate if the outcome is not the expected one. To wire results
-into a Slack feed, see `feature-usage-feed`.
+It now runs on every new matching generation, or once per matching trace for a trace target. This isn't
+one-and-done: the user should be aware that they need to keep an eye on results and iterate if the outcome
+is not the expected one. To wire results into a Slack feed, see `feature-usage-feed`.
 
 ## Scoping with conditions
 
 `conditions` is a **list** of condition sets — **OR between sets, AND within a set's `properties`**. Each
 set is `{ id, rollout_percentage, properties[] }`. There is no time window inside conditions; sampling is
 only `rollout_percentage` (0–100). Property filters use the standard PostHog shape
-(`key`, `type`, `operator`, `value`).
+(`key`, `type`, `operator`, `value`). For trace targets, these filters still select the generation that
+triggers the eventual whole-trace evaluation.
 
 ```json
 "conditions": [
@@ -182,8 +234,8 @@ creating so the user can review and toggle it in the UI.
   criterion genuinely can't be coded.
 - **Always create disabled, verify scope, then enable.** An eval firing on the wrong events is worse than
   none — noise, and (for llm_judge) cost.
-- **Set a valid provider + model for llm_judge**, not after. A judge eval needs both fields; pinning a
-  provider key is optional (`provider_key_id` may be `null`).
+- **Configure llm_judge credentials before running.** A judge needs a valid provider and model plus a usable
+  provider key. `provider_key_id` may be `null` only when the matching active team key can be used.
 - **`bytecode` is server-written** for hog evals — never pass it; send only `evaluation_config.source`.
 - For cluster-scoped evals, identify the cluster with `exploring-llm-clusters`, then translate its event
   filter into `conditions`.

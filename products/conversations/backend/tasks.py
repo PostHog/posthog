@@ -19,7 +19,7 @@ from django.utils import timezone
 import requests
 import structlog
 from celery import shared_task
-from celery.exceptions import MaxRetriesExceededError
+from celery.exceptions import MaxRetriesExceededError, Retry
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -97,7 +97,7 @@ from products.conversations.backend.teams import (
     post_teams_channel_message_via_graph,
 )
 from products.conversations.backend.teams_attachments import extract_teams_graph_images
-from products.conversations.backend.teams_formatting import rich_content_to_teams_html
+from products.conversations.backend.teams_formatting import build_teams_reply_html
 
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES
 
@@ -185,13 +185,15 @@ def _delete_supporthog_prompt(team: Team, channel: str, message_ts: str) -> None
         logger.warning("supporthog_interactivity_prompt_delete_failed", exc_info=True)
 
 
-def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: str) -> None:
-    """Replace the "open a ticket?" prompt in place with a final status line (buttons removed).
+def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: str) -> bool:
+    """Replace the "open a ticket?" prompt in place with a new status line (buttons removed).
 
-    Best-effort: a failure here never blocks the ticket creation that already ran.
+    Never raises — a failure here must not block the ticket creation that already ran —
+    but reports success so callers can retry updates that must not be lost (the final
+    confirmation/error state, as opposed to the best-effort progress placeholder).
     """
     if not channel or not message_ts:
-        return
+        return False
     try:
         get_slack_client(team).chat_update(
             channel=channel,
@@ -199,8 +201,10 @@ def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: s
             text=text,
             blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
         )
+        return True
     except Exception:
         logger.warning("supporthog_interactivity_prompt_update_failed", exc_info=True)
+        return False
 
 
 def _post_dismiss_acknowledgment(team: Team, channel: str, user: str, thread_ts: str) -> None:
@@ -283,6 +287,19 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
         if action_id == TICKET_CONFIRM_ACTION_OPEN:
             ticket = None
             if source_channel and source_message_ts:
+                # Ticket creation takes several seconds (Slack fetches + backfill) and the
+                # click may have crossed a region on the way here — replace the buttons with
+                # a progress line right away so the click visibly landed and repeat clicks
+                # stop. First attempt only, and only while no sibling delivery has already
+                # resolved the prompt (a stale placeholder must not overwrite a confirmation).
+                is_retry = bool(getattr(cast(Any, process_supporthog_interactivity).request, "retries", 0))
+                ticket_already_open = Ticket.objects.filter(
+                    team=team, slack_channel_id=source_channel, slack_thread_ts=source_message_ts
+                ).exists()
+                if not is_retry and not ticket_already_open:
+                    _update_supporthog_prompt(
+                        team, prompt_channel, prompt_ts, ":hourglass_flowing_sand: Opening a ticket…"
+                    )
                 try:
                     ticket = create_ticket_from_confirmation(
                         team=team,
@@ -290,6 +307,18 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
                         slack_channel_id=source_channel,
                         message_ts=source_message_ts,
                     )
+                    if ticket is None:
+                        # A duplicate delivery (double click or webhook retry) can lose the
+                        # per-thread create lock to a concurrent sibling and see None while
+                        # the sibling's ticket is mid-create. Retry instead of reporting a
+                        # false failure — the re-run resolves to the committed ticket via
+                        # the existing-ticket check in create_ticket_from_confirmation.
+                        # Genuine failures exhaust retries into the error update below.
+                        raise cast(Any, process_supporthog_interactivity).retry()
+                except Retry:
+                    raise
+                except MaxRetriesExceededError:
+                    pass
                 except Exception as e:
                     logger.exception("supporthog_interactivity_create_failed", error=str(e))
                     # Retry transient failures — the retried run redoes the whole handler,
@@ -300,7 +329,25 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
                         raise cast(Any, process_supporthog_interactivity).retry(exc=e)
                     except MaxRetriesExceededError:
                         pass
-            # Captured after retries resolve (the retry re-raise above exits the task first),
+            # Replace the prompt in place: a confirmation when we have a ticket (created or
+            # already open), or an explicit error so a failed open never reads as success.
+            # post_confirmation=False above means no separate confirmation was posted.
+            if ticket:
+                text = ticket_created_text(ticket)
+            else:
+                emoji = get_safe_ticket_emoji(support_settings)
+                text = f":warning: Couldn't open a ticket — react with :{emoji}: or @mention us to try again."
+            final_update_ok = _update_supporthog_prompt(team, prompt_channel, prompt_ts, text)
+            if not final_update_ok and prompt_channel and prompt_ts:
+                # The progress placeholder must never be the prompt's last word — if the
+                # final update fails transiently, retry the task (creation is idempotent,
+                # the re-run re-attempts just this update). Once retries are exhausted,
+                # fall through so the funnel event still records the outcome.
+                try:
+                    raise cast(Any, process_supporthog_interactivity).retry()
+                except MaxRetriesExceededError:
+                    pass
+            # Captured after all retry exits (each retry re-raise leaves the task first),
             # so the event fires once with the final outcome.
             capture_nudge_event(
                 team,
@@ -311,15 +358,6 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
                     "ticket_id": str(ticket.id) if ticket else None,
                 },
             )
-            # Replace the prompt in place: a confirmation when we have a ticket (created or
-            # already open), or an explicit error so a failed open never reads as success.
-            # post_confirmation=False above means no separate confirmation was posted.
-            if ticket:
-                text = ticket_created_text(ticket)
-            else:
-                emoji = get_safe_ticket_emoji(support_settings)
-                text = f":warning: Couldn't open a ticket — react with :{emoji}: or @mention us to try again."
-            _update_supporthog_prompt(team, prompt_channel, prompt_ts, text)
             return
 
 
@@ -743,17 +781,21 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
 
     from_email = formataddr((config.from_name or author_name, config.from_email))
 
+    # Tickets created before To/Cc participant filtering may still have the requester
+    # persisted in cc_participants; drop them here so they aren't delivered to twice.
+    cc = [addr for addr in (ticket.cc_participants or []) if addr.lower() != ticket.email_from.lower()]
+
     email_message = mail.EmailMultiAlternatives(
         subject=subject,
         body=txt_body,
         from_email=from_email,
         to=[ticket.email_from],
-        cc=ticket.cc_participants or [],
+        cc=cc,
         headers=headers,
     )
     email_message.attach_alternative(html_body, "text/html")
 
-    recipients = [ticket.email_from, *(ticket.cc_participants or [])]
+    recipients = [ticket.email_from, *cc]
     mime_bytes = email_message.message().as_bytes(linesep="\r\n")
 
     try:
@@ -958,7 +1000,7 @@ def post_reply_to_teams(
         logger.warning("teams_reply_no_bot_token", team_id=team_id)
         return
 
-    reply_html = rich_content_to_teams_html(rich_content, content)
+    reply_html = build_teams_reply_html(rich_content, content, author_name)
     display_text = f"{author_name}: {content[:200]}" if author_name else content[:200]
 
     payload: dict[str, Any] = {
@@ -1027,9 +1069,7 @@ def post_reply_to_teams_via_graph(
         logger.warning("teams_graph_reply_team_not_found", team_id=team_id)
         return
 
-    reply_html = rich_content_to_teams_html(rich_content, content)
-    if author_name:
-        reply_html = f"<p><b>{html_mod.escape(author_name)}</b></p>{reply_html}"
+    reply_html = build_teams_reply_html(rich_content, content, author_name)
 
     status, _message_id = post_teams_channel_message_via_graph(
         team=team,
@@ -1176,7 +1216,7 @@ def _sync_one_ticket_thread_replies(
                     activity=activity,
                     tenant_id=tenant_id,
                     is_thread_reply=True,
-                    images=reply_images,
+                    attachments=reply_images,
                 )
             except Exception:
                 logger.exception(
@@ -1449,7 +1489,7 @@ def _poll_one_shared_channel(
                         # Shared channel: confirm via Graph (bot connector can't post here),
                         # reusing the token we already hold for the delta read.
                         graph_post_context={"teams_team_id": teams_team_id, "token": token},
-                        images=images,
+                        attachments=images,
                     )
                 except Exception:
                     logger.exception(

@@ -35,10 +35,11 @@ import { RunConclusionTag } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
 import { Section } from '../components/Section'
 import type { WorkflowJobApi } from '../generated/api.schemas'
-import { compactUsd } from '../lib/format'
+import { compactCount, compactUsd } from '../lib/format'
 import { githubCommitUrl, githubPrUrl } from '../lib/github'
 import { LifecycleSummary, WorkflowRun, isPassingConclusion } from '../lib/lifecycle'
 import { PushRound, pushRoundColor, pushRoundOf, pushRoundVerdictLabel } from '../lib/pushRounds'
+import { withCurrentScope } from '../lib/scope'
 import {
     PrCommitRuns,
     PrRunRow,
@@ -366,12 +367,10 @@ function PerPushRunsTable({
             render: (_, run) =>
                 run.runId != null ? (
                     <Link
-                        to={
-                            combineUrl(
-                                urls.engineeringAnalyticsWorkflowRun(repoOwner, repoName, run.runId),
-                                sourceId ? { source: sourceId } : {}
-                            ).url
-                        }
+                        to={withCurrentScope(
+                            urls.engineeringAnalyticsWorkflowRun(repoOwner, repoName, run.runId),
+                            sourceId
+                        )}
                         className="font-mono text-xs"
                     >
                         #{run.runId}
@@ -535,12 +534,10 @@ function PrWorkflowsTable({
                             )}
                         />
                         <Link
-                            to={
-                                combineUrl(
-                                    urls.engineeringAnalyticsWorkflowRuns(repoOwner, repoName, row.workflowName),
-                                    sourceId ? { source: sourceId } : {}
-                                ).url
-                            }
+                            to={withCurrentScope(
+                                urls.engineeringAnalyticsWorkflowRuns(repoOwner, repoName, row.workflowName),
+                                sourceId
+                            )}
                         >
                             {row.workflowName}
                         </Link>
@@ -722,12 +719,12 @@ export function PullRequestDetailScene(): JSX.Element {
                 repoSlot={
                     <RepoScopeChip
                         label={`${repoOwner}/${repoName}`}
-                        to={combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url}
+                        to={withCurrentScope(urls.engineeringAnalytics(), sourceId)}
                     />
                 }
                 lensFilter={{
                     label: `pr: #${pullRequest?.number ?? ''}`,
-                    to: combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url,
+                    to: withCurrentScope(urls.engineeringAnalytics(), sourceId),
                 }}
                 showDate={false}
             />
@@ -832,6 +829,16 @@ export function PullRequestDetailScene(): JSX.Element {
                             sub={prCost?.jobs_available ? undefined : 'Job-level source not synced'}
                             loading={prCostLoading && !prCost}
                         />
+                        {prCost?.llm_spend && (
+                            <MetricTile
+                                label="LLM spend"
+                                tooltip="Token spend from AI coding/review sessions on this PR's branch, including spend from the same session before the branch was created."
+                                value={compactUsd(prCost.llm_spend.cost_usd)}
+                                sub={`${compactCount(
+                                    prCost.llm_spend.input_tokens + prCost.llm_spend.output_tokens
+                                )} tokens · ${pluralize(prCost.llm_spend.generations, 'generation')}`}
+                            />
+                        )}
                     </div>
                 </>
             ) : (

@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -15,6 +15,7 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
+from products.data_warehouse.backend.facade.api import reconcile_redshift_schemas
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
@@ -26,10 +27,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import RedshiftImplementation
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
+    RedshiftSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
+    RedshiftImplementation,
+    get_connection_metadata as get_connection_metadata_redshift,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 _REDSHIFT_IMPLEMENTATION = RedshiftImplementation()
 
@@ -162,7 +172,11 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
         }
 
     def validate_credentials(
-        self, config: RedshiftSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RedshiftSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
@@ -175,7 +189,7 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, api_version=api_version)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in RedshiftErrors.items():
@@ -205,3 +219,19 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
         return self.get_implementation.build_pipeline(
             config, inputs, chunk_size_override=schema_row.chunk_size_override
         )
+
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Delegates to `reconcile_redshift_schemas` so direct-query mode also rebuilds DWH tables."""
+        return reconcile_redshift_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
+    def get_connection_metadata(
+        self, config: RedshiftSourceConfig, team_id: int, require_ssl: bool = False
+    ) -> dict[str, str | None]:
+        # `require_ssl` keeps signature parity with Postgres/MySQL; the metadata is static
+        # (the engine follows from the source type), so no live connection is needed.
+        return get_connection_metadata_redshift(config)

@@ -1,5 +1,7 @@
 use aws_config::{BehaviorVersion, Region};
+use common_database::{get_pool_with_config, PoolConfig};
 use envconfig::Envconfig;
+use sqlx::PgPool;
 use tracing::{info, warn};
 
 /// Configuration for the shared symbol-resolution stack. Both run modes parse
@@ -25,6 +27,9 @@ pub struct ResolverConfig {
 
     #[envconfig(default = "5")]
     pub sourcemap_connect_timeout_seconds: u64,
+
+    #[envconfig(default = "25000000")]
+    pub sourcemap_max_response_bytes: usize,
 
     #[envconfig(default = "100000000")] // 100MB - in prod, we should use closer to 1-10GB
     pub symbol_store_cache_max_bytes: usize,
@@ -62,6 +67,13 @@ pub struct ResolverConfig {
     #[envconfig(default = "300")]
     pub frame_unresolved_ttl_seconds: u64,
 
+    // TTL for the in-memory negative cache of symbol-set lookup failures in the `Saving` layer.
+    // Like `frame_unresolved_ttl_seconds`, this is kept short: a failure record can become
+    // resolvable the moment a user uploads the missing symbols, so a cached negative result
+    // must not outlive that upload by long.
+    #[envconfig(default = "300")]
+    pub symbol_set_negative_cache_ttl_seconds: u64,
+
     // Maximum number of lines of pre and post context to get per frame
     #[envconfig(default = "15")]
     pub context_line_count: usize,
@@ -84,6 +96,26 @@ impl ResolverConfig {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
         Self::init_from_env()
     }
+}
+
+/// Build the Postgres pool through the shared `common-database` helper so cymbal
+/// gets `test_before_acquire` (severed connections are health-checked and
+/// recycled instead of handed straight to a query), idle recycling, and the
+/// disabled max-lifetime that avoids thundering-herd reconnects. Building the
+/// pool directly with `PgPoolOptions` skips all of that, which is how a stale
+/// connection turns into an `expected to read N bytes, got 0 bytes at EOF`
+/// error mid-query. `pool_name` labels the connection-churn counter.
+pub fn build_pg_pool(
+    database_url: &str,
+    max_connections: u32,
+    pool_name: &str,
+) -> Result<PgPool, sqlx::Error> {
+    let pool_config = PoolConfig {
+        max_connections,
+        pool_name: Some(pool_name.to_string()),
+        ..Default::default()
+    };
+    get_pool_with_config(database_url, pool_config)
 }
 
 pub async fn get_aws_config(config: &ResolverConfig) -> aws_sdk_s3::Config {

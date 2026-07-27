@@ -10,6 +10,7 @@ import {
     IconHourglass,
     IconLeave,
     IconLetter,
+    IconNotification,
     IconPercentage,
     IconWebhooks,
 } from '@posthog/icons'
@@ -107,6 +108,12 @@ const HogFlowStepConfigs: Partial<{
         color: () => '#f22f46',
         renderConfiguration: (node) => <StepFunctionConfiguration key={node.id} node={node} />,
     },
+    function_push: {
+        type: 'function_push',
+        icon: () => <IconNotification />,
+        color: (_, isDarkModeOn) => (isDarkModeOn ? '#F8BE2A' : '#F44D01'),
+        renderConfiguration: (node) => <StepFunctionConfiguration key={node.id} node={node} />,
+    },
     function: {
         type: 'function',
         icon: (action, hogFunctionTemplatesById) => {
@@ -116,6 +123,10 @@ const HogFlowStepConfigs: Partial<{
 
             if (action.config.template_id === 'template-webhook') {
                 return <IconWebhooks />
+            }
+
+            if (action.config.template_id === 'template-native-push') {
+                return <IconNotification />
             }
 
             const template = hogFunctionTemplatesById[action.config.template_id]

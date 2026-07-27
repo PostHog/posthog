@@ -112,7 +112,10 @@ class TestIsHostSafe(SimpleTestCase):
         ):
             valid, error = _is_host_safe("evil.example.com", team_id=999)
             assert not valid
-            assert error == "Hosts with internal IP addresses are not allowed"
+            assert error == (
+                "This host points to an internal or private IP address, which PostHog can't reach. "
+                "Use a host that's reachable from the public internet."
+            )
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_dns_resolving_to_public_ip_allowed(self):

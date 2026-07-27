@@ -11,7 +11,7 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage import source as finage_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.source import FinageSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FinageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finage import FinageSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -28,8 +28,6 @@ class TestFinageSource:
         assert config.label == "Finage"
         assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Stays hidden until the connector graduates from alpha.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/finage"
 
     def test_source_config_fields(self):

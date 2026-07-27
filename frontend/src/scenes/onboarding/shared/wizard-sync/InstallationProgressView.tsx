@@ -244,33 +244,34 @@ export function InstallationProgressContent({
                 )
             )}
 
-            {phase === 'completed' && mode === 'local' && (
-                // The wizard's changes sit uncommitted on the user's machine — only the user can
-                // finish the last mile (review, deploy), so no button can carry this step.
-                <div className="flex flex-col gap-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-muted">Over to you</span>
-                    <ul className="flex flex-col gap-1.5 m-0 p-0 list-none text-sm">
-                        <li className="flex items-start gap-2">
-                            <IconSearch className="text-muted text-base mt-0.5 shrink-0" />
-                            <span>
-                                <strong>Review the changes</strong> in your editor before you commit.
-                            </span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                            <IconTerminal className="text-muted text-base mt-0.5 shrink-0" />
-                            <span>
-                                <strong>Try it locally</strong> and your events show up here right away.
-                            </span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                            <IconRocket className="text-muted text-base mt-0.5 shrink-0" />
-                            <span>
-                                <strong>Commit and deploy</strong> to get data from real users.
-                            </span>
-                        </li>
-                    </ul>
-                </div>
-            )}
+            {phase === 'completed' &&
+                mode === 'local' && (
+                    // The wizard's changes sit uncommitted on the user's machine — only the user can
+                    // finish the last mile (review, deploy), so no button can carry this step.
+                    <div className="flex flex-col gap-1.5">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-muted">Over to you</span>
+                        <ul className="flex flex-col gap-1.5 m-0 p-0 list-none text-sm">
+                            <li className="flex items-start gap-2">
+                                <IconSearch className="text-muted text-base mt-0.5 shrink-0" />
+                                <span>
+                                    <strong>Review the changes</strong> in your editor before you commit.
+                                </span>
+                            </li>
+                            <li className="flex items-start gap-2">
+                                <IconTerminal className="text-muted text-base mt-0.5 shrink-0" />
+                                <span>
+                                    <strong>Try it locally</strong> and your events show up here right away.
+                                </span>
+                            </li>
+                            <li className="flex items-start gap-2">
+                                <IconRocket className="text-muted text-base mt-0.5 shrink-0" />
+                                <span>
+                                    <strong>Commit and deploy</strong> to get data from real users.
+                                </span>
+                            </li>
+                        </ul>
+                    </div>
+                )}
 
             {phase === 'error' && error?.detail && (
                 <div className="text-sm text-danger bg-danger-highlight rounded p-2">{error.detail}</div>
@@ -295,20 +296,22 @@ export function InstallationProgressContent({
                 </div>
             )}
 
-            {prUrl && !prMerged && phase !== 'error' && (
-                // ph-no-capture: the label carries the customer's repo name and the href their PR
-                // url — neither may reach autocapture in the shared app analytics project.
-                <LemonButton
-                    type="primary"
-                    to={prUrl}
-                    targetBlank
-                    icon={<IconPullRequest />}
-                    center
-                    className="ph-no-capture"
-                >
-                    <span className="truncate">{prNameLabel(prUrl)}</span>
-                </LemonButton>
-            )}
+            {prUrl &&
+                !prMerged &&
+                phase !== 'error' && (
+                    // ph-no-capture: the label carries the customer's repo name and the href their PR
+                    // url — neither may reach autocapture in the shared app analytics project.
+                    <LemonButton
+                        type="primary"
+                        to={prUrl}
+                        targetBlank
+                        icon={<IconPullRequest />}
+                        center
+                        className="ph-no-capture"
+                    >
+                        <span className="truncate">{prNameLabel(prUrl)}</span>
+                    </LemonButton>
+                )}
 
             {prUrl && prMerged && phase !== 'error' && (
                 <div className="flex items-center gap-3 rounded-lg border border-[var(--color-purple-500)] p-3">
