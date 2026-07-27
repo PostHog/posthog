@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from io import StringIO
 from typing import IO, Any, Protocol, cast
 
+import re2
 import paramiko
 from structlog.types import FilteringBoundLogger
 
@@ -28,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.setti
     FILE_PATH_COLUMN,
     MAX_DIRECTORY_DEPTH,
     MAX_FILES,
+    MAX_JSON_DOCUMENT_BYTES,
+    READ_TIMEOUT_SECONDS,
     ConfiguredFileFormat,
     FileFormat,
 )
@@ -158,6 +161,12 @@ def sftp_connection(
                 "Check that the SFTP subsystem is enabled for this user."
             )
 
+        # Bound directory and file reads so a server that connects and then stalls can't hold an
+        # iterator thread indefinitely. The handshake is already bounded by `banner_timeout`.
+        channel = client.get_channel()
+        if channel is not None:
+            channel.settimeout(READ_TIMEOUT_SECONDS)
+
         try:
             yield client
         finally:
@@ -170,12 +179,18 @@ def _to_datetime(mtime: float | int | None) -> datetime:
     return datetime.fromtimestamp(mtime or 0, tz=UTC)
 
 
-def _compile_pattern(pattern: str | None) -> re.Pattern[str] | None:
+class CompiledPattern(Protocol):
+    def search(self, string: str) -> object | None: ...
+
+
+def _compile_pattern(pattern: str | None) -> CompiledPattern | None:
     if not pattern:
         return None
+    # re2 is linear-time, so a user-supplied pattern can't pin a worker CPU by backtracking on a
+    # long filename (matching runs during discovery and every sync, before the file-count limit).
     try:
-        return re.compile(pattern)
-    except re.error as e:
+        return cast(CompiledPattern, re2.compile(pattern))
+    except re2.error as e:
         raise SFTPCredentialsError(f"{PATTERN_ERROR}: {e}") from e
 
 
@@ -421,8 +436,17 @@ def _iter_jsonl_rows(text: IO[str], relative_path: str, chunk_size: int) -> Iter
 
 
 def _iter_json_rows(text: IO[str], relative_path: str, chunk_size: int) -> Iterator[list[dict[str, Any]]]:
+    # A whole-document JSON file can't be chunked, so it has to fit in memory. Read one byte past the
+    # limit to detect an oversized (or gzip-bomb) document before materializing it, and point the
+    # user at JSON Lines, which streams.
+    raw = text.read(MAX_JSON_DOCUMENT_BYTES + 1)
+    if len(raw) > MAX_JSON_DOCUMENT_BYTES:
+        raise SFTPFileFormatError(
+            f"'{relative_path}' is larger than the {MAX_JSON_DOCUMENT_BYTES // (1024 * 1024)} MB limit for a "
+            "single JSON document. Convert it to JSON Lines (one object per line) so it can stream in."
+        )
     try:
-        parsed = json.load(text)
+        parsed = json.loads(raw)
     except json.JSONDecodeError as e:
         raise SFTPFileFormatError(
             f"'{relative_path}' isn't valid JSON: {e}. If the file holds one JSON object per line, "

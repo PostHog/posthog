@@ -406,6 +406,14 @@ class TestIterFileRows:
 
         assert [len(chunk) for chunk in chunks] == [2, 1]
 
+    def test_oversized_json_document_is_rejected_before_it_is_parsed(self) -> None:
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp"
+        stream = io.BytesIO(b"[" + b"0," * 100 + b"0]")
+
+        with patch(f"{module}.MAX_JSON_DOCUMENT_BYTES", 8):
+            with pytest.raises(SFTPFileFormatError, match="single JSON document"):
+                list(iter_file_rows(stream, ResolvedFormat("json", ",", False), "orders.json"))
+
 
 class TestIterTableRows:
     def test_adds_file_metadata_to_every_row_across_files(self) -> None:

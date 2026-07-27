@@ -5,6 +5,14 @@ ConfiguredFileFormat = Literal["infer", "csv", "jsonl", "json"]
 
 DEFAULT_PORT = 22
 CONNECT_TIMEOUT_SECONDS = 30
+# Per-operation read timeout for directory and file transfers. A responsive server keeps data
+# flowing well within this, so it only trips on a stalled server holding an iterator thread.
+READ_TIMEOUT_SECONDS = 300
+
+# A whole-document JSON file has to be materialized to parse it, so cap how much we read before
+# giving up and steering the user to JSON Lines (which streams). Also stops a small gzip file from
+# decompressing into unbounded memory.
+MAX_JSON_DOCUMENT_BYTES = 256 * 1024 * 1024
 
 # A remote tree is walked breadth-first with both bounds enforced: an SFTP server can expose an
 # arbitrarily deep/wide tree, and discovery has to terminate without the user configuring limits.
