@@ -30,6 +30,22 @@ tools:
     notebooks-collab-stream-retrieve:
         operation: notebooks_collab_stream_retrieve
         enabled: false
+    notebooks-configure-compute:
+        operation: notebooks_kernel_config_create
+        enabled: true
+        scopes:
+            - notebook:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Configure notebook compute
+        description: >
+            Set the notebook's sandbox kernel resources (cpu_cores, memory_gb from supported options;
+            idle_timeout_seconds). Config applies when a sandbox is provisioned — the response's restart_required is
+            true when a kernel is already active, meaning it keeps its current resources until restarted (restarting
+            loses materialized dataframes, so prefer configuring before the first Python cell runs).
+        feature_flag: revamped-py-notebooks
     notebooks-create:
         operation: notebooks_create
         enabled: true
@@ -69,25 +85,27 @@ tools:
         description: |
             Delete a notebook by short_id. The notebook will be soft-deleted and no longer appear in lists.
         soft_delete: true
+    notebooks-get-state:
+        operation: notebooks_sql_v2_state_retrieve
+        enabled: true
+        scopes:
+            - notebook:read
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get notebook cell state
+        description: >
+            The notebook's dependency-graph view: every cell with its code, dataframe name, depends_on/dependents edges,
+            and derived status — 'stale' means re-running the cell now would execute different code than its last
+            completed run (the cell or an upstream changed), so its displayed result is outdated. Use this to orient in
+            an existing notebook, find which cells need re-running after edits, and decide re-run order (walk stale
+            cells in dependency order with notebooks-update-cell, omitting code).
+        feature_flag: revamped-py-notebooks
     notebooks-hogql-execute-create:
         operation: notebooks_hogql_execute_create
         enabled: false
-    notebooks-configure-compute:
-        operation: notebooks_kernel_config_create
-        enabled: true
-        scopes:
-            - notebook:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Configure notebook compute
-        description: >
-            Set the notebook's sandbox kernel resources (cpu_cores, memory_gb from supported options;
-            idle_timeout_seconds). Config applies when a sandbox is provisioned — the response's restart_required
-            is true when a kernel is already active, meaning it keeps its current resources until restarted
-            (restarting loses materialized dataframes, so prefer configuring before the first Python cell runs).
-        feature_flag: revamped-py-notebooks
     notebooks-kernel-dataframe-retrieve:
         operation: notebooks_kernel_dataframe_retrieve
         enabled: false
@@ -103,30 +121,6 @@ tools:
     notebooks-kernel-start-create:
         operation: notebooks_kernel_start_create
         enabled: false
-    notebooks-list-frames:
-        operation: notebooks_kernel_status_retrieve
-        enabled: true
-        scopes:
-            - notebook:read
-            - query:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List notebook dataframes
-        description: >
-            The dataframes and DuckDB tables the notebook's kernel currently holds — what a SQL or Python cell can
-            reference by name — with column names/types and row counts, plus the kernel's live status and compute
-            config. Frames are empty unless the kernel is running (SQL-only notebooks never start one; frames appear
-            after Python/DuckDB cells run). To probe deeper than the schema, run a SELECT in a cell.
-        response:
-            include:
-                - status
-                - frames
-                - cpu_cores
-                - memory_gb
-                - idle_timeout_seconds
-        feature_flag: revamped-py-notebooks
     notebooks-kernel-stop-create:
         operation: notebooks_kernel_stop_create
         enabled: false
@@ -144,6 +138,30 @@ tools:
         description: >
             List all notebooks in the project. Supports filtering by search term, created_by, last_modified_by,
             date_from, date_to, and contains. Returns title, short_id, and creation/modification metadata.
+    notebooks-list-frames:
+        operation: notebooks_kernel_status_retrieve
+        enabled: true
+        scopes:
+            - notebook:read
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List notebook dataframes
+        description: >
+            The dataframes and DuckDB tables the notebook's kernel currently holds — what a SQL or Python cell can
+            reference by name — with column names/types and row counts, plus the kernel's live status and compute
+            config. Frames are empty unless the kernel is running (SQL-only notebooks never start one; frames appear
+            after Python/DuckDB cells run). To probe deeper than the schema, run a SELECT in a cell.
+        feature_flag: revamped-py-notebooks
+        response:
+            include:
+                - status
+                - frames
+                - cpu_cores
+                - memory_gb
+                - idle_timeout_seconds
     notebooks-partial-update:
         operation: notebooks_partial_update
         enabled: true
@@ -236,24 +254,6 @@ tools:
         response:
             exclude:
                 - result.media.*.data
-    notebooks-get-state:
-        operation: notebooks_sql_v2_state_retrieve
-        enabled: true
-        scopes:
-            - notebook:read
-            - query:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get notebook cell state
-        description: >
-            The notebook's dependency-graph view: every cell with its code, dataframe name, depends_on/dependents
-            edges, and derived status — 'stale' means re-running the cell now would execute different code than its
-            last completed run (the cell or an upstream changed), so its displayed result is outdated. Use this to
-            orient in an existing notebook, find which cells need re-running after edits, and decide re-run order
-            (walk stale cells in dependency order with notebooks-update-cell, omitting code).
-        feature_flag: revamped-py-notebooks
     notebooks-update:
         operation: notebooks_update
         enabled: false
