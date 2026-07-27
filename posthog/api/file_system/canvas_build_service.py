@@ -21,7 +21,9 @@ import gzip
 import json
 import time
 import hashlib
+import subprocess
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -31,18 +33,95 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.api.file_system.canvas_source import (
-    CANVAS_COMPONENT_PATH,
-    SYNTHETIC_INDEX_HTML,
-    extract_legacy_code,
-    has_errors,
-    validate_source_project,
-)
+from posthog.api.file_system.canvas_source import SYNTHETIC_INDEX_HTML, has_errors, validate_source_project
 from posthog.models.file_system.canvas_build import CanvasBuild, CanvasSourceVersion
 from posthog.models.file_system.file_system import FileSystem
 from posthog.storage import object_storage
 
 logger = structlog.get_logger(__name__)
+
+CANVAS_BUILDER_PATH = Path(__file__).resolve().parents[3] / "common" / "canvas-builder" / "build.mjs"
+MAX_ARTIFACT_FILES = 256
+MAX_ARTIFACT_FILE_BYTES = 1024 * 1024
+MAX_ARTIFACT_TOTAL_BYTES = 8 * 1024 * 1024
+
+
+def run_cloud_builder(project: dict[str, Any]) -> dict[str, Any]:
+    process = subprocess.run(
+        ["node", "--max-old-space-size=256", str(CANVAS_BUILDER_PATH)],
+        input=json.dumps({"project": project}, separators=(",", ":")),
+        capture_output=True,
+        text=True,
+        timeout=45,
+        check=False,
+        cwd=CANVAS_BUILDER_PATH.parent,
+        env={"PATH": "/usr/local/bin:/usr/bin:/bin", "NODE_ENV": "production"},
+    )
+    if process.returncode != 0:
+        raise RuntimeError("canvas builder process failed")
+    result = json.loads(process.stdout)
+    if not isinstance(result, dict):
+        raise ValueError("canvas builder returned an invalid response")
+    return result
+
+
+def _valid_artifact_path(value: str) -> bool:
+    segments = value.split("/")
+    return (
+        bool(value)
+        and not value.startswith("/")
+        and "\\" not in value
+        and all(segment not in {"", ".", ".."} for segment in segments)
+        and not any(character in value for character in "\r\n\0")
+    )
+
+
+def validate_builder_output(result: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    if result.get("contractVersion") != 1 or result.get("status") != "ready":
+        raise ValueError("canvas builder did not return a ready contract")
+    files = result.get("files")
+    manifest = result.get("manifest")
+    diagnostics = result.get("diagnostics")
+    if not isinstance(files, list) or not isinstance(manifest, dict) or not isinstance(diagnostics, list):
+        raise ValueError("canvas builder omitted artifacts, manifest, or diagnostics")
+    if len(files) > MAX_ARTIFACT_FILES:
+        raise ValueError("canvas artifact manifest has too many files")
+    seen: set[str] = set()
+    total = 0
+    for artifact in files:
+        if not isinstance(artifact, dict):
+            raise ValueError("canvas builder emitted an invalid artifact")
+        path = artifact.get("path")
+        content = artifact.get("content")
+        digest = artifact.get("contentHash")
+        size = artifact.get("sizeBytes")
+        if (
+            not isinstance(path, str)
+            or not _valid_artifact_path(path)
+            or path in seen
+            or not isinstance(content, str)
+            or not isinstance(digest, str)
+            or len(digest) != 64
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+        ):
+            raise ValueError("canvas builder emitted an invalid artifact")
+        encoded = content.encode("utf-8")
+        if hashlib.sha256(encoded).hexdigest() != digest or len(encoded) != size:
+            raise ValueError("canvas artifact integrity does not match its manifest")
+        if size > MAX_ARTIFACT_FILE_BYTES:
+            raise ValueError("canvas artifact exceeds the per-file size limit")
+        seen.add(path)
+        total += size
+    if total > MAX_ARTIFACT_TOTAL_BYTES:
+        raise ValueError("canvas build exceeds the total artifact size limit")
+    assets = manifest.get("assets")
+    if not isinstance(assets, list) or {asset.get("path") for asset in assets if isinstance(asset, dict)} != seen:
+        raise ValueError("canvas artifact manifest does not match emitted files")
+    entry = manifest.get("entryHtml")
+    if not isinstance(entry, str) or entry not in seen:
+        raise ValueError("canvas build does not contain its entry HTML")
+    return files, manifest, diagnostics[:500]
 
 # Retention policy (see the canvas build pipeline plan): every referenced
 # source version is kept for the canvas's lifetime; artifacts are bounded.
@@ -149,10 +228,9 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
     failed build records diagnostics and leaves the last-known-good build
     untouched. Idempotent: a re-delivered task for a finished build is a no-op.
 
-    Until the isolated build image (node + esbuild, the shared build recipe)
-    ships, the artifact for legacy-compatible projects freezes the project
-    files themselves — the runtime keeps compiling the component exactly as it
-    does today, now from an immutable, content-addressed snapshot.
+    The isolated Node process runs the same versioned contract as local
+    previews. Only its validated manifest and files may cross back into the
+    control plane.
     """
     build = CanvasBuild.objects.for_team(team_id).filter(id=build_id).select_related("source_version", "canvas").first()
     if build is None:
@@ -184,34 +262,34 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         _finish_failed(build, diagnostics)
         return
 
-    prefix = artifact_object_prefix(build.team_id, build.canvas_id, build.id)
-    entry_html = project.get("entryHtml", "index.html")
-    files = dict(project["files"])
-    # A legacy-compatible project may omit its entry shell (the read path
-    # synthesizes it); the frozen artifact must be self-consistent, so
-    # materialize the same shell the runtime would.
-    files.setdefault(entry_html, SYNTHETIC_INDEX_HTML)
-    assets = []
-    for path, content in sorted(files.items()):
-        content_bytes = content.encode("utf-8")
-        content_hash = hashlib.sha256(content_bytes).hexdigest()
-        object_storage.write(f"{prefix}/{path}", content_bytes, extras={"ContentType": "text/plain; charset=utf-8"})
-        assets.append({"path": path, "contentHash": content_hash, "sizeBytes": len(content_bytes)})
+    project_files = dict(project["files"])
+    project_files.setdefault(project.get("entryHtml", "index.html"), SYNTHETIC_INDEX_HTML)
+    project = {**project, "files": project_files}
+    try:
+        result = run_cloud_builder(project)
+        if result.get("status") != "ready":
+            builder_diagnostics = result.get("diagnostics")
+            _finish_failed(build, builder_diagnostics[:500] if isinstance(builder_diagnostics, list) else [])
+            return
+        files, manifest, diagnostics = validate_builder_output(result)
+    except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError, RuntimeError, ValueError) as error:
+        logger.warning("canvas_build_process_failed", build_id=str(build.id), error_type=type(error).__name__)
+        _finish_failed(
+            build,
+            [{"severity": "error", "code": "build_unavailable", "message": "The canvas build service is unavailable."}],
+        )
+        return
 
-    manifest = {
-        "entryHtml": entry_html,
-        "assets": assets,
-        "dependencies": project.get("dependencies", {}),
-        "canvasSdkVersion": project.get("canvasSdkVersion", "0.1.0"),
-        "capabilities": {
-            "posthog": {"insights": [], "inlineQueries": True, "captureEvents": []},
-            "network": {"origins": []},
-        },
-        # The legacy runtime mounts this component; the isolated build image
-        # will replace this with compiled chunks under the same manifest shape.
-        "legacyComponentPath": CANVAS_COMPONENT_PATH,
-        "legacyCode": extract_legacy_code(project) if CANVAS_COMPONENT_PATH in project["files"] else None,
-    }
+    prefix = artifact_object_prefix(build.team_id, build.canvas_id, build.id)
+    manifest_assets = {asset["path"]: asset for asset in manifest["assets"]}
+    for artifact in files:
+        content_type = _artifact_content_type(artifact["path"])
+        object_storage.write(
+            f"{prefix}/{artifact['path']}",
+            artifact["content"].encode("utf-8"),
+            extras={"ContentType": content_type, "CacheControl": "private, max-age=31536000, immutable"},
+        )
+        manifest_assets[artifact["path"]]["contentType"] = content_type
     integrity = hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
     # Second transaction: mark ready and advance the live pointer only while
@@ -234,6 +312,18 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
             meta["updatedAt"] = int(time.time() * 1000)
             dashboard.meta = meta
             dashboard.save(update_fields=["meta"])
+
+
+def _artifact_content_type(path: str) -> str:
+    if path.endswith(".html"):
+        return "text/html; charset=utf-8"
+    if path.endswith(".js"):
+        return "text/javascript; charset=utf-8"
+    if path.endswith(".css"):
+        return "text/css; charset=utf-8"
+    if path.endswith(".json"):
+        return "application/json; charset=utf-8"
+    return "application/octet-stream"
 
 
 def _finish_failed(build: CanvasBuild, diagnostics: list[dict[str, Any]]) -> None:
