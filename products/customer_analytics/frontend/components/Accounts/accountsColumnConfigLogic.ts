@@ -487,7 +487,7 @@ export interface accountsColumnConfigLogicMeta {
         customPropertyDefinitionsById: (
             customPropertyDefinitions: CustomPropertyDefinitionApi[]
         ) => Record<string, CustomPropertyDefinitionApi>
-        editingColumn: (selectColumns: string[], editingColumnIndex: any) => string | null
+        editingColumn: (selectColumns: string[], editingColumnIndex: number | null) => string | null
         displayByAlias: (columnDisplay: AccountColumnDisplayState) => AccountColumnDisplayState
         aliasToDefinition: (
             customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>

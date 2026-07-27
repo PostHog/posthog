@@ -141,6 +141,9 @@ account_custom_property_values_history: _AccountScopedPostgresTable = _AccountSc
             name="account_id", nullable=True, description="Account the value belongs to; join to `system.accounts.id`."
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the value was written."),
+        "is_deleted": BooleanDatabaseField(
+            name="is_deleted", description="Whether this value has been superseded (soft-deleted)."
+        ),
         "value_num": FloatDatabaseField(
             name="value_num", nullable=True, description="Numeric value, if a numeric type."
         ),
@@ -235,13 +238,15 @@ def _account_custom_properties_history_select(fields_accessed: dict[str, list[st
     """
     inner = parse_select(
         # The 180-day horizon caps the federated scan; UI look-back presets top out at 90 days.
+        # The active (non-deleted) row is always included — at most one per (account, definition) —
+        # so a value last written before the horizon still reaches the cell as the current value.
         """
         SELECT
             cpv.account_id AS account_id,
             toString(cpv.definition_id) AS definition_key,
             arraySort(groupArray(tuple(toUnixTimestamp(cpv.created_at), cpv.value_num))) AS points
         FROM system._account_custom_property_values_history AS cpv
-        WHERE isNotNull(cpv.value_num) AND cpv.created_at >= now() - INTERVAL 180 DAY
+        WHERE isNotNull(cpv.value_num) AND (cpv.created_at >= now() - INTERVAL 180 DAY OR NOT cpv.is_deleted)
         GROUP BY cpv.account_id, cpv.definition_id
         """
     )
@@ -407,10 +412,11 @@ class _AccountCustomPropertiesHistoryTable(LazyTable):
             name="values",
             description=(
                 "JSON object keyed by custom property definition id; each value is the property's "
-                "write history over the last 180 days as [unix timestamp, value] pairs sorted "
-                "ascending — numeric properties only. Read one property with "
-                "accounts.custom_properties_history.values.`<definition_id>` (backtick-quote the id). "
-                "Get definition ids and names from system.custom_property_definitions."
+                "write history over the last 180 days (plus the current value, however old) as "
+                "[unix timestamp, value] pairs sorted ascending — numeric properties only. Read one "
+                "property with accounts.custom_properties_history.values.`<definition_id>` "
+                "(backtick-quote the id). Get definition ids and names from "
+                "system.custom_property_definitions."
             ),
         ),
     }

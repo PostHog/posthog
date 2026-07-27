@@ -361,7 +361,7 @@ export interface accountsLogicMeta {
             defaultSelectColumns: string[],
             tileFilter: TileFilter | null,
             customPropertyFilters: AccountCustomPropertyFilter[],
-            columnDisplay: any
+            columnDisplay: AccountColumnDisplayState
         ) => AccountsViewUrlState
         hogqlQuery: (
             searchQuery: string,
