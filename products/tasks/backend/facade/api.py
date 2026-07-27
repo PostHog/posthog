@@ -49,6 +49,12 @@ from products.tasks.backend.logic.services.image_builder import (
     is_custom_images_enabled,
     read_spec_from_builder_sandbox,
 )
+from products.tasks.backend.logic.wizard_preflight import (
+    WizardFrameworkUndetectableError,
+    WizardRepositoryAccess,
+    WizardRepositoryInaccessibleError,
+    preflight_wizard_repository,
+)
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
@@ -104,6 +110,8 @@ __all__ = [
     "TaskRuntime",
     "TaskRunEnvironment",
     "TaskRunStatus",
+    "WizardFrameworkUndetectableError",
+    "WizardRepositoryInaccessibleError",
     "append_task_run_log",
     "beacon_task_presence",
     "bootstrap_task_run",
@@ -209,6 +217,7 @@ __all__ = [
     "upsert_internal_sandbox_env",
     "validate_set_output",
     "validate_task_run_artifact_ids",
+    "validate_wizard_cloud_run_target",
     "warm_task_sandbox",
 ]
 
@@ -879,6 +888,36 @@ def create_and_run_task(
     )
 
 
+def validate_wizard_cloud_run_target(
+    *,
+    team,
+    repository: str,
+    branch: str | None = None,
+) -> None:
+    """Raise when pre-flight reads settle that a wizard cloud run on this target would fail.
+
+    Raises :class:`WizardRepositoryInaccessibleError` or :class:`WizardFrameworkUndetectableError`
+    only on an unambiguous answer; a pre-flight that cannot tell returns, so the run goes ahead.
+
+    Separate from ``create_wizard_cloud_run`` so a caller that meters kickoffs can turn a doomed
+    target away before it spends part of that budget on a run no sandbox will ever boot for.
+    ``create_wizard_cloud_run`` calls this itself as well, so a caller that skips it cannot start a
+    run the pre-flight would have rejected.
+    """
+    preflight = preflight_wizard_repository(team, repository, branch=branch)
+    if preflight.access is WizardRepositoryAccess.INACCESSIBLE:
+        raise WizardRepositoryInaccessibleError(
+            f"PostHog's GitHub integration can't access {repository}. Check the repository name, "
+            "or grant the PostHog GitHub app access to it, and try again."
+        )
+    if preflight.framework_detectable is False:
+        raise WizardFrameworkUndetectableError(
+            f"The wizard couldn't find a project to set up in {repository}: it has no package.json, "
+            "pyproject.toml, or other project manifest the wizard recognizes. Point it at the "
+            "repository holding your app, or run `npx @posthog/wizard` locally."
+        )
+
+
 def create_wizard_cloud_run(
     *,
     team,
@@ -900,7 +939,11 @@ def create_wizard_cloud_run(
     The PR head branch is generated here (not by the agent) so the GitHub PR webhook can bind the
     opened PR back to this run by branch + repository — wizard PRs are bot-authored, which the
     agent-side PR attribution cannot match.
+
+    Raises whatever ``validate_wizard_cloud_run_target`` raises: the run would fail inside the
+    sandbox for a reason two GitHub reads can already see.
     """
+    validate_wizard_cloud_run_target(team=team, repository=repository, branch=branch)
     head_branch = generate_wizard_head_branch()
     prompt = build_wizard_pr_agent_prompt(head_branch)
     return create_and_run_task(

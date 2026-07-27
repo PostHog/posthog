@@ -58,14 +58,50 @@ OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
 # Absolute ceiling on sandbox boots per user per day, reserved atomically right before run
 # creation. The DB-counted throttles above the view are read-then-create and can be raced by
 # parallel requests; this cache.incr cannot, so it is the hard bound a start-cancel or crash
-# loop lands on. Only requests that reach creation consume it.
+# loop lands on. Only requests that boot a sandbox consume it: a reservation whose run creation
+# then rejects is released again, so it stays a count of sandbox boots and nothing else.
 WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
+
+# Ceiling on target pre-flights per user per day. The pre-flight spends GitHub reads from the
+# installation's shared budget before anything is created, and it deliberately costs no sandbox
+# boot, so the attempt cap above does not bound it: a caller looping on repositories that fail the
+# pre-flight would otherwise make unmetered authenticated GitHub requests. Sized well above the
+# attempt cap so it only ever binds on that looping shape, never on ordinary retrying.
+WIZARD_CLOUD_RUN_DAILY_PREFLIGHT_CAP = 40
 
 WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_cloud_run_requests_total",
-    "Cloud-run wizard kickoff requests, by outcome (created/unavailable/invalid/permission_denied/throttled)",
+    "Cloud-run wizard kickoff requests, by outcome (created/unavailable/invalid/permission_denied/throttled/"
+    "repository_inaccessible/framework_undetectable)",
     labelnames=["outcome"],
 )
+
+# Pre-flight rejections are reported under their own outcome rather than folded into "invalid", so a
+# pre-flight that starts rejecting healthy repositories is visible without reading request logs.
+CLOUD_RUN_PREFLIGHT_OUTCOMES = frozenset({"repository_inaccessible", "framework_undetectable"})
+
+
+def _cloud_run_validation_outcome(error: exceptions.ValidationError) -> str:
+    codes = error.get_codes()
+    if isinstance(codes, list) and len(codes) == 1 and codes[0] in CLOUD_RUN_PREFLIGHT_OUTCOMES:
+        return cast(str, codes[0])
+    return "invalid"
+
+
+def _preflight_validation_error(error: Exception) -> exceptions.ValidationError:
+    """Turn a facade pre-flight rejection into a 400 carrying its own stable code.
+
+    Clients act on the code, not on the prose: each of these rejections has a specific remedy (fix
+    the repository name, grant the GitHub app access, point the wizard at another repository) that
+    a generic input-validation code would not tell them apart from.
+    """
+    code = (
+        "repository_inaccessible"
+        if isinstance(error, tasks_facade.WizardRepositoryInaccessibleError)
+        else "framework_undetectable"
+    )
+    return exceptions.ValidationError(str(error), code=code)
+
 
 # Supported Gemini models
 GEMINI_SUPPORTED_MODELS = {
@@ -466,8 +502,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
         except exceptions.PermissionDenied:
             WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="permission_denied").inc()
             raise
-        except exceptions.ValidationError:
-            WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="invalid").inc()
+        except exceptions.ValidationError as e:
+            WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome=_cloud_run_validation_outcome(e)).inc()
             raise
         except exceptions.Throttled:
             # The atomic attempt reservation inside _cloud_run raises after check_throttles
@@ -478,23 +514,70 @@ class SetupWizardViewSet(viewsets.ViewSet):
         return response
 
     @staticmethod
-    def _reserve_cloud_run_attempt(user_id: int) -> None:
-        """Atomically consume one of the user's daily cloud-run attempts or raise Throttled.
-
-        Runs after validation and project access checks, immediately before run creation, so
-        rejected requests never consume the budget — while parallel requests cannot all slip
-        under the ceiling the way they can with the read-then-create DB throttles.
-        """
+    def _daily_reservation_key(prefix: str, user_id: int) -> str:
         window = int(time.time()) // 86400
-        key = f"wizard_cloud_run_attempts:{user_id}:{window}"
+        return f"{prefix}:{user_id}:{window}"
+
+    @classmethod
+    def _reserve_daily(cls, prefix: str, user_id: int, cap: int, detail: str) -> None:
+        """Atomically consume one unit of a per-user daily budget or raise Throttled.
+
+        cache.add + cache.incr, unlike the read-then-create DB throttles above the view, cannot be
+        raced by parallel requests, so the caps built on this are hard ceilings.
+        """
+        key = cls._daily_reservation_key(prefix, user_id)
         cache.add(key, 0, timeout=86400)
         try:
             count = cache.incr(key)
         except ValueError:
             # The key expired between add and incr; this request is the window's first.
             count = 1
-        if count > WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP:
-            raise exceptions.Throttled(detail="You've reached today's limit for cloud setup runs. Try again tomorrow.")
+        if count > cap:
+            raise exceptions.Throttled(detail=detail)
+
+    @classmethod
+    def _release_daily(cls, prefix: str, user_id: int) -> None:
+        """Give back a reservation whose request turned out not to spend what it reserved."""
+        try:
+            cache.decr(cls._daily_reservation_key(prefix, user_id))
+        except ValueError:
+            # The window rolled over between reserving and releasing; nothing left to give back.
+            pass
+
+    @classmethod
+    def _reserve_cloud_run_attempt(cls, user_id: int) -> None:
+        """Atomically consume one of the user's daily cloud-run attempts or raise Throttled.
+
+        Runs after validation and project access checks, immediately before run creation, so
+        rejected requests never consume the budget. The target pre-flight is part of "validation"
+        here and stays above this call: a repository typo boots no sandbox, so it must not cost one
+        of the day's boots either. Run creation re-runs that pre-flight and can still reject, which
+        is what ``_release_cloud_run_attempt`` exists for.
+        """
+        cls._reserve_daily(
+            "wizard_cloud_run_attempts",
+            user_id,
+            WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP,
+            "You've reached today's limit for cloud setup runs. Try again tomorrow.",
+        )
+
+    @classmethod
+    def _release_cloud_run_attempt(cls, user_id: int) -> None:
+        cls._release_daily("wizard_cloud_run_attempts", user_id)
+
+    @classmethod
+    def _reserve_cloud_run_preflight(cls, user_id: int) -> None:
+        """Atomically consume one of the user's daily pre-flights or raise Throttled.
+
+        Sits above the pre-flight rather than below it: the point is to bound the GitHub reads a
+        rejected request makes, and a rejected request never reaches the attempt reservation.
+        """
+        cls._reserve_daily(
+            "wizard_cloud_run_preflights",
+            user_id,
+            WIZARD_CLOUD_RUN_DAILY_PREFLIGHT_CAP,
+            "You've reached today's limit for cloud setup runs. Try again tomorrow.",
+        )
 
     def _cloud_run(self, request: Request) -> Response:
         if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
@@ -515,15 +598,36 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if project.id not in visible_project_ids:
             raise exceptions.PermissionDenied("You don't have access to this project.")
 
-        self._reserve_cloud_run_attempt(cast(User, request.user).id)
+        user_id = cast(User, request.user).id
+
+        # Above the attempt reservation on purpose: a rejection here starts no sandbox, so it must
+        # not spend one of the day's sandbox boots. It carries its own reservation instead, which
+        # bounds the GitHub reads a request that never reaches creation can make.
+        self._reserve_cloud_run_preflight(user_id)
+        try:
+            tasks_facade.validate_wizard_cloud_run_target(
+                team=project.passthrough_team,
+                repository=repository,
+                branch=branch,
+            )
+        except (tasks_facade.WizardRepositoryInaccessibleError, tasks_facade.WizardFrameworkUndetectableError) as e:
+            raise _preflight_validation_error(e)
+
+        self._reserve_cloud_run_attempt(user_id)
 
         try:
             result = tasks_facade.create_wizard_cloud_run(
                 team=project.passthrough_team,
-                user_id=cast(User, request.user).id,
+                user_id=user_id,
                 repository=repository,
                 branch=branch,
             )
+        except (tasks_facade.WizardRepositoryInaccessibleError, tasks_facade.WizardFrameworkUndetectableError) as e:
+            # The facade re-runs the pre-flight, so GitHub answering differently between the two
+            # reads lands here rather than as a 500. It runs before the facade creates anything, so
+            # this request booted no sandbox and the attempt it reserved goes back.
+            self._release_cloud_run_attempt(user_id)
+            raise _preflight_validation_error(e)
         except ValueError as e:
             # e.g. the team/user has no GitHub integration with access to the repository.
             raise exceptions.ValidationError(str(e))

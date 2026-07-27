@@ -9,12 +9,15 @@ from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.cloud_utils import get_api_host
 from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.tasks.backend.facade import api as tasks_facade
 
 
 class SetupWizardTests(APIBaseTest):
@@ -485,6 +488,34 @@ class SetupWizardCloudRunTests(APIBaseTest):
         assert kwargs["branch"] is None
         assert kwargs["team"].id == self.team.id
 
+    @parameterized.expand(
+        [
+            ("repository_inaccessible", tasks_facade.WizardRepositoryInaccessibleError),
+            ("framework_undetectable", tasks_facade.WizardFrameworkUndetectableError),
+        ]
+    )
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    @patch("posthog.api.wizard.http.tasks_facade.validate_wizard_cloud_run_target")
+    def test_preflight_rejections_carry_their_own_code(self, expected_code, facade_error, mock_validate, mock_create):
+        # Clients act on the code, not the prose, so each pre-flight rejection must stay
+        # distinguishable from generic input validation. The facade re-checks the target on
+        # creation, so both call sites have to map the rejection the same way.
+        for raising in (mock_validate, mock_create):
+            mock_validate.side_effect = None
+            mock_create.side_effect = None
+            raising.side_effect = facade_error("The pre-flight rejected acme/app.")
+
+            response = self.client.post(
+                self.CLOUD_RUN_URL,
+                data={"project_id": self.team.id, "repository": "acme/app"},
+                format="json",
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            body = response.json()
+            assert body["code"] == expected_code
+            assert body["detail"] == "The pre-flight rejected acme/app."
+
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
     def test_rejects_invalid_repository_format(self, mock_create):
         response = self.client.post(
@@ -571,6 +602,89 @@ class SetupWizardCloudRunTests(APIBaseTest):
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert mock_create.call_count == 2
+
+    @patch("posthog.api.wizard.http.WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP", 1)
+    @patch("products.tasks.backend.facade.api.recent_wizard_cloud_run_times", return_value=[])
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    @patch("posthog.api.wizard.http.tasks_facade.validate_wizard_cloud_run_target")
+    def test_preflight_rejection_does_not_spend_an_attempt(self, mock_validate, mock_create, _mock_run_times):
+        # The reservation bounds sandbox boots, and a rejected target boots nothing. With the cap
+        # at one, a typo that consumed the budget would leave the run the user actually meant
+        # throttled out for the rest of the day.
+        mock_validate.side_effect = [tasks_facade.WizardRepositoryInaccessibleError("no such repo"), None]
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+
+        rejected = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/typo"},
+            format="json",
+        )
+        assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+        mock_create.assert_not_called()
+
+        accepted = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+        )
+        assert accepted.status_code == status.HTTP_200_OK, accepted.content
+
+    @patch("posthog.api.wizard.http.WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP", 1)
+    @patch("products.tasks.backend.facade.api.recent_wizard_cloud_run_times", return_value=[])
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    @patch("posthog.api.wizard.http.tasks_facade.validate_wizard_cloud_run_target", return_value=None)
+    def test_creation_side_preflight_rejection_gives_the_attempt_back(
+        self, _mock_validate, mock_create, _mock_run_times
+    ):
+        # The attempt is reserved between the two pre-flights, so a target the first read accepts
+        # and the second rejects would otherwise charge a sandbox boot that never happened.
+        mock_create.side_effect = [
+            tasks_facade.WizardRepositoryInaccessibleError("no such repo"),
+            MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued")),
+        ]
+
+        rejected = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+        )
+        assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+
+        accepted = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+        )
+        assert accepted.status_code == status.HTTP_200_OK, accepted.content
+
+    @patch("posthog.api.wizard.http.WIZARD_CLOUD_RUN_DAILY_PREFLIGHT_CAP", 2)
+    @patch("products.tasks.backend.facade.api.recent_wizard_cloud_run_times", return_value=[])
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    @patch("posthog.api.wizard.http.tasks_facade.validate_wizard_cloud_run_target")
+    def test_preflight_reads_are_capped_even_though_they_spend_no_attempt(
+        self, mock_validate, mock_create, _mock_run_times
+    ):
+        # Rejected requests cost no attempt by design, so without a cap of their own a caller
+        # looping on rejected repositories would make unmetered GitHub reads.
+        mock_validate.side_effect = tasks_facade.WizardRepositoryInaccessibleError("no such repo")
+
+        for _ in range(2):
+            rejected = self.client.post(
+                self.CLOUD_RUN_URL,
+                data={"project_id": self.team.id, "repository": "acme/typo"},
+                format="json",
+            )
+            assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+
+        throttled = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/typo"},
+            format="json",
+        )
+
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert mock_validate.call_count == 2
+        mock_create.assert_not_called()
 
     def tearDown(self):
         super().tearDown()

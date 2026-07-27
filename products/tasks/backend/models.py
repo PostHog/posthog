@@ -60,6 +60,22 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
     return schema.model_json_schema()
 
 
+def resolve_team_github_integration(team: Team) -> Integration | None:
+    """The team GitHub integration a task binds to, or None when the team has no usable install.
+
+    Installs whose token refresh is permanently failing, and installs GitHub has confirmed gone,
+    are skipped: a task bound to one of those cannot clone. Callers that only predict a run's
+    outcome (the wizard pre-flight in ``logic/wizard_preflight.py``) share this so their answer is
+    reached with the same credentials the run itself would use.
+    """
+    return (
+        Integration.objects.filter(team=team, kind="github")
+        .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
+        .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
+        .first()
+    )
+
+
 class Channel(TeamScopedRootMixin):
     """A shared feed of tasks (rendered as "#<name>" in PostHog Desktop). Every task is
     owned by the channel it was kicked off in. Each user gets one private "personal"
@@ -532,12 +548,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        github_integration = (
-            Integration.objects.filter(team=team, kind="github")
-            .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
-            .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
-            .first()
-        )
+        github_integration = resolve_team_github_integration(team)
         github_user_integration = None
         task_stub = Task(
             team=team,

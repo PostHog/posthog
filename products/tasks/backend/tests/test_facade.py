@@ -2,7 +2,7 @@ import importlib
 from datetime import timedelta
 from typing import ClassVar
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 from django.utils import timezone as django_timezone
@@ -10,6 +10,7 @@ from django.utils import timezone as django_timezone
 from parameterized import parameterized
 
 from posthog.models import Integration, Organization, Team
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration
 from posthog.models.user import User
 
 from products.tasks.backend.facade import (
@@ -17,8 +18,21 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
+from products.tasks.backend.logic.wizard_preflight import WizardRepositoryAccess, WizardRepositoryPreflight
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
+
+_PREFLIGHT_UNKNOWN = WizardRepositoryPreflight(access=WizardRepositoryAccess.UNKNOWN)
+
+
+def _repo_response(*, status_code: int = 200, default_branch: str = "main") -> MagicMock:
+    return MagicMock(status_code=status_code, json=MagicMock(return_value={"default_branch": default_branch}))
+
+
+def _tree_response(paths: list[str], *, status_code: int = 200, truncated: bool = False) -> MagicMock:
+    payload = {"truncated": truncated, "tree": [{"type": "blob", "path": path} for path in paths]}
+    return MagicMock(status_code=status_code, json=MagicMock(return_value=payload))
+
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -560,8 +574,9 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state["pending_dispatch"]["posthog_mcp_scopes"], "full")
         self.assertEqual(run.state["pending_dispatch"]["user_id"], self.user.id)
 
+    @patch("products.tasks.backend.facade.api.preflight_wizard_repository", return_value=_PREFLIGHT_UNKNOWN)
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_wizard_cloud_run_seeds_pending_user_message(self, _mock_workflow):
+    def test_create_wizard_cloud_run_seeds_pending_user_message(self, _mock_workflow, _mock_preflight):
         Integration.objects.create(team=self.team, kind="github", config={})
         created = facade.create_wizard_cloud_run(
             team=self.team,
@@ -585,6 +600,110 @@ class TestFacadeReadsAndMappers(TestCase):
         # overlap-clone-boot launch (before run_wizard) burns the prompt on an untouched repo
         # and the run never opens a PR. Wizard runs must pin the overlap boot off.
         self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)
+
+    @parameterized.expand(
+        [
+            ("manifest_in_a_subdirectory", _repo_response(), _tree_response(["apps/web/package.json"]), None),
+            (
+                "repository_not_found",
+                _repo_response(status_code=404),
+                None,
+                facade.WizardRepositoryInaccessibleError,
+            ),
+            (
+                "no_project_manifest_anywhere",
+                _repo_response(),
+                _tree_response(["README.md", "docs/index.md"]),
+                facade.WizardFrameworkUndetectableError,
+            ),
+            ("truncated_tree", _repo_response(), _tree_response(["README.md"], truncated=True), None),
+            ("tree_read_raises", _repo_response(), RuntimeError("boom"), None),
+            ("tree_read_non_200", _repo_response(), _tree_response([], status_code=500), None),
+            ("repository_read_raises", RuntimeError("boom"), None, None),
+            ("repository_read_non_200", _repo_response(status_code=500), None, None),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_wizard_cloud_run_preflight_only_blocks_on_unambiguous_answers(
+        self, _name, repository_read, tree_read, expected_error, _mock_workflow
+    ):
+        # The pre-flight decides whether a run gets a sandbox at all, so it may reject only on an
+        # answer that settles the question. Every degraded GitHub response has to create the run.
+        Integration.objects.create(team=self.team, kind="github", config={})
+        tasks_before = Task.objects.count()
+        runs_before = TaskRun.objects.count()
+        responses = [repository_read] if tree_read is None else [repository_read, tree_read]
+
+        with patch.object(GitHubIntegration, "api_request", side_effect=responses):
+            if expected_error is None:
+                created = facade.create_wizard_cloud_run(team=self.team, user_id=self.user.id, repository="acme-co/web")
+                self.assertTrue(TaskRun.objects.filter(task_id=created.task_id).exists())
+                return
+            with self.assertRaises(expected_error):
+                facade.create_wizard_cloud_run(team=self.team, user_id=self.user.id, repository="acme-co/web")
+
+        # A rejected kickoff must leave nothing behind: no task row, and no run holding a slot
+        # against the user's quota.
+        self.assertEqual(Task.objects.count(), tasks_before)
+        self.assertEqual(TaskRun.objects.count(), runs_before)
+
+    @parameterized.expand(
+        [
+            ("requested_branch", "develop", "develop"),
+            ("default_branch", None, "trunk"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_wizard_cloud_run_preflight_reads_the_checked_out_ref(
+        self, _name, branch, expected_ref, _mock_workflow
+    ):
+        # The sandbox checks out the requested branch; judging detectability on the default branch
+        # instead would reject a run whose actual ref does hold a manifest.
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with patch.object(
+            GitHubIntegration,
+            "api_request",
+            side_effect=[_repo_response(default_branch="trunk"), _tree_response(["package.json"])],
+        ) as api_request:
+            facade.create_wizard_cloud_run(
+                team=self.team, user_id=self.user.id, repository="acme-co/web", branch=branch
+            )
+
+        self.assertEqual(api_request.call_args_list[1].args[1], f"/repos/acme-co/web/git/trees/{expected_ref}")
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_wizard_cloud_run_preflight_skips_public_sandbox_repos(self, _mock_workflow):
+        # The sandbox clones these unauthenticated and the task never binds an integration for
+        # them, so reading them through the team's install answers a question the run never asks,
+        # and a 404 from that install would block a run that would have worked.
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        with patch.object(GitHubIntegration, "api_request") as api_request:
+            created = facade.create_wizard_cloud_run(
+                team=self.team, user_id=self.user.id, repository="PostHog/hedgebox"
+            )
+
+        api_request.assert_not_called()
+        self.assertTrue(TaskRun.objects.filter(task_id=created.task_id).exists())
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_wizard_cloud_run_preflight_reads_with_the_integration_the_task_binds(self, _mock_workflow):
+        # An install whose token refresh is permanently failing is skipped when the task picks its
+        # integration. The pre-flight has to skip it too: judging accessibility with credentials
+        # the run never touches is exactly how a healthy repository gets falsely rejected.
+        Integration.objects.create(team=self.team, kind="github", config={}, errors=ERROR_TOKEN_REFRESH_FAILED)
+        usable = Integration.objects.create(team=self.team, kind="github", config={})
+        read_by: list[int] = []
+
+        def api_request(github, *args, **kwargs):
+            read_by.append(github.integration.id)
+            return _repo_response() if len(read_by) == 1 else _tree_response(["package.json"])
+
+        with patch.object(GitHubIntegration, "api_request", autospec=True, side_effect=api_request):
+            created = facade.create_wizard_cloud_run(team=self.team, user_id=self.user.id, repository="acme-co/web")
+
+        self.assertEqual(set(read_by), {usable.id})
+        self.assertEqual(Task.objects.get(id=created.task_id).github_integration_id, usable.id)
 
 
 class TestRecentWizardCloudRunTimes(TestCase):

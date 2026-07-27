@@ -2040,6 +2040,22 @@ def _create_wizard_run(
             ),
             None,
         )
+    except (
+        tasks_facade.WizardRepositoryInaccessibleError,
+        tasks_facade.WizardFrameworkUndetectableError,
+    ) as e:
+        # A rejected target is an input problem the partner can act on, not a server fault: report
+        # it as a 400 under its own code, and keep it out of error tracking.
+        error_code = (
+            "repository_inaccessible"
+            if isinstance(e, tasks_facade.WizardRepositoryInaccessibleError)
+            else "framework_undetectable"
+        )
+        _capture_provisioning_event("wizard_run", "error", partner=partner, error_code=error_code, team_id=team.id)
+        return (
+            error_response(error_code, str(e), resource_id=str(team.id), status=400),
+            None,
+        )
     except Exception:
         capture_exception(additional_properties={"team_id": team.id, "step": "provisioning_wizard_run"})
         _capture_provisioning_event(

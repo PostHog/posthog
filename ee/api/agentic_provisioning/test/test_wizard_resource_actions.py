@@ -14,6 +14,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import OnboardingSkippedReason
 from posthog.models.user_integration import UserIntegration
 
+from products.tasks.backend.facade import api as tasks_facade
+
 from ee.api.agentic_provisioning import GITHUB_GRANT_CACHE_PREFIX, github_grants
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
 
@@ -231,3 +233,31 @@ class TestWizardResourceActions(ProvisioningTestBase):
         assert response.status_code == 400
         assert response.json()["error"]["code"] == "github_integration_required"
         mock_create.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("repository_inaccessible", tasks_facade.WizardRepositoryInaccessibleError),
+            ("framework_undetectable", tasks_facade.WizardFrameworkUndetectableError),
+        ]
+    )
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="wizard-client-id")
+    def test_wizard_runs_reports_preflight_rejections_as_input_errors(self, expected_code, facade_error):
+        # The pre-flight rejects a target the partner named, which is an input problem it can act
+        # on. Reporting it as a 500 would hide the reason and file an error-tracking issue for an
+        # expected rejection. Reachable even past the check above, which accepts any installation
+        # that can reach the repo while the run binds to one specific integration.
+        with (
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=MagicMock()),
+            patch(
+                "ee.api.agentic_provisioning.views.tasks_facade.create_wizard_cloud_run",
+                side_effect=facade_error("The pre-flight rejected octocat/hello-world."),
+            ),
+            patch("ee.api.agentic_provisioning.views.capture_exception") as mock_capture_exception,
+        ):
+            response = self._post_wizard_runs(self.team.id, {"repository": "octocat/hello-world"})
+
+        assert response.status_code == 400
+        error = response.json()["error"]
+        assert error["code"] == expected_code
+        assert error["message"] == "The pre-flight rejected octocat/hello-world."
+        mock_capture_exception.assert_not_called()
