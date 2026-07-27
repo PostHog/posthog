@@ -137,7 +137,7 @@ from products.signals.backend.scout_harness.tools.notes import (
 )
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
 from products.signals.backend.scout_harness.tools.report import (
-    ReportChart,
+    ReportChartInput,
     ReportEvidence,
     ReviewerInput,
     edit_report_sync,
@@ -340,13 +340,14 @@ def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
     return view.team.parent_team_id or view.team_id
 
 
-def _to_report_charts(entries: list[dict] | None) -> list[ReportChart] | None:
-    """Map validated `charts` entries to `ReportChart`s for the report tools. Content validation lives
-    in `ReportChart`; this only crosses the DRF boundary. Empty/None yields None ("no charts")."""
+def _to_report_charts(entries: list[dict] | None) -> list[ReportChartInput] | None:
+    """Map validated `charts` entries to `ReportChartInput`s for the report tools. Content validation
+    lives in `ReportChart`, which the tools build from these; this only crosses the DRF boundary so a
+    malformed chart still surfaces as an invalid-report error. Empty/None yields None ("no charts")."""
     if not entries:
         return None
     return [
-        ReportChart(
+        ReportChartInput(
             chart_id=entry["chart_id"],
             title=entry["title"],
             query=entry["query"],
