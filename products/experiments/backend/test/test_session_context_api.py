@@ -1097,6 +1097,36 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
 
         assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_batch_throttle_budget_is_shared_across_personal_api_keys(self, _enabled: Any) -> None:
+        # The default throttle cache key idents personal-API-key requests by key hash, so a
+        # user could mint keys to multiply the expensive batch compute; the budget must be one
+        # project-wide bucket regardless of which key (or session) makes the request.
+        self._create_recording()
+        self.client.logout()
+
+        def _post_with_new_key() -> Any:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user,
+                label="t",
+                secure_value=hash_key_value(token),
+                scopes=["experiment:read", "session_recording:read"],
+            )
+            return self.client.post(
+                f"/api/projects/{self.team.id}/experiments/session_contexts/",
+                {"session_ids": [SESSION_ID]},
+                format="json",
+                headers={"authorization": f"Bearer {token}"},
+            )
+
+        with patch.object(SessionContextsBurstRateThrottle, "rate", "2/minute"):
+            assert _post_with_new_key().status_code == status.HTTP_200_OK
+            assert _post_with_new_key().status_code == status.HTTP_200_OK
+            throttled = _post_with_new_key()
+
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
     def test_batch_requires_session_recording_read_scope(self) -> None:
         self._create_recording()
         self.client.logout()
