@@ -59,7 +59,7 @@
                 "required": ["chart_id", "title", "query"],
                 "type": "object"
             },
-            "maxItems": 4,
+            "maxItems": 20,
             "type": "array"
         },
         "report_id": {

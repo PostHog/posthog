@@ -41,6 +41,7 @@ from posthog.api.embedding_worker import emit_embedding_request
 
 from products.signals.backend.artefact_schemas import (
     MAX_REPORT_CHARTS,
+    MAX_REPORT_CHARTS_QUERY_CHARS,
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_SCOUT,
     ActionabilityAssessment,
@@ -52,6 +53,7 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewerEntry,
     SuggestedReviewers,
     TaskRunArtefact,
+    chart_batch_query_chars,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -157,6 +159,8 @@ def create_scout_report(
     _validate_create_inputs(title, summary, signals)
     if len({chart.chart_id for chart in charts}) > MAX_REPORT_CHARTS:
         raise InvalidScoutReportError(f"a report accepts at most {MAX_REPORT_CHARTS} charts ({len(charts)})")
+    if chart_batch_query_chars(charts) > MAX_REPORT_CHARTS_QUERY_CHARS:
+        raise InvalidScoutReportError(f"the charts' queries exceed {MAX_REPORT_CHARTS_QUERY_CHARS} characters in total")
     # Defense-in-depth: refuse to author against a run another team owns, so the tally write below
     # can't corrupt a foreign team's `emitted_report_ids`. The harness tool already gates this with
     # `_assert_team_owns_run`; this guards a future direct caller that bypasses it (mirrors `emit`).

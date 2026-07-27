@@ -39,6 +39,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.artefact_schemas import (
+    MAX_REPORT_CHARTS_QUERY_CHARS,
     ActionabilityAssessment,
     ActionabilityChoice,
     ArtefactContentValidationError,
@@ -48,6 +49,7 @@ from products.signals.backend.artefact_schemas import (
     PriorityAssessment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
+    chart_batch_query_chars,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
 from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
@@ -242,6 +244,12 @@ def _build_charts(charts: list[ReportChart] | None) -> list[ChartArtefact]:
             raise InvalidScoutReportError(f"duplicate chart_id {content.chart_id!r} in the same call")
         seen.add(content.chart_id)
         built.append(content)
+    total_query_chars = chart_batch_query_chars(built)
+    if total_query_chars > MAX_REPORT_CHARTS_QUERY_CHARS:
+        raise InvalidScoutReportError(
+            f"the charts' queries total {total_query_chars} characters, the limit is "
+            f"{MAX_REPORT_CHARTS_QUERY_CHARS} across one call"
+        )
     return built
 
 

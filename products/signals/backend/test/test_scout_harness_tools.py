@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -1245,6 +1246,19 @@ class TestBuildCharts:
         chart = ReportChart(chart_id="sql", title="t", query={"kind": "HogQLQuery", "query": "SELECT 1"})
         with pytest.raises(InvalidScoutReportError, match="invalid chart"):
             _build_charts([chart])
+
+    def test_charts_within_the_per_chart_bound_can_still_bust_the_batch_bound(self) -> None:
+        # The judge is shown every chart in the call, query bodies included. Each of these clears the
+        # per-chart size bound, so only the batch bound stops a full report's worth of them from
+        # becoming a six-figure-character judge prompt.
+        big = ReportChart(
+            chart_id="c",
+            title="t",
+            query={"kind": "InsightVizNode", "padding": "x" * 15_000},
+        )
+        charts = [dataclasses.replace(big, chart_id=f"chart-{i}") for i in range(MAX_REPORT_CHARTS)]
+        with pytest.raises(InvalidScoutReportError, match="total"):
+            _build_charts(charts)
 
 
 class TestChartSafetyJudgeInput:

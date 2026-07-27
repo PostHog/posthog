@@ -989,7 +989,7 @@ export const signalsScoutEditReportBodyChartsItemTitleMax = 200
 
 export const signalsScoutEditReportBodyChartsItemCaptionMax = 500
 
-export const signalsScoutEditReportBodyChartsMax = 4
+export const signalsScoutEditReportBodyChartsMax = 20
 
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
     .object({
@@ -1151,7 +1151,7 @@ export const signalsScoutEmitReportBodyChartsItemTitleMax = 200
 
 export const signalsScoutEmitReportBodyChartsItemCaptionMax = 500
 
-export const signalsScoutEmitReportBodyChartsMax = 4
+export const signalsScoutEmitReportBodyChartsMax = 20
 
 export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
     .object({

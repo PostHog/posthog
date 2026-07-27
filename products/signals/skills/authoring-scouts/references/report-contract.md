@@ -36,7 +36,7 @@ Judges the report for safety, then persists it at the judged status.
 | `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                                                                                                                                                                                                              |
 | `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                                                                                    |
 | `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                 |
-| `charts`                    | list, ≤4, optional      | Queries the inbox draws on the report. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                                             |
+| `charts`                    | list, ≤20, optional     | Queries the inbox draws on the report. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                                             |
 
 **Status is decided for you, from safety × actionability:**
 
@@ -71,7 +71,7 @@ A reference inside a code span, a table cell, or a heading has no room to draw �
 **Pin the window** to absolute dates wherever the node supports it, so a reader opening the report days later sees the data you wrote about rather than whatever a relative range resolves to then.
 
 Charts append rather than replace, on both tools: re-supplying a `chart_id` on a later `edit_report` adds a fresher version and the reference resolves to it — which is what a recurring report's refreshed window wants.
-Cap is **4 distinct charts per report**, and each one runs its query when someone opens the report, so attach the ones that carry the argument rather than everything you looked at.
+Cap is **20 distinct charts per report** (and a combined query-size budget), which is far more than most reports should use. Each chart runs its query when the report is opened, so attach the ones that carry the argument rather than everything you looked at: three charts a reader studies beat a dozen they scroll past.
 
 ### Opening a draft PR (autostart)
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from enum import Enum
 from typing import Any, Literal, cast
 
@@ -413,7 +413,15 @@ CHART_QUERY_KINDS: frozenset[str] = frozenset({"InsightVizNode", "DataVisualizat
 
 # How many distinct charts one report may carry. Bounds how many queries a report fires when it's
 # opened; enforced on the model's write funnel so every caller is covered, not just the scout channel.
-MAX_REPORT_CHARTS = 4
+# Roughly a dashboard's worth: enough for a report to actually show its working, and in the same range
+# of concurrent queries an opened dashboard already costs.
+MAX_REPORT_CHARTS = 20
+
+# Total serialized `query` JSON one call may attach. The safety judge is shown every chart supplied in
+# a call, query bodies included, so `MAX_REPORT_CHARTS * _MAX_CHART_QUERY_CHARS` is what that prompt
+# would cost in the worst case — which is why the batch needs its own bound and not just the per-chart
+# one. Generous against real nodes, which run a few hundred to a few thousand characters each.
+MAX_REPORT_CHARTS_QUERY_CHARS = 60_000
 
 MAX_CHART_ID_LENGTH = 100
 MAX_CHART_TITLE_LENGTH = 200
@@ -542,6 +550,11 @@ class ChartArtefact(BaseModel):
         if _carries_bytecode(v):
             raise ValueError("query must not carry `bytecode` (conditional formatting is not supported on a chart)")
         return v
+
+
+def chart_batch_query_chars(charts: Sequence[ChartArtefact]) -> int:
+    """Serialized size of a batch of charts' queries, for `MAX_REPORT_CHARTS_QUERY_CHARS`."""
+    return sum(len(json.dumps(chart.query)) for chart in charts)
 
 
 class NoteArtefact(BaseModel):

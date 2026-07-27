@@ -285,7 +285,7 @@ _REPORT_CHARTS = f"""# Attaching charts
 - **Two references in one paragraph sit side by side.** Put a pair you want compared in a paragraph of their own; anywhere else they stack. A reference inside a table cell or a heading has no room to draw, so its chart falls to the end.
 - **Pin the window.** Use absolute dates wherever the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report days later.
 - **Size only when the default is wrong.** The inbox sizes a chart from its query. Set `size` to `small` (a single number, a short series), `medium`, or `large` (rows or a grid to read — retention, paths, a wide breakdown) when it isn't.
-- **At most {MAX_REPORT_CHARTS} per report**, and every one fires its query when someone opens the report — so attach the ones that carry the argument, not everything you looked at. Re-supplying a `chart_id` on a later edit refreshes that chart in place rather than adding another."""
+- **At most {MAX_REPORT_CHARTS} per report**, which is far more than most reports should use. Every chart runs its query when someone opens the report, so attach the ones that carry the argument rather than everything you looked at — three charts a reader studies beat a dozen they scroll past. Re-supplying a `chart_id` on a later edit refreshes that chart in place rather than adding another."""
 
 _WRITING_SUMMARY = """# Writing the summary (how it renders in run history)
 

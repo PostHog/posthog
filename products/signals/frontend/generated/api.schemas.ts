@@ -2845,7 +2845,7 @@ export interface EditReportRequestApi {
     suggested_reviewers?: SuggestedReviewerApi[]
     /**
      * Optional charts to append to the report. Charts accumulate rather than replace, so re-supplying a `chart_id` from an earlier call adds a newer version of that chart and the report renders the newest — which is what a refreshed window on a recurring report wants.
-     * @maxItems 4
+     * @maxItems 20
      */
     charts?: ReportChartApi[]
 }
@@ -3033,7 +3033,7 @@ export interface EmitReportRequestApi {
     suggested_reviewers?: SuggestedReviewerApi[]
     /**
      * Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.
-     * @maxItems 4
+     * @maxItems 20
      */
     charts?: ReportChartApi[]
 }
