@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 import { SummaryContext } from 'scenes/insights/summarizeInsight'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { Node, NodeKind } from '~/queries/schema/schema-general'
 import { SavedInsightsTabs, UserType } from '~/types'
 
 import { DraftInsightQuery, draftInsightMatchesFilters } from './draftInsight'
@@ -22,15 +22,21 @@ describe('draftInsightMatchesFilters', () => {
                 kind: NodeKind.TrendsQuery,
                 series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: 'total' }],
             },
-        },
+        } as Node<Record<string, any>>,
         timestamp: Date.now(),
     }
     const sqlDraft: DraftInsightQuery = {
-        query: { kind: NodeKind.DataVisualizationNode, source: { kind: NodeKind.HogQLQuery, query: 'select 1' } },
+        query: {
+            kind: NodeKind.DataVisualizationNode,
+            source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+        } as Node<Record<string, any>>,
         timestamp: Date.now(),
     }
     const eventsTableDraft: DraftInsightQuery = {
-        query: { kind: NodeKind.DataTableNode, source: { kind: NodeKind.EventsQuery, select: ['*'] } },
+        query: {
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.EventsQuery, select: ['*'] },
+        } as Node<Record<string, any>>,
         timestamp: Date.now(),
     }
     const oldTrendsDraft: DraftInsightQuery = { ...trendsDraft, timestamp: dayjs().subtract(30, 'day').valueOf() }
@@ -50,12 +56,7 @@ describe('draftInsightMatchesFilters', () => {
         ['a tag filter', trendsDraft, { tags: ['marketing'] }, false],
         ['created by including the current user', trendsDraft, { createdBy: [7] }, true],
         ['created by excluding the current user', trendsDraft, { createdBy: [999] }, false],
-        [
-            'created by ignored on the Yours tab',
-            trendsDraft,
-            { tab: SavedInsightsTabs.Yours, createdBy: [999] },
-            true,
-        ],
+        ['created by ignored on the Yours tab', trendsDraft, { tab: SavedInsightsTabs.Yours, createdBy: [999] }, true],
         ['last modified within range', trendsDraft, { dateFrom: '-7d' }, true],
         ['last modified out of range', oldTrendsDraft, { dateFrom: '-7d' }, false],
         ['created date out of range', oldTrendsDraft, { createdDateFrom: '-7d' }, false],
