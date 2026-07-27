@@ -1,5 +1,5 @@
 {
-    "production_eu": "clickhouse/clickhouse-server:26.3.10",
+    "production_eu": "clickhouse/clickhouse-server:26.6.1",
     "production_us": "clickhouse/clickhouse-server:26.3.10",
     "local": "clickhouse/clickhouse-server:26.6.1",
     "oldest_supported": "clickhouse/clickhouse-server:26.3.10"
