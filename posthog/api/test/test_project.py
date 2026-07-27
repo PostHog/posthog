@@ -130,6 +130,62 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.organization.available_product_features = features
         self.organization.save()
 
+    def _set_unlimited_projects_with_logs_retention(self, *features: AvailableFeature) -> None:
+        self._set_unlimited_projects()
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            *[{"key": feature.value, "name": feature.value.replace("_", " ")} for feature in features],
+        ]
+        self.organization.save()
+
+    def test_project_creation_rejects_paid_logs_retention_without_feature(self):
+        self._set_unlimited_projects()
+
+        response = self.client.post(
+            "/api/projects/",
+            {"name": "Logs Project", "logs_settings": {"retention_days": 30}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("30 days", response.json()["detail"])
+
+    def test_project_creation_allows_base_logs_retention_without_feature(self):
+        self._set_unlimited_projects()
+
+        response = self.client.post(
+            "/api/projects/",
+            {"name": "Logs Project", "logs_settings": {"retention_days": 14}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["logs_settings"]["retention_days"], 14)
+
+    def test_project_creation_allows_paid_logs_retention_with_matching_feature(self):
+        self._set_unlimited_projects_with_logs_retention(AvailableFeature.LOGS_RETENTION_30D)
+
+        response = self.client.post(
+            "/api/projects/",
+            {"name": "Logs Project", "logs_settings": {"retention_days": 30}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["logs_settings"]["retention_days"], 30)
+
+    def test_project_creation_rejects_invalid_logs_retention(self):
+        self._set_unlimited_projects()
+
+        response = self.client.post(
+            "/api/projects/",
+            {"name": "Logs Project", "logs_settings": {"retention_days": 45}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("retention_days must be one of", response.json()["detail"])
+
     def test_member_cannot_create_project_by_default(self):
         self._set_unlimited_projects()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

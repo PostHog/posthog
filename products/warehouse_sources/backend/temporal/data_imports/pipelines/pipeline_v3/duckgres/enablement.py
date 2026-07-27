@@ -1,7 +1,7 @@
 """Which teams the Duckgres batch sink is enabled for.
 
-The sink must only claim batches for teams that (a) have a DuckgresServerTeam
-membership and (b) have the rollout feature flag on. The membership is created
+The sink must only claim batches for teams that (a) have a team row in their org's
+duckgres control plane and (b) have the rollout feature flag on. The row is created
 when the team completes the managed-warehouse enable flow. Claiming anything
 else can switch an unregistered team from its legacy team-id schema to a newly
 chosen suffix after the sink has already primed it.
@@ -16,12 +16,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from django.db.models import F
-
 import structlog
 import posthoganalytics
 
-from posthog.ducklake.common import is_dev_mode
+from posthog.ducklake import cp_teams
+from posthog.ducklake.common import _get_org_id_for_team, is_dev_mode
 from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
@@ -30,17 +29,17 @@ DUCKGRES_BATCH_SINK_FLAG = "duckgres-batch-sink"
 
 
 def is_duckgres_sink_team_member(team_id: int) -> bool:
-    """Whether a team has registered its membership in its org's Duckgres server.
+    """Whether a team has registered its membership in its org's Duckgres warehouse.
 
-    ``table_suffix`` is intentionally not part of this check. Legacy memberships
-    with a NULL/empty suffix use the stable team-id schema naming fallback.
+    Membership is the team's row in the duckgres control plane; whether the row derives
+    or pins its schema names is intentionally not part of this check. Raises when the
+    control plane can't answer — the caller decides how to degrade.
     """
-    from posthog.ducklake.models import DuckgresServerTeam
-
-    return DuckgresServerTeam.objects.filter(
-        team_id=team_id,
-        server__organization_id=F("team__organization_id"),
-    ).exists()
+    organization_id = _get_org_id_for_team(team_id)
+    teams = cp_teams.list_org_teams(organization_id)
+    if teams is None:
+        raise RuntimeError(f"duckgres control plane unreachable resolving sink membership for team {team_id}")
+    return any(team.team_id == team_id for team in teams)
 
 
 @dataclass(frozen=True)
@@ -61,9 +60,10 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
     """Enabled teams plus their org's sink concurrency budget, or None for
     "no filter, no budgets" (dev mode).
 
-    Runs sync (Django ORM + flag evaluation); call via sync_to_async from the
-    consumer. Raises on app-DB errors — the caller keeps its previous cached
-    value so a transient app-DB blip doesn't blind the sink.
+    Runs sync (control-plane read + Django ORM + flag evaluation); call via
+    sync_to_async from the consumer. Raises on app-DB errors or an unreachable
+    control plane — the caller keeps its previous cached value so a transient
+    blip doesn't blind the sink.
 
     The flag is evaluated only-locally (no per-team network round-trip) with the
     org/project group properties supplied inline, matching the data-warehouse-scene
@@ -73,32 +73,59 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
     if is_dev_mode():
         return None
 
-    from posthog.ducklake.models import DuckgresServerTeam
+    from posthog.ducklake.models import DuckgresServer
+    from posthog.models.team.team import Team
+
+    rows = cp_teams.list_member_teams()
+    if rows is None:
+        raise RuntimeError("duckgres control plane unreachable; keeping the previous sink enablement")
+
+    team_info = {
+        team_id: (str(team_uuid), str(org_id))
+        for team_id, team_uuid, org_id in Team.objects.filter(id__in=[row.team_id for row in rows]).values_list(
+            "id", "uuid", "organization_id"
+        )
+    }
+    budgets = {
+        str(org_id): sink_max_concurrency
+        for org_id, sink_max_concurrency in DuckgresServer.objects.filter(
+            organization_id__in={row.organization_id for row in rows}
+        ).values_list("organization_id", "sink_max_concurrency")
+    }
 
     enabled: list[int] = []
     team_org_budgets: list[tuple[int, str, int]] = []
-    memberships = DuckgresServerTeam.objects.filter(server__organization_id=F("team__organization_id")).values_list(
-        "team_id", "team__uuid", "team__organization_id", "server__sink_max_concurrency"
-    )
-    for team_id, team_uuid, org_id, sink_max_concurrency in memberships:
+    for row in rows:
+        info = team_info.get(row.team_id)
+        if info is None:
+            continue
+        team_uuid, org_id = info
+        if org_id.lower() != row.organization_id.lower():
+            # A control-plane row whose org doesn't match the team's own org is not a
+            # membership of that team's warehouse — mirror the old server-org join.
+            continue
+        sink_max_concurrency = budgets.get(org_id)
+        if sink_max_concurrency is None:
+            # No connection row means the sink can't reach the org's server anyway.
+            continue
         try:
             if posthoganalytics.feature_enabled(
                 DUCKGRES_BATCH_SINK_FLAG,
-                str(team_uuid),
-                groups={"organization": str(org_id), "project": str(team_id)},
+                team_uuid,
+                groups={"organization": org_id, "project": str(row.team_id)},
                 group_properties={
-                    "organization": {"id": str(org_id)},
-                    "project": {"id": str(team_id), "organization_id": str(org_id)},
+                    "organization": {"id": org_id},
+                    "project": {"id": str(row.team_id), "organization_id": org_id},
                 },
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
             ):
-                enabled.append(team_id)
-                team_org_budgets.append((team_id, str(org_id), sink_max_concurrency))
+                enabled.append(row.team_id)
+                team_org_budgets.append((row.team_id, org_id, sink_max_concurrency))
         except Exception as e:
             # Flag evaluation failing for one team must not blind the whole sink;
             # treat as disabled (safe direction: we skip, never wrongly claim).
-            logger.exception("duckgres_sink_flag_evaluation_failed", team_id=team_id)
+            logger.exception("duckgres_sink_flag_evaluation_failed", team_id=row.team_id)
             capture_exception(e)
     return SinkEnablement(team_ids=enabled, team_org_budgets=team_org_budgets)
 

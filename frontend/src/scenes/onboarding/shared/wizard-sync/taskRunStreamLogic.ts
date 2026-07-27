@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 
+import { sseReconnectDelayMs } from 'lib/wizard-sync/pollLoop'
 import { logSyncDebug } from 'lib/wizard-sync/wizardSyncDebugLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -249,7 +250,9 @@ export type taskRunStreamLogicType = MakeLogicType<
  *
  * Data events (`task_run_state`, `_posthog/progress` notifications) arrive unnamed via `onmessage`;
  * `stream-end` closes the stream; rotation (`end`) and transient drops are handled by EventSource's
- * native reconnect (it replays the `Last-Event-ID` cursor the server stamps on every event).
+ * native reconnect (it replays the `Last-Event-ID` cursor the server stamps on every event). Fatal
+ * closes (readyState CLOSED, e.g. any non-200 on a (re)connect) never retry natively, so the logic
+ * schedules its own backed-off reconnect, per the posthog/api/streaming.py consumer contract.
  *
  * When the `onboarding-wizard-sync-mode` flag resolves to `polling` (GROW-118), the EventSource is
  * replaced by an interval that re-fetches the run's REST snapshot and feeds it through the same
@@ -380,6 +383,9 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
             }, 'queued-stall')
         },
         connect: () => {
+            // A connect (manual or scheduled) supersedes any pending reconnect timer, so the two can
+            // never race a second stream open.
+            cache.disposables.dispose('task-run-reconnect')
             // No run to stream — the Installation layer connects this source even in local mode (where
             // there's no TaskRun), so stay idle rather than opening a stream to a non-existent run.
             if (!props.runId) {
@@ -416,6 +422,7 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                     // Mode rides along here too: the connect event can predate the debug panel's
                     // mount (and get dropped), but open/events always land after it.
                     logSyncDebug(debugSource, 'open', 'SSE connection open', { mode: 'sse' })
+                    cache.sseReconnectAttempt = 0
                     actions.connectionOpened()
                 }
                 eventSource.onmessage = (event: MessageEvent<string>): void => {
@@ -452,14 +459,31 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                     cache.disposables.dispose('task-run-sync')
                 })
                 eventSource.onerror = (): void => {
-                    // CLOSED → browser gave up (won't auto-reconnect); anything else → it's already
-                    // retrying (rides the Last-Event-ID cursor), so just surface "reconnecting".
+                    // CLOSED → browser gave up (any non-200 on a (re)connect lands here and it will
+                    // never retry on its own), so schedule our own reconnect with backoff; anything
+                    // else → it's already retrying (rides the Last-Event-ID cursor), so just surface
+                    // "reconnecting".
                     if (eventSource.readyState === EventSource.CLOSED) {
-                        logSyncDebug(debugSource, 'error', 'SSE closed by server')
-                        actions.connectionErrored('EventSource connection closed by server — call connect() to retry')
+                        const attempt = ((cache.sseReconnectAttempt as number | undefined) ?? 0) + 1
+                        cache.sseReconnectAttempt = attempt
+                        const delayMs = sseReconnectDelayMs(attempt)
+                        logSyncDebug(
+                            debugSource,
+                            'error',
+                            `SSE closed, reconnecting in ~${Math.round(delayMs / 1000)}s`
+                        )
+                        actions.connectionErrored(
+                            `EventSource connection closed, reconnecting in ~${Math.round(delayMs / 1000)}s`
+                        )
+                        // The timer rides disposables so an unmount tears it down, and a hidden tab
+                        // pauses it instead of reconnecting in the background.
+                        cache.disposables.add(() => {
+                            const timer = window.setTimeout(() => actions.connect(), delayMs)
+                            return () => window.clearTimeout(timer)
+                        }, 'task-run-reconnect')
                     } else {
                         logSyncDebug(debugSource, 'error', 'SSE transport error, reconnecting')
-                        actions.connectionErrored('EventSource transport error — reconnecting')
+                        actions.connectionErrored('EventSource transport error, reconnecting')
                     }
                 }
 
@@ -470,6 +494,7 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
             // Tolerant of an empty/absent runId: local mode builds this logic with runId ''.
             logSyncDebug(`run ${String(props.runId ?? '').slice(0, 8)}`, 'disconnect', 'disconnected')
             cache.disposables.dispose('task-run-sync')
+            cache.disposables.dispose('task-run-reconnect')
             cache.disposables.dispose('queued-stall')
         },
     })),
