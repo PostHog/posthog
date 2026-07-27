@@ -455,3 +455,50 @@ def test_bulk_update_edj_mixed_skip_fail_and_success():
     assert [sid for sid, _ in failures] == [str(broken.id)]
     assert create_mock.call_count == 0
     assert update_mock.call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# syncs_once sources: the schedule must never run on a cadence, whichever seam
+# creates or re-arms it. Excel is the live syncs_once source; Postgres stands in
+# for every feed-backed source that must keep recurring.
+# ---------------------------------------------------------------------------
+
+FACADE_API = "products.data_warehouse.backend.facade.api"
+
+
+@pytest.mark.parametrize(
+    "source_type,expected_paused",
+    [("Excel", True), ("Postgres", False)],
+)
+def test_get_sync_schedule_pauses_syncs_once_sources(source_type, expected_paused):
+    # The one seam every schedule build flows through: even an explicit should_sync=True
+    # must come out paused for a syncs_once source, or a settings save re-arms the cadence.
+    team = _sync_team()
+    schema = _make_schema(team, _make_source(team, source_type=source_type))
+
+    schedule = get_sync_schedule(schema, should_sync=True)
+
+    assert schedule.state.paused is expected_paused
+
+
+@pytest.mark.parametrize(
+    "source_type,expects_unpause",
+    [("Excel", False), ("Postgres", True)],
+)
+def test_update_should_sync_only_unpauses_feed_sources(source_type, expects_unpause):
+    # Toggling a schema back on re-arms the Temporal schedule directly (not via
+    # get_sync_schedule), so this seam needs its own guard.
+    from products.warehouse_sources.backend.models.external_data_schema import update_should_sync
+
+    team = _sync_team()
+    schema = _make_schema(team, _make_source(team, source_type=source_type), should_sync=False)
+
+    with (
+        patch(f"{FACADE_API}.external_data_workflow_exists", return_value=True),
+        patch(f"{FACADE_API}.pause_external_data_schedule"),
+        patch(f"{FACADE_API}.unpause_external_data_schedule") as mock_unpause,
+    ):
+        updated = update_should_sync(str(schema.id), team.pk, should_sync=True)
+
+    assert updated is not None and updated.should_sync is True
+    assert mock_unpause.called is expects_unpause

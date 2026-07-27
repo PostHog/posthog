@@ -55,6 +55,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     WebhookSource,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
+    source_syncs_once,
     source_type_supports_cdc,
     validate_and_coerce_row_filters,
 )
@@ -1044,7 +1045,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 if schedule_exists:
                     if should_sync is False:
                         pause_external_data_schedule(str(updated_instance.id))
-                    elif should_sync is True:
+                    elif should_sync is True and not source_syncs_once(source.source_type):
+                        # A syncs_once source's schedule stays paused: enabling the schema keeps the
+                        # imported table live, and refreshing it is the explicit resync action.
                         unpause_external_data_schedule(str(updated_instance.id))
                 elif should_sync_value:
                     # No schedule yet but the schema should be syncing — create (or recover) it. The

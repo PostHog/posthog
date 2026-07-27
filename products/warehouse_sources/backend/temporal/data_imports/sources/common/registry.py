@@ -73,3 +73,21 @@ class SourceRegistry:
 
         cls._ensure_loaded()
         return list(cls._sources.keys())
+
+
+def source_syncs_once(source_type: ExternalDataSourceType | str | None) -> bool:
+    """Whether the given source type (enum or raw string) imports once instead of on a cadence.
+
+    The single question every scheduling seam asks before creating or unpausing a recurring
+    schedule, so a `syncs_once` source can't be re-armed from a path that forgot to check.
+    """
+    if source_type is None:
+        return False
+    try:
+        resolved = ExternalDataSourceType(source_type)
+    except ValueError:
+        return False
+    try:
+        return SourceRegistry.get_source(resolved).syncs_once
+    except KeyError:
+        return False

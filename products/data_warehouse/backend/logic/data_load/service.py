@@ -11,7 +11,7 @@ from django.conf import settings
 
 import structlog
 import temporalio
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from temporalio.client import (
     Client as TemporalClient,
     Schedule,
@@ -61,6 +61,15 @@ def _jitter_timedelta(max_jitter: timedelta, rng: random.Random) -> tuple[int, i
 
 
 def get_sync_schedule(external_data_schema: ExternalDataSchema, should_sync: bool = True):
+    # A `syncs_once` source (an uploaded file) must never run on a cadence: whatever the caller
+    # asked for, its schedule is built paused. Enforced here — the one seam every schedule
+    # create/update flows through — so no caller can accidentally re-arm it.
+    # Lazy import: the registry pulls every vendor SDK, which must stay off this module's import path.
+    from products.warehouse_sources.backend.facade.source_management import source_syncs_once  # noqa: PLC0415
+
+    if should_sync and source_syncs_once(external_data_schema.source.source_type):
+        should_sync = False
+
     inputs = ExternalDataWorkflowInputs(
         team_id=external_data_schema.team_id,
         external_data_schema_id=external_data_schema.id,
@@ -273,6 +282,17 @@ async def a_delete_external_data_schedule(external_data_source: ExternalDataSour
 _BULK_SCHEDULE_CONCURRENCY = 100
 
 
+def _warm_source_relations(schemas: list[ExternalDataSchema]) -> None:
+    """Cache each schema's ``source`` FK while still in a sync context.
+
+    ``get_sync_schedule`` reads ``schema.source`` (for the syncs_once capability), and inside the
+    async bulk coroutines a lazy FK load raises ``SynchronousOnlyOperation`` — so the relation must
+    already be cached by the time the coroutine touches it.
+    """
+    for schema in schemas:
+        _ = schema.source
+
+
 @async_to_sync
 async def bulk_create_external_data_job_schedules(
     schemas: list[tuple[ExternalDataSchema, bool]],
@@ -288,6 +308,8 @@ async def bulk_create_external_data_job_schedules(
     """
     if not schemas:
         return []
+
+    await sync_to_async(_warm_source_relations)([schema for schema, _ in schemas])
 
     temporal = await async_connect()
     semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
@@ -357,6 +379,8 @@ async def bulk_update_external_data_job_schedules(
     """
     if not schemas:
         return [], []
+
+    await sync_to_async(_warm_source_relations)(schemas)
 
     temporal = await async_connect()
     semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
