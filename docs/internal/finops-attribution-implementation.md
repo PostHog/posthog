@@ -120,6 +120,62 @@ The **standard is the schema + the dimension enums**, not the transport. An "ada
 
 ---
 
+## Coverage today — what's ready vs. what we build
+
+Two things make "are we covered?" more subtle than a per-vendor checklist.
+
+**A vendor bills on more than one dimension, and each dimension is a separate coverage question.**
+Temporal is the clearest case — it costs us money twice, on two independent axes:
+
+- **Temporal Cloud actions** — every workflow start, activity completion, signal, and timer is a billed state transition, priced by Temporal Cloud.
+- **The worker fleet** — the pods that actually run the activities are our own compute, on the AWS bill.
+
+A perfect activity-wall-clock meter attributes the _worker_ cost and leaves _actions_ 100% unallocated: it's a different bill on a different axis.
+The same split is everywhere — ClickHouse is query-load utilisation _and_ the cluster's AWS bill; Kafka is Warpstream throughput _and_ the consumer/producer compute.
+So coverage is tracked per **(source × dimension)**, not per source.
+
+**Shared pools need a utilisation meter, and the leftover is honest, not a bug.**
+A worker fleet / CH cluster / Kafka cluster is a mostly-fixed cost.
+You attribute it by _utilisation share_ — each consumer's activity-seconds / CPU-µs / bytes as a fraction of the pool's total.
+But utilisation rarely sums to the whole bill: there's provisioned-but-idle headroom, and that idle money is real cost no product caused.
+Smearing it across active products hides whether we're over-provisioned, so the default is: **the utilisation ratio distributes the used fraction; the idle fraction stays a named residual.**
+
+That makes "unallocated" three distinct things, and the coverage KPI only means something if they're labelled apart (a `residual_reason` on the residual rows):
+
+1. **Un-metered dimension** — a billable axis we haven't built a meter for yet (Temporal actions, today). Shrinks as we build; this is the maturity backlog below.
+2. **Un-instrumented consumer** — a product using a metered pool but not emitting. Shrinks as products adopt; this is the RFC's coverage KPI.
+3. **Idle / overhead** — provisioned-but-unused capacity. Does _not_ shrink with instrumentation — it's an efficiency signal, not a coverage gap, and must not be read as one.
+
+### Maturity by (source × dimension)
+
+Legend: ✅ **Ready** — usage signal and attribution both exist, wire up a derive adapter; 🟡 **Extend** — a chokepoint and a raw signal exist, add an attributed meter; 🔴 **Build** — no usage signal today.
+
+| Source × dimension                            | Billed by          | Usage signal today                                          | Attribution today                             | State             | What's needed                                                                                  |
+| --------------------------------------------- | ------------------ | ----------------------------------------------------------- | --------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------- |
+| ClickHouse — query load (bytes/CPU/S3)        | AWS (CH clusters)  | ✅ `query_log_archive`                                      | ✅ product (team_id/org_id not in HogQL view) | ✅ Ready (derive) | derive adapter; add team_id/org_id to the view; join the cluster's CUR $                       |
+| AI / LLM — tokens/requests                    | Anthropic/OpenAI/… | ✅ `$ai_generation`                                         | ✅ team + `ai_product` + **$**                | ✅ Ready (derive) | direct cost records + reconcile the summed estimate against the invoice                        |
+| Session replay — storage bytes                | AWS S3             | ✅ `usage_report` `recording_bytes_in_period`               | ✅ team                                       | ✅ Ready (derive) | derive from `usage_report`; join S3 $                                                          |
+| k8s compute $ (allocation)                    | AWS (via Kubecost) | ✅ Kubecost/Vantage warehouse sources exist                 | by namespace/label                            | ✅ Ready (lever)  | already ingestible — shortcut for the worker/pod $ split instead of hand-rolling it            |
+| Kafka — throughput                            | Warpstream         | 🟡 batch bytes (Prometheus, aggregate)                      | 🟡 team resolved, not aggregated per-team     | 🟡 Extend         | TopHog per-team meter at `fetchAndDispatch`; ingest Warpstream chargeback as the $ total       |
+| Worker / consumer compute (Kafka, replay)     | AWS                | 🟡 batch/step duration (`consumedBatchDuration`, histogram) | 🟡 topic/groupId; team per-message            | 🟡 Extend         | paired FinOps counter next to the existing duration metric                                     |
+| Celery — task compute                         | AWS                | 🟡 `CELERY_TASK_DURATION_HISTOGRAM`                         | 🟡 kind/id; product via fallback; team weak   | 🟡 Extend         | emit a `compute` meter in `postrun_signal_handler`                                             |
+| Dagster — job compute                         | AWS                | 🟡 run timing                                               | ✅ `dagster_tags`                             | 🟡 Extend         | `run_status_sensor` meter                                                                      |
+| HTTP / Django — request compute               | AWS                | 🟡 `API_REQUESTS_LATENCY_SECONDS` per view                  | ✅ request attribution                        | 🟡 Extend         | opt-in `api_request` meter in `CHQueries` `finally`                                            |
+| Temporal — **worker fleet compute**           | AWS                | 🔴 interceptor emits nothing                                | ✅ workflow/activity type at interceptor      | 🔴 Build          | wall-clock meter in `execute_activity` (see §E)                                                |
+| Temporal — **Cloud actions**                  | Temporal Cloud     | 🔴 actions not counted                                      | workflow_type known                           | 🔴 Build          | ingest Temporal's per-namespace action bill + split by workflow utilisation (or count actions) |
+| Postgres — query time / storage               | AWS RDS            | 🔴 wrapper timing only; team not in Node signature          | 🟡 call-site; team weak                       | 🔴 Build (hard)   | proxy-split; mostly platform R&D, so accept a coarse split first                               |
+| Vendor $ totals — AWS CUR                     | AWS                | 🔴 source scaffolded, unimplemented                         | n/a                                           | 🔴 Build          | implement `source_for_pipeline` on the existing CUR scaffold                                   |
+| Vendor $ totals — Temporal Cloud / Warpstream | vendors            | 🔴 not ingested (chargeback data exists)                    | n/a                                           | 🔴 Build          | new `SourceRegistry` sources                                                                   |
+| Revenue (for margin)                          | Stripe             | ✅ `revenue_analytics`                                      | 🔴 keyed on Stripe `customer_id`, not org_id  | 🟡 Extend         | the org_id ↔ customer_id identity bridge                                                       |
+
+**Read of the table.**
+The three derive-only sources (ClickHouse, AI, replay storage) are genuinely close — that's Phase 0, and it answers "what's our infra spend by product?" with no product-team work.
+The 🟡 compute pools (Kafka, Celery, Dagster, HTTP, Temporal worker) are all the _same_ pattern — a duration already measured at a chokepoint, needing a paired attributed meter — so they're one build, repeated (Phase 1).
+The two genuinely separate hard builds are **Temporal Cloud actions** (a dimension with no signal at all) and **the vendor-bill $ sources** (CUR / Temporal / Warpstream ingestion) — without the latter every usage meter stays dimensionless and nothing gets priced.
+Kubecost is an underused lever: it already allocates k8s spend by namespace/label, which shortcuts most of the worker-compute $ split.
+
+---
+
 ## The standardised emitter SDK
 
 Two thin libraries, one per runtime, same concepts and same wire schema.
@@ -210,7 +266,11 @@ No new emission. `query_log_archive` already has `read_bytes`, `memory_usage`, `
 
 ### E. Temporal activity (Python — wall-clock attribution)
 
+This covers only the **worker-fleet compute** dimension. Temporal Cloud **actions** are a second, independent bill (see [Coverage today](#coverage-today--whats-ready-vs-what-we-build)) — realistically ingested from Temporal's per-namespace action data as a vendor source and split across products by this same wall-clock utilisation ratio, not counted in-process.
+
 **Chokepoint**: `_PostHogClientActivityInboundInterceptor.execute_activity` (`posthog/temporal/common/posthog_client.py:63`). Wrap in `try/finally`, read `activity.info()` for `workflow_type`/`activity_type`, emit a `compute` meter with `workload=activity_type`, `system=<task queue>`, duration = measured wall time. Product inherited from the workflow-type→product map (extend the existing `TemporalTags` usage). Covers the RFC's "Temporal hooks" explicitly and fixes the current blind spot where attribution only exists if the activity happens to hit ClickHouse.
+
+The worker fleet is a shared pool, so these wall-clock meters attribute the _used_ fraction of the fleet's compute bill; the idle headroom stays a `residual_reason="idle_capacity"` row rather than being smeared onto active products.
 
 ### F. Celery task (Python)
 
@@ -230,7 +290,9 @@ Already priced per team/model/product by the AI Gateway (`$ai_generation` with `
 
 ### J. Vendor bills (warehouse sources + adapters)
 
-Temporal Cloud, Warpstream, AWS CUR: implement as `SourceRegistry` sources under `products/warehouse_sources` in the `FINANCE___ACCOUNTING` category (AWS CUR is already scaffolded at `aws_cost_and_usage_report/source.py` — needs `source_for_pipeline`). Each vendor gets an adapter that normalises its bill into cost records / provider totals. Known associations (which cluster serves which product) live in versioned JSON alongside the adapter, exactly as the RFC proposes.
+Temporal Cloud, Warpstream, AWS CUR: implement as `SourceRegistry` sources under `products/warehouse_sources` in the `FINANCE___ACCOUNTING` category (AWS CUR is already scaffolded at `aws_cost_and_usage_report/source.py` — needs `source_for_pipeline`). Each vendor gets an adapter that normalises its bill into cost records / provider totals. Known associations (which cluster serves which product) live in versioned JSON alongside the adapter, exactly as the RFC proposes. Temporal Cloud's own per-namespace action counts are the vendor total for the Temporal-actions dimension; the worker-fleet compute is a _separate_ AWS line — one vendor source per bill, never conflated.
+
+The Kubecost and Vantage sources already in the registry are a lever worth pulling early: they allocate Kubernetes spend by namespace/label, which is most of the worker-fleet compute $ split (Temporal workers, ingestion consumers, Celery/Dagster pods) without hand-rolling a pod→product map.
 
 ---
 
@@ -244,12 +306,12 @@ One scheduled Dagster job, run per period, per provider:
    - `direct` — the bill line already names the product/team (e.g. AI Gateway per-request cost).
    - `proxy_metric` — split by a usage meter that correlates with cost (ClickHouse cost by `read_bytes`).
    - `volume_ratio` — split by raw quantity share (Kafka cost by message count).
-   - `residual` — whatever's left, written as `product=shared`, `allocation_method=residual`. **This is the unallocated bucket, and it must exist** so totals reconcile.
+   - `residual` — whatever's left, written as `product=shared`, `allocation_method=residual`, tagged with a `residual_reason` of `unmetered_dimension` / `uninstrumented_consumer` / `idle_capacity` (the three kinds from [Coverage today](#coverage-today--whats-ready-vs-what-we-build)). **This bucket must exist** so totals reconcile.
 4. Write priced rows into `cost_attribution`.
 
 Invariant test (cheap, deterministic, worth a CI/backfill assertion): for every `(charge_date, provider)`, `sum(effective_cost_usd) == vendor_total`. If it doesn't, an adapter dropped or double-counted — fail loud.
 
-Coverage over time = residual share trending down as more products emit meters. That's the RFC's coverage KPI, computed directly from `allocation_method`.
+Coverage over time = residual share trending down as more products emit meters — but split by `residual_reason`, because only `unmetered_dimension` and `uninstrumented_consumer` should shrink. `idle_capacity` is an efficiency signal that instrumentation can't move; folding it into the coverage number would make the KPI lie. That's the RFC's coverage KPI, computed directly from `allocation_method` + `residual_reason`.
 
 ---
 
