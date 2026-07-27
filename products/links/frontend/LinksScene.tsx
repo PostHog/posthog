@@ -1,148 +1,83 @@
-import { useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
+import { defineEntityListScene } from 'lib/components/EntityList'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
-import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { sceneConfigurations } from 'scenes/scenes'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { LinkType } from '~/types'
 
 import { LinkMetricSparkline } from './LinkMetricSparkline'
-import { linksLogic } from './linksLogic'
 
-export const scene: SceneExport = {
-    component: LinksScene,
-    logic: linksLogic,
+export const scene = defineEntityListScene<LinkType>({
+    type: 'link',
+    scene: Scene.Links,
+    url: urls.links(),
     productKey: ProductKey.LINKS,
-}
-
-export function LinksScene(): JSX.Element {
-    const { links, linksLoading } = useValues(linksLogic)
-    const shouldShowEmptyState = links.length == 0 && !linksLoading
-
-    const columns = [
-        {
-            title: 'Key',
-            sticky: true,
-            width: '40%',
-            render: function Render(_: any, record: LinkType) {
-                return (
-                    <LemonTableLink
-                        to={record.id ? urls.link(record.id) : undefined}
-                        title={
-                            <>
-                                <span>
-                                    {stringWithWBR(record?.short_link_domain + '/' + record?.short_code || '', 17)}
-                                </span>
-                            </>
-                        }
-                        description={record?.redirect_url}
-                    />
-                )
-            },
-        },
-        createdByColumn<LinkType>() as LemonTableColumn<LinkType, keyof LinkType | undefined>,
-        createdAtColumn<LinkType>() as LemonTableColumn<LinkType, keyof LinkType | undefined>,
+    mode: 'client',
+    load: async () => ({ results: (await api.links.list()).results }),
+    nameColumn: {
+        title: 'Key',
+        width: '40%',
+        render: (link) => <span>{stringWithWBR(`${link.short_link_domain}/${link.short_code}`, 17)}</span>,
+        description: (link) => link.redirect_url,
+    },
+    columns: [
+        createdByColumn<LinkType>(),
+        createdAtColumn<LinkType>(),
         {
             title: 'Last 7 days',
-            render: function RenderLinkMetricSparkline(_: any, link: LinkType) {
+            render: function RenderLinkMetricSparkline(_, link) {
+                // TODO: Update URL to link to page with all `$linkclick` events for this specific link
                 return (
-                    // TODO: Update URL to link to page with all `$linkclick` events
-                    // for this specific link
                     <Link to="/insights">
                         <LinkMetricSparkline id={link.id} />
                     </Link>
                 )
             },
         },
-        {
-            width: 0,
-            render: function Render(_: any, link: LinkType) {
-                return (
-                    <More
-                        overlay={
-                            <LemonMenuOverlay
-                                items={[
-                                    {
-                                        label: 'Edit link',
-                                        onClick: () => router.actions.push(urls.link(link.id)),
-                                    },
-                                    {
-                                        label: 'Delete link',
-                                        status: 'danger' as const,
-                                        disabledReason: 'Coming soon',
-                                        onClick: () => {},
-                                    },
-                                ]}
-                            />
-                        }
-                    />
-                )
+    ],
+    rowMenu: (link) => (
+        <LemonMenuOverlay
+            items={[
+                { label: 'Edit link', onClick: () => router.actions.push(urls.link(link.id)) },
+                { label: 'Delete link', status: 'danger', disabledReason: 'Coming soon', onClick: () => {} },
+            ]}
+        />
+    ),
+    newButton: {
+        label: 'Create link',
+        to: urls.link('new'),
+        shortcutName: 'NewLink',
+        sideAction: {
+            dropdown: {
+                overlay: (
+                    <>
+                        <LemonButton disabledReason="Coming soon" fullWidth>
+                            Import from Bit.ly
+                        </LemonButton>
+                        <LemonButton disabledReason="Coming soon" fullWidth>
+                            Import from Dub.co
+                        </LemonButton>
+                        <LemonButton disabledReason="Coming soon" fullWidth>
+                            Import from CSV
+                        </LemonButton>
+                    </>
+                ),
+                placement: 'bottom-end',
             },
         },
-    ]
-
-    return (
-        <SceneContent>
-            <SceneTitleSection
-                name={sceneConfigurations[Scene.Links].name}
-                description={sceneConfigurations[Scene.Links].description}
-                resourceType={{
-                    type: sceneConfigurations[Scene.Links].iconType || 'default_icon_type',
-                }}
-                actions={
-                    <Shortcut
-                        name="NewLink"
-                        keybind={[keyBinds.new]}
-                        intent="Create link"
-                        interaction="click"
-                        scope={Scene.Links}
-                    >
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlus />}
-                            onClick={() => router.actions.push(urls.link('new'))}
-                            size="small"
-                            tooltip="Create link"
-                            sideAction={{
-                                dropdown: {
-                                    overlay: (
-                                        <>
-                                            <LemonButton disabledReason="Coming soon" fullWidth>
-                                                Import from Bit.ly
-                                            </LemonButton>
-                                            <LemonButton disabledReason="Coming soon" fullWidth>
-                                                Import from Dub.co
-                                            </LemonButton>
-                                            <LemonButton disabledReason="Coming soon" fullWidth>
-                                                Import from CSV
-                                            </LemonButton>
-                                        </>
-                                    ),
-                                    placement: 'bottom-end',
-                                },
-                            }}
-                        >
-                            Create link
-                        </LemonButton>
-                    </Shortcut>
-                }
-            />
-
+    },
+    hideTableWhenEmpty: true,
+    banner: ({ isEmpty }) => (
+        <>
             <LemonBanner type="error">
                 <h2>Links are extremely WIP</h2>
                 <p>
@@ -152,9 +87,8 @@ export function LinksScene(): JSX.Element {
                     in Rust.
                 </p>
             </LemonBanner>
-
             <ProductIntroduction
-                isEmpty={shouldShowEmptyState}
+                isEmpty={isEmpty}
                 productName="Links"
                 productKey={ProductKey.LINKS}
                 thingName="link"
@@ -163,8 +97,6 @@ export function LinksScene(): JSX.Element {
                 docsURL="https://posthog.com/docs/links"
                 className="my-0"
             />
-
-            {!shouldShowEmptyState && <LemonTable loading={linksLoading} columns={columns} dataSource={links} />}
-        </SceneContent>
-    )
-}
+        </>
+    ),
+})

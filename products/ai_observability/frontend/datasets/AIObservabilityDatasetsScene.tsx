@@ -1,164 +1,101 @@
-import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
+import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { EntityListDefinition, defineEntityListScene } from 'lib/components/EntityList'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { Link } from 'lib/lemon-ui/Link'
+import { createdAtColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { SceneExport } from 'scenes/sceneTypes'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { LemonInput } from '~/lib/lemon-ui/LemonInput'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
-import { createdAtColumn, updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
-import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Dataset } from '~/types'
 
-import { DATASETS_PER_PAGE, aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
+import { DATASETS_ENTITY_TYPE } from './utils'
 
-export const scene: SceneExport = {
-    component: AIObservabilityDatasetsScene,
-    logic: aiObservabilityDatasetsLogic,
-    productKey: ProductKey.AI_OBSERVABILITY,
+const DATASETS_PER_PAGE = 30
+
+/** Detail links carry the current search params so returning to the list keeps its page and search. */
+function datasetUrl(id: string): string {
+    return combineUrl(urls.aiObservabilityDataset(id), router.values.searchParams).url
 }
 
-export function AIObservabilityDatasetsScene(): JSX.Element {
-    const { setFilters, deleteDataset } = useActions(aiObservabilityDatasetsLogic)
-    const { datasets, datasetsLoading, sorting, pagination, filters, datasetCountLabel } =
-        useValues(aiObservabilityDatasetsLogic)
-    const { searchParams } = useValues(router)
-    const datasetUrl = (id: string): string => combineUrl(urls.aiObservabilityDataset(id), searchParams).url
+async function deleteDataset(dataset: Dataset, refresh: () => void): Promise<void> {
+    try {
+        await api.datasets.update(dataset.id, { deleted: true })
+        lemonToast.info(`${dataset.name || 'Dataset'} has been deleted.`)
+        refresh()
+    } catch {
+        lemonToast.error('Failed to delete dataset')
+    }
+}
 
-    const columns: LemonTableColumns<Dataset> = [
-        {
-            title: 'Name',
-            dataIndex: 'name',
-            key: 'name',
-            width: '20%',
-            render: function renderName(_, dataset) {
-                return (
-                    <Link to={datasetUrl(dataset.id)} data-testid="dataset-link">
-                        {dataset.name}
-                    </Link>
-                )
-            },
-        },
+export const datasetsEntityList: EntityListDefinition<Dataset> = {
+    type: DATASETS_ENTITY_TYPE,
+    scene: 'AIObservabilityDatasets' as Scene,
+    url: urls.aiObservabilityDatasets(),
+    nouns: ['dataset', 'datasets'],
+    mode: 'server',
+    pageSize: DATASETS_PER_PAGE,
+    defaultOrderBy: '-created_at',
+    load: async ({ search, orderBy, limit, offset }) =>
+        await api.datasets.list({ search, order_by: orderBy ?? undefined, limit, offset }),
+    search: { placeholder: 'Search datasets...' },
+    nameColumn: {
+        width: '20%',
+        to: (dataset) => datasetUrl(dataset.id),
+        render: (dataset) => <>{dataset.name}</>,
+    },
+    columns: [
         {
             title: 'Description',
             dataIndex: 'description',
             key: 'description',
             width: '50%',
-            render: function renderDescription(description) {
-                return <span className="text-muted">{String(description) || <i>–</i>}</span>
-            },
+            render: (description) => <span className="text-muted">{String(description) || <i>–</i>}</span>,
         },
         {
-            title: 'Created by',
+            title: 'Created by',
             dataIndex: 'created_by',
-            render: function renderCreatedBy(_, item) {
-                const { created_by } = item
-                return (
-                    <div className="flex flex-row items-center flex-nowrap">
-                        {created_by && <ProfilePicture user={created_by} size="md" showName />}
-                    </div>
-                )
-            },
+            render: (_, { created_by }) => (
+                <div className="flex flex-row items-center flex-nowrap">
+                    {created_by && <ProfilePicture user={created_by} size="md" showName />}
+                </div>
+            ),
         },
-        createdAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>,
-        updatedAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>,
-        {
-            width: 0,
-            render: function renderMore(_, dataset) {
-                return (
-                    <More
-                        overlay={
-                            <>
-                                <LemonButton
-                                    to={datasetUrl(dataset.id)}
-                                    data-attr={`dataset-item-${dataset.id}-dropdown-view`}
-                                    fullWidth
-                                >
-                                    View
-                                </LemonButton>
-
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmAnalytics}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                >
-                                    <LemonButton
-                                        status="danger"
-                                        onClick={() => deleteDataset(dataset.id)}
-                                        data-attr={`dataset-item-${dataset.id}-dropdown-delete`}
-                                        fullWidth
-                                    >
-                                        Delete
-                                    </LemonButton>
-                                </AccessControlAction>
-                            </>
-                        }
-                    />
-                )
-            },
-        },
-    ]
-
-    return (
-        <SceneContent>
-            <SceneTitleSection
-                name="Datasets"
-                description="Manage datasets for testing and evaluation."
-                resourceType={{ type: 'llm_datasets' }}
-                actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            type="primary"
-                            to={datasetUrl('new')}
-                            data-testid="create-dataset-button"
-                            data-attr="create-dataset-button"
-                            size="small"
-                        >
-                            New dataset
-                        </LemonButton>
-                    </AccessControlAction>
-                }
-            />
-            <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b justify-between">
-                <LemonInput
-                    type="search"
-                    placeholder="Search datasets..."
-                    value={filters.search}
-                    data-attr="datasets-search-input"
-                    onChange={(value) => setFilters({ search: value })}
-                    className="max-w-md"
-                    data-testid="search-datasets-input"
-                />
-                <div className="text-muted-alt">{datasetCountLabel}</div>
-            </div>
-
-            <LemonTable
-                loading={datasetsLoading}
-                columns={columns}
-                dataSource={datasets.results}
-                pagination={pagination}
-                noSortingCancellation
-                sorting={sorting}
-                onSort={(newSorting) =>
-                    setFilters({
-                        order_by: newSorting
-                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                            : undefined,
-                    })
-                }
-                rowKey="id"
-                loadingSkeletonRows={DATASETS_PER_PAGE}
-                nouns={['dataset', 'datasets']}
-            />
-        </SceneContent>
-    )
+        createdAtColumn<Dataset>(),
+        updatedAtColumn<Dataset>(),
+    ],
+    rowMenu: (dataset, { refresh }) => (
+        <>
+            <LemonButton to={datasetUrl(dataset.id)} data-attr={`dataset-item-${dataset.id}-dropdown-view`} fullWidth>
+                View
+            </LemonButton>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.LlmAnalytics}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                <LemonButton
+                    status="danger"
+                    onClick={() => void deleteDataset(dataset, refresh)}
+                    data-attr={`dataset-item-${dataset.id}-dropdown-delete`}
+                    fullWidth
+                >
+                    Delete
+                </LemonButton>
+            </AccessControlAction>
+        </>
+    ),
+    newButton: {
+        label: 'New dataset',
+        to: () => datasetUrl('new'),
+        'data-attr': 'create-dataset-button',
+        disabledReason: () =>
+            getAccessControlDisabledReason(AccessControlResourceType.LlmAnalytics, AccessControlLevel.Editor) ??
+            undefined,
+    },
 }
+
+export const scene = defineEntityListScene(datasetsEntityList)

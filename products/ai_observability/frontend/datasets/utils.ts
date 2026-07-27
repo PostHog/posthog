@@ -1,5 +1,8 @@
 export const EMPTY_JSON = '{\n  \n}'
 
+/** Entity list registry key for the datasets list, so the detail logic can reach an open list. */
+export const DATASETS_ENTITY_TYPE = 'llm_dataset'
+
 /**
  * Coerce a string to a valid JSON object or null.
  * @param maybeJson - The string to coerce

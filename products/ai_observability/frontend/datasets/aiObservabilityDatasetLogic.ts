@@ -17,6 +17,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
+import { mountedEntityListRows, refreshEntityList } from 'lib/components/EntityList'
 import { objectsEqual } from 'lib/utils/objects'
 
 import api, { CountedPaginatedResponse } from '~/lib/api'
@@ -31,8 +32,7 @@ import { Breadcrumb, Dataset, DatasetItem } from '~/types'
 
 import type { ProductIntentProperties } from '../../../../frontend/src/lib/utils/product-intents'
 import { truncateValue } from '../utils'
-import { aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
-import { EMPTY_JSON, coerceJsonToObject, isStringJsonObject, prettifyJson } from './utils'
+import { DATASETS_ENTITY_TYPE, EMPTY_JSON, coerceJsonToObject, isStringJsonObject, prettifyJson } from './utils'
 
 export interface DatasetLogicProps {
     datasetId: string | 'new'
@@ -391,7 +391,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                         })
                         lemonToast.success('Dataset updated successfully')
                     }
-                    aiObservabilityDatasetsLogic.findMounted()?.actions.loadDatasets(false)
+                    refreshEntityList(DATASETS_ENTITY_TYPE)
                     actions.setDataset(savedDataset)
                     actions.editDataset(false)
                     actions.setDatasetFormValues(getDatasetFormDefaults(savedDataset))
@@ -652,12 +652,10 @@ function getDatasetFormDefaults(dataset: Dataset): DatasetFormValues {
 }
 
 /**
- * Find an existing dataset in the datasets logic.
+ * Start from the row the user clicked in the datasets list, if that list is still open.
  * @param datasetId - The ID of the dataset to find
  * @returns The dataset if found, undefined otherwise
  */
 function findExistingDataset(datasetId: string): Dataset | undefined {
-    return aiObservabilityDatasetsLogic
-        .findMounted()
-        ?.values.datasets.results.find((dataset) => dataset.id === datasetId)
+    return mountedEntityListRows<Dataset>(DATASETS_ENTITY_TYPE).find((dataset) => dataset.id === datasetId)
 }

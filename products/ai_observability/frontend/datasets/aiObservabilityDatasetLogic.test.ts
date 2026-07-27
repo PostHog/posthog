@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { entityListLogic } from 'lib/components/EntityList'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
@@ -9,11 +10,19 @@ import { initKeaTests } from '~/test/init'
 import { Dataset, DatasetItem } from '~/types'
 
 import { DatasetFormValues, DatasetLogicProps, aiObservabilityDatasetLogic } from './aiObservabilityDatasetLogic'
-import { aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
+import { datasetsEntityList } from './AIObservabilityDatasetsScene'
 import { EMPTY_JSON } from './utils'
 
 jest.mock('~/lib/api')
 jest.mock('lib/lemon-ui/LemonToast/LemonToast')
+
+/** Stands in for the user having the datasets list open behind the detail page. */
+function mountDatasetsList(datasets: Dataset[]): void {
+    ;(api.datasets.list as jest.Mock).mockResolvedValue({ results: datasets, count: datasets.length })
+    const listLogic = entityListLogic({ definition: datasetsEntityList })
+    listLogic.mount()
+    listLogic.actions.loadEntitiesSuccess({ results: datasets, count: datasets.length })
+}
 
 describe('aiObservabilityDatasetLogic', () => {
     const mockDataset: Dataset = {
@@ -357,19 +366,8 @@ describe('aiObservabilityDatasetLogic', () => {
             })
         })
 
-        it('uses existing dataset from datasets logic if available', () => {
-            const datasetsLogic = aiObservabilityDatasetsLogic()
-            datasetsLogic.mount()
-
-            // Mock the findMounted method to return the datasets logic
-            const findMountedSpy = jest.spyOn(aiObservabilityDatasetsLogic, 'findMounted')
-            findMountedSpy.mockReturnValue({
-                values: {
-                    datasets: {
-                        results: [mockDataset],
-                    },
-                },
-            } as any)
+        it('uses the row from an open datasets list if available', () => {
+            mountDatasetsList([mockDataset])
 
             logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
             logic.mount()
@@ -380,48 +378,19 @@ describe('aiObservabilityDatasetLogic', () => {
                 description: 'Test description',
                 metadata: '{\n  "key": "value"\n}',
             })
-
-            findMountedSpy.mockRestore()
         })
 
-        it('handles null metadata correctly in form defaults', () => {
-            const datasetWithNullMetadata = { ...mockDataset, metadata: null }
+        it.each([
+            ['null', null],
+            ['empty object', {}],
+        ])('renders %s metadata as an empty JSON object in form defaults', (_label, metadata) => {
+            const dataset = { ...mockDataset, metadata } as Dataset
+            mountDatasetsList([dataset])
 
-            const findMountedSpy = jest.spyOn(aiObservabilityDatasetsLogic, 'findMounted')
-            findMountedSpy.mockReturnValue({
-                values: {
-                    datasets: {
-                        results: [datasetWithNullMetadata],
-                    },
-                },
-            } as any)
-
-            logic = aiObservabilityDatasetLogic({ datasetId: datasetWithNullMetadata.id })
+            logic = aiObservabilityDatasetLogic({ datasetId: dataset.id })
             logic.mount()
 
             expect(logic.values.datasetForm.metadata).toBe(EMPTY_JSON)
-
-            findMountedSpy.mockRestore()
-        })
-
-        it('handles empty object metadata correctly in form defaults', () => {
-            const datasetWithEmptyMetadata = { ...mockDataset, metadata: {} }
-
-            const findMountedSpy = jest.spyOn(aiObservabilityDatasetsLogic, 'findMounted')
-            findMountedSpy.mockReturnValue({
-                values: {
-                    datasets: {
-                        results: [datasetWithEmptyMetadata],
-                    },
-                },
-            } as any)
-
-            logic = aiObservabilityDatasetLogic({ datasetId: datasetWithEmptyMetadata.id })
-            logic.mount()
-
-            expect(logic.values.datasetForm.metadata).toBe(EMPTY_JSON)
-
-            findMountedSpy.mockRestore()
         })
     })
 
