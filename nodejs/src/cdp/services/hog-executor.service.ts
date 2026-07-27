@@ -88,15 +88,6 @@ const cdpHttpRequestTimingRetried = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
 })
 
-// SSRF / URL-validation blocks. The low-level guard in common/utils/request.ts increments
-// `node_request_unsafe` but has no team/function context; this counter and the paired
-// structured log below carry the attribution needed to trace a block back to a destination.
-const cdpBlockedRequests = new Counter({
-    name: 'cdp_http_blocked_requests',
-    help: 'HTTP requests blocked by the SSRF / URL-validation guard',
-    labelNames: ['reason', 'template_id'],
-})
-
 // SecureRequestError (private/link-local IP), ResolutionError (DNS failed or every
 // resolved IP was unsafe) and InvalidRequestError (bad scheme/URL) all mean the request
 // was refused before or during connection — never a response from the destination.
@@ -107,9 +98,10 @@ export function isBlockedRequestError(error: unknown): boolean {
     return name === 'SecureRequestError' || name === 'ResolutionError' || name === 'InvalidRequestError'
 }
 
-// Emit ops-visible attribution for a blocked request. The customer-facing `addLog`
-// entries are team-scoped and not queryable from the ops side, so without this a block
-// couldn't be traced back to a hog function or its owning team.
+// Emit ops-visible attribution for a blocked request. The low-level guard in
+// common/utils/request.ts increments `node_request_unsafe` but has no team/function context,
+// and the customer-facing `addLog` entries are team-scoped and not queryable from the ops
+// side — this log carries the attribution needed to trace a block back to a destination.
 function logBlockedRequest(
     error: Error,
     { url, templateId, teamId, hogFunctionId }: CdpFetchAttribution & { url: string; templateId: string }
@@ -120,7 +112,6 @@ function logBlockedRequest(
     } catch {
         // Malformed URL (InvalidRequestError) — hostname stays undefined
     }
-    cdpBlockedRequests.inc({ reason: error.name, template_id: templateId })
     logger.warn('[cdpTrackedFetch] Request blocked by SSRF / URL-validation guard', {
         reason: error.name,
         message: error.message,
