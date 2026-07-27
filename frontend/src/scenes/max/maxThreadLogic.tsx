@@ -698,7 +698,7 @@ export interface maxThreadLogicMeta {
             featureFlags: FeatureFlagsSet,
             threadLoading: boolean,
             conversation: Conversation | null,
-            canCreateTicket: any
+            canCreateTicket: boolean
         ) => SlashCommand[]
         showDeepResearchModeToggle: (conversation: Conversation | null, featureFlags: FeatureFlagsSet) => boolean
         showContextUI: (conversation: Conversation | null, featureFlags: FeatureFlagsSet) => boolean
