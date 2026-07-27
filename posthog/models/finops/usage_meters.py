@@ -2,14 +2,17 @@
 
 Product/platform services emit dimensionless usage meters ("team X pushed N events
 through consumer Y", "activity Z ran M CPU-seconds") onto a dedicated Kafka topic; a
-Kafka-engine table + materialized view land them in a sharded table on the AUX cluster,
-deliberately off the customer-facing analytics path.
+Kafka-engine table + materialized view land them in a replicated table on the OPS cluster —
+PostHog's internal ops/observability cluster (home of `query_log_archive`) — deliberately off
+the customer-facing analytics path.
 
 Pricing is a separate pipeline: a vendor-bill importer lands cost totals, and one
 allocation job joins usage share × bill to write the priced `cost_attribution` table.
 Nothing here writes dollars — see docs/internal/finops-attribution-implementation.md.
 
-Mirrors the AUX-cluster ingestion pattern of `usage_report_events_preagg`.
+Uses the ingestion-layer Kafka pattern of `usage_report_events_preagg`, but lands on the
+single-shard OPS cluster (replicated, not sharded — like `query_log_archive`) because usage
+meters are internal ops telemetry, not product data.
 """
 
 from django.conf import settings
@@ -48,16 +51,15 @@ FINOPS_USAGE_METERS_COLUMNS = """
     count UInt64
 """.strip()
 
-_SHARDING_KEY = "sipHash64(team_id)"
-
 
 def SHARDED_FINOPS_USAGE_METERS_TABLE_SQL() -> str:
+    # OPS is a single-shard (1xN) cluster: the data table is replicated, not sharded.
     return f"""
 CREATE TABLE IF NOT EXISTS {SHARDED_FINOPS_USAGE_METERS_TABLE}
 (
     {FINOPS_USAGE_METERS_COLUMNS}
 )
-ENGINE = {MergeTreeEngine(SHARDED_FINOPS_USAGE_METERS_TABLE, replication_scheme=ReplicationScheme.SHARDED)}
+ENGINE = {MergeTreeEngine(SHARDED_FINOPS_USAGE_METERS_TABLE, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (environment, product, team_id, billable_unit, timestamp)
 TTL toDate(timestamp) + INTERVAL {FINOPS_USAGE_METERS_TTL_DAYS} DAY
@@ -74,8 +76,7 @@ CREATE TABLE IF NOT EXISTS {FINOPS_USAGE_METERS_TABLE}
 ENGINE = {
         Distributed(
             data_table=SHARDED_FINOPS_USAGE_METERS_TABLE,
-            sharding_key=_SHARDING_KEY,
-            cluster=settings.CLICKHOUSE_AUX_CLUSTER,
+            cluster=settings.CLICKHOUSE_OPS_CLUSTER,
         )
     }
 """
@@ -90,8 +91,7 @@ CREATE TABLE IF NOT EXISTS {WRITABLE_FINOPS_USAGE_METERS_TABLE}
 ENGINE = {
         Distributed(
             data_table=SHARDED_FINOPS_USAGE_METERS_TABLE,
-            sharding_key=_SHARDING_KEY,
-            cluster=settings.CLICKHOUSE_AUX_CLUSTER,
+            cluster=settings.CLICKHOUSE_OPS_CLUSTER,
         )
     }
 """

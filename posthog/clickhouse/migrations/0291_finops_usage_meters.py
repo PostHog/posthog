@@ -9,18 +9,18 @@ from posthog.models.finops.usage_meters import (
 )
 
 operations = [
-    # 1. Sharded data table on the AUX cluster — kept off the customer-facing analytics path.
+    # 1. Replicated data table on the single-shard OPS cluster — internal ops telemetry,
+    #    kept off the customer-facing analytics path.
     run_sql_with_exceptions(
         SHARDED_FINOPS_USAGE_METERS_TABLE_SQL(),
-        node_roles=[NodeRole.AUX],
-        sharded=True,
+        node_roles=[NodeRole.OPS],
     ),
-    # 2. Distributed read proxy on data nodes so queries can fan out to AUX.
+    # 2. Distributed read proxy on data nodes so queries can fan out to OPS.
     run_sql_with_exceptions(
         DISTRIBUTED_FINOPS_USAGE_METERS_TABLE_SQL(),
         node_roles=[NodeRole.DATA],
     ),
-    # 3. Writable distributed table on the ingestion layer — the MV writes here, rows route to AUX.
+    # 3. Writable distributed table on the ingestion layer — the MV writes here, rows route to OPS.
     run_sql_with_exceptions(
         WRITABLE_FINOPS_USAGE_METERS_TABLE_SQL(),
         node_roles=[NodeRole.INGESTION_SMALL],
