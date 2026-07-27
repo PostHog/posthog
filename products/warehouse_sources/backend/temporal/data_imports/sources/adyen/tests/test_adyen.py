@@ -1,3 +1,4 @@
+import io
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
@@ -34,11 +35,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adyen.sett
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
+class _FakeRaw:
+    """Stand-in for `response.raw`: a readable byte stream the report path streams CSV off."""
+
+    def __init__(self, data: bytes) -> None:
+        self._buffer = io.BytesIO(data)
+        self.decode_content = False
+
+    def read(self, *args: Any, **kwargs: Any) -> bytes:
+        return self._buffer.read(*args, **kwargs)
+
+
 class _FakeResponse:
     def __init__(self, status_code: int = 200, json_data: Optional[dict[str, Any]] = None, text: str = "") -> None:
         self.status_code = status_code
         self._json_data = json_data if json_data is not None else {}
         self.text = text
+        self.raw = _FakeRaw(text.encode())
+        self.closed = False
 
     @property
     def ok(self) -> bool:
@@ -50,6 +64,9 @@ class _FakeResponse:
     def raise_for_status(self) -> None:
         if not self.ok:
             raise Exception(f"{self.status_code} Client Error for url")
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class _FakeSession:
@@ -65,6 +82,7 @@ class _FakeSession:
         url: str,
         headers: Optional[dict[str, str]] = None,
         timeout: Optional[int] = None,
+        stream: bool = False,
     ) -> _FakeResponse:
         self.requested_urls.append(url)
         self.requested_headers.append(headers)
@@ -250,7 +268,7 @@ class TestReportParsing:
     def test_rows_are_normalized_and_stamped_with_the_requested_batch(self) -> None:
         text = "Psp Reference,Type,Gross Debit (GC),Batch Number\nABC123,Settled,10.00,7\n"
 
-        rows = list(parse_report_rows(text, 7, mock.MagicMock()))
+        rows = list(parse_report_rows(io.StringIO(text), 7, mock.MagicMock()))
 
         assert rows == [
             {
@@ -267,13 +285,13 @@ class TestReportParsing:
         logger = mock.MagicMock()
         text = "Psp Reference,Type\nABC,Settled\n\nSHORT\nDEF,Refunded\n"
 
-        rows = list(parse_report_rows(text, 1, logger))
+        rows = list(parse_report_rows(io.StringIO(text), 1, logger))
 
         assert [row["psp_reference"] for row in rows] == ["ABC", "DEF"]
         assert logger.warning.call_count == 1
 
     def test_empty_report_yields_nothing(self) -> None:
-        assert list(parse_report_rows("", 1, mock.MagicMock())) == []
+        assert list(parse_report_rows(io.StringIO(""), 1, mock.MagicMock())) == []
 
 
 class TestValidateCredentials:

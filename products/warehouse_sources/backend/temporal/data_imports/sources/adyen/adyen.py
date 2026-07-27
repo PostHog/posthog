@@ -1,8 +1,8 @@
-import io
 import re
 import csv
+import codecs
 import dataclasses
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -106,6 +106,12 @@ def _get_session(api_key: str) -> requests.Session:
     return make_tracked_session(
         headers={"X-API-Key": api_key, "Accept": "application/json"},
         redact_values=(api_key,),
+        # `requests` replays custom headers (including `X-API-Key`) across a cross-host 3xx, so
+        # pin redirects off to keep the credential on the host it was issued for.
+        allow_redirects=False,
+        # Report and transfer bodies carry transaction identifiers, amounts and free-form
+        # references the name-based scrubbers can't recognise — keep them out of sample capture.
+        capture=False,
     )
 
 
@@ -202,8 +208,12 @@ def normalize_header(header: str) -> str:
     return re.sub(r"[^0-9a-zA-Z]+", "_", header).strip("_").lower()
 
 
-def parse_report_rows(text: str, batch_number: int, logger: FilteringBoundLogger) -> Iterator[dict[str, Any]]:
-    reader = csv.reader(io.StringIO(text))
+def parse_report_rows(
+    lines: Iterable[str], batch_number: int, logger: FilteringBoundLogger
+) -> Iterator[dict[str, Any]]:
+    # `lines` is any iterator of physical CSV lines (a live response stream or a StringIO), so a
+    # large report is parsed row-by-row without buffering the whole file.
+    reader = csv.reader(lines)
     headers: list[str] | None = None
     for row in reader:
         if headers is None:
@@ -428,14 +438,18 @@ def _iter_report_batches(
     while batch_number < last_batch:
         file_name = config.path.format(batch_number=batch_number)
         url = f"{host}/reports/download/MerchantAccount/{merchant_account}/{file_name}"
+        # `stream=True` so a large settlement report is parsed incrementally instead of buffered
+        # whole in the worker (a report file can be very large for a high-volume merchant).
         response = session.get(
             url,
             # Adyen only compresses the download when the client advertises gzip.
             headers={"Accept": "text/csv", "Accept-Encoding": "gzip"},
             timeout=REPORT_TIMEOUT_SECONDS,
+            stream=True,
         )
 
         if response.status_code == 404:
+            response.close()
             consecutive_misses += 1
             if consecutive_misses > MAX_CONSECUTIVE_MISSING_BATCHES:
                 logger.debug(f"Adyen: no settlement report at batch {batch_number}, stopping")
@@ -445,17 +459,25 @@ def _iter_report_batches(
 
         if not response.ok:
             logger.error(f"Adyen report download error: status={response.status_code}, url={url}")
+            response.close()
             response.raise_for_status()
 
         consecutive_misses = 0
         chunk: list[dict[str, Any]] = []
-        for row in parse_report_rows(response.text, batch_number, logger):
-            chunk.append(row)
-            if len(chunk) >= REPORT_CHUNK_SIZE:
+        try:
+            # Decode gzip on the fly and read physical lines off the socket so quoted multi-line
+            # CSV fields survive (unlike `iter_lines`, which strips the terminators csv needs).
+            response.raw.decode_content = True
+            lines = codecs.getreader("utf-8")(response.raw)
+            for row in parse_report_rows(lines, batch_number, logger):
+                chunk.append(row)
+                if len(chunk) >= REPORT_CHUNK_SIZE:
+                    yield chunk
+                    chunk = []
+            if chunk:
                 yield chunk
-                chunk = []
-        if chunk:
-            yield chunk
+        finally:
+            response.close()
 
         manager.save_state(AdyenResumeConfig(batch_number=batch_number))
         batch_number += 1
