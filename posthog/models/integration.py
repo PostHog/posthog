@@ -981,10 +981,15 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, token: str, next: str = "") -> str:
+    def authorize_url(cls, kind: str, token: str, next: str = "", team_id: int | None = None) -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
 
+        # Carry the initiating team through the OAuth round-trip. The fixed callback URL is not
+        # project-scoped, so without this the SPA re-resolves to the user's default team on
+        # reload and the integration lands on the wrong project.
         state_payload: dict[str, str] = {"next": next, "token": token}
+        if team_id is not None:
+            state_payload["team_id"] = str(team_id)
 
         if kind == "tiktok-ads":
             # TikTok uses different parameter names

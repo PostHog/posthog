@@ -1050,7 +1050,7 @@ class IntegrationViewSet(
 
         if kind in OauthIntegration.supported_kinds:
             try:
-                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token)
+                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token, team_id=self.team_id)
                 response = redirect(auth_url)
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
