@@ -327,6 +327,29 @@ class TestAuth:
         assert kwargs["headers"]["Pardot-Business-Unit-Id"] == CREDENTIALS["business_unit_id"]
         assert set(kwargs["redact_values"]) == {CREDENTIALS["client_secret"], CREDENTIALS["refresh_token"]}
 
+    def test_every_request_path_disables_http_sample_capture(self) -> None:
+        # Prospect/visitor bodies carry PII the name-based scrubber can't redact, so both the
+        # sync and credential-validation paths must build capture-disabled sessions.
+        pull_session = _session([_response({"values": []})])
+        validate_session = _session([_response({"values": []}, status_code=200)])
+
+        with mock.patch(SESSION_PATCH) as make_session:
+            make_session.return_value = pull_session
+            list(
+                get_rows(
+                    endpoint="prospects",
+                    api_version="v5",
+                    resumable_source_manager=FakeResumeManager(),
+                    logger=mock.MagicMock(),
+                    **CREDENTIALS,
+                )
+            )
+            make_session.return_value = validate_session
+            validate_credentials(**CREDENTIALS)
+
+        assert make_session.call_count == 2
+        assert all(call.kwargs["capture"] is False for call in make_session.call_args_list)
+
     @pytest.mark.parametrize(
         "environment, expected_host, expected_login_host",
         [

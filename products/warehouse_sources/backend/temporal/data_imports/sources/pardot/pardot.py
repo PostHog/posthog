@@ -49,9 +49,14 @@ def _environment_hosts(environment: str) -> tuple[str, str]:
 
 
 def _get_session(business_unit_id: str, client_secret: str, refresh_token: str) -> requests.Session:
+    # capture=False: prospect/visitor records carry PII (emails, addresses, phones, free-text
+    # notes, visitor IPs) the name-based sample scrubber can't reliably redact, and the token
+    # exchange returns a secret, so every request path must opt out of HTTP sample capture while
+    # staying metered and logged.
     return make_tracked_session(
         headers={"Pardot-Business-Unit-Id": business_unit_id, "Accept": "application/json"},
         redact_values=(client_secret, refresh_token),
+        capture=False,
     )
 
 
