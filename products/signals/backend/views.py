@@ -53,7 +53,6 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
@@ -2330,23 +2329,6 @@ def _schedule_reviewer_added_slack_notifications(
     )
 
 
-def _acting_user(request: Request) -> User:
-    """The human to name in a manual reviewer edit. Under staff impersonation `request.user` is the
-    impersonated customer, so resolve the real operator — a browser loginas session, else the OAuth
-    token's `impersonated_by` — rather than falsely attributing the edit to the customer."""
-    actor = cast(User, request.user)
-    if not is_impersonated(request):
-        return actor
-    original = get_original_user_from_session(request)
-    if original is not None:
-        return original
-    authenticator = getattr(request, "successful_authenticator", None)
-    impersonator_id = getattr(getattr(authenticator, "access_token", None), "impersonated_by_id", None)
-    if impersonator_id:
-        return User.objects.filter(pk=impersonator_id).first() or actor
-    return actor
-
-
 def append_suggested_reviewers(
     *,
     team: Team,
@@ -2455,10 +2437,9 @@ def append_suggested_reviewers(
                 if isinstance(prior_reason, str):
                     prior_reason_by_login[login] = prior_reason
 
-        # Newly-added reviewers carry no routing evidence, so record who added them and when.
-        # Under staff impersonation request.user is the customer, so name the real operator instead.
-        # Dates use the report's project timezone.
-        actor = _acting_user(request)
+        # Newly-added reviewers carry no routing evidence, so record who added them and when
+        # (this path is always attributed to request.user). Dates use the report's project timezone.
+        actor = cast(User, request.user)
         # Build the date without the platform-specific %-d directive (fails on non-Unix).
         now_local = timezone.now().astimezone(team.timezone_info)
         added_on = f"{now_local:%b} {now_local.day}, {now_local.year}"
