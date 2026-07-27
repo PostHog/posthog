@@ -1,4 +1,4 @@
-import type { ChartDimensions, ChartMargins } from '../types'
+import type { ChartDimensions, ChartMargins } from './types'
 
 /** The subset of `DOMRect` the canvas sizing needs. */
 export interface SizeRect {

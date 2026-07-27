@@ -1,6 +1,6 @@
-import { dimensions, mockRect } from '../../testing'
+import { dimensions, mockRect } from '../testing'
 import { buildDimensions, sameDimensions, syncCanvasSize } from './canvas-size'
-import { DEFAULT_MARGINS } from './useChartMargins'
+import { DEFAULT_MARGINS } from './hooks/useChartMargins'
 
 /** Records assignments to an integer canvas dimension, which jsdom would otherwise apply silently. */
 function trackWrites(canvas: HTMLCanvasElement, prop: 'width' | 'height', writes: string[]): void {

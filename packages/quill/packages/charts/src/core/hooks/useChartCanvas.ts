@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { buildDimensions, sameDimensions, syncCanvasSize, type SizeRect } from '../canvas-size'
 import type { ChartDimensions, ChartMargins } from '../types'
-import { buildDimensions, sameDimensions, syncCanvasSize, type SizeRect } from './canvas-size'
 import { useLatest } from './useLatest'
 
 interface UseChartCanvasOptions {

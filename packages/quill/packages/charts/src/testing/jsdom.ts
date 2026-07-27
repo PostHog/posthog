@@ -1,4 +1,4 @@
-import { buildDimensions } from '../core/hooks/canvas-size'
+import { buildDimensions } from '../core/canvas-size'
 import { DEFAULT_MARGINS } from '../core/hooks/useChartMargins'
 import type { ChartDimensions, ResolvedSeries, Series } from '../core/types'
 
