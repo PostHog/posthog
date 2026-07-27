@@ -211,7 +211,6 @@ export const RuntimeAdapterEnumApi = {
  * * `xhigh` - xhigh
  * * `max` - max
  * * `ultracode` - ultracode
- * * `ultrathink` - ultrathink
  */
 export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
 
@@ -222,7 +221,6 @@ export const ReasoningEffortEnumApi = {
     Xhigh: 'xhigh',
     Max: 'max',
     Ultracode: 'ultracode',
-    Ultrathink: 'ultrathink',
 } as const
 
 export interface LoopRepositoryEntryApi {
@@ -409,8 +407,7 @@ export interface LoopWriteApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
-     * * `ultracode` - ultracode
-     * * `ultrathink` - ultrathink */
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
@@ -477,8 +474,7 @@ export interface PatchedLoopWriteApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
-     * * `ultracode` - ultracode
-     * * `ultrathink` - ultrathink */
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
@@ -1364,8 +1360,7 @@ export interface TaskRunDetailDTOApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
-     * * `ultracode` - ultracode
-     * * `ultrathink` - ultrathink */
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Presigned S3 URL for log access (valid for 1 hour).
@@ -1589,8 +1584,7 @@ export interface TaskCreateApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
-     * * `ultracode` - ultracode
-     * * `ultrathink` - ultrathink */
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -1727,8 +1721,7 @@ export interface TaskWriteApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
-     * * `ultracode` - ultracode
-     * * `ultrathink` - ultrathink */
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -1850,8 +1843,7 @@ export interface PatchedTaskWriteApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
-     * * `ultracode` - ultracode
-     * * `ultrathink` - ultrathink */
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -2068,8 +2060,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
-     * * `ultracode` - ultracode
-     * * `ultrathink` - ultrathink */
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi
     /** Context window size for models that support the 1M window.
      *
@@ -2191,8 +2182,7 @@ export interface CodexTaskRunCreateSchemaApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
-     * * `ultracode` - ultracode
-     * * `ultrathink` - ultrathink */
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi
     /** Context window size for models that support the 1M window.
      *
@@ -2522,8 +2512,7 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
-     * * `ultracode` - ultracode
-     * * `ultrathink` - ultrathink */
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi
     /** Context window size for models that support the 1M window.
      *
@@ -3622,8 +3611,7 @@ export interface WarmTaskRequestApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
-     * * `ultracode` - ultracode
-     * * `ultrathink` - ultrathink */
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Optional sandbox environment to provision before the task is submitted.
