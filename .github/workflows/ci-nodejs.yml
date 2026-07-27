@@ -140,6 +140,24 @@ jobs:
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+            - name: Install sccache
+              uses: ./.github/actions/setup-sccache
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-nodejs'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
             - name: Prepare Node.js workspace
               run: bin/turbo --filter=@posthog/nodejs prepare
 
@@ -175,6 +193,24 @@ jobs:
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+            - name: Install sccache
+              uses: ./.github/actions/setup-sccache
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-nodejs'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
             - name: Prepare Node.js workspace
               run: bin/turbo --filter=@posthog/nodejs prepare
 
@@ -197,7 +233,9 @@ jobs:
         name: Node.js Tests ${{matrix.shard}}/3 (depot-ubuntu-24.04-4)
         needs: changes
         runs-on: depot-ubuntu-24.04-4
-        timeout-minutes: 30 # We know tests don't take this long
+        # Tests fit comfortably in 30, but a rust change misses the turbo cache and cold-builds the
+        # replay-anonymizer addon's whole dependency tree first (no rust caching in this job yet).
+        timeout-minutes: 45
         strategy:
             fail-fast: false
             matrix:
@@ -265,6 +303,19 @@ jobs:
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
+
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+            - name: Install sccache
+              uses: ./.github/actions/setup-sccache
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-nodejs'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
@@ -357,6 +408,13 @@ jobs:
                   pnpm --filter=@posthog/nodejs setup:test
                   # Create dedicated persons database for postgres-parity tests
                   cd nodejs && pnpm run setup:test:persons-parity
+
+            # Build workspace deps (Rust addons + TS) up front so the Jest step times only tests, not the addon compile.
+            - name: Prepare Node.js workspace
+              env:
+                  SHARD_INDEX: ${{ matrix.shard }}
+                  SHARD_COUNT: 3
+              run: bin/turbo --filter=@posthog/nodejs prepare
 
             - name: Test with Jest
               id: run-jest
@@ -509,6 +567,19 @@ jobs:
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
+
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+            - name: Install sccache
+              uses: ./.github/actions/setup-sccache
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-nodejs'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli

@@ -48,6 +48,7 @@ export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     documentation_url: '',
     feature_flag_id: undefined,
     payload: {},
+    // assignee is intentionally left unset: the backend defaults it to the creator
 }
 
 export interface EarlyAccessFeatureLogicProps {

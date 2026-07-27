@@ -20,6 +20,7 @@ interface ConfirmationModalProps {
     isBeingDisabled?: boolean // Whether the flag is being disabled (controls dependent flags warning)
     featureFlagConfirmationEnabled?: boolean // Whether the team has feature flag confirmation enabled in settings
     onConfirm: () => void
+    onCancel?: () => void
 }
 
 /**
@@ -36,6 +37,7 @@ export function openConfirmationModal({
     isBeingDisabled = false,
     featureFlagConfirmationEnabled = false,
     onConfirm,
+    onCancel,
 }: ConfirmationModalProps): void {
     let title: string
     let description: JSX.Element
@@ -153,6 +155,7 @@ export function openConfirmationModal({
         },
         secondaryButton: {
             children: 'Cancel',
+            onClick: onCancel,
         },
     })
 }
