@@ -261,6 +261,15 @@ class TestMarketo:
         with pytest.raises(MarketoAuthError):
             client.access_token()
 
+    def test_session_is_built_without_http_sample_capture(self) -> None:
+        # Marketo responses carry lead emails and arbitrary customer fields the generic scrubber
+        # can't recognise, so they must never reach HTTP sample storage.
+        with mock.patch(SESSION_PATCH) as session_factory:
+            MarketoClient(MUNCHKIN, "client-id", "client-secret")
+
+        assert session_factory.call_args.kwargs["capture"] is False
+        assert session_factory.call_args.kwargs["redact_values"] == ("client-id", "client-secret")
+
     @pytest.mark.parametrize(
         "token_body,status,expected_ok",
         [

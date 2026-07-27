@@ -149,8 +149,10 @@ class MarketoClient:
         self._client_id = client_id
         self._client_secret = client_secret
         # The identity endpoint takes the credentials as query params, so redact both literals
-        # from tracked-transport logs and sampled bodies.
-        self._session = make_tracked_session(redact_values=(client_id, client_secret))
+        # from tracked-transport logs and sampled bodies. capture=False keeps every Marketo
+        # response — lead emails and arbitrary customer campaign/form fields the generic
+        # scrubber can't recognise — out of HTTP sample storage while still metering and logging.
+        self._session = make_tracked_session(redact_values=(client_id, client_secret), capture=False)
         self._token: Optional[str] = None
         self._token_expires_at: float = 0.0
 
