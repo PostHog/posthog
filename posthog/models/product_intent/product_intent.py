@@ -71,6 +71,13 @@ MANAGED_WAREHOUSE_ACTIVATION_WINDOW_DAYS = 30
 def get_managed_warehouse_compute_usage(team_id: int, start: datetime, end: datetime) -> float:
     # Sums cpu_seconds from the `managed warehouse compute usage` heartbeat (emitted by the
     # external duckgres service into the owning project) over the [start, end) window.
+    #
+    # Trust note: this is a public capture event and carries no non-public provenance signal
+    # today (its `token` property is the public project token), so a customer could forge it to
+    # inflate their own activation metric. Blast radius is limited to that team's activation
+    # state — no cross-tenant, billing, or security impact. Hardening path: have duckgres attach
+    # an internal shared secret and validate it here, mirroring the DECIDE_BILLING_ANALYTICS_TOKEN
+    # check in posthog/tasks/usage_report.py (a duckgres-side change, out of scope for this PR).
     rows = sync_execute(
         """
         SELECT sum(JSONExtractFloat(properties, 'cpu_seconds'))
