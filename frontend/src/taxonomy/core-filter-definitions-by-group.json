@@ -1502,6 +1502,11 @@
             "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
             "label": "Exception fingerprint record"
         },
+        "$exception_fingerprint_version": {
+            "description": "The version of the fingerprinting algorithm used to group the exception.",
+            "label": "Exception fingerprint version",
+            "system": true
+        },
         "$exception_functions": {
             "description": "A function contained in the exception.",
             "label": "Exception function"
@@ -1534,10 +1539,6 @@
             "label": "Exception list",
             "system": true
         },
-        "$exception_message": {
-            "description": "The message detected on the error.",
-            "label": "Exception message"
-        },
         "$exception_personURL": {
             "description": "The PostHog person that experienced the exception.",
             "label": "Exception person URL"
@@ -1551,23 +1552,9 @@
             "label": "Exception releases",
             "type": "String"
         },
-        "$exception_source": {
-            "description": "The source of the exception.",
-            "examples": [
-                "JS file"
-            ],
-            "label": "Exception source"
-        },
         "$exception_sources": {
             "description": "A source file included in the exception.",
             "label": "Exception source"
-        },
-        "$exception_type": {
-            "description": "Exception categorized into types.",
-            "examples": [
-                "Error"
-            ],
-            "label": "Exception type"
         },
         "$exception_types": {
             "description": "The type of the exception.",
@@ -3922,7 +3909,7 @@
         "$exception": {
             "description": "An unexpected error or unhandled exception in your application.",
             "label": "Exception",
-            "primary_property": "$exception_type"
+            "primary_property": "$exception_types"
         },
         "$feature_enrollment_update": {
             "description": "When a user enrolls with a feature.",
@@ -5897,6 +5884,11 @@
             "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
             "label": "Exception fingerprint record"
         },
+        "$exception_fingerprint_version": {
+            "description": "The version of the fingerprinting algorithm used to group the exception.",
+            "label": "Exception fingerprint version",
+            "system": true
+        },
         "$exception_functions": {
             "description": "A function contained in the exception.",
             "label": "Exception function"
@@ -5929,10 +5921,6 @@
             "label": "Exception list",
             "system": true
         },
-        "$exception_message": {
-            "description": "The message detected on the error.",
-            "label": "Exception message"
-        },
         "$exception_personURL": {
             "description": "The PostHog person that experienced the exception.",
             "label": "Exception person URL"
@@ -5946,23 +5934,9 @@
             "label": "Exception releases",
             "type": "String"
         },
-        "$exception_source": {
-            "description": "The source of the exception.",
-            "examples": [
-                "JS file"
-            ],
-            "label": "Exception source"
-        },
         "$exception_sources": {
             "description": "A source file included in the exception.",
             "label": "Exception source"
-        },
-        "$exception_type": {
-            "description": "Exception categorized into types.",
-            "examples": [
-                "Error"
-            ],
-            "label": "Exception type"
         },
         "$exception_types": {
             "description": "The type of the exception.",
