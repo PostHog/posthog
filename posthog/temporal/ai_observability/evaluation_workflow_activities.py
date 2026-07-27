@@ -1,6 +1,7 @@
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from http import HTTPStatus
 from typing import Any
 
 from django.conf import settings
@@ -10,7 +11,7 @@ import structlog
 import temporalio
 from structlog.contextvars import bind_contextvars
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
@@ -325,6 +326,15 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
         increment_emit_event_outcome("success")
+    except CaptureInternalError as e:
+        if e.status_code == HTTPStatus.PAYMENT_REQUIRED:
+            # Team is over its ingestion quota, so ingestion would drop this event anyway.
+            # That's a billing condition, not a system fault — don't retry it or count it as an error.
+            increment_emit_event_outcome("dropped_over_quota")
+            logger.info("Skipping eval event emission; team over billing quota", team_id=event_data["team_id"])
+            return
+        increment_emit_event_outcome("failed")
+        raise
     except Exception:
         increment_emit_event_outcome("failed")
         raise

@@ -1,6 +1,7 @@
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from http import HTTPStatus
 from typing import Any
 
 import structlog
@@ -10,7 +11,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
@@ -527,7 +528,15 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
         )
         routed_result.raise_for_status()
 
-    await database_sync_to_async(_emit, thread_sensitive=False)()
+    try:
+        await database_sync_to_async(_emit, thread_sensitive=False)()
+    except CaptureInternalError as e:
+        if e.status_code == HTTPStatus.PAYMENT_REQUIRED:
+            # Team is over its ingestion quota, so ingestion would drop this event anyway.
+            # That's a billing condition, not a system fault — don't retry it or fail the workflow.
+            logger.info("Skipping tag event emission; team over billing quota", team_id=event_data["team_id"])
+            return
+        raise
 
 
 @temporalio.activity.defn
