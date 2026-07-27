@@ -68,19 +68,6 @@ export interface SummaryChangeContent {
     new_summary: string
 }
 
-/** How much height a chart gets in the report body. Mirrors `ChartSize` in `artefact_schemas.py`. */
-export type ChartSize = 'small' | 'medium' | 'large'
-
-export interface ChartContent {
-    chart_id: string
-    title: string
-    /** A query node (`InsightVizNode` / `DataVisualizationNode` / `SavedInsightNode`), unparsed. */
-    query?: Record<string, any>
-    caption?: string | null
-    /** Author's height pick. Absent means the renderer sizes the chart from its query. */
-    size?: ChartSize | null
-}
-
 // ── Type labels ──────────────────────────────────────────────────────────────────────────────
 
 /** Human label for each artefact type as it reads in the activity log header. */

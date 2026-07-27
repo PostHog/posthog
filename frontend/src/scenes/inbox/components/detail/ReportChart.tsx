@@ -9,7 +9,7 @@ import { DataVisualizationNode, InsightVizNode, Node, SavedInsightNode } from '~
 import { isDataVisualizationNode, isInsightVizNode, isSavedInsightNode } from '~/queries/utils'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
-import { ChartContent, ChartSize } from './artefactTypes'
+import type { ReportChartApi, SizeEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
 /**
  * Strip the chrome a query node carries for the insight scene (filter bar, header, results table)
@@ -39,12 +39,12 @@ function isGraphicalSqlNode(query: Node): boolean {
 
 // Written out per size rather than built from one map: Tailwind only emits classes it can read
 // literally in the source, so a height assembled at runtime would compile to nothing.
-const SIZE_HEIGHTS: Record<ChartSize, string> = {
+const SIZE_HEIGHTS: Record<SizeEnumApi, string> = {
     small: 'h-[9rem]',
     medium: 'h-[18rem]',
     large: 'h-[28rem]',
 }
-const SIZE_MAX_HEIGHTS: Record<ChartSize, string> = {
+const SIZE_MAX_HEIGHTS: Record<SizeEnumApi, string> = {
     small: 'max-h-[9rem]',
     medium: 'max-h-[18rem]',
     large: 'max-h-[28rem]',
@@ -55,7 +55,7 @@ const SIZE_MAX_HEIGHTS: Record<ChartSize, string> = {
  * time series and little else — a big single number is then mostly empty box, and a retention grid
  * is cut off — so the node decides, and `size` on the artefact overrides it.
  */
-export function inferChartSize(query: Node): ChartSize {
+export function inferChartSize(query: Node): SizeEnumApi {
     if (!isInsightVizNode(query)) {
         return 'medium'
     }
@@ -103,8 +103,14 @@ function SavedInsightChartBody({ query, uniqueKey }: { query: SavedInsightNode; 
  * be handed something it cannot draw. That degrades to `Query`'s own error boundary rather than
  * taking the report down with it.
  */
-export function ReportChart({ chart }: { chart: ChartContent }): JSX.Element | null {
-    const query = useMemo(() => (chart.query ? asEmbeddedChart(chart.query) : null), [chart.query])
+export function ReportChart({ chart }: { chart: ReportChartApi }): JSX.Element | null {
+    // `query` is `unknown` on the serializer, and the rows behind it are older stored JSON, so this is
+    // where it becomes a node: anything that isn't an object has no `kind` for `Query` to draw.
+    const query = useMemo(
+        () =>
+            chart.query && typeof chart.query === 'object' ? asEmbeddedChart(chart.query as Record<string, any>) : null,
+        [chart.query]
+    )
 
     if (!query) {
         return null

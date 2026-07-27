@@ -31,11 +31,11 @@ import type {
     CommitDiffResponseApi,
     PullRequestCheckApi,
     PullRequestCommentApi,
+    ReportChartApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalNodeApi } from '../../../../../products/signals/frontend/generated/api.schemas'
 import {
-    ChartContent,
     deriveTaskPurpose,
     PURPOSE_ORDER,
     ReportTaskPurpose,
@@ -126,13 +126,13 @@ function latestJudgmentExplanation(
  * the Map's insertion order keeps each chart where it first appeared, so a refresh that appends a new
  * version does not reshuffle the report.
  */
-export function latestChartPerId(artefacts: SignalReportArtefact[] | null): ChartContent[] {
+export function latestChartPerId(artefacts: SignalReportArtefact[] | null): ReportChartApi[] {
     const oldestFirst = (artefacts ?? [])
         .filter((a) => a.type === 'chart')
         .sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0))
-    const latestById = new Map<string, ChartContent>()
+    const latestById = new Map<string, ReportChartApi>()
     for (const artefact of oldestFirst) {
-        const content = artefact.content as unknown as ChartContent
+        const content = artefact.content as unknown as ReportChartApi
         if (content?.chart_id) {
             latestById.set(content.chart_id, content)
         }
@@ -170,7 +170,7 @@ export interface inboxReportDetailLogicValues {
     report: SignalReport | null
     reportArtefacts: SignalReportArtefact[] | null
     reportArtefactsLoading: boolean
-    reportCharts: ChartContent[]
+    reportCharts: ReportChartApi[]
     reportDiff: CommitDiffResponseApi | null
     reportDiffError: string | null
     reportDiffLoading: boolean
@@ -355,7 +355,7 @@ export interface inboxReportDetailLogicMeta {
         isReportActive: (report: SignalReport | null) => boolean
         hasImplementationPr: (report: SignalReport | null) => boolean
         latestCommitArtefact: (reportArtefacts: SignalReportArtefact[] | null) => SignalReportArtefact | null
-        reportCharts: (reportArtefacts: SignalReportArtefact[] | null) => ChartContent[]
+        reportCharts: (reportArtefacts: SignalReportArtefact[] | null) => ReportChartApi[]
         priorityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
         actionabilityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
         displayReviewers: (
@@ -710,7 +710,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // reading the function expression here, and silently emits nothing for a named import.
         reportCharts: [
             (s) => [s.reportArtefacts],
-            (reportArtefacts: SignalReportArtefact[] | null): ChartContent[] => latestChartPerId(reportArtefacts),
+            (reportArtefacts: SignalReportArtefact[] | null): ReportChartApi[] => latestChartPerId(reportArtefacts),
         ],
         // Rationale behind the priority / actionability judgments, pulled from the already-loaded artefacts.
         priorityExplanation: [

@@ -11,6 +11,7 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Task } from 'products/posthog_ai/frontend/types/taskTypes'
+import type { ReportChartApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { EnrichedReviewer, SignalReportActionability, SignalReportPriority, SignalReportArtefact } from '../../types'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
@@ -21,7 +22,6 @@ import {
     artefactAttributionLabel,
     artefactLocationLabel,
     artefactTypeLabel,
-    ChartContent,
     CodeReferenceContent,
     CommitContent,
     DismissalContent,
@@ -379,7 +379,7 @@ function ArtefactBody({
             return <ContentChangeBody previous={c.old_summary} current={c.new_summary ?? ''} markdown collapse />
         }
         case 'chart': {
-            const c = content as ChartContent
+            const c = content as ReportChartApi
             // Named rather than drawn. The log keeps every version a refresh appended, so drawing
             // them all would fire far more queries than the per-report chart cap exists to bound.
             // The current version of each chart is drawn alongside the summary instead.
