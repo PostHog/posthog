@@ -4,9 +4,12 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import AggregationType, EntityType, RetentionFilter, RetentionQuery, TimeWindowMode
+from posthog.schema import AggregationType, BreakdownFilter, EntityType, RetentionFilter, RetentionQuery, TimeWindowMode
 
-from posthog.hogql_queries.insights.retention.retention_validation_rules import DisallowCumulativeWith24HourWindows
+from posthog.hogql_queries.insights.retention.retention_validation_rules import (
+    DisallowBreakdownsWithDataWarehouse24HourWindows,
+    DisallowCumulativeWith24HourWindows,
+)
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
@@ -46,6 +49,44 @@ class TestRetentionValidationRules(BaseTest):
             DisallowCumulativeWith24HourWindows().validate(self._context(query))
 
         self.assertIn("Cumulative retention is not supported for 24 hour windows.", str(context.exception))
+
+    @parameterized.expand(
+        [
+            ("dwh_24h_windows_breakdown", True, TimeWindowMode.FIELD_24_HOUR_WINDOWS, True, True),
+            ("dwh_24h_windows_no_breakdown", True, TimeWindowMode.FIELD_24_HOUR_WINDOWS, False, False),
+            ("dwh_default_window_breakdown", True, None, True, False),
+            ("events_24h_windows_breakdown", False, TimeWindowMode.FIELD_24_HOUR_WINDOWS, True, False),
+        ]
+    )
+    def test_disallow_breakdowns_with_data_warehouse_24h_windows(
+        self,
+        _name: str,
+        use_data_warehouse_entity: bool,
+        time_window_mode: TimeWindowMode | None,
+        has_breakdown: bool,
+        raises_error: bool,
+    ) -> None:
+        query = RetentionQuery(
+            retentionFilter=RetentionFilter(
+                timeWindowMode=time_window_mode,
+                targetEntity=self._data_warehouse_entity() if use_data_warehouse_entity else None,
+            ),
+            breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_type="event") if has_breakdown else None,
+        )
+
+        if not raises_error:
+            DisallowBreakdownsWithDataWarehouse24HourWindows().validate(self._context(query))
+            return
+
+        with self.assertRaises(ValidationError) as context:
+            DisallowBreakdownsWithDataWarehouse24HourWindows().validate(self._context(query))
+
+        self.assertIn(
+            "Breakdowns are not supported for 24 hour windows with a data warehouse series.", str(context.exception)
+        )
+        self.assertEqual(
+            context.exception.get_codes(), ["retention_data_warehouse_24_hour_windows_breakdowns_unsupported"]
+        )
 
     @parameterized.expand(
         [
