@@ -718,6 +718,18 @@ class TestBytecodeExecute:
             sleep([arg], None, None, budget)
         mock_sleep.assert_called_once_with(expected)
 
+    @parameterized.expand(
+        [
+            ("direct_call", "sleep(0)"),  # CALL_GLOBAL dispatch
+            ("expression_call", "(sleep)(0)"),  # CALL_LOCAL closure dispatch
+        ]
+    )
+    def test_disallowed_functions_rejected_at_dispatch(self, _name, expr):
+        bytecode = create_bytecode(parse_expr(expr)).bytecode
+        execute_bytecode(bytecode, {})  # allowed by default (sleeps 0s)
+        with pytest.raises(HogVMException, match="Function sleep is not allowed here"):
+            execute_bytecode(bytecode, {}, disallowed_functions=frozenset({"sleep"}))
+
     def test_random_float(self):
         for _ in range(50):
             value = self._run_program("return randomFloat();")

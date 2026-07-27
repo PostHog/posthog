@@ -57,14 +57,16 @@ class ReplacePlaceholders(CloningVisitor):
         from common.hogvm.python.execute import execute_bytecode
 
         # This bytecode runs on the request thread before access control, so refuse blocking calls.
+        # The static check gives a clear early error for the common `fn(...)` form; passing
+        # disallowed_functions to the VM is the real guard, catching every indirect call path too.
         finder = FindBlockingCalls()
         finder.visit(node.expr)
         if finder.names:
             disallowed = ", ".join(sorted(finder.names))
-            raise QueryError(f"Query placeholders can't call {disallowed}. Remove the call to run this query.")
+            raise QueryError(f"Query placeholders can't use {disallowed}. Remove it and try again.")
 
         bytecode = create_bytecode(node.expr)
-        response = execute_bytecode(bytecode.bytecode, self.placeholders)
+        response = execute_bytecode(bytecode.bytecode, self.placeholders, disallowed_functions=BLOCKING_FUNCTIONS)
 
         if isinstance(response.result, dict) and ("__hx_ast" in response.result or "__hx_tag" in response.result):
             response.result = deserialize_hx_ast(response.result)

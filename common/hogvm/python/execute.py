@@ -60,6 +60,7 @@ def execute_bytecode(
     timeout=timedelta(seconds=5),
     team: Optional["Team"] = None,
     debug=False,
+    disallowed_functions: Optional[frozenset[str]] = None,
 ) -> BytecodeResult:
     bytecodes: dict[str, Any] = input if isinstance(input, dict) else {"root": {"bytecode": input}}
     root_bytecode = bytecodes.get("root", {}).get("bytecode", []) or []
@@ -87,6 +88,7 @@ def execute_bytecode(
     debug_bytecode = []
     if isinstance(timeout, int):
         timeout = timedelta(seconds=timeout)
+    disallowed_functions = disallowed_functions or frozenset()
 
     if len(call_stack) == 0:
         call_stack.append(
@@ -181,6 +183,12 @@ def execute_bytecode(
     def remaining_timeout() -> float:
         # Budget left for this run, so blocking STL functions (e.g. sleep) can bound themselves to it.
         return max(0.0, timeout.total_seconds() - (time.time() - start_time))
+
+    def check_allowed(name: str):
+        # Enforced at dispatch so it catches every path to an STL call (direct, expression call,
+        # a closure bound to a local), not just the syntactic `name(...)` a static check would see.
+        if name in disallowed_functions:
+            raise HogVMException(f"Function {name} is not allowed here")
 
     def capture_upvalue(index) -> dict:
         nonlocal upvalues
@@ -546,6 +554,7 @@ def execute_bytecode(
                             args = stack_keep_first_elements(len(stack) - arg_count)
                         push_stack(functions[name](*args))
                     elif name in STL:
+                        check_allowed(name)
                         if version == 0:
                             args = [pop_stack() for _ in range(arg_count)]
                         else:
@@ -613,6 +622,7 @@ def execute_bytecode(
                 elif callable.get("__hogCallable__") == "stl":
                     if callable["name"] not in STL:
                         raise HogVMException(f"Unsupported function call: {callable['name']}")
+                    check_allowed(callable["name"])
                     stl_fn = STL[callable["name"]]
                     if stl_fn.minArgs is not None and args_length < stl_fn.minArgs:
                         raise HogVMException(
