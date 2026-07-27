@@ -35,6 +35,7 @@ use tracing::log::error;
 
 use crate::api::CaptureError;
 use crate::config::AiRouting;
+use crate::failover::{AttemptOutcome, FailoverController, Route as FailoverRoute};
 use crate::sinks::sink::{fold_results, Prepare};
 use crate::v0_request::ProcessedEvent;
 
@@ -58,6 +59,9 @@ enum Repr {
         primary: Box<Output>,
         secondary: Box<Output>,
         advisory_handle: Option<lifecycle::Handle>,
+        /// Breaker-driven autonomous mode (dark-launched): `None` runs the
+        /// reactive advisory mode.
+        controller: Option<Arc<FailoverController>>,
     },
     /// Token-routed split, primary cluster / secondary cluster (e.g.
     /// WarpStream) today. Routing is decided per event before any prep, so
@@ -87,6 +91,27 @@ impl Output {
                 primary: Box::new(primary),
                 secondary: Box::new(secondary),
                 advisory_handle: Some(advisory_handle),
+                controller: None,
+            },
+        }
+    }
+
+    /// Breaker-driven failover (dark-launched behind `CAPTURE_FAILOVER_ENABLED`):
+    /// the same primary/secondary pair, with autonomous switchover and recovery
+    /// probing driven by the controller's circuit breaker.
+    pub fn failover_with_breaker(
+        primary: Output,
+        secondary: Output,
+        advisory_handle: lifecycle::Handle,
+        controller: Arc<FailoverController>,
+    ) -> Self {
+        gauge!("capture_primary_sink_health").set(1.0);
+        Output {
+            repr: Repr::Failover {
+                primary: Box::new(primary),
+                secondary: Box::new(secondary),
+                advisory_handle: Some(advisory_handle),
+                controller: Some(controller),
             },
         }
     }
@@ -99,6 +124,7 @@ impl Output {
                 primary: Box::new(primary),
                 secondary: Box::new(secondary),
                 advisory_handle: None,
+                controller: None,
             },
         }
     }
@@ -127,27 +153,105 @@ impl Output {
                 primary,
                 secondary,
                 advisory_handle,
+                controller,
             } => {
-                let healthy = advisory_handle
+                let advisory_healthy = advisory_handle
                     .as_ref()
                     .map(|h| h.is_healthy())
                     .unwrap_or(true);
-                gauge!("capture_primary_sink_health").set(if healthy { 1.0 } else { 0.0 });
 
-                if !healthy {
+                let Some(controller) = controller else {
+                    // Reactive advisory mode: skip the primary while unhealthy,
+                    // fail the batch over on a retriable error, never on fatal.
+                    gauge!("capture_primary_sink_health").set(if advisory_healthy {
+                        1.0
+                    } else {
+                        0.0
+                    });
+
+                    if !advisory_healthy {
+                        counter!("capture_fallback_sink_failovers_total").increment(1);
+                        return Box::pin(secondary.publish(events)).await;
+                    }
+
+                    return match Box::pin(primary.publish(events.clone())).await {
+                        Ok(()) => Ok(()),
+                        Err(CaptureError::RetryableSinkError) => {
+                            error!("Primary sink failed, falling back");
+                            counter!("capture_fallback_sink_failovers_total").increment(1);
+                            Box::pin(secondary.publish(events)).await
+                        }
+                        Err(e) => Err(e),
+                    };
+                };
+
+                // Breaker mode: the controller decides the route per batch —
+                // autonomous open/half-open/closed switchover on top of the
+                // reactive guarantee below.
+                let healthy = advisory_healthy && controller.primary_available();
+                let (route, state, error_ratio) = controller.poll(healthy);
+
+                // Half-open admits a single probe at a time: while one batch is
+                // testing the primary, others fall back rather than flood a
+                // still-flaky primary. A `Primary` route here becomes `Fallback`
+                // if we can't win the permit.
+                let mut probing = false;
+                let effective = if route == FailoverRoute::Primary {
+                    if state == crate::failover::BreakerState::HalfOpen {
+                        if controller.try_acquire_probe() {
+                            probing = true;
+                            FailoverRoute::Primary
+                        } else {
+                            FailoverRoute::Fallback
+                        }
+                    } else {
+                        FailoverRoute::Primary
+                    }
+                } else {
+                    FailoverRoute::Fallback
+                };
+
+                // The gauge tracks the *effective* routing decision (breaker +
+                // health), not health alone: `capture_primary_sink_health == 0`
+                // iff this batch is served by the secondary, preserving the
+                // reactive mode's invariant.
+                gauge!("capture_primary_sink_health").set(if effective == FailoverRoute::Primary {
+                    1.0
+                } else {
+                    0.0
+                });
+
+                if effective == FailoverRoute::Fallback {
                     counter!("capture_fallback_sink_failovers_total").increment(1);
+                    controller.report_routed_to_fallback(state, error_ratio);
                     return Box::pin(secondary.publish(events)).await;
                 }
 
-                match Box::pin(primary.publish(events.clone())).await {
-                    Ok(()) => Ok(()),
-                    Err(CaptureError::RetryableSinkError) => {
-                        error!("Primary sink failed, falling back");
-                        counter!("capture_fallback_sink_failovers_total").increment(1);
-                        Box::pin(secondary.publish(events)).await
-                    }
-                    Err(e) => Err(e),
+                // Primary route (closed, or the single admitted half-open
+                // probe): attempt, then record. The result is already folded to
+                // the whole-batch response, and the mechanism reports
+                // batch-uniform results, so the fold *is* the attempt outcome.
+                let result = Box::pin(primary.publish(events.clone())).await;
+                let outcome = match &result {
+                    Ok(()) => AttemptOutcome::Success,
+                    Err(CaptureError::RetryableSinkError) => AttemptOutcome::Retriable,
+                    Err(_) => AttemptOutcome::Fatal,
+                };
+                if probing {
+                    controller.release_probe();
                 }
+                controller.record(outcome, state);
+
+                // Preserve the reactive guarantee: a retriable primary failure
+                // still fails this batch over to the secondary immediately, on
+                // top of the breaker tripping for subsequent batches. A fatal
+                // outcome is returned as-is (no failover), matching v0.
+                if matches!(outcome, AttemptOutcome::Retriable) {
+                    error!("Primary sink failed retriably, failing batch over to fallback");
+                    counter!("capture_fallback_sink_failovers_total").increment(1);
+                    return Box::pin(secondary.publish(events)).await;
+                }
+                result
             }
             Repr::Split {
                 primary,
@@ -386,6 +490,218 @@ mod tests {
         output.publish(vec![event_with_token("c")]).await.unwrap();
         assert_eq!(primary.get_events().len(), 2);
         assert_eq!(secondary.get_events().len(), 1);
+    }
+
+    // ---- Breaker-mode failover (dark-launched) ---------------------------
+
+    use crate::failover::testing::{test_breaker_config, ManualClock};
+    use crate::failover::{ControlPlane, HealthReport, RouteResolution};
+    use crate::sinks::sink::{Prepare, PreparedPayload, Sink, SinkResult};
+    use crate::sinks::test_sink::passthrough_payload;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    /// A sink whose publish outcome is toggleable, counting publish calls.
+    struct ProgrammableSink {
+        fail: AtomicBool,
+        calls: AtomicUsize,
+    }
+
+    impl ProgrammableSink {
+        fn new(fail: bool) -> Arc<Self> {
+            Arc::new(Self {
+                fail: AtomicBool::new(fail),
+                calls: AtomicUsize::new(0),
+            })
+        }
+        fn set_fail(&self, fail: bool) {
+            self.fail.store(fail, Ordering::SeqCst);
+        }
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Prepare for ProgrammableSink {
+        async fn prepare_batch(
+            &self,
+            events: Vec<ProcessedEvent>,
+        ) -> Result<Vec<PreparedPayload>, CaptureError> {
+            Ok(events.iter().map(passthrough_payload).collect())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Sink for ProgrammableSink {
+        async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let fail = self.fail.load(Ordering::SeqCst);
+            prepared
+                .into_iter()
+                .map(|p| {
+                    if fail {
+                        SinkResult::err(p.uuid, CaptureError::RetryableSinkError)
+                    } else {
+                        SinkResult::ok(p.uuid)
+                    }
+                })
+                .collect()
+        }
+    }
+
+    fn breaker_output(
+        primary: Arc<ProgrammableSink>,
+        secondary: Arc<MockSink>,
+        control_plane: Arc<dyn ControlPlane>,
+        clock: Arc<ManualClock>,
+    ) -> Output {
+        let controller = Arc::new(FailoverController::with_parts(
+            control_plane,
+            clock,
+            test_breaker_config(),
+        ));
+        Output {
+            repr: Repr::Failover {
+                primary: Box::new(Output::single(primary)),
+                secondary: Box::new(Output::single(secondary)),
+                advisory_handle: None,
+                controller: Some(controller),
+            },
+        }
+    }
+
+    struct UpControlPlane;
+    impl ControlPlane for UpControlPlane {
+        fn resolve(&self) -> RouteResolution {
+            RouteResolution {
+                primary_available: true,
+                primary_host: None,
+            }
+        }
+        fn report_health(&self, _r: HealthReport) {}
+    }
+
+    #[tokio::test]
+    async fn breaker_healthy_primary_serves_primary_only() {
+        let primary = ProgrammableSink::new(false);
+        let secondary = MockSink::new();
+        let clock = ManualClock::new();
+        let output = breaker_output(
+            primary.clone(),
+            Arc::new(secondary.clone()),
+            Arc::new(UpControlPlane),
+            clock,
+        );
+
+        for _ in 0..5 {
+            output.publish(vec![event_with_token("tok")]).await.unwrap();
+        }
+        assert_eq!(primary.calls(), 5);
+        assert!(secondary.get_events().is_empty());
+    }
+
+    #[tokio::test]
+    async fn breaker_opens_then_serves_fallback_then_recovers() {
+        let primary = ProgrammableSink::new(true);
+        let secondary = MockSink::new();
+        let clock = ManualClock::new();
+        let output = breaker_output(
+            primary.clone(),
+            Arc::new(secondary.clone()),
+            Arc::new(UpControlPlane),
+            clock.clone(),
+        );
+
+        // Failing primary: each batch attempts the primary (recording an
+        // error) and reactively fails over to the secondary. After
+        // min_samples=4 the breaker trips open.
+        for _ in 0..4 {
+            output.publish(vec![event_with_token("tok")]).await.unwrap();
+        }
+        assert_eq!(primary.calls(), 4);
+        assert_eq!(secondary.get_events().len(), 4);
+
+        // Open: batches go straight to the secondary, primary untouched.
+        output.publish(vec![event_with_token("tok")]).await.unwrap();
+        assert_eq!(
+            primary.calls(),
+            4,
+            "open breaker must not touch the primary"
+        );
+        assert_eq!(secondary.get_events().len(), 5);
+
+        // Heal the primary and let the cooldown elapse: half-open probes it,
+        // and after required_successes=2 the breaker closes again.
+        primary.set_fail(false);
+        clock.advance(std::time::Duration::from_secs(6));
+        output.publish(vec![event_with_token("tok")]).await.unwrap();
+        output.publish(vec![event_with_token("tok")]).await.unwrap();
+        output.publish(vec![event_with_token("tok")]).await.unwrap();
+        assert_eq!(
+            primary.calls(),
+            7,
+            "probes and closed traffic hit the primary"
+        );
+        assert_eq!(secondary.get_events().len(), 5, "no more fallback traffic");
+    }
+
+    #[tokio::test]
+    async fn breaker_control_plane_unavailable_forces_fallback() {
+        struct DownControlPlane;
+        impl ControlPlane for DownControlPlane {
+            fn resolve(&self) -> RouteResolution {
+                RouteResolution {
+                    primary_available: false,
+                    primary_host: None,
+                }
+            }
+            fn report_health(&self, _r: HealthReport) {}
+        }
+
+        let primary = ProgrammableSink::new(false);
+        let secondary = MockSink::new();
+        let clock = ManualClock::new();
+        let output = breaker_output(
+            primary.clone(),
+            Arc::new(secondary.clone()),
+            Arc::new(DownControlPlane),
+            clock,
+        );
+
+        output.publish(vec![event_with_token("tok")]).await.unwrap();
+        assert_eq!(primary.calls(), 0);
+        assert_eq!(secondary.get_events().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn breaker_fatal_primary_failure_does_not_fail_over() {
+        let secondary = MockSink::new();
+        let clock = ManualClock::new();
+        let controller = Arc::new(FailoverController::with_parts(
+            Arc::new(UpControlPlane),
+            clock,
+            test_breaker_config(),
+        ));
+        let output = Output {
+            repr: Repr::Failover {
+                primary: Box::new(Output::single(Arc::new(FailSink(
+                    CaptureError::NonRetryableSinkError,
+                )))),
+                secondary: Box::new(Output::single(Arc::new(secondary.clone()))),
+                advisory_handle: None,
+                controller: Some(controller),
+            },
+        };
+
+        // Fatal errors return as-is (the event's fault), never fail over, and
+        // never trip the breaker — repeated fatals keep attempting the primary.
+        for _ in 0..6 {
+            assert!(matches!(
+                output.publish(vec![event_with_token("tok")]).await,
+                Err(CaptureError::NonRetryableSinkError)
+            ));
+        }
+        assert!(secondary.get_events().is_empty());
     }
 
     #[tokio::test]

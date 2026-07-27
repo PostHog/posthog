@@ -13,6 +13,7 @@ use tracing::{info, warn};
 use crate::ai_s3::AiBlobStorage;
 use crate::config::{AiRouting, AiSinkMode, CaptureMode, Config, KafkaConfig};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
+use crate::failover::FailoverController;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::outputs::{Output, OutputTable};
 use crate::quota_limiters::{
@@ -552,11 +553,23 @@ async fn create_output(
         .await
         .expect("failed to create S3 sink");
 
-        Ok(Output::failover(
-            Output::single(Arc::new(kafka_sink)),
-            Output::single(Arc::new(s3_sink)),
-            kafka_handle,
-        ))
+        if config.failover_enabled {
+            // Dark launch: the same primary/secondary pair, with the circuit
+            // breaker driving autonomous switchover and recovery probing.
+            info!("Breaker-driven failover enabled (dark launch)");
+            Ok(Output::failover_with_breaker(
+                Output::single(Arc::new(kafka_sink)),
+                Output::single(Arc::new(s3_sink)),
+                kafka_handle,
+                Arc::new(FailoverController::new()),
+            ))
+        } else {
+            Ok(Output::failover(
+                Output::single(Arc::new(kafka_sink)),
+                Output::single(Arc::new(s3_sink)),
+                kafka_handle,
+            ))
+        }
     } else {
         // `sink_handle` is `None` for a primary that must not gate the pod (a
         // full `Secondary` cutover hands the gating handle to the secondary).

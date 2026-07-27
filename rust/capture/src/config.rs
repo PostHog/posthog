@@ -268,6 +268,13 @@ pub struct Config {
     #[envconfig(default = "")]
     pub s3_fallback_prefix: String,
 
+    // Dark-launch flag for the breaker-driven failover mode (autonomous
+    // switchover + recovery probing). Off by default: while off, the failover
+    // output runs the reactive advisory mode and behavior is byte-identical to
+    // today. Requires `s3_fallback_enabled` (it drives the same pair).
+    #[envconfig(default = "false")]
+    pub failover_enabled: bool,
+
     #[envconfig(default = "false")]
     pub is_mirror_deploy: bool,
 

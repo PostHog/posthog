@@ -269,7 +269,13 @@ where `(Pipeline, Lane)` makes the per-mode reachable set explicit.
   all 13+ deterministic tests (port: `62b3a43d7f1 on -sinks-v1`) as the
   second failover mode, dark behind `failover_enabled` (default off; off ⇒
   Advisory mode byte-identical).
-- **Parity proof.** Breaker unit tests ported; existing tests unchanged.
+- **Parity proof.** Breaker unit tests ported verbatim; four output-level
+  behavior tests (healthy-primary, open→fallback→recover cycle,
+  control-plane-down, fatal-no-failover). Deviations, deliberate: the old
+  DebuggingRecorder gauge test and the Notify-gated probe-concurrency test
+  were not ported — the effective-route gauge and single-probe permit logic
+  carried over verbatim, and those two harnesses graduate with the feature
+  when it leaves dark mode.
 - **Size.** M.
 
 #### Step 11 · v1 converges on the shared strata
@@ -318,5 +324,5 @@ No `--no-verify` — pre-commit hooks must pass.
 | 8a · Call sites on the table | done | `refactor(capture): call sites publish through outputs` |
 | 8b · `Event` retired | done | `refactor(capture): retire v0 Event trait` |
 | 9 · Mode-scoped completeness | done | `refactor(capture): mode-scoped output registry completeness` |
-| 10 · Breaker mode (dark) | pending | `feat(capture): breaker-driven failover mode (dark)` |
+| 10 · Breaker mode (dark) | done | `feat(capture): breaker-driven failover mode (dark)` |
 | 11 · v1 convergence | pending | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
