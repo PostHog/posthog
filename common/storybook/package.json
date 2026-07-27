@@ -22,7 +22,7 @@
         "@storybook/react": "catalog:",
         "@storybook/react-vite": "catalog:",
         "@storybook/test-runner": "^0.24.4",
-        "@tailwindcss/vite": "4.3.0",
+        "@tailwindcss/vite": "4.3.3",
         "@types/jest-image-snapshot": "^6.4.0",
         "buffer": "^6.0.3",
         "history": "^5.0.1",
