@@ -1012,6 +1012,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "task_id": self.context.task_id,
                 "repository": self.context.repository,
                 "team_id": self.context.team_id,
+                "origin_product": self.context.origin_product,
             },
         )
 

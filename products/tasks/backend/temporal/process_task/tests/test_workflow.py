@@ -77,6 +77,7 @@ def _build_context(
     environment: str | None = None,
     use_modal_vm_sandbox: bool = False,
     custom_image_name: str | None = None,
+    origin_product: str | None = None,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -87,6 +88,7 @@ def _build_context(
         github_integration_id=github_integration_id,
         repository=repository,
         distinct_id="distinct-id",
+        origin_product=origin_product,
         environment=environment,
         create_pr=True,
         state=state or {},
@@ -892,6 +894,31 @@ class TestProcessTaskWorkflowUnit:
         assert result.sandbox_id == "sandbox-123"
         read_sandbox_logs_mock.assert_awaited_once_with("sandbox-123")
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
+
+    async def test_task_run_started_and_failed_carry_the_same_origin_product(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        track_workflow_event_mock = AsyncMock()
+
+        monkeypatch.setattr(
+            workflow,
+            "_get_task_processing_context",
+            AsyncMock(return_value=_build_context(github_integration_id=123, origin_product="onboarding")),
+        )
+        monkeypatch.setattr(workflow, "_update_task_run_status", AsyncMock())
+        monkeypatch.setattr(workflow, "_track_workflow_event", track_workflow_event_mock)
+        monkeypatch.setattr(workflow, "_post_slack_update", AsyncMock())
+        monkeypatch.setattr(workflow, "_read_sandbox_logs", AsyncMock())
+        monkeypatch.setattr(workflow, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(workflow, "_emit_progress", AsyncMock())
+        monkeypatch.setattr(
+            workflow, "_get_sandbox_for_repository", AsyncMock(side_effect=RuntimeError("clone failed"))
+        )
+
+        await workflow.run(ProcessTaskInput(run_id="run-id"))
+
+        tracked = {call.args[0]: call.args[1] for call in track_workflow_event_mock.await_args_list}
+        assert tracked["task_run_started"]["origin_product"] == "onboarding"
+        assert tracked["task_run_failed"]["origin_product"] == "onboarding"
 
     async def test_run_refuses_local_environment_run_without_touching_it(self, monkeypatch):
         # If a local (desktop-driven) run is ever cloud-dispatched again (e.g. the reconciler's
