@@ -2437,6 +2437,16 @@ def append_suggested_reviewers(
                 if isinstance(prior_reason, str):
                     prior_reason_by_login[login] = prior_reason
 
+        # A human added these reviewers (this path is user-attributed and app-only). Newly-added
+        # colleagues carry no routing evidence, so stamp them with who added them and when — in the
+        # report's project timezone — so the inbox UI shows a "why" in the same slot that
+        # auto-suggested reviewers use for their commit evidence.
+        prior_login_set = set(prior_logins)
+        actor = cast(User, request.user)
+        actor_name = actor.get_full_name().strip() or actor.email
+        added_on = timezone.now().astimezone(team.timezone_info).strftime("%b %-d, %Y")
+        manual_add_reason = f"Added as a reviewer by {actor_name} on {added_on}"
+
         # Dedupe by canonical login, preserve first-seen order.
         new_content: list[dict] = []
         for login_lc, github_name, explicit_name, reason, explicit_reason in resolved_entries:
@@ -2448,6 +2458,9 @@ def append_suggested_reviewers(
             # Same rule for reason.
             effective_name = github_name if explicit_name else prior_name_by_login.get(login_lc)
             effective_reason = reason if explicit_reason else prior_reason_by_login.get(login_lc)
+            # A brand-new reviewer with no supplied or prior reason is a manual human add; record it.
+            if effective_reason is None and login_lc not in prior_login_set:
+                effective_reason = manual_add_reason
             new_content.append(
                 {
                     "github_login": login_lc,
