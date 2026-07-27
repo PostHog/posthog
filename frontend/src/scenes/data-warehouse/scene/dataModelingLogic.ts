@@ -380,13 +380,13 @@ export interface dataModelingLogicMeta {
             nodes: Node[],
             edges: Edge[]
         ) => (baseName: string, mode: 'all' | 'downstream' | 'upstream') => Set<string>
+        parsedSearch: (debouncedSearchTerm: string) => ParsedSearch
         searchMatchedNodeIds: (
             nodes: Node[],
             debouncedSearchTerm: string,
             parsedSearch: ParsedSearch,
             highlightedNodeIds: (baseName: string, mode: 'all' | 'downstream' | 'upstream') => Set<string>
         ) => Set<string> | null
-        parsedSearch: (debouncedSearchTerm: string) => ParsedSearch
         filteredNodes: (dataModelingNodes: DataModelingNode[], searchTerm: string) => DataModelingNode[]
         selectedDag: (dags: DataModelingDAG[], selectedDagId: string | null) => DataModelingDAG | null
         availableDagIds: (filteredNodes: DataModelingNode[]) => string[]
@@ -850,9 +850,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
                     return highlightedNodeIds(parsedSearch.baseName, parsedSearch.mode)
                 }
                 const lowerBaseName = parsedSearch.baseName.toLowerCase()
-                return new Set(
-                    nodes.filter((n) => n.data.name.toLowerCase().includes(lowerBaseName)).map((n) => n.id)
-                )
+                return new Set(nodes.filter((n) => n.data.name.toLowerCase().includes(lowerBaseName)).map((n) => n.id))
             },
         ],
         filteredNodes: [
