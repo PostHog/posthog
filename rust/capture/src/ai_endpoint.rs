@@ -450,7 +450,7 @@ async fn ai_handler_inner<T: PublishesAi>(
     metrics::histogram!("capture_event_batch_size").record(1.0);
     state
         .outputs
-        .publish(vec![processed_event])
+        .publish_folded(vec![processed_event])
         .await
         .map_err(|e| {
             warn!("Failed to send AI event to Kafka: {:?}", e);

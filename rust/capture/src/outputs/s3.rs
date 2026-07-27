@@ -8,10 +8,9 @@
 
 use async_trait::async_trait;
 
-use crate::api::CaptureError;
 use crate::outputs::{prepare_batch, Outputs, PrepSpec};
-use crate::sinks::fold_results;
 use crate::sinks::s3::S3Sink;
+use crate::sinks::sink::SinkResult;
 use crate::v0_request::ProcessedEvent;
 
 pub struct S3Outputs {
@@ -27,10 +26,19 @@ impl S3Outputs {
 
 #[async_trait]
 impl Outputs for S3Outputs {
-    async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        let prepared = prepare_batch(&self.prep, events).await?;
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Vec<SinkResult> {
+        let uuids: Vec<uuid::Uuid> = events.iter().map(|e| e.event.uuid).collect();
+        let prepared = match prepare_batch(&self.prep, events).await {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                return uuids
+                    .into_iter()
+                    .map(|uuid| SinkResult::err(uuid, err.clone()))
+                    .collect()
+            }
+        };
         let payloads = prepared.into_iter().map(|p| (p.uuid, p.payload)).collect();
-        fold_results(self.sink.publish(payloads).await)
+        self.sink.publish(payloads).await
     }
 
     /// The buffer flushes on its own timer/size loop (and the failover

@@ -34,9 +34,9 @@ use tokio::sync::{mpsc, oneshot};
 use crate::api::CaptureError;
 use crate::outputs::{prepare_batch, Outputs, PrepSpec};
 use crate::pipeline::Address;
-use crate::sinks::fold_results;
 use crate::sinks::kafka::{KafkaSinkBase, RealizedRecord};
 use crate::sinks::producer::{MockKafkaProducer, ProduceRecord};
+use crate::sinks::SinkResult;
 use crate::v0_request::ProcessedEvent;
 
 pub(crate) type BrokerId = String;
@@ -227,12 +227,22 @@ fn apply(state: &RwLock<RoutingState>, factory: &SinkFactory, change: Change) {
 
 #[async_trait]
 impl Outputs for DynamicKafkaOutputs {
-    async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        let prepared = prepare_batch(&self.prep, events).await?;
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Vec<SinkResult> {
+        let uuids: Vec<uuid::Uuid> = events.iter().map(|e| e.event.uuid).collect();
+        let prepared = match prepare_batch(&self.prep, events).await {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                return uuids
+                    .into_iter()
+                    .map(|uuid| SinkResult::err(uuid, err.clone()))
+                    .collect()
+            }
+        };
 
         // Realize each payload against live routing state, grouping per
         // broker (linear scan — prototype batches are small) while
         // preserving within-broker order.
+        let mut results: Vec<SinkResult> = Vec::new();
         let mut per_broker: Vec<(
             BrokerId,
             KafkaSinkBase<MockKafkaProducer>,
@@ -241,10 +251,13 @@ impl Outputs for DynamicKafkaOutputs {
         {
             let state = self.state.read().unwrap();
             for payload in prepared {
-                let route = state
-                    .routes
-                    .get(&payload.address)
-                    .ok_or(CaptureError::NonRetryableSinkError)?;
+                let Some(route) = state.routes.get(&payload.address) else {
+                    results.push(SinkResult::err(
+                        payload.uuid,
+                        CaptureError::NonRetryableSinkError,
+                    ));
+                    continue;
+                };
                 let mapping = route.select(payload.key.as_deref());
                 let realized = RealizedRecord {
                     uuid: payload.uuid,
@@ -261,22 +274,23 @@ impl Outputs for DynamicKafkaOutputs {
                 {
                     Some((_, _, records)) => records.push(realized),
                     None => {
-                        let sink = state
-                            .sinks
-                            .get(&mapping.broker)
-                            .ok_or(CaptureError::NonRetryableSinkError)?
-                            .clone();
-                        per_broker.push((mapping.broker.clone(), sink, vec![realized]));
+                        let Some(sink) = state.sinks.get(&mapping.broker) else {
+                            results.push(SinkResult::err(
+                                realized.uuid,
+                                CaptureError::NonRetryableSinkError,
+                            ));
+                            continue;
+                        };
+                        per_broker.push((mapping.broker.clone(), sink.clone(), vec![realized]));
                     }
                 }
             }
         }
 
-        let mut results = Vec::new();
         for (_, sink, records) in per_broker {
             results.extend(sink.publish(records).await);
         }
-        fold_results(results)
+        results
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {
@@ -408,7 +422,7 @@ mod tests {
             .await;
 
         // Steady state: everything lands on events_v1.
-        output.publish(batch()).await.unwrap();
+        output.publish_folded(batch()).await.unwrap();
         let records = producer(&producers, "kafka-a").get_records();
         assert_eq!(records.len(), 8);
         assert!(records.iter().all(|r| r.topic == "events_v1"));
@@ -420,7 +434,7 @@ mod tests {
         manager
             .broadcast(mapping("kafka-a", "events_v2", vec![0, 1]))
             .await;
-        output.publish(batch()).await.unwrap();
+        output.publish_folded(batch()).await.unwrap();
         let records = producer(&producers, "kafka-a").get_records();
         assert_eq!(records.len(), 8);
         let mut moved = 0;
@@ -444,7 +458,7 @@ mod tests {
         manager
             .broadcast(mapping("kafka-a", "events_v2", (0..PARTITIONS).collect()))
             .await;
-        output.publish(batch()).await.unwrap();
+        output.publish_folded(batch()).await.unwrap();
         let records = producer(&producers, "kafka-a").get_records();
         assert_eq!(records.len(), 8);
         assert!(records.iter().all(|r| r.topic == "events_v2"));
@@ -468,7 +482,7 @@ mod tests {
         manager
             .broadcast(mapping("kafka-a", "events", (0..PARTITIONS).collect()))
             .await;
-        output.publish(batch()).await.unwrap();
+        output.publish_folded(batch()).await.unwrap();
         assert_eq!(producer(&producers, "kafka-a").get_records().len(), 8);
         clear_all(&producers);
 
@@ -482,7 +496,7 @@ mod tests {
         manager
             .broadcast(mapping("kafka-b", "events", vec![0, 1]))
             .await;
-        output.publish(batch()).await.unwrap();
+        output.publish_folded(batch()).await.unwrap();
         let on_a = producer(&producers, "kafka-a").get_records();
         let on_b = producer(&producers, "kafka-b").get_records();
         assert_eq!(on_a.len() + on_b.len(), 8, "nothing lost mid-switch");
@@ -509,7 +523,7 @@ mod tests {
                 id: "kafka-a".to_string(),
             })
             .await;
-        output.publish(batch()).await.unwrap();
+        output.publish_folded(batch()).await.unwrap();
         assert!(producer(&producers, "kafka-a").get_records().is_empty());
         let on_b = producer(&producers, "kafka-b").get_records();
         assert_eq!(on_b.len(), 8);

@@ -213,11 +213,15 @@ pub async fn otel_handler<T: PublishesAi>(
     stamp_overflow_reason(&mut processed_events, state.overflow_limiter.as_ref());
 
     metrics::histogram!("capture_event_batch_size").record(processed_events.len() as f64);
-    state.outputs.publish(processed_events).await.map_err(|e| {
-        report_internal_error_metrics(e.to_metric_tag(), "otel_sink");
-        warn!("Failed to send OTel events to Kafka: {:?}", e);
-        e.into_response()
-    })?;
+    state
+        .outputs
+        .publish_folded(processed_events)
+        .await
+        .map_err(|e| {
+            report_internal_error_metrics(e.to_metric_tag(), "otel_sink");
+            warn!("Failed to send OTel events to Kafka: {:?}", e);
+            e.into_response()
+        })?;
 
     counter!("capture_ai_otel_events_ingested").increment(span_count as u64);
     counter!("capture_ai_otel_requests_success").increment(1);

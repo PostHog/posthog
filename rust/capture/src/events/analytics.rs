@@ -395,7 +395,7 @@ pub async fn process_events<T: PublishesAnalyticsFamily>(
     // Record the batch-size histogram up front so the distribution is a
     // faithful view of batches submitted, not only those that succeeded.
     metrics::histogram!("capture_event_batch_size").record(events.len() as f64);
-    outputs.publish(events).await?;
+    outputs.publish_folded(events).await?;
 
     debug_or_info!(chatty_debug_enabled, context=?context, "sent analytics events");
 

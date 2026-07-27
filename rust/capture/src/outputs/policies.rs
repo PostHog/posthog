@@ -12,10 +12,10 @@ use async_trait::async_trait;
 use metrics::{counter, gauge};
 use tracing::log::error;
 
-use crate::api::CaptureError;
 use crate::config::AiRouting;
 use crate::failover::{AttemptOutcome, BreakerState, FailoverController, Route as FailoverRoute};
 use crate::outputs::Outputs;
+use crate::sinks::{Outcome, SinkResult};
 use crate::v0_request::ProcessedEvent;
 
 /// Health-gated failover, kafka primary / S3 secondary today. Publishes to
@@ -96,7 +96,7 @@ impl FailoverOutputs {
 
 #[async_trait]
 impl Outputs for FailoverOutputs {
-    async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Vec<SinkResult> {
         let advisory_healthy = self
             .advisory_handle
             .as_ref()
@@ -113,14 +113,14 @@ impl Outputs for FailoverOutputs {
                 return self.secondary.publish(events).await;
             }
 
-            return match self.primary.publish(events.clone()).await {
-                Ok(()) => Ok(()),
-                Err(CaptureError::RetryableSinkError) => {
+            let results = self.primary.publish(events.clone()).await;
+            return match classify(&results) {
+                AttemptOutcome::Retriable => {
                     error!("Primary sink failed, falling back");
                     counter!("capture_fallback_sink_failovers_total").increment(1);
                     self.secondary.publish(events).await
                 }
-                Err(e) => Err(e),
+                _ => results,
             };
         };
 
@@ -167,15 +167,11 @@ impl Outputs for FailoverOutputs {
         }
 
         // Primary route (closed, or the single admitted half-open
-        // probe): attempt, then record. The result is already folded to
-        // the whole-batch response, and the mechanism reports
-        // batch-uniform results, so the fold *is* the attempt outcome.
-        let result = self.primary.publish(events.clone()).await;
-        let outcome = match &result {
-            Ok(()) => AttemptOutcome::Success,
-            Err(CaptureError::RetryableSinkError) => AttemptOutcome::Retriable,
-            Err(_) => AttemptOutcome::Fatal,
-        };
+        // probe): attempt, then record. The mechanism reports
+        // batch-uniform results, so the batch classification *is* the
+        // attempt outcome.
+        let results = self.primary.publish(events.clone()).await;
+        let outcome = classify(&results);
         if probing {
             controller.release_probe();
         }
@@ -190,13 +186,28 @@ impl Outputs for FailoverOutputs {
             counter!("capture_fallback_sink_failovers_total").increment(1);
             return self.secondary.publish(events).await;
         }
-        result
+        results
     }
 
     /// Flush the primary only (matching the former `FallbackSink`).
     fn flush(&self) -> Result<(), anyhow::Error> {
         self.primary.flush()
     }
+}
+
+/// Classify a batch of per-event results the way the folded v0 response
+/// did: the first failure wins (Retriable only for `RetryableSinkError`),
+/// success otherwise. Failover routing is a batch-level decision, so it
+/// keys off this batch classification.
+fn classify(results: &[SinkResult]) -> AttemptOutcome {
+    for result in results {
+        match result.outcome() {
+            Outcome::Success => continue,
+            Outcome::Retriable => return AttemptOutcome::Retriable,
+            Outcome::Fatal => return AttemptOutcome::Fatal,
+        }
+    }
+    AttemptOutcome::Success
 }
 
 /// Token-routed split, primary cluster / secondary cluster (e.g. WarpStream)
@@ -220,7 +231,7 @@ impl SplitOutputs {
 
 #[async_trait]
 impl Outputs for SplitOutputs {
-    async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Vec<SinkResult> {
         // Partition by destination, preserving per-destination order.
         // The common case (every event routes the same way — e.g. a
         // single-token batch in full-secondary mode) leaves one Vec
@@ -249,19 +260,18 @@ impl Outputs for SplitOutputs {
             (true, false) => self.secondary.publish(to_secondary).await,
             (false, false) => {
                 // Cross-destination ordering is irrelevant (separate
-                // clusters); publish concurrently and fail if either
-                // fails. Caveat for the day this arm goes live: failing
-                // the whole batch makes the caller retry both
-                // partitions, duplicating events the healthy cluster
-                // already accepted; avoiding that needs partial-batch
-                // retry, which the whole-request contract can't express.
-                let (p, s) = tokio::join!(
+                // clusters); publish concurrently. Per-event results mean
+                // each partition reports its own outcomes — the caller's
+                // fold (or per-event response) decides what a partial
+                // failure means.
+                let (mut p, s) = tokio::join!(
                     self.primary.publish(to_primary),
                     self.secondary.publish(to_secondary),
                 );
-                p.and(s)
+                p.extend(s);
+                p
             }
-            (true, true) => Ok(()),
+            (true, true) => Vec::new(),
         }
     }
 

@@ -14,13 +14,16 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+#[cfg(test)]
 use crate::api::CaptureError;
 use crate::config::KafkaConfig;
 use crate::outputs::topics::TopicTable;
 use crate::outputs::{prepare_batch, AddressedPayload, Outputs, PrepSpec};
 use crate::sinks::kafka::{KafkaContext, KafkaSink, KafkaSinkBase, RealizedRecord};
 use crate::sinks::producer::{KafkaProducer, ProduceRecord, RdKafkaProducer};
+#[cfg(test)]
 use crate::sinks::sink::fold_results;
+use crate::sinks::sink::SinkResult;
 use crate::v0_request::ProcessedEvent;
 
 /// One Kafka cluster's outputs: prep spec + topic table + transport sink.
@@ -83,10 +86,21 @@ impl<P: KafkaProducer> KafkaOutputsBase<P> {
 
 #[async_trait]
 impl<P: KafkaProducer + 'static> Outputs for KafkaOutputsBase<P> {
-    async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        let prepared = prepare_batch(&self.prep, events).await?;
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Vec<SinkResult> {
+        // Prep is fail-fast (matching v0's whole-request semantics): a prep
+        // error publishes nothing and every event reports the batch error.
+        let uuids: Vec<uuid::Uuid> = events.iter().map(|e| e.event.uuid).collect();
+        let prepared = match prepare_batch(&self.prep, events).await {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                return uuids
+                    .into_iter()
+                    .map(|uuid| SinkResult::err(uuid, err.clone()))
+                    .collect()
+            }
+        };
         let realized = prepared.into_iter().map(|p| self.realize(p)).collect();
-        fold_results(self.sink.publish(realized).await)
+        self.sink.publish(realized).await
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {
@@ -142,6 +156,7 @@ impl<P: KafkaProducer + 'static> KafkaOutputsBase<P> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(test)]
     use crate::api::CaptureError;
     use crate::config::{self, EnvelopeCompression};
     use crate::outputs::kafka::KafkaOutputs;

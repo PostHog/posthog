@@ -48,6 +48,7 @@ use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
 use crate::pipeline::{resolve, Address, KeyPolicy, LaneEffect, Pipeline};
 use crate::serialization::{Format, Serializer};
+use crate::sinks::{fold_results, SinkResult};
 use crate::v0_request::ProcessedEvent;
 
 /// A serialized, addressed, ready-to-publish payload plus the correlation
@@ -313,10 +314,30 @@ pub(crate) async fn prepare_batch(
 /// response model (v1 `BatchResponse`) is adopted.
 #[async_trait]
 pub trait Outputs: Send + Sync {
-    async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
+    /// Publish a batch, one [`SinkResult`] per event (keyed by UUID). The
+    /// per-event surface is the contract: v1's `BatchResponse` reports each
+    /// event's outcome individually, and policy surfaces classify/forward
+    /// results without collapsing them. A batch-level failure (e.g. prep
+    /// abort) reports as every event carrying the batch's error.
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Vec<SinkResult>;
+
+    /// Publish and collapse to the v0 whole-request response: first failing
+    /// event's error wins.
+    async fn publish_folded(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        fold_results(self.publish(events).await)
+    }
 
     /// Flush buffered/pending data before shutdown.
     fn flush(&self) -> Result<(), anyhow::Error>;
+}
+
+/// Batch-uniform error results: every event carries `error` (used when a
+/// whole batch fails before or at the transport).
+pub fn batch_error(events: &[ProcessedEvent], error: CaptureError) -> Vec<SinkResult> {
+    events
+        .iter()
+        .map(|e| SinkResult::err(e.event.uuid, error.clone()))
+        .collect()
 }
 
 /// The publish capability of a deployment that runs the analytics family of
@@ -386,7 +407,7 @@ macro_rules! impl_table_outputs {
     ($table:ty, [$($row:ident),+]) => {
         #[async_trait]
         impl Outputs for $table {
-            async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+            async fn publish(&self, events: Vec<ProcessedEvent>) -> Vec<SinkResult> {
                 // Group by pipeline, preserving within-group order. Batches
                 // are single-request, so almost always a single group; the
                 // grouping exists for multi-address batches like heatmap
@@ -399,17 +420,19 @@ macro_rules! impl_table_outputs {
                         None => groups.push((pipeline, vec![event])),
                     }
                 }
+                let mut results = Vec::new();
                 for (pipeline, group) in groups {
                     let Some(output) = self.row(pipeline) else {
                         error!(
                             "no output configured for pipeline {pipeline:?}; \
                              ingress and output table disagree on this deployment's pipelines"
                         );
-                        return Err(CaptureError::NonRetryableSinkError);
+                        results.extend(batch_error(&group, CaptureError::NonRetryableSinkError));
+                        continue;
                     };
-                    output.publish(group).await?;
+                    results.extend(output.publish(group).await);
                 }
-                Ok(())
+                results
             }
 
             fn flush(&self) -> Result<(), anyhow::Error> {
@@ -490,11 +513,11 @@ mod tests {
         );
 
         output
-            .publish(vec![event_with_token("tok")])
+            .publish_folded(vec![event_with_token("tok")])
             .await
             .expect("failed to send event");
         output
-            .publish(vec![event_with_token("tok"), event_with_token("tok")])
+            .publish_folded(vec![event_with_token("tok"), event_with_token("tok")])
             .await
             .expect("failed to send batch");
 
@@ -509,12 +532,12 @@ mod tests {
         );
 
         assert!(matches!(
-            output.publish(vec![event_with_token("tok")]).await,
+            output.publish_folded(vec![event_with_token("tok")]).await,
             Err(CaptureError::RetryableSinkError)
         ));
         assert!(matches!(
             output
-                .publish(vec![event_with_token("tok"), event_with_token("tok")])
+                .publish_folded(vec![event_with_token("tok"), event_with_token("tok")])
                 .await,
             Err(CaptureError::RetryableSinkError)
         ));
@@ -529,7 +552,7 @@ mod tests {
         );
 
         assert!(matches!(
-            output.publish(vec![event_with_token("tok")]).await,
+            output.publish_folded(vec![event_with_token("tok")]).await,
             Err(CaptureError::NonRetryableSinkError)
         ));
         assert!(secondary.captured_events().is_empty());
@@ -562,20 +585,29 @@ mod tests {
         // Advisory handle starts healthy: publishes go to the primary.
         kafka_handle.report_healthy();
         tokio::time::sleep(Duration::from_millis(100)).await;
-        output.publish(vec![event_with_token("a")]).await.unwrap();
+        output
+            .publish_folded(vec![event_with_token("a")])
+            .await
+            .unwrap();
         assert_eq!(primary.captured_events().len(), 1);
         assert!(secondary.captured_events().is_empty());
 
         // Let the advisory deadline expire: publishes skip the primary.
         tokio::time::sleep(Duration::from_millis(400)).await;
-        output.publish(vec![event_with_token("b")]).await.unwrap();
+        output
+            .publish_folded(vec![event_with_token("b")])
+            .await
+            .unwrap();
         assert_eq!(primary.captured_events().len(), 1);
         assert_eq!(secondary.captured_events().len(), 1);
 
         // Recovery: report healthy again and the primary serves once more.
         kafka_handle.report_healthy();
         tokio::time::sleep(Duration::from_millis(100)).await;
-        output.publish(vec![event_with_token("c")]).await.unwrap();
+        output
+            .publish_folded(vec![event_with_token("c")])
+            .await
+            .unwrap();
         assert_eq!(primary.captured_events().len(), 2);
         assert_eq!(secondary.captured_events().len(), 1);
     }
@@ -609,12 +641,15 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Outputs for ProgrammableSink {
-        async fn publish(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        async fn publish(&self, events: Vec<ProcessedEvent>) -> Vec<SinkResult> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             if self.fail.load(Ordering::SeqCst) {
-                Err(CaptureError::RetryableSinkError)
+                batch_error(&events, CaptureError::RetryableSinkError)
             } else {
-                Ok(())
+                events
+                    .iter()
+                    .map(|e| SinkResult::ok(e.event.uuid))
+                    .collect()
             }
         }
 
@@ -661,7 +696,10 @@ mod tests {
         );
 
         for _ in 0..5 {
-            output.publish(vec![event_with_token("tok")]).await.unwrap();
+            output
+                .publish_folded(vec![event_with_token("tok")])
+                .await
+                .unwrap();
         }
         assert_eq!(primary.calls(), 5);
         assert!(secondary.captured_events().is_empty());
@@ -683,13 +721,19 @@ mod tests {
         // error) and reactively fails over to the secondary. After
         // min_samples=4 the breaker trips open.
         for _ in 0..4 {
-            output.publish(vec![event_with_token("tok")]).await.unwrap();
+            output
+                .publish_folded(vec![event_with_token("tok")])
+                .await
+                .unwrap();
         }
         assert_eq!(primary.calls(), 4);
         assert_eq!(secondary.captured_events().len(), 4);
 
         // Open: batches go straight to the secondary, primary untouched.
-        output.publish(vec![event_with_token("tok")]).await.unwrap();
+        output
+            .publish_folded(vec![event_with_token("tok")])
+            .await
+            .unwrap();
         assert_eq!(
             primary.calls(),
             4,
@@ -701,9 +745,18 @@ mod tests {
         // and after required_successes=2 the breaker closes again.
         primary.set_fail(false);
         clock.advance(std::time::Duration::from_secs(6));
-        output.publish(vec![event_with_token("tok")]).await.unwrap();
-        output.publish(vec![event_with_token("tok")]).await.unwrap();
-        output.publish(vec![event_with_token("tok")]).await.unwrap();
+        output
+            .publish_folded(vec![event_with_token("tok")])
+            .await
+            .unwrap();
+        output
+            .publish_folded(vec![event_with_token("tok")])
+            .await
+            .unwrap();
+        output
+            .publish_folded(vec![event_with_token("tok")])
+            .await
+            .unwrap();
         assert_eq!(
             primary.calls(),
             7,
@@ -739,7 +792,10 @@ mod tests {
             clock,
         );
 
-        output.publish(vec![event_with_token("tok")]).await.unwrap();
+        output
+            .publish_folded(vec![event_with_token("tok")])
+            .await
+            .unwrap();
         assert_eq!(primary.calls(), 0);
         assert_eq!(secondary.captured_events().len(), 1);
     }
@@ -763,7 +819,7 @@ mod tests {
         // never trip the breaker — repeated fatals keep attempting the primary.
         for _ in 0..6 {
             assert!(matches!(
-                output.publish(vec![event_with_token("tok")]).await,
+                output.publish_folded(vec![event_with_token("tok")]).await,
                 Err(CaptureError::NonRetryableSinkError)
             ));
         }
@@ -781,11 +837,11 @@ mod tests {
         );
 
         output
-            .publish(vec![event_with_token("secondary_tok")])
+            .publish_folded(vec![event_with_token("secondary_tok")])
             .await
             .unwrap();
         output
-            .publish(vec![event_with_token("other")])
+            .publish_folded(vec![event_with_token("other")])
             .await
             .unwrap();
 
@@ -808,7 +864,7 @@ mod tests {
         );
 
         output
-            .publish(vec![
+            .publish_folded(vec![
                 event_with_token("sec_1"),
                 event_with_token("pri_1"),
                 event_with_token("sec_2"),

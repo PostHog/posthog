@@ -15,6 +15,7 @@ use common_types::CapturedEvent;
 use crate::api::CaptureError;
 use crate::config::EnvelopeCompression;
 use crate::outputs::{prepare_batch, AddressedPayload, Outputs, PrepSpec};
+use crate::sinks::SinkResult;
 use crate::v0_request::ProcessedEvent;
 
 #[derive(Clone)]
@@ -67,10 +68,19 @@ impl MockOutputs {
 
 #[async_trait]
 impl Outputs for MockOutputs {
-    async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        let prepared = prepare_batch(&self.prep, events).await?;
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Vec<SinkResult> {
+        let uuids: Vec<uuid::Uuid> = events.iter().map(|e| e.event.uuid).collect();
+        let prepared = match prepare_batch(&self.prep, events).await {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                return uuids
+                    .into_iter()
+                    .map(|uuid| SinkResult::err(uuid, err.clone()))
+                    .collect()
+            }
+        };
         self.payloads.lock().unwrap().extend(prepared);
-        Ok(())
+        uuids.into_iter().map(SinkResult::ok).collect()
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {
@@ -84,8 +94,8 @@ pub struct FailOutputs(pub CaptureError);
 
 #[async_trait]
 impl Outputs for FailOutputs {
-    async fn publish(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        Err(self.0.clone())
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Vec<SinkResult> {
+        crate::outputs::batch_error(&events, self.0.clone())
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {

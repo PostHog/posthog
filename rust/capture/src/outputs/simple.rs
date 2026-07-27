@@ -8,8 +8,8 @@ use async_trait::async_trait;
 use metrics::counter;
 use tracing::log::info;
 
-use crate::api::CaptureError;
 use crate::outputs::{prepare_batch, Outputs, PrepSpec};
+use crate::sinks::SinkResult;
 use crate::v0_request::ProcessedEvent;
 
 /// Prints each prepared payload; local development only.
@@ -25,8 +25,17 @@ impl PrintOutputs {
 
 #[async_trait]
 impl Outputs for PrintOutputs {
-    async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        let prepared = prepare_batch(&self.prep, events).await?;
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Vec<SinkResult> {
+        let uuids: Vec<uuid::Uuid> = events.iter().map(|e| e.event.uuid).collect();
+        let prepared = match prepare_batch(&self.prep, events).await {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                return uuids
+                    .into_iter()
+                    .map(|uuid| SinkResult::err(uuid, err.clone()))
+                    .collect()
+            }
+        };
         counter!("capture_events_ingested_total").increment(prepared.len() as u64);
         for payload in prepared {
             info!(
@@ -34,7 +43,7 @@ impl Outputs for PrintOutputs {
                 String::from_utf8_lossy(&payload.payload)
             );
         }
-        Ok(())
+        uuids.into_iter().map(SinkResult::ok).collect()
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {
@@ -55,10 +64,19 @@ impl NoopOutputs {
 
 #[async_trait]
 impl Outputs for NoopOutputs {
-    async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        let prepared = prepare_batch(&self.prep, events).await?;
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Vec<SinkResult> {
+        let uuids: Vec<uuid::Uuid> = events.iter().map(|e| e.event.uuid).collect();
+        let prepared = match prepare_batch(&self.prep, events).await {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                return uuids
+                    .into_iter()
+                    .map(|uuid| SinkResult::err(uuid, err.clone()))
+                    .collect()
+            }
+        };
         counter!("capture_events_ingested_total").increment(prepared.len() as u64);
-        Ok(())
+        uuids.into_iter().map(SinkResult::ok).collect()
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {

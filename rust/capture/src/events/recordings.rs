@@ -409,7 +409,7 @@ pub async fn process_replay_events<T: PublishesSessionReplay>(
 
     metrics::histogram!("capture_event_batch_size").record(1.0);
     outputs
-        .publish(vec![ProcessedEvent { metadata, event }])
+        .publish_folded(vec![ProcessedEvent { metadata, event }])
         .await?;
 
     debug_or_info!(chatty_debug_enabled, context=?context, "sent recordings CapturedEvent");
