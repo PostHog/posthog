@@ -116,13 +116,18 @@ You can create an API key and secret in the Secureframe Console under **Your Pro
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The Secureframe API exposes no server-side timestamp filter, so every endpoint is
         # full refresh only (INCREMENTAL_FIELDS is empty, so no schema advertises incremental).
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: SecureframeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SecureframeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         authenticated, authorized = validate_secureframe_credentials(
             config.api_key, config.api_secret, config.region, endpoint=schema_name
@@ -146,7 +151,7 @@ You can create an API key and secret in the Secureframe Console under **Your Pro
         return False, "Invalid Secureframe API key or secret, or wrong region selected"
 
     def get_endpoint_permissions(
-        self, config: SecureframeSourceConfig, team_id: int, endpoints: list[str]
+        self, config: SecureframeSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         return get_secureframe_endpoint_permissions(config.api_key, config.api_secret, config.region, endpoints)
 

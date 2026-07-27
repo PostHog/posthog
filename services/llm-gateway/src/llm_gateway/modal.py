@@ -78,6 +78,10 @@ def _traffic_bucket(user_key: str) -> float:
 def modal_traffic_fraction(product: str, settings: Settings) -> float:
     # Legacy product aliases (twig/array) must read their canonical product's fraction.
     product = _normalize_cost_key(product)
+    # Image scans are server-side calls, but they must move between GLM backends with the Code
+    # runtime they protect so builds do not depend on a backend that Code has already rolled off.
+    if product == "custom_image_scans":
+        product = "posthog_code"
     return settings.glm_modal_product_traffic_fractions.get(product, settings.glm_modal_traffic_fraction)
 
 

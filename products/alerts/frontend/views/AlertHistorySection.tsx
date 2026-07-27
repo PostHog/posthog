@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconNotebook } from '@posthog/icons'
+import { IconGraph, IconNotebook } from '@posthog/icons'
 import {
     LemonSegmentedButton,
     LemonSkeleton,
@@ -21,8 +21,8 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertHistoryChart } from 'products/alerts/frontend/views/AlertHistoryChart'
-import { AlertStateIndicator } from 'products/alerts/frontend/views/ManageAlertsModal'
 
 import { alertLogic, CHART_CHECKS_LIMIT, TABLE_CHECKS_PAGE_SIZE } from '../logic/alertLogic'
 import { isAnyRowHogQLConfig } from '../types'
@@ -123,7 +123,13 @@ export function AlertHistorySectionSkeleton(): JSX.Element {
 }
 
 /** Check history in the alert modal: status, empty state, chart/table toggle, and paginated table. */
-export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): JSX.Element | null {
+export function AlertHistorySection({
+    alertId,
+    showCurrentStatus = true,
+}: {
+    alertId: AlertType['id']
+    showCurrentStatus?: boolean
+}): JSX.Element | null {
     const logic = alertLogic({ alertId })
     const {
         alert,
@@ -217,14 +223,19 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
     const checksTotal = alert.checks_total
 
     return (
-        <div className="mt-10 space-y-2">
-            <div className="flex flex-row gap-2 items-center">
-                <h3 className="m-0">Current status: </h3>
-                <AlertStateIndicator alert={alert} />
-                <h3 className="m-0">
-                    {alert.snoozed_until && ` until ${formatDate(dayjs(alert?.snoozed_until), 'MMM D, HH:mm')}`}
-                </h3>
-            </div>
+        <div className="space-y-2">
+            {showCurrentStatus ? (
+                <div className="flex flex-row gap-2 items-center">
+                    <h3 className="m-0 flex items-center gap-1.5">
+                        <IconGraph className="size-4 text-muted" />
+                        Current status:{' '}
+                    </h3>
+                    <AlertStateIndicator alert={alert} />
+                    <h3 className="m-0">
+                        {alert.snoozed_until && ` until ${formatDate(dayjs(alert?.snoozed_until), 'MMM D, HH:mm')}`}
+                    </h3>
+                </div>
+            ) : null}
             {!alertHistoryHasHistory ? (
                 <div
                     className="flex min-h-56 items-center justify-center bg-bg-surface-primary border border-primary rounded"

@@ -67,6 +67,7 @@ class RKICovidSource(SimpleSource[RKICovidSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The API has no server-side timestamp cursor (history endpoints only take a relative
         # `:days` window), so every table is full refresh only.
@@ -89,7 +90,11 @@ class RKICovidSource(SimpleSource[RKICovidSourceConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: RKICovidSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RKICovidSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         days_error = validate_history_days(config.history_days)
         if days_error:

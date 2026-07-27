@@ -153,6 +153,7 @@ class TestSharing(APIBaseTest):
             "password_required": False,
             "settings": None,
             "share_passwords": [],
+            "user_access_level": "editor",
         }
 
     @parameterized.expand(
@@ -195,6 +196,7 @@ class TestSharing(APIBaseTest):
             "password_required": False,
             "settings": None,
             "share_passwords": [],
+            "user_access_level": "editor",
         }
 
         response = self.client.patch(
@@ -208,6 +210,7 @@ class TestSharing(APIBaseTest):
             "password_required": False,
             "settings": None,
             "share_passwords": [],
+            "user_access_level": "editor",
         }
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")

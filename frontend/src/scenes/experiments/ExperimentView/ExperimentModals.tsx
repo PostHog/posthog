@@ -215,13 +215,12 @@ export function FinishExperimentModal(): JSX.Element {
     const { isFinishExperimentModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { featureFlags } = useValues(featureFlagLogic)
-    const conclusionFirst = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_END_MODAL_CONCLUSION_FIRST]
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
     const [releaseToEveryone, setReleaseToEveryone] = useState<boolean>(false)
     const [openCleanupPr, setOpenCleanupPr] = useState<boolean>(false)
 
-    // The cleanup PR runs as a PostHog Code task, so the user needs Code access on top of the rollout flag.
+    // The cleanup PR runs as a PostHog Desktop task, so the user needs Code access on top of the rollout flag.
     const cleanupPrAvailable =
         !!featureFlags[FEATURE_FLAGS.EXPERIMENT_FLAG_CLEANUP_PR] && !!featureFlags[FEATURE_FLAGS.TASKS]
 
@@ -290,7 +289,6 @@ export function FinishExperimentModal(): JSX.Element {
                 }
             >
                 <div className="space-y-4">
-                    {conclusionFirst && <ConclusionForm />}
                     {isSingleVariantShipped ? (
                         <div>
                             <LemonBanner type="info" className="mb-4">
@@ -394,7 +392,7 @@ export function FinishExperimentModal(): JSX.Element {
                             )}
                         </>
                     )}
-                    {!conclusionFirst && <ConclusionForm />}
+                    <ConclusionForm />
                     {cleanupPrAvailable && (
                         <LemonCheckbox
                             checked={openCleanupPr}

@@ -143,7 +143,7 @@ TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
-SESSION_LOG_PAGE_MAX_BYTES = 2 * 1024 * 1024
+SESSION_LOG_PAGE_MAX_BYTES = 16 * 1024 * 1024
 SESSION_LOG_PAGE_ENVELOPE_BYTES = 2
 
 
@@ -587,7 +587,16 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
             raise NotFound()
 
-        if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
+        # Self-driving report tasks (Inbox "Create PR" / "Discuss") are entitled through the Inbox
+        # (`product-autonomy`), not the PostHog Code (`tasks`) product, so they skip the Code
+        # entitlement check — mirroring auto-start, which runs the same tasks server-side without it.
+        # Usage limits still apply as a cost backstop.
+        require_tasks_access = not tasks_facade.is_signal_report_task(pk, self.team_id)
+        if (
+            limit_response := cloud_usage_limit_response(
+                request.user, self.team_id, require_tasks_access=require_tasks_access
+            )
+        ) is not None:
             return limit_response
 
         result = tasks_facade.run_task(pk, self.team_id, self._user_id(), validated_data=dict(request.validated_data))
@@ -1084,7 +1093,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if pk is None:
             raise NotFound()
         task_id = self._ensure_task_accessible()
-        run = tasks_facade.update_task_run(pk, task_id, self.team_id, validated_data=dict(request.validated_data))
+        # only_if_non_terminal: a run cancelled out of band (loop cancel_previous, owner deactivation)
+        # must not be resurrected to completed/failed by a stale in-flight agent PATCH. A terminal run
+        # is done, so a late PATCH is a no-op, not an overwrite.
+        run = tasks_facade.update_task_run(
+            pk, task_id, self.team_id, validated_data=dict(request.validated_data), only_if_non_terminal=True
+        )
         if run is None:
             raise NotFound()
         return Response(TaskRunDetailSerializer(run).data)
@@ -2246,7 +2260,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
 @extend_schema(tags=["code-invites"])
 class CodeInviteViewSet(viewsets.ViewSet):
-    """API for redeeming PostHog Code invite codes."""
+    """API for redeeming PostHog Desktop invite codes."""
 
     authentication_classes = [
         SessionAuthentication,
@@ -2276,7 +2290,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
             ),
         },
         summary="Redeem invite code",
-        description="Redeem a PostHog Code invite code to enable access.",
+        description="Redeem a PostHog Desktop invite code to enable access.",
     )
     @action(detail=False, methods=["post"], url_path="redeem")
     def redeem(self, request, **kwargs):
@@ -2300,11 +2314,16 @@ class CodeInviteViewSet(viewsets.ViewSet):
             200: OpenApiResponse(description="Access check result"),
         },
         summary="Check access",
-        description="Check whether the authenticated user has access to PostHog Code.",
+        description="Check whether the authenticated user has access to PostHog Desktop and to Loops.",
     )
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
-        return Response({"has_access": tasks_access.has_tasks_access(request.user)})
+        return Response(
+            {
+                "has_access": tasks_access.has_tasks_access(request.user),
+                "has_loops_access": tasks_access.has_loops_access(request.user),
+            }
+        )
 
 
 @extend_schema(tags=["sandbox-environments"])

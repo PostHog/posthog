@@ -132,6 +132,7 @@ Grant the application the permissions matching the tables you want to sync:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The v1 administrator log has no unique event id, so it can only be appended, never
         # merged. The v2 logs re-pull the boundary second inclusively on each incremental run,
@@ -156,7 +157,11 @@ Grant the application the permissions matching the tables you want to sync:
         return schemas
 
     def validate_credentials(
-        self, config: CiscoDuoSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CiscoDuoSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_cisco_duo_credentials(
             config.api_hostname, config.integration_key, config.secret_key, schema_name, team_id

@@ -103,6 +103,7 @@ Only full-refresh syncing is supported: the store has no timestamps, so every sy
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             return SourceSchema(
@@ -122,7 +123,11 @@ Only full-refresh syncing is supported: the store has no timestamps, so every sy
         return schemas
 
     def validate_credentials(
-        self, config: ZapierSupportedStorageSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ZapierSupportedStorageSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_zapier_supported_storage_credentials(config.secret)
 

@@ -120,6 +120,7 @@ Leave the API URL blank for Flagsmith SaaS, or set it to your API host (for exam
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Flagsmith's Admin API exposes no server-side timestamp filter on these resources,
         # so every endpoint is full-refresh only (no incremental/append support).
@@ -153,7 +154,11 @@ Leave the API URL blank for Flagsmith SaaS, or set it to your API host (for exam
         return True, None
 
     def validate_credentials(
-        self, config: FlagsmithSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FlagsmithSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         base_url_valid, base_url_error = self._validate_base_url(config.base_url, team_id)
         if not base_url_valid:

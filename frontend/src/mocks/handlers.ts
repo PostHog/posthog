@@ -306,6 +306,9 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/query/': { results: [] },
         '/api/environments/:team_id/query/:query_kind/': { results: [] },
         '/api/environments/:team_id/insights/viewed/': () => [201, null],
+        // Background telemetry beacon fired by metalyticsLogic when a scene is viewed — stub it so
+        // stories that render insights don't hit an unhandled 405 during play.
+        '/api/projects/:team_id/metalytics/': () => [201, null],
         'api/environments/:team_id/query': { results: [] },
         'api/environments/:team_id/query/:query_kind/': { results: [] },
         '/api/environments/:team_id/file_system/log_view/': {},

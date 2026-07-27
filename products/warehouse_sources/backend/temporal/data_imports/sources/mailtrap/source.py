@@ -97,13 +97,18 @@ You can create an API token under **Settings → API Tokens** in [Mailtrap](http
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only email_logs (filters[sent_after]) and suppressions (start_time) expose a server-side
         # timestamp bound; the other endpoints are unpaginated full-refresh lists.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: MailtrapSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MailtrapSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # One cheap probe (/api/accounts) confirms the token is genuine; every token can list the
         # accounts it has access to.

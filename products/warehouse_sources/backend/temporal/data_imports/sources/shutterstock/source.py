@@ -158,11 +158,16 @@ To also sync account-level tables, use an OAuth access token instead. Collection
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: ShutterstockSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ShutterstockSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         auth = _auth_from_config(config)
         if schema_name is not None and schema_name in SHUTTERSTOCK_ENDPOINTS:
@@ -177,7 +182,7 @@ To also sync account-level tables, use an OAuth access token instead. Collection
         return False, "Invalid Shutterstock credentials"
 
     def get_endpoint_permissions(
-        self, config: ShutterstockSourceConfig, team_id: int, endpoints: list[str]
+        self, config: ShutterstockSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         auth = _auth_from_config(config)
         return {

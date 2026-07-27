@@ -246,6 +246,7 @@ tools:
             - columns
             - last_run_at
             - managed_viewset_kind
+            - sync_frequency_managed_by_dag
             - latest_history_id
         param_overrides:
             name:
@@ -390,6 +391,7 @@ tools:
             - columns
             - last_run_at
             - managed_viewset_kind
+            - sync_frequency_managed_by_dag
             - latest_history_id
         param_overrides:
             name:
@@ -527,6 +529,9 @@ tools:
     warehouse-tables-create:
         operation: warehouse_tables_create
         enabled: false
+    warehouse-tables-create-from-upload-create:
+        operation: warehouse_tables_create_from_upload_create
+        enabled: false
     warehouse-tables-destroy:
         operation: warehouse_tables_destroy
         enabled: false
@@ -563,6 +568,9 @@ tools:
         enabled: false
     warehouse-tables-update-schema-create:
         operation: warehouse_tables_update_schema_create
+        enabled: false
+    warehouse-tables-upload-file-create:
+        operation: warehouse_tables_upload_file_create
         enabled: false
     warehouse-view-link-create:
         operation: warehouse_view_link_create

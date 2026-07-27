@@ -14,6 +14,7 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { isDevEnv } from '~/common/utils/env-utils'
 import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -40,6 +41,7 @@ import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
 import { createCdpOutputsRegistry } from './cdp/outputs/registry'
 import { CyclotronV2JanitorService, CyclotronV2Manager, CyclotronV2Worker } from './cdp/services/cyclotron-v2'
+import { EmailReputationWorkerService } from './cdp/services/email-reputation/temporal/email-reputation-worker.service'
 import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
 import { HOGFLOW_BATCH_RESOLVE_QUEUE } from './cdp/services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-batch-person-query.service'
@@ -53,7 +55,7 @@ import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
-import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
+import { HealthCheckResultOk, PluginServerService, PluginsServerConfig, RedisPool } from './types'
 
 /**
  * PluginServer handles CDP, logs, evaluation scheduler, and local-dev combined modes.
@@ -392,6 +394,34 @@ export class PluginServer implements NodeServer {
                 const scheduler = new HogFlowScheduleService(this.config)
                 scheduler.start()
                 return Promise.resolve(scheduler.service)
+            })
+        }
+
+        if (capabilities.emailReputationEvaluator) {
+            serviceLoaders.push(async () => {
+                const worker = new EmailReputationWorkerService(this.config, { postgres: this.postgres! })
+                try {
+                    await worker.start()
+                } catch (error) {
+                    // In dev this capability rides along with the full CDP set — don't take the whole
+                    // plugin server down (or fail its /_health) when the local Temporal isn't running.
+                    // Dedicated deployments should crash and restart.
+                    if (isDevEnv()) {
+                        logger.warn('[EmailReputationWorker] failed to start, continuing without it (dev only)', {
+                            error,
+                        })
+                        // start() may have failed partway (worker already polling): tear down
+                        // whatever came up so the stub doesn't hide an unsupervised worker.
+                        await worker.stop().catch(() => {})
+                        return {
+                            id: 'email-reputation-evaluator',
+                            onShutdown: () => Promise.resolve(),
+                            healthcheck: () => new HealthCheckResultOk(),
+                        }
+                    }
+                    throw error
+                }
+                return worker.service
             })
         }
 

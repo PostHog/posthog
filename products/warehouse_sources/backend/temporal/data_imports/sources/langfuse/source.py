@@ -103,6 +103,10 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
         return {
             "401 Client Error": "Invalid Langfuse API keys. Check the project public key and secret key, and make sure the host matches your Langfuse data region.",
             "403 Client Error": "Your Langfuse API keys do not have access to this resource. Check the keys and try again.",
+            # Every LANGFUSE_ENDPOINTS path is a collection route (no resource id in the URL), so a
+            # 404 here means the route itself doesn't exist on this host - typically a self-hosted
+            # instance running a Langfuse version that predates this endpoint. Retrying never helps.
+            "404 Client Error": "This Langfuse endpoint was not found on your host. Self-hosted instances on an older Langfuse version may not support it yet - upgrade your instance or remove this table from the sync.",
             HOST_NOT_ALLOWED_ERROR: "The Langfuse host is not allowed. Please use a publicly reachable instance URL.",
             HTTP_NOT_ALLOWED_ERROR: "The Langfuse host must use HTTPS. Please update the host to use https://.",
             RESPONSE_LIMIT_ERROR: "The Langfuse host returned a response that was too large or too slow to download. Check that the host points at a real Langfuse instance.",
@@ -118,6 +122,7 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -134,7 +139,11 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
         return schemas
 
     def validate_credentials(
-        self, config: LangfuseSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LangfuseSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_langfuse_credentials(config.host, config.public_key, config.secret_key, team_id)
 

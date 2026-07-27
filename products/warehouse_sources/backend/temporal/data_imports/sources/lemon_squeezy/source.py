@@ -172,6 +172,7 @@ class LemonSqueezySource(
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Incremental endpoints are merge-only: the stop-early cursor re-yields watermark
         # boundary rows, which only a merge on `id` can dedupe (append would duplicate them).
@@ -184,7 +185,11 @@ class LemonSqueezySource(
         )
 
     def validate_credentials(
-        self, config: LemonSqueezySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LemonSqueezySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if api_client.validate_credentials(config.api_key):
             return True, None
@@ -196,7 +201,9 @@ class LemonSqueezySource(
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
 
-    def create_webhook(self, config: LemonSqueezySourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: LemonSqueezySourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         return api_client.create_webhook(config.api_key, webhook_url)
 
     def get_desired_webhook_events(
@@ -210,16 +217,19 @@ class LemonSqueezySource(
         webhook_url: str,
         team_id: int,
         eligible_schema_names: list[str],
+        api_version: str | None = None,
     ) -> WebhookSyncResult:
         desired_events = self.get_desired_webhook_events(config, eligible_schema_names) or []
         return api_client.sync_webhook_events(config.api_key, webhook_url, desired_events)
 
     def get_external_webhook_info(
-        self, config: LemonSqueezySourceConfig, webhook_url: str, team_id: int
+        self, config: LemonSqueezySourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo | None:
         return api_client.get_external_webhook_info(config.api_key, webhook_url)
 
-    def delete_webhook(self, config: LemonSqueezySourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: LemonSqueezySourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         return api_client.delete_webhook(config.api_key, webhook_url)
 
     def source_for_pipeline(

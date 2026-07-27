@@ -6,6 +6,9 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import AsyncMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.models import ActivityLog
@@ -678,11 +681,11 @@ class TestSavedQuery(APIBaseTest):
             mock_workflow_exists.assert_called_once_with(saved_query)
             mock_pause_saved_query_schedule.assert_called_once_with(saved_query)
 
-    def _create_saved_query_for_frequency_tests(self) -> dict:
+    def _create_saved_query_for_frequency_tests(self, name: str = "event_view") -> dict:
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
-                "name": "event_view",
+                "name": name,
                 "query": {
                     "kind": "HogQLQuery",
                     "query": "select event as event from events LIMIT 100",
@@ -729,6 +732,9 @@ class TestSavedQuery(APIBaseTest):
             )
 
         self.assertEqual(response.status_code, 200, response.json())
+        # the write response must echo the cadence it just stored: an agent that reads back null
+        # concludes the update failed and retries it
+        self.assertEqual(response.json()["sync_frequency"], None if expected_target is None else sync_frequency)
         # the node target is the only store of frequency intent; the interval stays NULL
         updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
         self.assertIsNone(updated.sync_frequency_interval)
@@ -811,6 +817,97 @@ class TestSavedQuery(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("managed by the DAG", response.json()["detail"])
+
+    def _read_sync_frequency(self, saved_query_id: str, action: str) -> str | None:
+        if action == "retrieve":
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
+            )
+            self.assertEqual(response.status_code, 200, response.json())
+            return response.json()["sync_frequency"]
+
+        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
+        self.assertEqual(response.status_code, 200, response.json())
+        row = next(result for result in response.json()["results"] if result["id"] == saved_query_id)
+        return row["sync_frequency"]
+
+    @parameterized.expand(
+        [
+            ("retrieve_tiered", "retrieve", timedelta(hours=6), None, "6hour"),
+            ("list_tiered", "list", timedelta(hours=6), None, "6hour"),
+            ("retrieve_legacy", "retrieve", None, timedelta(hours=24), "24hour"),
+            ("list_legacy", "list", None, timedelta(hours=24), "24hour"),
+            ("retrieve_unscheduled", "retrieve", None, None, None),
+            ("list_unscheduled", "list", None, None, None),
+        ]
+    )
+    def test_sync_frequency_read_prefers_the_node_target(
+        self,
+        _name: str,
+        action: str,
+        node_target: timedelta | None,
+        interval: timedelta | None,
+        expected: str | None,
+    ):
+        # Reconcile NULLs sync_frequency_interval on tiered teams and stores the cadence on the
+        # node, so deriving the read from the column alone reports "never" for every tiered view.
+        # The list and retrieve actions use different serializer classes: cover both.
+        from products.data_modeling.backend.logic.node_frequency import set_declared_target
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        if node_target is not None:
+            set_declared_target(Node.objects.get(saved_query_id=saved_query["id"]), node_target)
+        DataWarehouseSavedQuery.objects.filter(id=saved_query["id"]).update(sync_frequency_interval=interval)
+
+        self.assertEqual(self._read_sync_frequency(saved_query["id"], action), expected)
+
+    def test_sync_frequency_read_hits_the_node_table_once_per_page(self):
+        # N+1 guard: view-list serializes a whole page, so a per-view target lookup would issue
+        # one node query per view.
+        from products.data_modeling.backend.logic.node_frequency import set_declared_target
+
+        for name in ("view_a", "view_b", "view_c"):
+            saved_query = self._create_saved_query_for_frequency_tests(name=name)
+            set_declared_target(Node.objects.get(saved_query_id=saved_query["id"]), timedelta(hours=6))
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual([row["sync_frequency"] for row in response.json()["results"]], ["6hour"] * 3)
+        node_queries = [q for q in queries.captured_queries if Node._meta.db_table in q["sql"]]
+        self.assertEqual(len(node_queries), 1, node_queries)
+
+    @parameterized.expand(
+        [
+            ("v1", False, False, False),
+            ("v2_single_schedule", True, False, True),
+            ("v2_tiered", True, True, False),
+        ]
+    )
+    def test_sync_frequency_managed_by_dag_tracks_the_write_path(
+        self, _name: str, v2_enabled: bool, tiered: bool, expected: bool
+    ):
+        # The frontend hides the cadence control on this flag. It must mean exactly what the
+        # write path rejects, or the control disappears from teams that can in fact edit.
+        saved_query = self._create_saved_query_for_frequency_tests()
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: v2_enabled and key == "data-modeling-backend-v2",
+            ),
+            patch(
+                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+                return_value=tiered,
+            ),
+        ):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+            )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["sync_frequency_managed_by_dag"], expected)
 
     def test_sync_frequency_is_a_writable_field(self):
         # Regression: sync_frequency used to be a read-only SerializerMethodField, so it was

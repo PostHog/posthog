@@ -31,6 +31,7 @@ class TestEnrichmentCore(BaseTest):
         pha_client=None,
         distinct_id=None,
         person=None,
+        geoip_country_code=None,
     ):
         person_patch_kwargs = {"side_effect": person} if isinstance(person, Exception) else {"return_value": person}
         clay_patch_kwargs = (
@@ -47,6 +48,7 @@ class TestEnrichmentCore(BaseTest):
                 pha_client=pha_client or MagicMock(),
                 is_recheck=is_recheck,
                 role_at_organization=role_at_organization,
+                geoip_country_code=geoip_country_code,
                 distinct_id=distinct_id,
             )
 
@@ -122,6 +124,30 @@ class TestEnrichmentCore(BaseTest):
 
         # No Clay columns: the revenue and company-type branches simply do not score.
         assert OrganizationEnrichment.objects.get(organization=self.organization).data["icp_score"] == 12
+
+    @parameterized.expand(
+        [
+            ("geoip_fills_missing_provider_country", None, "US", 12, "US"),
+            ("provider_country_wins_over_geoip", "DE", "BR", 12, "DE"),
+            ("both_missing_keeps_the_penalty", None, None, 7, None),
+        ]
+    )
+    def test_country_falls_back_to_signup_geoip(self, _name, provider_country, geoip_country, score, stored_country):
+        pha_client = MagicMock()
+        fields = EnrichmentFields(headcount=750, country=provider_country, founded_year=2021)
+        self._enrich(
+            ProviderLookup(fields=fields, raw_payload={"n": 1}),
+            is_recheck=True,
+            role_at_organization="engineering",
+            geoip_country_code=geoip_country,
+            pha_client=pha_client,
+        )
+
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_score"] == score
+        assert record.data.get("country") == stored_country
+        properties = pha_client.group_identify.call_args.kwargs["properties"]
+        assert properties.get("icp_country") == stored_country
 
     def test_no_person_write_without_a_distinct_id(self):
         # Scoring happens (recheck), but with no distinct_id there is no one to mirror onto.

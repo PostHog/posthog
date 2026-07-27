@@ -12,6 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     ServiceNowSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.servicenow import (
+    SERVICENOW_API_VERSION_V1,
+    SERVICENOW_API_VERSION_V2,
     ServiceNowAuth,
     ServiceNowResumeConfig,
 )
@@ -207,4 +209,26 @@ class TestServiceNowSource:
         self.source.source_for_pipeline(_api_key_config(), mock.MagicMock(), inputs)
 
         _, kwargs = mock_source.call_args
+        assert kwargs["api_version"] == expected
+
+
+class TestValidateCredentialsResolvedPin:
+    @parameterized.expand(
+        [
+            (SERVICENOW_API_VERSION_V1, SERVICENOW_API_VERSION_V1),
+            (SERVICENOW_API_VERSION_V2, SERVICENOW_API_VERSION_V2),
+            # No pin (pre-creation) resolves to the default the new row is stamped with.
+            (None, ServiceNowSource.default_version),
+        ]
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source.validate_servicenow_credentials"
+    )
+    def test_probe_receives_resolved_pin(self, pin, expected, mock_validate: mock.Mock) -> None:
+        # The probe hits the versioned Table API path, so a v1-pinned source must validate
+        # against /api/now/table while the (v2) default validates against /api/now/v2/table.
+        mock_validate.return_value = (True, None)
+        ServiceNowSource().validate_credentials(_api_key_config(), 1, api_version=pin)
+
+        _, kwargs = mock_validate.call_args
         assert kwargs["api_version"] == expected
