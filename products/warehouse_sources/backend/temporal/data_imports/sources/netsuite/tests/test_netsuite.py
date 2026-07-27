@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.netsuite.n
     NetSuiteTBAAuth,
     account_realm,
     account_slug,
+    base_url,
     build_query,
     format_timestamp,
     netsuite_source,
@@ -110,6 +111,23 @@ class TestNetSuiteTransport:
         assert suiteql_url(_ACCOUNT) == (
             "https://1234567-sb1.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql"
         )
+
+    @parameterized.expand(
+        [
+            ("path_break_out", "attacker.example/"),
+            ("at_host", "foo@attacker.example"),
+            ("dotted_host", "attacker.example"),
+            ("scheme_smuggle", "evil.com#"),
+            ("port", "host:8080"),
+            ("empty", ""),
+            ("whitespace", "   "),
+        ]
+    )
+    def test_base_url_rejects_host_injection(self, _name: str, account_id: str) -> None:
+        # A crafted account ID must never break out of the `<slug>.suitetalk.api.netsuite.com` host and
+        # send the signed request somewhere else.
+        with pytest.raises(ValueError):
+            base_url(account_id)
 
     def test_signature_base_string_merges_query_and_oauth_params(self) -> None:
         url = f"{suiteql_url(_ACCOUNT)}?limit=1000&offset=2000"
@@ -482,4 +500,14 @@ class TestNetSuiteValidateCredentials:
             ok, error = self._validate(account_id="   ")
 
         assert (ok, error) == (False, "A NetSuite account ID is required")
+        make_session.assert_not_called()
+
+    def test_host_injection_account_id_fails_before_any_request(self) -> None:
+        # The credential probe must reject a host-injection account ID up front rather than sign a
+        # request pointed at the attacker's host.
+        with patch(_SESSION_PATCH) as make_session:
+            ok, error = self._validate(account_id="attacker.example/")
+
+        assert ok is False
+        assert error and "isn't valid" in error
         make_session.assert_not_called()

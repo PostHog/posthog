@@ -1,3 +1,4 @@
+import re
 import hmac
 import time
 import base64
@@ -24,6 +25,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.netsuite.s
 )
 
 SUITEQL_PATH = "/services/rest/query/v1/suiteql"
+
+# NetSuite account IDs are alphanumeric with an optional environment suffix (`1234567`, `1234567_SB1`,
+# `TSTDRV1234567`). The character set is intentionally narrow: anything else — a dot, slash, `@`, or `:` —
+# could break out of the host label the account ID is interpolated into and point the credentialed
+# request at an attacker-controlled host. Reject it before it reaches a URL.
+_ACCOUNT_ID_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_-]*\Z")
 
 # SuiteQL caps a single response at 1000 rows.
 PAGE_SIZE = 1000
@@ -80,8 +87,17 @@ def account_realm(account_id: str) -> str:
     return account_id.strip().upper().replace("-", "_")
 
 
+def _validated_account_id(account_id: str) -> str:
+    candidate = account_id.strip()
+    if not _ACCOUNT_ID_RE.match(candidate):
+        raise ValueError(f"Invalid NetSuite account ID: {account_id!r}")
+    return candidate
+
+
 def base_url(account_id: str) -> str:
-    return f"https://{account_slug(account_id)}.suitetalk.api.netsuite.com"
+    # Validating here means every URL builder (`suiteql_url`, the probe, the pager) inherits the guard —
+    # the host is always `<slug>.suitetalk.api.netsuite.com`, never something the account ID smuggled in.
+    return f"https://{account_slug(_validated_account_id(account_id))}.suitetalk.api.netsuite.com"
 
 
 def suiteql_url(account_id: str) -> str:
@@ -181,6 +197,9 @@ def make_session(consumer_secret: str, token_secret: str) -> requests.Session:
             "Prefer": "transient",
         },
         redact_values=(consumer_secret, token_secret),
+        # Keep the credentialed request pointed at the host we validated — never let a redirect chain
+        # carry the signed Authorization header somewhere else.
+        allow_redirects=False,
     )
 
 
@@ -290,6 +309,14 @@ def validate_credentials(
     """
     if not account_id.strip():
         return False, "A NetSuite account ID is required"
+
+    try:
+        _validated_account_id(account_id)
+    except ValueError:
+        return False, (
+            "That NetSuite account ID isn't valid. Use the account ID from Setup → Company → Company "
+            "Information (for example 1234567 or 1234567_SB1)."
+        )
 
     try:
         session = make_session(consumer_secret, token_secret)
