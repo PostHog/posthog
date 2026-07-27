@@ -399,11 +399,10 @@ async def _relay_loop(
                                 if sandbox_id and background_logs_enabled:
                                     asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
                                 if task_run is not None and task_run.mode == "interactive":
-                                    # Interactive run finished a turn — the agent is now idle waiting
-                                    # for the user. Hop off the event loop because the dispatcher
-                                    # does sync Redis (cache.add) and a potential network call to
+                                    # Hop off the event loop because the turn-completion dispatcher
+                                    # performs sync Redis I/O and a potential network call to
                                     # the feature-flag service.
-                                    asyncio.create_task(asyncio.to_thread(_safe_dispatch_awaiting_input, task_run))
+                                    asyncio.create_task(asyncio.to_thread(_safe_dispatch_turn_completed, task_run))
                                 if is_agent_design_enabled and slack_turn_active[0] and workflow_handle is not None:
                                     slack_turn_active[0] = False
                                     # Awaited in order: the final prose must be recorded before
@@ -749,8 +748,8 @@ def _is_terminal_event(event_data: dict) -> bool:
     return method in TERMINAL_NOTIFICATION_METHODS
 
 
-def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
-    """Schedule a push when an interactive run idles waiting on the user.
+def _safe_dispatch_turn_completed(task_run: TaskRunModel) -> None:
+    """Schedule a notification when an interactive run finishes a turn.
 
     Must be called via ``asyncio.to_thread`` (as the caller does) because the
     dispatcher performs sync I/O: a Redis write (``cache.add``) and a potential
@@ -758,9 +757,9 @@ def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
     dispatch never bubbles into the relay loop.
     """
     try:
-        from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input
+        from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
 
-        notify_task_run_awaiting_input(task_run)
+        notify_task_run_turn_completed(task_run)
     except Exception:
         logger.warning(
             "relay_sandbox_events_push_dispatch_failed",
