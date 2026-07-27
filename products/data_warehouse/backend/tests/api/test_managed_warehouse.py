@@ -258,8 +258,9 @@ def test_provision_persists_duckgres_server_on_success(mock_request: MagicMock) 
 @override_settings(CLOUD_DEPLOYMENT="US", DUCKGRES_PG_PORT=5432)
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
 def test_provision_sends_team_id_and_schema_name_to_control_plane(mock_request: MagicMock) -> None:
-    # The provisioning team becomes the warehouse's first (billing) team via the org-teams
-    # API: the outbound body carries team_id + schema_name and never default_team_id.
+    # The provisioning team becomes the warehouse's first team via the org-teams API:
+    # the outbound body carries team_id + schema_name and never default_team_id (dropped
+    # along with duckgres's whole default/billing-team concept).
     org = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=org)
     mock_request.return_value = Response(
