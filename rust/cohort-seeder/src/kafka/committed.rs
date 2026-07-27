@@ -62,23 +62,31 @@ impl SeedGroupOffsetReader {
             let committed = consumer
                 .committed_offsets(tpl, timeout)
                 .map_err(SeedGroupOffsetError::Fetch)?;
-
-            let mut commits = SeedGroupCommits::new();
-            for partition in partitions {
-                // Only a concrete committed offset counts. `Invalid`/`Beginning`/`End` sentinels mean
-                // the group has no real commit for the partition, so it stays absent (lagging).
-                if let Some(Offset::Offset(offset)) = committed
-                    .find_partition(&topic, i32::from(partition.as_u16()))
-                    .map(|entry| entry.offset())
-                {
-                    commits.insert(partition, CommittedOffset::new(offset));
-                }
-            }
-            Ok(commits)
+            Ok(build_commits(&partitions, &committed, &topic))
         })
         .await
         .map_err(SeedGroupOffsetError::Join)?
     }
+}
+
+/// Keep only the partitions the group has a concrete committed offset for. `Invalid`/`Beginning`/
+/// `End` sentinels and absent partitions mean no real commit, so they stay out of the map — which the
+/// domain reads as lagging.
+fn build_commits(
+    partitions: &[SeedPartition],
+    committed: &TopicPartitionList,
+    topic: &str,
+) -> SeedGroupCommits {
+    let mut commits = SeedGroupCommits::new();
+    for partition in partitions {
+        if let Some(Offset::Offset(offset)) = committed
+            .find_partition(topic, i32::from(partition.as_u16()))
+            .map(|entry| entry.offset())
+        {
+            commits.insert(*partition, CommittedOffset::new(offset));
+        }
+    }
+    commits
 }
 
 /// Build the short-lived query consumer. Auto-commit and auto-offset-store are off so instantiating it
@@ -112,4 +120,38 @@ pub enum SeedGroupOffsetError {
     Fetch(#[source] KafkaError),
     #[error("joining the committed-offset query task")]
     Join(#[source] tokio::task::JoinError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TOPIC: &str = "cohort_seed_events";
+
+    #[test]
+    fn only_a_concrete_committed_offset_counts_as_progress() {
+        let partitions: Vec<SeedPartition> = SeedPartition::all(4).unwrap().collect();
+        let mut committed = TopicPartitionList::new();
+        committed
+            .add_partition_offset(TOPIC, 0, Offset::Offset(42))
+            .unwrap();
+        committed
+            .add_partition_offset(TOPIC, 1, Offset::Invalid)
+            .unwrap();
+        committed
+            .add_partition_offset(TOPIC, 2, Offset::Beginning)
+            .unwrap();
+        // Partition 3 is absent from the response entirely.
+
+        let commits = build_commits(&partitions, &committed, TOPIC);
+
+        assert_eq!(commits.get(partitions[0]), Some(CommittedOffset::new(42)));
+        for partition in &partitions[1..] {
+            assert_eq!(
+                commits.get(*partition),
+                None,
+                "a sentinel or missing offset must read as lagging, not as caught up"
+            );
+        }
+    }
 }

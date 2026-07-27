@@ -219,6 +219,22 @@ async fn build_completion(
             if config.seeder_reconcile_persist_max_batch == 0 {
                 anyhow::bail!("SEEDER_RECONCILE_PERSIST_MAX_BATCH must be greater than zero");
             }
+            // The flush tick is the watch task's only heartbeat while the topic is idle, so too long
+            // an interval gets a healthy-but-idle task killed as stalled.
+            let persist_interval =
+                Duration::from_millis(config.seeder_reconcile_persist_interval_ms);
+            if persist_interval > MARKER_WATCH_LIVENESS_DEADLINE / 2 {
+                anyhow::bail!(
+                    "SEEDER_RECONCILE_PERSIST_INTERVAL_MS must be at most half the marker-watch \
+                     liveness deadline ({}ms)",
+                    MARKER_WATCH_LIVENESS_DEADLINE.as_millis() / 2
+                );
+            }
+            // A zero timeout fails every OffsetFetch and watermark call rather than disabling the
+            // timeout, silently dropping the liveness signal.
+            if config.seeder_reconcile_offsets_timeout_ms == 0 {
+                anyhow::bail!("SEEDER_RECONCILE_OFFSETS_TIMEOUT_MS must be greater than zero");
+            }
             let offsets_timeout = Duration::from_millis(config.seeder_reconcile_offsets_timeout_ms);
             let reader = SeedGroupOffsetReader::new(
                 config.build_kafka_config(),
@@ -254,7 +270,7 @@ async fn build_completion(
                 PgMarkerFlush::new(pool.clone()),
                 directives_rx,
                 handle,
-                Duration::from_millis(config.seeder_reconcile_persist_interval_ms),
+                persist_interval,
                 config.seeder_reconcile_persist_max_batch,
             ))
         }

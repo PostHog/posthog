@@ -2278,6 +2278,7 @@ dependencies = [
  "common-liveness",
  "common-types",
  "envconfig",
+ "futures",
  "governor",
  "hyper-rustls 0.27.7",
  "hyper-util",

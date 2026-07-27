@@ -13,16 +13,18 @@
 //!
 //! Per-run lag readings are aggregated here, not inside the observation pass: a tick observes many
 //! runs, so a gauge set per run would be last-writer-wins and would never clear once the last laggard
-//! settled.
+//! settled. The pass's two broker reads are likewise tick-scoped — see [`TickBrokerSnapshot`].
 
-use std::collections::HashSet;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use common_types::cohort::TeamAllowlist;
-use metrics::{counter, gauge};
+use metrics::{counter, gauge, histogram};
 use sqlx::PgPool;
 use tokio::sync::{watch, Semaphore};
 use tokio::task::JoinError;
@@ -32,14 +34,15 @@ use cohort_core::partitioner::COHORT_PARTITION_COUNT;
 
 use crate::config::Config;
 use crate::domain::{
-    CompletionPhase, DispatchEpoch, DispatchedReconcile, MarkerWatch, PartitionBitmap,
-    ProducedOffset, ReconcileHwms, ReconcileHwmsError, RunId,
+    CompletionPhase, DispatchEpoch, DispatchedReconcile, MarkerWatch, ObservationEnds,
+    PartitionBitmap, ProducedOffset, ReconcileHwms, ReconcileHwmsError, RunId, SeedGroupCommits,
 };
 use crate::kafka::producer::{CaptureOffsetsError, SeedTileProducer};
 use crate::observability::metrics::{
     RECONCILE_CAS_LOST, RECONCILE_DISPATCHES, RECONCILE_DISPATCHES_IN_FLIGHT,
     RECONCILE_LIVENESS_LAGGING_PARTITIONS, RECONCILE_MARKER_WATCH_LAG,
-    RECONCILE_OBSERVATION_STALLED_AGE_SECONDS, RECONCILE_RECORD_INVALID,
+    RECONCILE_OBSERVATION_PASS_SECONDS, RECONCILE_OBSERVATION_STALLED_AGE_SECONDS,
+    RECONCILE_OBSERVE_ERRORS, RECONCILE_RECORD_INVALID, RECONCILE_RUNS_UNDISPATCHED,
     RECONCILE_ZERO_MARKER_RUNS, RUNS_OBSERVED, RUNS_RECONCILING,
 };
 use crate::store::completion::{
@@ -51,7 +54,7 @@ use crate::store::runs::ReconcileRunError;
 
 use super::observe::{
     observe_run, CommittedOffsetSource, ObservationStore, ObserveError, ObserveStep, ObserveTarget,
-    PgObservationStore, TopicOffsetSource,
+    PgObservationStore, SourceError, TopicOffsetSource,
 };
 use super::reconcile_dispatch::{
     execute_reconcile_dispatch, prepare_reconcile_dispatch, CertifiedDispatch,
@@ -180,9 +183,10 @@ pub struct CompletionDriver {
     dispatch: Option<DispatchArm>,
     observe: Option<ObserveArm>,
     in_flight: Arc<Mutex<HashSet<RunId>>>,
-    /// Runs already reported as carrying an unusable dispatch record, so the warn and counter fire
-    /// per broken record rather than per poll tick. Pruned each tick to the runs still in the phase.
-    reported_undispatched: Mutex<HashSet<RunId>>,
+    /// Runs already reported as carrying an unusable dispatch record, mapped to when this replica
+    /// first saw them in that phase, so the warn and counter fire per broken record rather than per
+    /// poll tick and the stalled gauge ages from the phase. Pruned each tick to the runs still in it.
+    reported_undispatched: Mutex<HashMap<RunId, DateTime<Utc>>>,
 }
 
 impl CompletionDriver {
@@ -194,7 +198,7 @@ impl CompletionDriver {
             dispatch: None,
             observe: None,
             in_flight: Arc::new(Mutex::new(HashSet::new())),
-            reported_undispatched: Mutex::new(HashSet::new()),
+            reported_undispatched: Mutex::new(HashMap::new()),
         }
     }
 
@@ -259,6 +263,8 @@ impl CompletionDriver {
         // themselves when nothing is lagging.
         let mut liveness_lagging = 0_usize;
         let mut marker_lag = 0_usize;
+        let mut observation_elapsed = Duration::ZERO;
+        let broker = self.observe.as_ref().map(TickBrokerSnapshot::new);
 
         for completion in discovered {
             match &completion.phase {
@@ -270,7 +276,8 @@ impl CompletionDriver {
                     // Age from the dispatch, not the run's creation: a run that legitimately spent
                     // days seeding would otherwise read as stalled-by-days the instant it dispatches.
                     track_oldest(&mut oldest_stalled, dispatched.epoch.as_datetime());
-                    if let Some(observe) = &self.observe {
+                    if let (Some(observe), Some(broker)) = (&self.observe, &broker) {
+                        let started = Instant::now();
                         // One read per run per tick, shared by the watch directive and the pass.
                         match observe.store.load_participations(completion.run_id).await {
                             Ok(participations) => {
@@ -282,6 +289,7 @@ impl CompletionDriver {
                                 let outcome = self
                                     .observe_reconciling(
                                         observe,
+                                        broker,
                                         &completion,
                                         dispatched,
                                         &participations,
@@ -294,18 +302,26 @@ impl CompletionDriver {
                                 warn!(error = %error, run_id = ?completion.run_id, "loading participations for the observation pass failed");
                             }
                         }
+                        observation_elapsed += started.elapsed();
                     }
                 }
                 CompletionPhase::ReconcilingUndispatched(reason) => {
                     reconciling += 1;
-                    track_oldest(&mut oldest_stalled, completion.created_at);
                     undispatched.insert(completion.run_id);
                     // A run holds this phase until a re-dispatch records — across a whole
                     // observe-only rollout window, if auto-dispatch is off. Count and warn once per
                     // stretch so the signal measures broken dispatch records rather than how many
                     // ticks have looked at the same one.
-                    let first_sighting =
-                        lock_run_set(&self.reported_undispatched).insert(completion.run_id);
+                    let (first_sighting, since) = {
+                        let mut reported = lock_recoverable(&self.reported_undispatched);
+                        match reported.entry(completion.run_id) {
+                            Entry::Occupied(entry) => (false, *entry.get()),
+                            Entry::Vacant(entry) => (true, *entry.insert(now)),
+                        }
+                    };
+                    // Age from the phase, not `created_at`: days of legitimate seeding would
+                    // otherwise read as stalled the instant the dispatch record breaks.
+                    track_oldest(&mut oldest_stalled, since);
                     if first_sighting {
                         counter!(RECONCILE_RECORD_INVALID).increment(1);
                     }
@@ -345,9 +361,12 @@ impl CompletionDriver {
         }
 
         // Forget runs that have left the phase, so a later relapse counts as a fresh event.
-        lock_run_set(&self.reported_undispatched).retain(|run_id| undispatched.contains(run_id));
+        lock_recoverable(&self.reported_undispatched)
+            .retain(|run_id, _| undispatched.contains(run_id));
 
         gauge!(RUNS_RECONCILING).set(reconciling as f64);
+        // A standing count: the first-sighting counter goes flat while runs stay stranded.
+        gauge!(RECONCILE_RUNS_UNDISPATCHED).set(undispatched.len() as f64);
 
         match runs_with_all_chunks_confirmed(&self.pool, &planned).await {
             Ok(confirmed) => {
@@ -372,6 +391,9 @@ impl CompletionDriver {
                 .map(|since| (now - since).num_seconds().max(0) as f64)
                 .unwrap_or(0.0);
             gauge!(RECONCILE_OBSERVATION_STALLED_AGE_SECONDS).set(stalled_age);
+            // The pass runs inline on the orchestrator's liveness path; this leads the deadline.
+            histogram!(RECONCILE_OBSERVATION_PASS_SECONDS)
+                .record(observation_elapsed.as_secs_f64());
         }
     }
 
@@ -380,6 +402,7 @@ impl CompletionDriver {
     async fn observe_reconciling(
         &self,
         observe: &ObserveArm,
+        broker: &TickBrokerSnapshot<'_>,
         completion: &DiscoveredCompletion,
         dispatched: &DispatchedReconcile,
         participations: &[ObservationParticipation],
@@ -393,8 +416,8 @@ impl CompletionDriver {
         };
         match observe_run(
             observe.store.as_ref(),
-            observe.committed.as_ref(),
-            observe.topic_ends.as_ref(),
+            broker,
+            broker,
             &target,
             participations,
         )
@@ -438,6 +461,9 @@ impl CompletionDriver {
                 ObserveOutcome::default()
             }
             Err(error) => {
+                // The default outcome reads as healthy on both lag gauges, so a failed pass needs
+                // its own signal to tell "nothing is lagging" from "we could not tell".
+                counter!(RECONCILE_OBSERVE_ERRORS).increment(1);
                 warn!(error = %error, run_id = ?completion.run_id, "observing the reconciling run failed");
                 ObserveOutcome::default()
             }
@@ -454,7 +480,7 @@ impl CompletionDriver {
         let Ok(permit) = Arc::clone(&dispatch.dispatch_slots).try_acquire_owned() else {
             return;
         };
-        if !lock_run_set(&self.in_flight).insert(run_id) {
+        if !lock_recoverable(&self.in_flight).insert(run_id) {
             return;
         }
         let context = dispatch.clone();
@@ -480,6 +506,50 @@ impl CompletionDriver {
 struct ObserveOutcome {
     liveness_lagging: usize,
     marker_lag: usize,
+}
+
+/// Memoizes the two broker reads for one tick. Both ask about the cluster, not about a run, so every
+/// run in a tick shares one answer; per-run reads would multiply a slow broker (each call is bounded
+/// only by the offsets timeout) by the reconciling-run count, inside a tick the orchestrator awaits
+/// before reporting liveness. Failures are cached too, for the same reason.
+struct TickBrokerSnapshot<'a> {
+    committed_source: &'a dyn CommittedOffsetSource,
+    ends_source: &'a dyn TopicOffsetSource,
+    commits: tokio::sync::Mutex<Option<Result<SeedGroupCommits, SourceError>>>,
+    ends: tokio::sync::Mutex<Option<Result<ObservationEnds, SourceError>>>,
+}
+
+impl<'a> TickBrokerSnapshot<'a> {
+    fn new(observe: &'a ObserveArm) -> Self {
+        Self {
+            committed_source: observe.committed.as_ref(),
+            ends_source: observe.topic_ends.as_ref(),
+            commits: tokio::sync::Mutex::new(None),
+            ends: tokio::sync::Mutex::new(None),
+        }
+    }
+}
+
+#[async_trait]
+impl CommittedOffsetSource for TickBrokerSnapshot<'_> {
+    async fn committed(&self) -> Result<SeedGroupCommits, SourceError> {
+        let mut cached = self.commits.lock().await;
+        if cached.is_none() {
+            *cached = Some(self.committed_source.committed().await);
+        }
+        cached.as_ref().expect("filled above").clone()
+    }
+}
+
+#[async_trait]
+impl TopicOffsetSource for TickBrokerSnapshot<'_> {
+    async fn observation_ends(&self) -> Result<ObservationEnds, SourceError> {
+        let mut cached = self.ends.lock().await;
+        if cached.is_none() {
+            *cached = Some(self.ends_source.observation_ends().await);
+        }
+        cached.as_ref().expect("filled above").clone()
+    }
 }
 
 /// Build a watch directive for one reconciling run from its dispatch record and persisted bits, so
@@ -527,15 +597,17 @@ impl InFlightGuard {
 
 impl Drop for InFlightGuard {
     fn drop(&mut self) {
-        lock_run_set(&self.in_flight).remove(&self.run_id);
+        lock_recoverable(&self.in_flight).remove(&self.run_id);
         gauge!(RECONCILE_DISPATCHES_IN_FLIGHT).decrement(1.0);
     }
 }
 
 /// The driver's run sets stay structurally valid across a panic between lock and mutation, so a
 /// poisoned lock is recoverable rather than fatal.
-fn lock_run_set(runs: &Mutex<HashSet<RunId>>) -> std::sync::MutexGuard<'_, HashSet<RunId>> {
-    runs.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+fn lock_recoverable<T>(value: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    value
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// One dispatch attempt. Every failure path logs and leaves the run in a state the next tick retries:

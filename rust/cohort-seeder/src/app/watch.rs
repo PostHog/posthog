@@ -144,9 +144,14 @@ struct WatchState<S, F> {
     stream: S,
     flush: F,
     persist_max_batch: u64,
+    /// Heartbeat between per-run persists. `None` in tests, which drive the state machine directly.
+    heartbeat: Option<Handle>,
     runs: HashMap<RunId, RunWatch>,
     messages_since_flush: u64,
     positions_advanced: bool,
+    /// A cohort completed since the last flush, which triggers an immediate one. Aggregated on
+    /// ingest, not rescanned in `should_flush` — that runs per record on a high-volume topic.
+    completion_pending: bool,
     /// A seek is owed (a run was added or rebuilt, or the last seek failed transiently) but has not
     /// succeeded yet. Cleared only by a successful seek, so a broker blip is retried on the next
     /// directive publish instead of silently leaving the stream unassigned.
@@ -160,14 +165,16 @@ struct WatchState<S, F> {
 }
 
 impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
-    fn new(stream: S, flush: F, persist_max_batch: u64) -> Self {
+    fn new(stream: S, flush: F, persist_max_batch: u64, heartbeat: Option<Handle>) -> Self {
         Self {
             stream,
             flush,
             persist_max_batch,
+            heartbeat,
             runs: HashMap::new(),
             messages_since_flush: 0,
             positions_advanced: false,
+            completion_pending: false,
             seek_pending: false,
             truncated: HashMap::new(),
         }
@@ -187,20 +194,20 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
         self.positions_advanced = true;
         self.messages_since_flush += 1;
         if let Some(marker) = item.marker {
-            let fold = match self.runs.get_mut(&marker.run_id) {
-                Some(run) => run.ledger.observe(&marker),
-                None => MarkerFold::ForeignRun,
+            let (fold, completed) = match self.runs.get_mut(&marker.run_id) {
+                Some(run) => (
+                    run.ledger.observe(&marker),
+                    run.ledger.completed_since_flush(),
+                ),
+                None => (MarkerFold::ForeignRun, false),
             };
+            self.completion_pending |= completed;
             counter!(RECONCILE_MARKERS_OBSERVED, "fold" => fold.label()).increment(1);
         }
     }
 
     fn should_flush(&self) -> bool {
-        self.messages_since_flush >= self.persist_max_batch
-            || self
-                .runs
-                .values()
-                .any(|run| run.ledger.completed_since_flush())
+        self.messages_since_flush >= self.persist_max_batch || self.completion_pending
     }
 
     /// Reconcile the watched-run set with a fresh directive snapshot, then re-seek if the set changed.
@@ -267,10 +274,14 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
     async fn reassign(&mut self) {
         loop {
             if self.runs.is_empty() {
-                if let Err(error) = self.stream.unassign().await {
-                    warn!(error = %error, "unassigning the idle marker watcher failed");
+                // Stays owed until it lands, like the seek below: nothing else revisits an
+                // idle-but-still-assigned consumer.
+                match self.stream.unassign().await {
+                    Ok(()) => self.seek_pending = false,
+                    Err(error) => {
+                        warn!(error = %error, "unassigning the idle marker watcher failed; retrying next directive")
+                    }
                 }
-                self.seek_pending = false;
                 return;
             }
             let start = min_start(self.runs.values());
@@ -338,9 +349,20 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
         let run_ids: Vec<RunId> = self.runs.keys().copied().collect();
         for run_id in run_ids {
             self.flush_run(run_id).await;
+            // One round trip per run, all of it before the runner loop's own heartbeat: a large
+            // watched set must slow flushes down, not spend the whole liveness budget.
+            if let Some(handle) = &self.heartbeat {
+                handle.report_healthy();
+            }
         }
         self.messages_since_flush = 0;
         self.positions_advanced = false;
+        // Recomputed, not cleared: a run whose persist failed keeps its bits dirty, so it keeps its
+        // trigger. A stale-true from a rebuilt run costs at most one no-op flush.
+        self.completion_pending = self
+            .runs
+            .values()
+            .any(|run| run.ledger.completed_since_flush());
     }
 
     /// Persist one run's dirty bits and the watcher positions under its dispatch fence. A lost fence
@@ -411,7 +433,7 @@ impl<S: MarkerStream, F: MarkerFlush> MarkerWatchTask<S, F> {
         persist_max_batch: u64,
     ) -> Self {
         Self {
-            state: WatchState::new(stream, flush, persist_max_batch),
+            state: WatchState::new(stream, flush, persist_max_batch, Some(handle.clone())),
             directives,
             handle,
             persist_interval,
@@ -543,6 +565,7 @@ mod tests {
     #[derive(Default)]
     struct FakeStream {
         seek_result: Mutex<Option<WatchError>>,
+        unassign_result: Mutex<Option<WatchError>>,
         seeks: Vec<WatchPositions>,
         unassigns: usize,
     }
@@ -561,7 +584,10 @@ mod tests {
 
         async fn unassign(&mut self) -> Result<(), WatchError> {
             self.unassigns += 1;
-            Ok(())
+            match self.unassign_result.lock().unwrap().take() {
+                Some(error) => Err(error),
+                None => Ok(()),
+            }
         }
 
         async fn recv(&mut self) -> Result<WatchItem, WatchError> {
@@ -624,7 +650,7 @@ mod tests {
     }
 
     fn make_state(flush: FakeFlush, max_batch: u64) -> WatchState<FakeStream, FakeFlush> {
-        WatchState::new(FakeStream::default(), flush, max_batch)
+        WatchState::new(FakeStream::default(), flush, max_batch, None)
     }
 
     #[tokio::test]
@@ -821,6 +847,30 @@ mod tests {
         assert!(state.runs.is_empty());
         assert_eq!(state.stream.unassigns, 1);
         assert_eq!(state.stream.seeks.len(), 2, "an idle watcher does not seek");
+    }
+
+    #[tokio::test]
+    async fn a_failed_unassign_stays_owed_and_retries() {
+        // Nothing re-triggers the release once the set is already empty, so clearing the owed work
+        // on a failed unassign would leak the assignment until a new run is dispatched.
+        let run_id = run(1);
+        let mut state = make_state(FakeFlush::default(), 10_000);
+        state
+            .apply_directives(&WatchDirectives {
+                runs: vec![directive(run_id, 100, start_at(0, 0), &[10])],
+            })
+            .await;
+
+        *state.stream.unassign_result.lock().unwrap() =
+            Some(WatchError::Consumer(rdkafka::error::KafkaError::Canceled));
+        state.apply_directives(&WatchDirectives::default()).await;
+        assert_eq!(state.stream.unassigns, 1);
+        assert!(state.seek_pending, "a failed unassign stays owed");
+
+        // A steady-state republish of the still-empty set retries it.
+        state.apply_directives(&WatchDirectives::default()).await;
+        assert_eq!(state.stream.unassigns, 2);
+        assert!(!state.seek_pending, "the retry cleared the owed release");
     }
 
     #[tokio::test]

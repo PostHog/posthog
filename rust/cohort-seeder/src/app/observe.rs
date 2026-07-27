@@ -32,7 +32,9 @@ use crate::domain::{
 };
 use crate::kafka::committed::SeedGroupOffsetReader;
 use crate::kafka::producer::SeedTileProducer;
-use crate::observability::metrics::{RECONCILE_COHORTS_COMPLETED, RECONCILE_COHORTS_PARTIAL};
+use crate::observability::metrics::{
+    RECONCILE_COHORTS_COMPLETED, RECONCILE_COHORTS_PARTIAL, RECONCILE_COHORTS_SHORTFALL,
+};
 use crate::store::completion::{
     load_current_behavioral_hashes, load_observation_participations, mark_participation_completed,
     mark_run_observed, persist_observation_ends, record_participation_partial,
@@ -246,6 +248,7 @@ async fn attribute_incomplete(
                 .record_shortfall(target.run_id, target.epoch, *cohort_id, &error)
                 .await?;
             shortfall += 1;
+            counter!(RECONCILE_COHORTS_SHORTFALL).increment(1);
         } else {
             let error = RenderedError::from_message(format!(
                 "reconcile superseded by a cohort change: {missing}"

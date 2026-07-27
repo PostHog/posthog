@@ -9,10 +9,12 @@
 //! Non-marker messages still advance the partition's next-read offset. rdkafka types stay confined
 //! here — the watcher yields typed [`WatchItem`]s.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use common_kafka::config::KafkaConfig;
+use futures::stream::{self, StreamExt, TryStreamExt};
 use metrics::counter;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::error::KafkaError;
@@ -24,6 +26,9 @@ use crate::domain::{
     WatchPositions,
 };
 use crate::observability::metrics::RECONCILE_MARKER_PARSE_FAILURES;
+
+/// In-flight watermark fetches during a seek, matching the group-lag scanner's bound.
+const WATERMARK_CONCURRENCY: usize = 16;
 
 /// One record read from the membership topic: where the watcher now sits on that partition, and the
 /// marker it carried (if any). Non-marker rows carry `marker: None` but still advance `next_offset`.
@@ -71,15 +76,8 @@ impl MarkerWatcher {
     /// [`WatchError::Truncated`] rather than a silent reset. The blocking watermark calls run on the
     /// blocking pool.
     pub async fn seek_to(&mut self, start: &WatchPositions) -> Result<(), WatchError> {
-        let consumer = Arc::clone(&self.consumer);
-        let topic = self.topic.clone();
-        let timeout = self.watermark_timeout;
-        let start_for_assign = start.clone();
-        let tpl = tokio::task::spawn_blocking(move || {
-            build_assignment(&consumer, &topic, &start_for_assign, timeout)
-        })
-        .await
-        .map_err(WatchError::WatermarkJoin)??;
+        let lows = self.low_watermarks(start).await?;
+        let tpl = build_assignment(&self.topic, start, &lows)?;
         self.consumer.assign(&tpl).map_err(WatchError::Assign)?;
         // Records queued under the previous assignment can still be sitting in librdkafka's fetch
         // queue here. They are discarded rather than delivered: `assign` bumps each partition's
@@ -87,6 +85,39 @@ impl MarkerWatcher {
         // relies on that — a leaked pre-seek record would advance coverage past markers the rewound
         // run never read.
         Ok(())
+    }
+
+    /// Fetch every watched partition's low watermark, one blocking call each with bounded
+    /// concurrency (as `ingestion-control-plane`'s group-lag scan does). A sequential sweep of all 64
+    /// membership partitions would cost one unresponsive broker `partitions × watermark_timeout`
+    /// before the owed seek resolves — far past the watch task's liveness deadline.
+    async fn low_watermarks(
+        &self,
+        start: &WatchPositions,
+    ) -> Result<HashMap<MembershipPartition, i64>, WatchError> {
+        let partitions: Vec<MembershipPartition> = start.iter().map(|(p, _)| p).collect();
+        stream::iter(partitions)
+            .map(|partition| {
+                let consumer = Arc::clone(&self.consumer);
+                let topic = self.topic.clone();
+                let timeout = self.watermark_timeout;
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        consumer
+                            .fetch_watermarks(&topic, partition.get(), timeout)
+                            .map(|(low, _high)| (partition, low))
+                            .map_err(|source| WatchError::Watermarks {
+                                partition: partition.get(),
+                                source,
+                            })
+                    })
+                    .await
+                    .map_err(WatchError::WatermarkJoin)?
+                }
+            })
+            .buffer_unordered(WATERMARK_CONCURRENCY)
+            .try_collect()
+            .await
     }
 
     /// Drop every assigned partition. The consumer stays alive and re-assigns on the next
@@ -112,22 +143,18 @@ impl MarkerWatcher {
     }
 }
 
-/// Build the assignment TPL for `start`, checking each partition's start against its low watermark.
-/// Blocking — runs on the blocking pool.
+/// Build the assignment TPL for `start`, rejecting any partition whose start fell out of retention.
+/// `start` iterates in partition order, so the truncation reported is the lowest offending partition
+/// rather than whichever watermark call happened to return first.
 fn build_assignment(
-    consumer: &StreamConsumer,
     topic: &str,
     start: &WatchPositions,
-    watermark_timeout: Duration,
+    lows: &HashMap<MembershipPartition, i64>,
 ) -> Result<TopicPartitionList, WatchError> {
     let mut tpl = TopicPartitionList::new();
     for (partition, next) in start.iter() {
-        let (low, _high) = consumer
-            .fetch_watermarks(topic, partition.get(), watermark_timeout)
-            .map_err(|source| WatchError::Watermarks {
-                partition: partition.get(),
-                source,
-            })?;
+        // `lows` covers these same partitions, so the fallback is unreachable.
+        let low = lows.get(&partition).copied().unwrap_or(0);
         if next.get() < low {
             return Err(WatchError::Truncated {
                 partition: partition.get(),
