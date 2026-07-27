@@ -134,6 +134,11 @@ jest.mock('@aws-sdk/credential-provider-node', () => ({
     defaultProvider: (init: unknown) => mockDefaultProvider(init),
 }))
 
+jest.mock('@smithy/node-http-handler', () => ({
+    NodeHttpHandler: jest.fn().mockImplementation(() => ({ __directHandler: true })),
+}))
+const { NodeHttpHandler: NodeHttpHandlerMock } = require('@smithy/node-http-handler')
+
 const ORIGINAL_ENV = process.env
 
 describe('S3 client proxy routing', () => {
@@ -167,6 +172,7 @@ describe('S3 client proxy routing', () => {
             jest.doMock('@aws-sdk/credential-provider-node', () => ({
                 defaultProvider: (init: unknown) => mockDefaultProvider(init),
             }))
+            jest.doMock('@smithy/node-http-handler', () => ({ NodeHttpHandler: NodeHttpHandlerMock }))
             const { uploadToS3: fresh } = require('~/session-replay/recording-rasterizer/storage')
             await fresh('/tmp/v.mp4', 'b', 'p', 'i')
             mock = require('@aws-sdk/client-s3').S3Client as jest.Mock
@@ -180,6 +186,8 @@ describe('S3 client proxy routing', () => {
         expect(config).not.toHaveProperty('requestHandler')
         expect(config).not.toHaveProperty('credentials')
         expect(HttpsProxyAgentMock).not.toHaveBeenCalled()
+        expect(mockDefaultProvider).not.toHaveBeenCalled()
+        expect(NodeHttpHandlerMock).not.toHaveBeenCalled()
     })
 
     it.each([
@@ -187,20 +195,28 @@ describe('S3 client proxy routing', () => {
         { source: 'HTTP_PROXY fallback', env: 'HTTP_PROXY' as const },
         { source: 'lowercase https_proxy', env: 'https_proxy' as const },
         { source: 'lowercase http_proxy', env: 'http_proxy' as const },
-    ])('routes S3 through the proxy but leaves credential refresh direct when $source is set', async ({ env }) => {
-        process.env[env] = 'http://smokescreen.smokescreen.svc.cluster.local:4750'
-        const s3Client = await triggerS3Client()
-        const [config] = s3Client.mock.calls[0]
-        expect(HttpsProxyAgentMock).toHaveBeenCalledWith('http://smokescreen.smokescreen.svc.cluster.local:4750')
-        // S3 requests go through smokescreen
-        expect(config.requestHandler).toEqual({
-            httpsAgent: { __proxyAgent: 'http://smokescreen.smokescreen.svc.cluster.local:4750' },
-        })
-        // IRSA credential refresh must NOT be routed through the proxy: we don't
-        // override credentials, so the SDK default provider dials STS direct.
-        expect(config).not.toHaveProperty('credentials')
-        expect(mockDefaultProvider).not.toHaveBeenCalled()
-    })
+    ])(
+        'routes S3 through the proxy and pins credential refresh to a direct handler when $source is set',
+        async ({ env }) => {
+            process.env[env] = 'http://smokescreen.smokescreen.svc.cluster.local:4750'
+            const s3Client = await triggerS3Client()
+            const [config] = s3Client.mock.calls[0]
+            expect(HttpsProxyAgentMock).toHaveBeenCalledWith('http://smokescreen.smokescreen.svc.cluster.local:4750')
+            // S3 requests go through smokescreen
+            expect(config.requestHandler).toEqual({
+                httpsAgent: { __proxyAgent: 'http://smokescreen.smokescreen.svc.cluster.local:4750' },
+            })
+            // IRSA credential refresh must NOT be routed through the proxy. The SDK's
+            // nested STS client inherits the parent client's requestHandler, so the
+            // credential provider gets its own direct handler, distinct from the proxied one.
+            expect(mockDefaultProvider).toHaveBeenCalledWith({
+                clientConfig: { requestHandler: { __directHandler: true } },
+            })
+            expect(config.credentials).toEqual({
+                __credentialsProvider: { clientConfig: { requestHandler: { __directHandler: true } } },
+            })
+        }
+    )
 
     it.each(['false', 'False', 'FALSE', '0', 'no', 'off', ' false '])(
         'RASTERIZER_USE_PROXY=%j keeps S3 direct even when HTTPS_PROXY is set',
@@ -212,6 +228,8 @@ describe('S3 client proxy routing', () => {
             expect(config).not.toHaveProperty('requestHandler')
             expect(config).not.toHaveProperty('credentials')
             expect(HttpsProxyAgentMock).not.toHaveBeenCalled()
+            expect(mockDefaultProvider).not.toHaveBeenCalled()
+            expect(NodeHttpHandlerMock).not.toHaveBeenCalled()
         }
     )
 
@@ -223,7 +241,7 @@ describe('S3 client proxy routing', () => {
             const s3Client = await triggerS3Client()
             const [config] = s3Client.mock.calls[0]
             expect(config.requestHandler).toBeDefined()
-            expect(config).not.toHaveProperty('credentials')
+            expect(config.credentials).toBeDefined()
             expect(HttpsProxyAgentMock).toHaveBeenCalledWith('http://smokescreen:4750')
         }
     )
