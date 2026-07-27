@@ -544,17 +544,20 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         schema: AssistantWebOverviewQuery,
         kind: 'WebOverviewQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'json',
     }),
     'query-web-stats': createQueryWrapper({
         name: 'query-web-stats',
         schema: AssistantWebStatsTableQuery,
         kind: 'WebStatsTableQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'json',
     }),
     'query-web-vitals': createQueryWrapper({
         name: 'query-web-vitals',
         schema: AssistantWebVitalsPathBreakdownQuery,
         kind: 'WebVitalsPathBreakdownQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'json',
     }),
 }
