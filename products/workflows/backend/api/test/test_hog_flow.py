@@ -3779,10 +3779,18 @@ class TestHogFlowSecretInputs(APIBaseTest):
         )
 
         # Stage a draft (via MCP) that rotates the secret; live must stay untouched until publish.
-        draft_payload = self._flow_payload(api_key="ROTATED-IN-DRAFT")
+        # Uses the /graph endpoint which is the MCP-sanctioned path for action edits.
         stage = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {"actions": draft_payload["actions"]},
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {"config": {"inputs": {"api_key": {"value": "ROTATED-IN-DRAFT"}}}},
+                    }
+                ]
+            },
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert stage.status_code == 200, stage.json()
@@ -3869,11 +3877,19 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
         # Rotate the secret through a published draft so live becomes ROTATED and revision v1 (the
         # pre-rotation content, secrets stripped) is snapshotted.
-        rotated = self._flow_payload(api_key="ROTATED")
+        # Uses the /graph endpoint which is the MCP-sanctioned path for action edits.
         assert (
             self.client.patch(
-                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-                {"actions": rotated["actions"]},
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+                {
+                    "operations": [
+                        {
+                            "op": "update_action",
+                            "id": "action_1",
+                            "patch": {"config": {"inputs": {"api_key": {"value": "ROTATED"}}}},
+                        }
+                    ]
+                },
                 HTTP_X_POSTHOG_CLIENT="mcp",
             ).status_code
             == 200
