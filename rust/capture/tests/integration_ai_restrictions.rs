@@ -13,7 +13,7 @@ use capture::event_restrictions::{
 };
 use capture::outputs::PrepSpec;
 use capture::quota_limiters::CaptureQuotaLimiter;
-use capture::router::router;
+use capture::router::ai_router;
 use capture::sinks::sink::{AddressedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
 use capture::v0_request::DataType;
@@ -177,7 +177,7 @@ async fn setup_ai_router_with_restriction(
     );
     service.update(manager).await;
 
-    let router = router(
+    let router = ai_router(
         timesource,
         readiness,
         liveness,
@@ -528,7 +528,7 @@ async fn setup_ai_router_with_redirect_to_topic(
     );
     service.update(manager).await;
 
-    let router = router(
+    let router = ai_router(
         timesource,
         readiness,
         liveness,
@@ -605,7 +605,7 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
     );
     service.update(manager).await;
 
-    let router = router(
+    let router = ai_router(
         timesource,
         readiness,
         liveness,

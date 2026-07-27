@@ -18,7 +18,7 @@ use crate::ai_s3::BlobStorage;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::otel;
-use crate::outputs::{PublishesAnalyticsFamily, PublishesReplay};
+use crate::outputs::{PublishesAi, PublishesAnalyticsFamily, PublishesReplay};
 use crate::test_endpoint;
 use crate::v0_request::DataType;
 use crate::{ai_endpoint, time::TimeSource, v0_endpoint};
@@ -162,10 +162,13 @@ async fn index() -> &'static str {
     "capture"
 }
 
-/// Router for an Events/Ai deployment: mounts the analytics-family ingress
-/// (`/capture`, `/batch`, `/e`, AI, OTEL). The outputs table type must prove
-/// it publishes the analytics family — mounting these routes on a replay
-/// table is a compile error.
+/// Router for an Events deployment: mounts the analytics-family ingress
+/// (`/capture`, `/batch`, `/e`). AI ingress is not mounted here — the
+/// ingress layer routes all `/i/v0/ai*` paths exclusively to capture-ai
+/// deployments (see charts contour routing), which use [`ai_router`]. The
+/// outputs table type must prove it publishes the analytics family (which
+/// includes the ai row: `$ai_*` events still arrive via `/capture` from
+/// SDKs) — mounting these routes on a replay table is a compile error.
 #[allow(clippy::too_many_arguments)]
 pub fn router<
     TZ: TimeSource + Send + Sync + 'static,
@@ -268,20 +271,6 @@ pub fn router<
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
-        // `$ai_*` events: same batch handler, dedicated path so the ingress can route
-        // them to the capture-ai deployment and keep AI/analytics workloads isolated.
-        .route(
-            "/i/v0/ai/batch",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/i/v0/ai/batch/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
         .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
 
     let event_router = Router::new()
@@ -364,6 +353,152 @@ pub fn router<
             }),
         );
 
+    let router = Router::new()
+        .merge(batch_router)
+        .merge(event_router)
+        .merge(test_router);
+
+    // The v1 analytics endpoint is only routable when a v1 sink is
+    // configured. Without a sink the handler can't publish, so we keep
+    // the path unregistered (404) rather than advertising an endpoint
+    // that can only ever return 503. This also isolates the route to
+    // deployments that opt in via CAPTURE_V1_SINKS.
+    let v1_config = state
+        .v1_sink_router
+        .is_some()
+        .then_some(crate::v1::router::RouterConfig {
+            concurrency_limit,
+            max_compressed_body_bytes: state.capture_v1_max_compressed_body_bytes,
+        });
+
+    finalize(
+        router,
+        state,
+        status_router,
+        cors,
+        concurrency_limit,
+        v1_config,
+        metrics,
+        capture_mode,
+        deploy_role,
+    )
+}
+
+/// Router for an Ai deployment: mounts the AI ingress only — `/i/v0/ai`
+/// (multipart), `/i/v0/ai/otel`, and `/i/v0/ai/batch` — matching the ingress
+/// layer, which routes these paths exclusively to capture-ai. The batch path
+/// rides the generic batch handler, so the table must still publish the full
+/// analytics family (a stray non-`$ai_*` event publishes to its own row,
+/// exactly as before); the AI handlers themselves demand only
+/// [`PublishesAi`]. Slimming this deployment to an ai-only table means
+/// rejecting non-AI events on the batch path — a deliberate product change,
+/// not a refactor.
+#[allow(clippy::too_many_arguments)]
+pub fn ai_router<
+    TZ: TimeSource + Send + Sync + 'static,
+    R: Client + Send + Sync + 'static,
+    T: PublishesAnalyticsFamily + PublishesAi,
+>(
+    timesource: TZ,
+    readiness: ReadinessHandler,
+    liveness: LivenessHandler,
+    outputs: Arc<T>,
+    redis: Arc<R>,
+    global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
+    quota_limiter: CaptureQuotaLimiter,
+    token_dropper: TokenDropper,
+    event_restriction_service: Option<EventRestrictionService>,
+    metrics: bool,
+    capture_mode: CaptureMode,
+    deploy_role: String,
+    concurrency_limit: Option<usize>,
+    event_payload_size_limit: usize,
+    enable_historical_rerouting: bool,
+    historical_rerouting_threshold_days: i64,
+    is_mirror_deploy: bool,
+    verbose_sample_percent: f32,
+    ai_max_sum_of_parts_bytes: usize,
+    ai_blob_storage: Option<Arc<dyn BlobStorage>>,
+    body_chunk_read_timeout_ms: Option<u64>,
+    body_read_chunk_size_kb: usize,
+    capture_v1_max_compressed_body_bytes: usize,
+    capture_v1_max_decompressed_body_bytes: usize,
+    overflow_limiter: Option<Arc<OverflowLimiter>>,
+    replay_overflow_limiter: Option<Arc<RedisLimiter>>,
+    v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
+    capture_v1_scatter_gather_min_batch: usize,
+    ai_gateway_signing_secret: Option<String>,
+    ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+) -> Router {
+    let state = State {
+        outputs,
+        timesource: Arc::new(timesource),
+        redis,
+        global_rate_limiter_token_distinctid,
+        quota_limiter: Arc::new(quota_limiter),
+        event_payload_size_limit,
+        token_dropper: Arc::new(token_dropper),
+        event_restriction_service,
+        historical_cfg: HistoricalConfig::new(
+            enable_historical_rerouting,
+            historical_rerouting_threshold_days,
+        ),
+        is_mirror_deploy,
+        verbose_sample_percent,
+        ai_max_sum_of_parts_bytes,
+        ai_blob_storage,
+        body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
+        body_read_chunk_size_kb,
+        capture_v1_max_compressed_body_bytes,
+        capture_v1_max_decompressed_body_bytes,
+        overflow_limiter,
+        replay_overflow_limiter,
+        v1_sink_router,
+        capture_v1_scatter_gather_min_batch,
+        ai_gateway_signing_secret,
+        ingestion_warning_emitter,
+    };
+
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers(AllowHeaders::mirror_request())
+        .allow_credentials(true)
+        .allow_origin(AllowOrigin::mirror_request());
+
+    let status_router = Router::new()
+        .route("/", get(index))
+        .route(
+            "/_readiness",
+            get(move || {
+                let r = readiness.clone();
+                async move { r.check().await }
+            }),
+        )
+        .route(
+            "/_liveness",
+            get(move || {
+                let l = liveness.clone();
+                async move { l.check() }
+            }),
+        );
+
+    let ai_batch_router = Router::new()
+        // `$ai_*` events: same batch handler, dedicated path so the ingress can route
+        // them to the capture-ai deployment and keep AI/analytics workloads isolated.
+        .route(
+            "/i/v0/ai/batch",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/i/v0/ai/batch/",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE));
+
     // AI endpoint body limit is 110% of max sum of parts to account for multipart overhead
     let ai_body_limit = (state.ai_max_sum_of_parts_bytes as f64 * 1.1) as usize;
 
@@ -390,17 +525,10 @@ pub fn router<
         .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
     let router = Router::new()
-        .merge(batch_router)
-        .merge(event_router)
-        .merge(test_router)
+        .merge(ai_batch_router)
         .merge(ai_router)
         .merge(otel_router);
 
-    // The v1 analytics endpoint is only routable when a v1 sink is
-    // configured. Without a sink the handler can't publish, so we keep
-    // the path unregistered (404) rather than advertising an endpoint
-    // that can only ever return 503. This also isolates the route to
-    // deployments that opt in via CAPTURE_V1_SINKS.
     let v1_config = state
         .v1_sink_router
         .is_some()

@@ -19,7 +19,7 @@ use tracing::{debug, instrument, warn, Span};
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
-use crate::outputs::PublishesAnalyticsFamily;
+use crate::outputs::PublishesAi;
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
 use crate::token::validate_token;
@@ -55,7 +55,7 @@ fn non_retryable_rejection(message: &str) -> Response {
 }
 
 #[instrument(skip(state, body), fields(span_count, body_size))]
-pub async fn otel_handler<T: PublishesAnalyticsFamily>(
+pub async fn otel_handler<T: PublishesAi>(
     State(state): State<AppState<T>>,
     ip: Option<InsecureClientIp>,
     headers: HeaderMap,

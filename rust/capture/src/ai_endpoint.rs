@@ -29,7 +29,7 @@ use crate::event_restrictions::{
 };
 use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
-use crate::outputs::PublishesAnalyticsFamily;
+use crate::outputs::PublishesAi;
 use crate::payload::decompression::decompress_gzip_to_bytes;
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
@@ -123,7 +123,7 @@ struct ParsedMultipartData {
     blob_parts: Vec<BlobPart>,
 }
 
-pub async fn ai_handler<T: PublishesAnalyticsFamily>(
+pub async fn ai_handler<T: PublishesAi>(
     State(state): State<AppState<T>>,
     ip: Option<InsecureClientIp>,
     path: MatchedPath,
@@ -135,7 +135,7 @@ pub async fn ai_handler<T: PublishesAnalyticsFamily>(
         .inspect_err(|err| report_internal_error_metrics(err.to_metric_tag(), "ai"))
 }
 
-async fn ai_handler_inner<T: PublishesAnalyticsFamily>(
+async fn ai_handler_inner<T: PublishesAi>(
     state: AppState<T>,
     ip: Option<InsecureClientIp>,
     path: MatchedPath,
@@ -558,7 +558,7 @@ fn is_valid_blob_content_type(content_type: &str) -> bool {
 }
 
 /// Build a Kafka event from parsed multipart data
-fn build_kafka_event<T: PublishesAnalyticsFamily>(
+fn build_kafka_event<T: PublishesAi>(
     parsed: ParsedMultipartData,
     token: &str,
     client_ip: &str,

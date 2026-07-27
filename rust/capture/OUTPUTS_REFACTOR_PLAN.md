@@ -404,3 +404,4 @@ All steps are complete. The five strata are landed:
 | 13 · Typed addresses; AI pipeline | done | `refactor(capture): typed per-pipeline lanes; custom redirects and the ai stream become addresses` |
 | 14 · Sinks realize namespaces | done | `refactor(capture): payloads carry addresses; sinks realize them in their own namespace` |
 | 15 · Per-mode output tables | done | `feat(capture): per-mode output tables; handlers bound by publish capabilities` |
+| 16 · AI ingress family | done | `feat(capture): ai ingress is its own router family with its own capability` |

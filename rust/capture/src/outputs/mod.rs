@@ -585,6 +585,16 @@ pub trait PublishesAnalyticsFamily: DeploymentOutputs + 'static {
     async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
 }
 
+/// The publish capability of a deployment that runs the AI pipeline — what
+/// the AI and OTEL handlers require of their state. Narrower than
+/// [`PublishesAnalyticsFamily`]: those handlers only ever produce `$ai_*`
+/// events, so a future AI-only deployment can mount them with an ai-row-only
+/// table.
+#[async_trait]
+pub trait PublishesAi: DeploymentOutputs + 'static {
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
+}
+
 /// The publish capability of a deployment that runs the replay pipeline —
 /// what the `/s` handler requires of its state.
 #[async_trait]
@@ -688,6 +698,13 @@ impl DeploymentOutputs for ReplayOutputs {
 
 #[async_trait]
 impl PublishesAnalyticsFamily for AnalyticsFamilyOutputs {
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        self.publish_batch(events).await
+    }
+}
+
+#[async_trait]
+impl PublishesAi for AnalyticsFamilyOutputs {
     async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.publish_batch(events).await
     }

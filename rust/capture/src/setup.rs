@@ -440,16 +440,26 @@ pub async fn build_components(
         };
     }
 
+    // Events and Ai deployments carry the same table (both can publish the
+    // whole analytics family) but mount disjoint ingress: the routing layer
+    // sends `/i/v0/ai*` exclusively to capture-ai.
+    let analytics_family_outputs = || {
+        Arc::new(AnalyticsFamilyOutputs {
+            analytics: make_row(),
+            ai: make_row(),
+            heatmaps: make_row(),
+            warnings: make_row(),
+            error_tracking: make_row(),
+        })
+    };
     let (app, outputs_for_flush): (Router, Arc<dyn DeploymentOutputs>) = match config.capture_mode {
-        CaptureMode::Events | CaptureMode::Ai => {
-            let outputs = Arc::new(AnalyticsFamilyOutputs {
-                analytics: make_row(),
-                ai: make_row(),
-                heatmaps: make_row(),
-                warnings: make_row(),
-                error_tracking: make_row(),
-            });
+        CaptureMode::Events => {
+            let outputs = analytics_family_outputs();
             (build_app!(router::router, outputs.clone()), outputs)
+        }
+        CaptureMode::Ai => {
+            let outputs = analytics_family_outputs();
+            (build_app!(router::ai_router, outputs.clone()), outputs)
         }
         CaptureMode::Recordings => {
             let outputs = Arc::new(ReplayOutputs { replay: make_row() });

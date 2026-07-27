@@ -12,7 +12,7 @@ use capture::event_restrictions::{
 use capture::outputs::PrepSpec;
 use capture::pipeline::{Address, AiLane};
 use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
-use capture::router::router;
+use capture::router::ai_router;
 use capture::sinks::sink::{AddressedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
 use chrono::{DateTime, Utc};
@@ -166,7 +166,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
             .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event)
     });
 
-    let app = router(
+    let app = ai_router(
         timesource,
         readiness,
         liveness,
