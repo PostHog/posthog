@@ -391,6 +391,14 @@ BLOCKED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# Stripped from the agent-server's process environment at launch (env -u).
+# Two categories:
+#   - code-injection vectors a resume snapshot could smuggle in (NODE_*, LD_*, DYLD_*);
+#   - the GitHub token, so the agent-server holds no frozen copy of the acting user's
+#     credentials. The token is delivered per command via the live /tmp/agent-env file
+#     (re-sourced by BASH_ENV, seeded before this unset), so git/gh still authenticate;
+#     removing the static process-env copy is what lets a mid-session logout or rebind
+#     actually take effect instead of being resurrected from os.environ.
 SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS: tuple[str, ...] = (
     "NODE_OPTIONS",
     "NODE_REPL_EXTERNAL_MODULE",
@@ -399,6 +407,8 @@ SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS: tuple[str, ...] = (
     "LD_AUDIT",
     "DYLD_INSERT_LIBRARIES",
     "DYLD_LIBRARY_PATH",
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
 )
 
 
