@@ -322,20 +322,16 @@ pub struct Config {
 
     // --- AI secondary sink (e.g. WarpStream cluster) routing ---
     /// `primary` keeps all AI events on the primary sink; `secondary_allowlist`
-    /// sends only `ai_secondary_allowlist_tokens` to the secondary;
-    /// `secondary_percentage` sends the `ai_secondary_percentage` share of
-    /// teams (by token hash) to the secondary; `secondary` sends every AI
-    /// event to the secondary. Only consulted in `CaptureMode::Ai`.
+    /// sends only `ai_secondary_allowlist_tokens` to the secondary; `secondary`
+    /// sends every AI event to the secondary. `secondary_percentage` is not
+    /// supported here (it exists for `capture_analytics_ai_events_mode`).
+    /// Only consulted in `CaptureMode::Ai`.
     #[envconfig(default = "primary")]
     pub ai_sink_mode: AiSinkMode,
 
     /// Comma-separated tokens routed to the secondary AI sink when
     /// `ai_sink_mode = secondary_allowlist`.
     pub ai_secondary_allowlist_tokens: Option<String>,
-
-    /// Percent of teams (0-100, by deterministic token hash) routed to the
-    /// secondary AI sink. Required when `ai_sink_mode = secondary_percentage`.
-    pub ai_secondary_percentage: Option<u8>,
 
     /// Secondary AI Kafka cluster connection. When `ai_sink_mode` is not
     /// `primary`, `ai_secondary_kafka_hosts` and `ai_secondary_kafka_topic` are

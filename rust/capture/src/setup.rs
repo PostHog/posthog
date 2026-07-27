@@ -313,10 +313,11 @@ pub async fn build_components(
                     .map(parse_token_allowlist)
                     .unwrap_or_default(),
             ),
-            AiSinkMode::SecondaryPercentage => AiRouting::SecondaryPercentage(require_percentage(
-                config.ai_secondary_percentage,
-                "AI_SECONDARY_PERCENTAGE",
-            )),
+            // The percentage mode exists for the analytics topic routing only;
+            // refuse to start rather than fall through to a full cutover.
+            AiSinkMode::SecondaryPercentage => panic!(
+                "invalid configuration: AI_SINK_MODE=secondary_percentage is not supported; percentage routing exists only for CAPTURE_ANALYTICS_AI_EVENTS_MODE"
+            ),
         };
         info!(mode = ?config.ai_sink_mode, "AI secondary sink enabled");
         Arc::new(SplitKafkaSink::new(primary_sink, secondary, routing))
@@ -394,7 +395,6 @@ pub async fn build_components(
         ),
         AiSinkMode::SecondaryPercentage => AiRouting::SecondaryPercentage(require_percentage(
             config.capture_analytics_ai_events_percentage,
-            "CAPTURE_ANALYTICS_AI_EVENTS_PERCENTAGE",
         )),
     };
     assert!(
@@ -551,20 +551,18 @@ fn parse_token_allowlist(csv: &str) -> HashSet<String> {
         .collect()
 }
 
-/// Validate the percentage companion of a `secondary_percentage` routing mode.
-/// Unlike the allowlist (where unset defaults to an empty set that routes
-/// nothing), an unset percentage refuses to start: the mode being set with no
-/// percentage is almost certainly a misconfigured rollout, not an intent to
-/// route 0% of teams.
-fn require_percentage(value: Option<u8>, env_var: &str) -> u8 {
-    let percentage = value.unwrap_or_else(|| {
-        panic!(
-            "invalid configuration: {env_var} must be set when the AI routing mode is secondary_percentage"
-        )
-    });
+/// Validate the percentage companion of the `secondary_percentage` routing
+/// mode. Unlike the allowlist (where unset defaults to an empty set that
+/// routes nothing), an unset percentage refuses to start: the mode being set
+/// with no percentage is almost certainly a misconfigured rollout, not an
+/// intent to route 0% of teams.
+fn require_percentage(value: Option<u8>) -> u8 {
+    let percentage = value.expect(
+        "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_PERCENTAGE must be set when CAPTURE_ANALYTICS_AI_EVENTS_MODE is secondary_percentage"
+    );
     assert!(
         percentage <= 100,
-        "invalid configuration: {env_var} must be between 0 and 100 (got {percentage})"
+        "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_PERCENTAGE must be between 0 and 100 (got {percentage})"
     );
     percentage
 }

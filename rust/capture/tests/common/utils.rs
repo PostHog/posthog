@@ -156,7 +156,6 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_gateway_signing_secret: None,
     ai_sink_mode: capture::config::AiSinkMode::Primary,
     ai_secondary_allowlist_tokens: None,
-    ai_secondary_percentage: None,
     ai_secondary_kafka_hosts: None,
     ai_secondary_kafka_topic: None,
     ai_secondary_kafka_tls: false,
