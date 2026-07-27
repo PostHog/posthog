@@ -146,7 +146,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         "clickhouse_test_cluster_perf",
         # Provenance marker on tokens minted server-side for a sandbox/agent run
         # (never via the consent flow or a personal API key). The LLM gateway requires
-        # it on the internal products that share the PostHog Code OAuth app so a user's
+        # it on the internal products that share the PostHog Desktop OAuth app so a user's
         # own credential can't reach them — see services/llm-gateway products/config.py.
         "internal_run",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
@@ -368,7 +368,7 @@ def scopes_within_ceiling(
 
     `allow_wildcard_under_empty_ceiling` is the only resolution difference between
     the callers: `/authorize` passes `True` to grandfather legacy `*` clients (the
-    PostHog Code CLI) until wildcard retirement; provisioning leaves it `False`
+    PostHog Desktop CLI) until wildcard retirement; provisioning leaves it `False`
     (the default) since it never granted wildcard, so an unseeded ceiling must not
     silently become one.
     """

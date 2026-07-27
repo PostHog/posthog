@@ -808,7 +808,7 @@ class ReplayObservationViewSet(
         self.check_object_permissions(self.request, scanner)
         user = cast(User, request.user)
         if not has_tasks_access(user):
-            raise PermissionDenied("Creating a task requires access to PostHog Code.")
+            raise PermissionDenied("Creating a task requires access to PostHog Desktop.")
         content = _observation_task_content(observation, scanner)
         # Lock the observation row so a client retry or concurrent double submit returns the task the
         # first call minted instead of creating a duplicate to triage.

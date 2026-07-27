@@ -30,6 +30,8 @@ import type {
     PauseResponseApi,
     PauseUntilRequestApi,
     ProjectProfileApi,
+    PullRequestChecksResponseApi,
+    PullRequestCommentsResponseApi,
     RememberRequestApi,
     ReportSignalsResponseApi,
     ScoutEmissionReportLinkApi,
@@ -51,6 +53,8 @@ import type {
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
+    SignalScoutCreateApi,
+    SignalScoutCreateResponseApi,
     SignalScoutEmissionApi,
     SignalScoutManualRunApi,
     SignalScoutRunDetailApi,
@@ -215,6 +219,44 @@ export const signalsReportsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedSignalReportContentUpdateApi),
+    })
+}
+
+export const getSignalsReportPrChecksUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_checks/`
+}
+
+/**
+ * Fetch the CI status (GitHub Actions check runs and legacy commit statuses) of the pull request the report's implementation task opened, via the team's GitHub integration.
+ * @summary Fetch CI checks for a report's implementation PR
+ */
+export const signalsReportPrChecks = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PullRequestChecksResponseApi> => {
+    return apiMutator<PullRequestChecksResponseApi>(getSignalsReportPrChecksUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportPrCommentsUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_comments/`
+}
+
+/**
+ * Fetch the pull request's conversation comments and inline review comments, merged chronologically, via the team's GitHub integration.
+ * @summary Fetch comments for a report's implementation PR
+ */
+export const signalsReportPrComments = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PullRequestCommentsResponseApi> => {
+    return apiMutator<PullRequestCommentsResponseApi>(getSignalsReportPrCommentsUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -482,6 +524,27 @@ export const signalsReportsRefundSummaryRetrieve = async (
     return apiMutator<SignalReportRefundSummaryResponseApi>(getSignalsReportsRefundSummaryRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsScoutCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/`
+}
+
+/**
+ * Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
+ * @summary Create a scout
+ */
+export const signalsScoutCreate = async (
+    projectId: string,
+    signalScoutCreateApi: SignalScoutCreateApi,
+    options?: RequestInit
+): Promise<SignalScoutCreateResponseApi> => {
+    return apiMutator<SignalScoutCreateResponseApi>(getSignalsScoutCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalScoutCreateApi),
     })
 }
 

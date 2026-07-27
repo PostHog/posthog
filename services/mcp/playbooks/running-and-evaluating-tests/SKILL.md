@@ -115,7 +115,7 @@ agent-applications-revisions-test-results-retrieve test_run_id=<id>
        conversation, tool_calls, logs, usage } ] }
 ```
 
-In PostHog Code, `focus_session` to the test run as it
+In PostHog Desktop, `focus_session` to the test run as it
 streams. The user wants to watch.
 
 ## Reading results
