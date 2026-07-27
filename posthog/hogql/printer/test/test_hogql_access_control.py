@@ -632,6 +632,41 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
         assert "don't have access" in str(cm.exception)
         assert "denied_warehouse_table" in str(cm.exception)
 
+    def test_execute_hogql_query_raises_on_denied_warehouse_table_reached_through_a_join(self):
+        """A denied table reached through a join must raise the access error too. It is absent from
+        the schema exactly like a deleted one, so without special handling the join is dropped and
+        the denial surfaces as "Field not found", indistinguishable from a typo."""
+        from posthog.hogql.query import execute_hogql_query
+
+        from products.data_tools.backend.models.join import DataWarehouseJoin
+
+        from ee.models.rbac.access_control import AccessControl
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name="denied_warehouse_table",
+            joining_table_key="id",
+            field_name="denied_join",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(self.denied_table.id),
+            access_level="none",
+            organization_member=self.membership,
+        )
+
+        with self.assertRaises(TableAccessDeniedError) as cm:
+            execute_hogql_query(
+                query="SELECT person.denied_join.id FROM events",
+                team=self.team,
+                user=self.user,
+            )
+        assert "don't have access" in str(cm.exception)
+        assert "denied_warehouse_table" in str(cm.exception)
+
     def test_execute_hogql_query_bypass_warehouse_access_control_skips_denial(self):
         """bypass_warehouse_access_control opt-in should let the query past the access control gate
         (downstream may still fail because there's no real S3 data, but the

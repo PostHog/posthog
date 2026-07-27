@@ -693,7 +693,9 @@ class Database(BaseModel):
             join_table = field.join_table
 
             if isinstance(join_table, str):
-                return join_table in allowed_table_names
+                # A denied target is absent from the schema, but its join is kept on purpose so
+                # resolving the field raises TableAccessDeniedError instead of "Field not found".
+                return join_table in allowed_table_names or self.is_table_access_denied(join_table)
 
             if self._is_helper_function_table(join_table):
                 return True
@@ -1799,12 +1801,23 @@ class Database(BaseModel):
             for join in sources.data_warehouse_joins:
                 # Skip if either table is not present. This can happen if the table was deleted after the join was created.
                 # User will be prompted on UI to resolve missing tables underlying the JOIN
-                if not database.has_table(join.source_table_name) or not database.has_table(join.joining_table_name):
+                if not database.has_table(join.source_table_name):
+                    continue
+
+                # An access-denied joining table is absent from the schema just like a deleted one,
+                # but the two must not behave the same: dropping the join would surface the denial
+                # as "Field not found", indistinguishable from a typo. Keep the join and target the
+                # table by name, so LazyJoin.resolve_table looks it up through Database.get_table at
+                # resolution time and raises TableAccessDeniedError, matching a direct reference.
+                joining_table_denied = database.is_table_access_denied(join.joining_table_name)
+                if not database.has_table(join.joining_table_name) and not joining_table_denied:
                     continue
 
                 try:
                     source_table = database.get_table(join.source_table_name)
-                    joining_table = database.get_table(join.joining_table_name)
+                    joining_table: Table | str = (
+                        join.joining_table_name if joining_table_denied else database.get_table(join.joining_table_name)
+                    )
 
                     from_field = get_join_field_chain(join.source_table_key)
                     if from_field is None:
