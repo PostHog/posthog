@@ -24,22 +24,32 @@ export function resolveOverlappingGlyphs(
     }
 
     const sorted = [...glyphs].sort((a, b) => a.position - b.position)
+    const naturalLefts = sorted.map((glyph) => (glyph.position / 100) * containerWidthPx - glyph.widthPx / 2)
+    const lefts: number[] = []
 
-    let previousRight: number | null = null
-    for (const glyph of sorted) {
-        const centre = (glyph.position / 100) * containerWidthPx
-        const naturalLeft = centre - glyph.widthPx / 2
+    // left to right, pushing each glyph clear of the one before it
+    for (let i = 0; i < sorted.length; i++) {
+        const earliest = i === 0 ? 0 : lefts[i - 1] + sorted[i - 1].widthPx + gapPx
+        lefts.push(Math.max(naturalLefts[i], earliest, 0))
+    }
 
-        let left: number = previousRight === null ? naturalLeft : Math.max(naturalLeft, previousRight + gapPx)
-        // never push a glyph out of the seekbar, even if that means it still overlaps
-        left = Math.min(left, containerWidthPx - glyph.widthPx)
+    // Right to left, so a run that would extend past the end of the seekbar gets packed back towards
+    // the start. Without this every glyph in the run pins to the same maximum left edge and they
+    // overlap again, which is the problem this whole module exists to avoid.
+    for (let i = sorted.length - 1; i >= 0; i--) {
+        const rightBound = i === sorted.length - 1 ? containerWidthPx : lefts[i + 1] - gapPx
+        lefts[i] = Math.min(lefts[i], rightBound - sorted[i].widthPx)
+    }
 
-        const offset = left - naturalLeft
+    sorted.forEach((glyph, i) => {
+        // A run wider than the whole seekbar can't be separated, so keep it on screen and let it
+        // overlap rather than pushing glyphs off the left edge where they'd be invisible.
+        const left = Math.max(0, lefts[i])
+        const offset = left - naturalLefts[i]
         if (offset !== 0) {
             offsets.set(glyph.index, offset)
         }
-        previousRight = left + glyph.widthPx
-    }
+    })
 
     return offsets
 }

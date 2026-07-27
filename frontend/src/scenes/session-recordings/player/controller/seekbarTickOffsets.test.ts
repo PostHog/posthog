@@ -28,14 +28,22 @@ describe('resolveOverlappingGlyphs', () => {
         expect(edges[second]).toBeGreaterThanOrEqual(edges[first] + glyphs[first].widthPx + GLYPH_GAP_PX)
     })
 
-    it('keeps every glyph inside the seekbar when they pile up at the end', () => {
-        const glyphs = [glyph(0, 99.5), glyph(1, 99.7), glyph(2, 100)]
+    it.each([
+        ['the end', [glyph(0, 99.5), glyph(1, 99.7), glyph(2, 100)]],
+        ['the start', [glyph(0, 0), glyph(1, 0.2), glyph(2, 0.4)]],
+    ])('keeps glyphs inside the seekbar and still apart when they pile up at %s', (_name, glyphs) => {
+        const edges = leftEdges(glyphs as SeekbarGlyph[])
 
-        const edges = leftEdges(glyphs)
-
-        edges.forEach((left, i) => {
+        const ordered = edges
+            .map((left, i) => ({ left, width: (glyphs as SeekbarGlyph[])[i].widthPx }))
+            .sort((a, b) => a.left - b.left)
+        ordered.forEach(({ left, width }) => {
             expect(left).toBeGreaterThanOrEqual(0)
-            expect(left + glyphs[i].widthPx).toBeLessThanOrEqual(CONTAINER_WIDTH)
+            expect(left + width).toBeLessThanOrEqual(CONTAINER_WIDTH)
+        })
+        ordered.slice(1).forEach(({ left }, i) => {
+            const previous = ordered[i]
+            expect(left).toBeGreaterThanOrEqual(previous.left + previous.width + GLYPH_GAP_PX)
         })
     })
 
