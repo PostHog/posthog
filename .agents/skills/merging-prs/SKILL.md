@@ -44,9 +44,19 @@ gh api repos/$REPO/commits/$SHA/check-runs \
   --jq '.check_runs[] | select(.name | startswith("Trunk Merge Queue")) | {name, status, conclusion, details_url}'
 ```
 
-If nothing appears after a couple of minutes,
-the developer may lack write access or GitHub-comment commands may be disabled —
-report that and suggest the `trunk-merge-queue-submit` label as a fallback.
+If nothing appears after a couple of minutes, check in this order:
+
+1. The `trunk-impacted-targets` job on the PR housekeeping run for this head SHA.
+   Trunk can't place a PR into a queue lane without an impacted-targets upload,
+   so a failed or skipped upload keeps the PR out of the queue entirely.
+
+   ```bash
+   gh run list --branch "$(gh pr view <n> --json headRefName -q .headRefName)" --workflow "PR housekeeping" --limit 3
+   ```
+
+2. Whether the developer has write access, or GitHub-comment commands are
+   disabled — report that and suggest the `trunk-merge-queue-submit` label as a
+   fallback.
 
 ## 3. Watch until it lands
 
