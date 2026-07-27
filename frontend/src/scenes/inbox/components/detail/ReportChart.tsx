@@ -88,6 +88,20 @@ export function inferChartSize(query: Node): SizeEnumApi {
  * handing a dangling reference straight to `Query` would draw unrelated project data under the
  * scout's title and caption, which a reader has no way to tell is not the scout's evidence.
  */
+function ChartLoadError(): JSX.Element {
+    return <p className="m-auto text-xs text-tertiary">Can't load the insight behind this chart.</p>
+}
+
+/**
+ * Whether a saved-insight reference is one `insightLogic` can be mounted against. The query is stored
+ * unparsed and the backend checks only its `kind`, so `shortId` can be any JSON value — and the logic
+ * calls `startsWith` on whatever it is given, which throws on a number before the body below can
+ * degrade to its load-error state.
+ */
+function hasMountableShortId(query: SavedInsightNode): boolean {
+    return typeof query.shortId === 'string' && query.shortId.length > 0
+}
+
 function SavedInsightChartBody({ query, uniqueKey }: { query: SavedInsightNode; uniqueKey: string }): JSX.Element {
     const insightProps: InsightLogicProps = { dashboardItemId: query.shortId }
     const { insight, insightLoading } = useValues(insightLogic(insightProps))
@@ -98,7 +112,7 @@ function SavedInsightChartBody({ query, uniqueKey }: { query: SavedInsightNode; 
     // A load failure leaves the empty insight the logic starts from, so an absent query covers both
     // a deleted insight and one this reader cannot see.
     if (!insight?.query) {
-        return <p className="m-auto text-xs text-tertiary">Can't load the insight behind this chart.</p>
+        return <ChartLoadError />
     }
     return <Query query={query} uniqueKey={uniqueKey} readOnly embedded />
 }
@@ -171,7 +185,11 @@ export function ReportChart({ chartId }: { chartId: string }): JSX.Element | nul
             </div>
             <div className={bodyClass}>
                 {isSavedInsightNode(query) ? (
-                    <SavedInsightChartBody query={query} uniqueKey={uniqueKey} />
+                    hasMountableShortId(query) ? (
+                        <SavedInsightChartBody query={query} uniqueKey={uniqueKey} />
+                    ) : (
+                        <ChartLoadError />
+                    )
                 ) : (
                     <Query query={query} uniqueKey={uniqueKey} readOnly embedded />
                 )}
