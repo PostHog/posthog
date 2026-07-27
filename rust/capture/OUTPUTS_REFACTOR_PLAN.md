@@ -379,6 +379,55 @@ own cluster's namespace — and refuses to start on a missing topic. Off by
 default because brokers with topic auto-creation make the check misleading
 (the metadata probe itself can create the topic).
 
+### Outputs as an open trait (Step 19)
+
+`Outputs` is an open trait — a produce surface handling every destination
+its configuration maps — replacing the closed policy enum. Implementations
+own payload assembly, namespace realization, backend composition, and
+policy: `KafkaOutputs` (one cluster: prep + address→topic table + transport
+sink), `S3Outputs`, `PrintOutputs`/`NoopOutputs`, `FailoverOutputs` and
+`SplitOutputs` (policies over `Arc<dyn Outputs>`), and the per-mode tables
+themselves (dispatch-by-pipeline is just another surface; capability traits
+are markers over `Outputs`). Sinks are pure transport and never see an
+`Address`: the Kafka sink publishes realized records (concrete topic, key,
+payload, headers); namespace realization lives in the outputs layer.
+`publish` reports per-event `SinkResult`s (a provided `publish_folded`
+collapses to the v0 whole-request response) — the granularity v1's
+`BatchResponse` requires.
+
+A test-only prototype (`outputs::dynamic`) demonstrates the
+coordinator-managed surface: `DynamicKafkaOutputs` subscribes to an
+in-process `KafkaManagerService` (RPC-shaped, acked config pushes) and
+applies broker add/remove and mapping changes with an enabled-partition set
+per address — the incremental, key-deterministic drain-and-switch — with
+tests simulating a topic switchover and a broker switchover end to end.
+
+### v1 convergence on the outputs machinery (Step 20, in progress)
+
+Goal: v1 endpoints publish through `dyn Outputs` like every other ingress,
+so fallback/split/dynamic policies apply uniformly. Plan:
+
+1. **Boundary mapping.** After v1 processing (destination decided, result
+   stamped), map each publishable `WrappedEvent` into `ProcessedEvent`:
+   the existing v1 serialize path already produces CapturedEvent-compatible
+   payloads, so the mapping builds the `CapturedEvent` plus a
+   `ProcessedEventMetadata` that makes `pipeline::resolve` reproduce the
+   decided destination (AnalyticsMain → main; Overflow → force_overflow;
+   Historical → historical data type; Dlq → redirect_to_dlq; Custom →
+   redirect_to_topic). `Destination::Drop` events never reach the outputs
+   layer — dropping is a processing decision, recorded in the response.
+2. **Named surfaces.** `CAPTURE_V1_SINKS` names become named
+   `Arc<dyn Outputs>` rows (each a `KafkaOutputs` built from that sink's
+   config); the v1 `Router`/`Sink`/`Event` traits and `serialize_batch`
+   dissolve.
+3. **Response granularity.** `Outputs::publish` already returns per-event
+   `SinkResult`s; `merge_sink_results` consumes them unchanged.
+4. **Parity oracle.** The v1 pipeline tests and the real-Kafka
+   `v1_sink_integration` suite must pass against the converged path —
+   payload bytes, headers, topics, keys. Documented v1-vs-v0 header deltas
+   (overflow/person-processing decoupling) must be preserved in the
+   mapping, not silently erased.
+
 ## Repartitioning coordinator (design note)
 
 Not built in this PR; this note records where it plugs in so nothing landed
@@ -499,3 +548,8 @@ All steps are complete. The five strata are landed:
 | 16 · AI ingress family | done | `feat(capture): ai ingress is its own router family with its own capability` |
 | 17 · Topic tables injected into sinks | done | `refactor(capture): topic tables are sink-side data, injected at construction` |
 | 18 · Per-pipeline output overrides; boot topic verification | done | `feat(capture): per-pipeline output overrides and boot topic verification` |
+| 19a · Naming and import hygiene | done | `refactor(capture): replace remaining nested paths with imports` + `refactor(capture): name the session replay pipeline consistently` |
+| 19b · Outputs as an open trait; sinks pure transport | done | `refactor(capture): outputs own namespace realization; Outputs becomes an open trait` |
+| 19c · Dynamic outputs prototype | done | `feat(capture): prototype dynamic outputs with incremental switchover (test-only)` |
+| 19d · Per-event publish results | done | `refactor(capture): Outputs::publish reports per-event results` |
+| 20 · v1 converges on the outputs machinery | in progress | — |
