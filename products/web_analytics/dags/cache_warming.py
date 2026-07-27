@@ -522,6 +522,11 @@ RAW_REPLAY_MIN_QUERY_COUNT = 10
 # incidents exhausted).
 WARMING_SHAPE_CONCURRENCY = 8
 
+# Heartbeat cadence for the warm pass. Cold bucket builds run ~1s each, so a full
+# selection can take hours; without a heartbeat the op is silent start to finish
+# and a long run is indistinguishable from a hung one.
+WARMING_PROGRESS_LOG_INTERVAL_SECONDS = 120
+
 
 @dagster.op(retry_policy=cache_warming_retry_policy)
 def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) -> None:
@@ -621,9 +626,24 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             close_old_connections()
 
     outcomes: dict[str, int] = {}
+    total = len(queries)
+    processed = 0
+    started_at = time.monotonic()
+    last_log_at = started_at
     with ThreadPoolExecutor(max_workers=WARMING_SHAPE_CONCURRENCY) as pool:
+        # pool.map yields on this (op) thread, so context.log here is safe — unlike
+        # the worker-thread logging inside _warm_one.
         for outcome in pool.map(_warm_one, queries):
             outcomes[outcome] = outcomes.get(outcome, 0) + 1
+            processed += 1
+            now = time.monotonic()
+            if now - last_log_at >= WARMING_PROGRESS_LOG_INTERVAL_SECONDS:
+                rate = processed / (now - started_at)
+                context.log.info(
+                    f"Warming progress: {processed}/{total} shapes processed "
+                    f"({outcomes.get('warmed', 0)} warmed, {rate:.0f}/s)"
+                )
+                last_log_at = now
 
     queries_warmed = outcomes.get("warmed", 0)
     queries_skipped = outcomes.get("skipped_fresh", 0)
