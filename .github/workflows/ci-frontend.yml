@@ -182,7 +182,7 @@ jobs:
         timeout-minutes: 5
         needs: changes
         if: |
-            always() && needs.changes.outputs.frontend_code == 'true'
+            !cancelled() && needs.changes.outputs.frontend_code == 'true'
             && github.event_name == 'pull_request'
             && github.event.pull_request.draft == true
             && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
@@ -641,8 +641,11 @@ jobs:
         # the ready-for-review fanout shards well below either limit.
         timeout-minutes: 20
         needs: [changes, select-jest-tests]
+        # A status function is required because select-jest-tests is skipped on ready
+        # PRs and master pushes, and a skipped need would otherwise cascade a skip here.
+        # !cancelled() rather than always() so a superseded run's shards stop promptly.
         if: |
-            always() && needs.changes.outputs.frontend_code == 'true'
+            !cancelled() && needs.changes.outputs.frontend_code == 'true'
             && needs.select-jest-tests.outputs.should_run != 'false'
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
         strategy:
@@ -824,10 +827,10 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
-            always() && github.actor != 'dependabot[bot]' &&
+            ${{ !cancelled() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.frontend_code == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
-            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')) }}
         steps:
             - name: Get telemetry app token
               id: telemetry-app-token
