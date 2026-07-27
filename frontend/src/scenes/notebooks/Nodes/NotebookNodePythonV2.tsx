@@ -202,9 +202,11 @@ const Component = ({
                 <input
                     type="text"
                     // The dataframe name this cell's result is exposed as to later cells.
+                    // Optional: left empty, the cell binds nothing and later cells can't read it.
                     className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default focus:outline-none focus:ring-1 focus:ring-primary"
                     value={attributes.returnVariable ?? ''}
                     onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
+                    placeholder="Dataframe name (optional)"
                     spellCheck={false}
                 />
             </div>
@@ -305,8 +307,10 @@ export const NotebookNodePythonV2 = createPostHogWidgetNode<NotebookNodePythonV2
         code: {
             default: '',
         },
+        // Optional: empty means the cell binds no dataframe, so nothing downstream can read it.
+        // A cell that predates the optional name carries its persisted name and keeps exporting it.
         returnVariable: {
-            default: 'df',
+            default: '',
         },
         runId: {
             default: null,
