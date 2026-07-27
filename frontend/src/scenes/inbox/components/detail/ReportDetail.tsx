@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { ReactNode, useState } from 'react'
+import { ReactNode, useCallback, useMemo, useState } from 'react'
 
 import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
 import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
@@ -20,6 +20,7 @@ import {
     displayConventionalCommitTitle,
     parseConventionalCommitTitle,
     parsePrUrlParts,
+    referencedChartIds,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
@@ -47,6 +48,7 @@ import {
     PullRequestDiffStatSkeleton,
 } from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
+import { ReportChart } from './ReportChart'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
@@ -294,9 +296,8 @@ export function InboxDetailFrame({
     diffStat,
     children,
 }: InboxDetailFrameProps): JSX.Element {
-    const { reportSignals, reportSignalsLoading, priorityExplanation, actionabilityExplanation } = useValues(
-        inboxReportDetailLogic({ reportId: report.id, report })
-    )
+    const { reportSignals, reportSignalsLoading, priorityExplanation, actionabilityExplanation, reportCharts } =
+        useValues(inboxReportDetailLogic({ reportId: report.id, report }))
     // GitHub-style PR view: when the report has a PR, the overview and the diff live behind two tabs.
     const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'files'>('overview')
     const hasDiff = !!showFilesTab
@@ -306,6 +307,21 @@ export function InboxDetailFrame({
 
     const summaryPending =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.CANDIDATE
+
+    const chartsById = useMemo(() => new Map(reportCharts.map((chart) => [chart.chart_id, chart])), [reportCharts])
+    // A `chart:` link places its chart at that point in the prose; every other chart follows the
+    // summary. The reference decides where a chart goes, not whether it shows at all.
+    const renderChartRef = useCallback(
+        (chartId: string): ReactNode => {
+            const chart = chartsById.get(chartId)
+            return chart ? <ReportChart chart={chart} /> : null
+        },
+        [chartsById]
+    )
+    const trailingCharts = useMemo(() => {
+        const referenced = referencedChartIds(report.summary)
+        return reportCharts.filter((chart) => !referenced.has(chart.chart_id))
+    }, [reportCharts, report.summary])
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
@@ -331,6 +347,7 @@ export function InboxDetailFrame({
                         <LemonMarkdown
                             className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
                             disableImages
+                            renderChartRef={renderChartRef}
                         >
                             {report.summary}
                         </LemonMarkdown>
@@ -338,6 +355,13 @@ export function InboxDetailFrame({
                         <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
                             No summary yet – an agent is still investigating.
                         </p>
+                    )}
+                    {trailingCharts.length > 0 && (
+                        <div className="flex flex-col gap-3">
+                            {trailingCharts.map((chart) => (
+                                <ReportChart key={chart.chart_id} chart={chart} />
+                            ))}
+                        </div>
                     )}
                 </DetailSection>
                 {summaryFooter}

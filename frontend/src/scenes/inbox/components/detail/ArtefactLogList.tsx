@@ -21,6 +21,7 @@ import {
     artefactAttributionLabel,
     artefactLocationLabel,
     artefactTypeLabel,
+    ChartContent,
     CodeReferenceContent,
     CommitContent,
     DismissalContent,
@@ -376,6 +377,18 @@ function ArtefactBody({
         case 'summary_change': {
             const c = content as SummaryChangeContent
             return <ContentChangeBody previous={c.old_summary} current={c.new_summary ?? ''} markdown collapse />
+        }
+        case 'chart': {
+            const c = content as ChartContent
+            // Named rather than drawn. The log keeps every version a refresh appended, so drawing
+            // them all would fire far more queries than the per-report chart cap exists to bound.
+            // The current version of each chart is drawn alongside the summary instead.
+            return (
+                <div className="flex flex-col gap-1">
+                    <span className="text-secondary text-xs">{c.title}</span>
+                    <RelevanceNote note={c.caption ?? undefined} />
+                </div>
+            )
         }
         case 'dismissal': {
             const c = content as DismissalContent

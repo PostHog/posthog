@@ -2,7 +2,7 @@ import './LemonMarkdown.scss'
 
 import clsx from 'clsx'
 import React, { memo, useMemo } from 'react'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
 
@@ -13,6 +13,18 @@ import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
 
 import { Link } from '../Link'
 import remarkMentions from './mention'
+
+/**
+ * Link target that places a chart inline in prose, e.g. `[Daily signups](chart:signups-drop)`.
+ * A link rather than a bespoke token so the same markdown degrades to a clickable label in the
+ * renderers that can't draw charts (Slack, the desktop inbox).
+ */
+export const CHART_REF_PREFIX = 'chart:'
+
+/** The chart id behind a `chart:` link target, or null when `href` is an ordinary link. */
+function chartRefId(href: unknown): string | null {
+    return typeof href === 'string' && href.startsWith(CHART_REF_PREFIX) ? href.slice(CHART_REF_PREFIX.length) : null
+}
 
 interface LemonMarkdownContainerProps {
     children: React.ReactNode
@@ -47,6 +59,12 @@ export interface LemonMarkdownProps {
      * that opt in (see `LemonMarkdownWithMermaid`).
      */
     renderMermaid?: (code: string) => React.ReactNode
+    /**
+     * Optional renderer for `chart:<id>` link targets (see `CHART_REF_PREFIX`). Returning null or
+     * undefined falls back to rendering an ordinary link, which is what happens for an id the caller
+     * has no chart for, and is also the default when this prop is omitted.
+     */
+    renderChartRef?: (chartId: string) => React.ReactNode
 }
 
 const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const
@@ -85,14 +103,24 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     wrapCode = false,
     generateHeadingIds = false,
     renderMermaid,
+    renderChartRef,
 }: LemonMarkdownProps): JSX.Element {
     const components = useMemo(
         () => ({
-            a: ({ href, children }: any): JSX.Element => (
-                <Link to={href} target="_blank" targetBlankIcon disableDocsPanel={disableDocsRedirect}>
-                    {children}
-                </Link>
-            ),
+            a: ({ href, children }: any): JSX.Element => {
+                const chartId = renderChartRef ? chartRefId(href) : null
+                if (chartId) {
+                    const chart = renderChartRef?.(chartId)
+                    if (chart !== null && chart !== undefined) {
+                        return <>{chart}</>
+                    }
+                }
+                return (
+                    <Link to={href} target="_blank" targetBlankIcon disableDocsPanel={disableDocsRedirect}>
+                        {children}
+                    </Link>
+                )
+            },
             code: ({ className, children, node, ...rest }: any): JSX.Element => {
                 const languageMatch = /language-(\w+)/.exec(className || '')
                 const isBlock = node?.position?.start?.line !== node?.position?.end?.line || languageMatch
@@ -119,6 +147,19 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 // in the code component, so just pass children through.
                 return <>{children}</>
             },
+            ...(renderChartRef
+                ? {
+                      p: ({ children, node }: any): JSX.Element => {
+                          // A rendered chart is block-level, and a paragraph containing one would put a
+                          // <div> inside a <p>, which the browser closes early and reparents. Drop the
+                          // <p> for those paragraphs; the chart brings its own block spacing.
+                          const hasChartRef = node?.children?.some(
+                              (child: any) => child.tagName === 'a' && chartRefId(child.properties?.href) !== null
+                          )
+                          return hasChartRef ? <>{children}</> : <p>{children}</p>
+                      },
+                  }
+                : {}),
             span: ({ className, ...props }: any): JSX.Element => {
                 if (className === 'ph-mention') {
                     return <RichContentMention id={Number(props['data-mention-id'])} />
@@ -180,7 +221,27 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     )
                   : {}),
         }),
-        [disableDocsRedirect, disableImages, lowKeyHeadings, wrapCode, generateHeadingIds, renderMermaid]
+        [
+            disableDocsRedirect,
+            disableImages,
+            lowKeyHeadings,
+            wrapCode,
+            generateHeadingIds,
+            renderMermaid,
+            renderChartRef,
+        ]
+    )
+
+    // `chart:` is not a protocol the default URL sanitizer knows, so it strips the href before the
+    // `a` override ever sees it. Let it through only for a caller that can draw the chart; without
+    // one, stripping is the wanted behavior, because the fallback should be an inert label rather
+    // than a link to a scheme no browser can follow.
+    const urlTransform = useMemo(
+        () =>
+            renderChartRef
+                ? (url: string): string => (chartRefId(url) !== null ? url : defaultUrlTransform(url))
+                : undefined,
+        [renderChartRef]
     )
 
     // remark-breaks: a single newline becomes a line break, so prose authored without the arcane
@@ -188,7 +249,12 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     // line breaks the author intended.
     return (
         /* eslint-disable-next-line react/forbid-elements */
-        <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkBreaks, remarkMentions]} skipHtml>
+        <ReactMarkdown
+            components={components}
+            remarkPlugins={[remarkGfm, remarkBreaks, remarkMentions]}
+            urlTransform={urlTransform}
+            skipHtml
+        >
             {children}
         </ReactMarkdown>
     )
@@ -203,6 +269,7 @@ function LemonMarkdownComponent({
     wrapCode = false,
     generateHeadingIds = false,
     renderMermaid,
+    renderChartRef,
     className,
 }: LemonMarkdownProps): JSX.Element {
     return (
@@ -214,6 +281,7 @@ function LemonMarkdownComponent({
                 wrapCode={wrapCode}
                 generateHeadingIds={generateHeadingIds}
                 renderMermaid={renderMermaid}
+                renderChartRef={renderChartRef}
             >
                 {children}
             </LemonMarkdownRenderer>
