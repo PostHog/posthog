@@ -275,10 +275,13 @@ export function EventDefinitionsTable(): JSX.Element {
                                 type="secondary"
                                 size="small"
                                 disabledReason={bulkVerifiedResultLoading ? 'Updating…' : undefined}
-                                onClick={() => {
-                                    bulkUpdateVerified({ ids: [...ctx.selectedKeys], verified: true })
-                                    ctx.clearSelection()
-                                }}
+                                onClick={() =>
+                                    bulkUpdateVerified({
+                                        ids: [...ctx.selectedKeys],
+                                        verified: true,
+                                        onSuccess: ctx.clearSelection,
+                                    })
+                                }
                             >
                                 Verify
                             </LemonButton>
@@ -286,10 +289,13 @@ export function EventDefinitionsTable(): JSX.Element {
                                 type="secondary"
                                 size="small"
                                 disabledReason={bulkVerifiedResultLoading ? 'Updating…' : undefined}
-                                onClick={() => {
-                                    bulkUpdateVerified({ ids: [...ctx.selectedKeys], verified: false })
-                                    ctx.clearSelection()
-                                }}
+                                onClick={() =>
+                                    bulkUpdateVerified({
+                                        ids: [...ctx.selectedKeys],
+                                        verified: false,
+                                        onSuccess: ctx.clearSelection,
+                                    })
+                                }
                             >
                                 Unverify
                             </LemonButton>

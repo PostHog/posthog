@@ -192,9 +192,18 @@ export interface eventDefinitionsTableLogicActions {
             }[]
         }
     }
-    bulkUpdateVerified: ({ ids, verified }: { ids: string[]; verified: boolean }) => {
+    bulkUpdateVerified: ({
+        ids,
+        verified,
+        onSuccess,
+    }: {
         ids: string[]
         verified: boolean
+        onSuccess?: () => void
+    }) => {
+        ids: string[]
+        verified: boolean
+        onSuccess?: () => void
     }
     bulkUpdateVerifiedFailure: (
         error: string,
@@ -212,6 +221,7 @@ export interface eventDefinitionsTableLogicActions {
         payload?: {
             ids: string[]
             verified: boolean
+            onSuccess?: () => void
         }
     ) => {
         bulkVerifiedResult: {
@@ -222,6 +232,7 @@ export interface eventDefinitionsTableLogicActions {
         payload?: {
             ids: string[]
             verified: boolean
+            onSuccess?: () => void
         }
     }
     loadEventDefinitions: (url?: string | null) => {
@@ -471,30 +482,50 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     return result
                 },
                 applyBulkVerifiedUpdates: ({ updates }) => {
-                    if (!values.eventDefinitions.current || updates.length === 0) {
+                    // Patch the page the request started on (pinned in bulkUpdateVerified), not
+                    // whatever is current now — the user may have navigated while it was in flight.
+                    const cacheKey: string | undefined = cache.bulkVerifiedCacheKey
+                    if (!cacheKey || updates.length === 0) {
                         return values.eventDefinitions
                     }
                     const verifiedById = new Map(updates.map((u) => [String(u.id), u.verified] as const))
-                    const result = {
-                        ...values.eventDefinitions,
-                        results: values.eventDefinitions.results.map((d) =>
+                    const patch = (list: EventDefinitionsPaginatedResponse): EventDefinitionsPaginatedResponse => ({
+                        ...list,
+                        results: list.results.map((d) =>
                             verifiedById.has(String(d.id)) ? { ...d, verified: verifiedById.get(String(d.id)) } : d
                         ),
-                    }
+                    })
 
+                    const onScreen = values.eventDefinitions.current === cacheKey
+                    const source = cache.apiCache?.[cacheKey] ?? (onScreen ? values.eventDefinitions : undefined)
+                    if (!source) {
+                        return values.eventDefinitions
+                    }
+                    const patched = patch(source)
                     cache.apiCache = {
                         ...cache.apiCache,
-                        [values.eventDefinitions.current]: result,
+                        [cacheKey]: patched,
                     }
 
-                    return result
+                    // Only replace what's on screen if it's still that same page.
+                    return onScreen ? patched : values.eventDefinitions
                 },
             },
         ],
         bulkVerifiedResult: [
             null as BulkVerifiedResult | null,
             {
-                bulkUpdateVerified: async ({ ids, verified }: { ids: string[]; verified: boolean }) => {
+                bulkUpdateVerified: async ({
+                    ids,
+                    verified,
+                }: {
+                    ids: string[]
+                    verified: boolean
+                    onSuccess?: () => void
+                }) => {
+                    // Pin the page being edited now: the user may page or filter away before the
+                    // request resolves, and the row patch must land on the page it started on.
+                    cache.bulkVerifiedCacheKey = values.eventDefinitions.current
                     const response = await eventDefinitionsBulkUpdateVerifiedCreate(String(values.currentProjectId), {
                         ids,
                         verified,
@@ -630,12 +661,15 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         setFilters: async () => {
             actions.loadEventDefinitions()
         },
-        bulkUpdateVerifiedSuccess: ({ bulkVerifiedResult }) => {
+        bulkUpdateVerifiedSuccess: ({ bulkVerifiedResult, payload }) => {
             if (!bulkVerifiedResult) {
                 return
             }
             const { verified, updated, skipped } = bulkVerifiedResult
             actions.applyBulkVerifiedUpdates(updated)
+            // Clear the selection only now that the request succeeded, so a failure leaves it
+            // intact for the user to retry without re-selecting everything.
+            payload?.onSuccess?.()
             if (updated.length > 0) {
                 lemonToast.success(
                     `${verified ? 'Verified' : 'Unverified'} ${updated.length} event${updated.length !== 1 ? 's' : ''}`

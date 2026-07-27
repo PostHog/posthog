@@ -5,6 +5,7 @@ from collections import defaultdict
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
+from django.db import IntegrityError, transaction
 from django.db.models import Manager, Prefetch
 from django.http import Http404
 from django.utils import timezone
@@ -478,7 +479,16 @@ class EventDefinitionViewSet(
                 eventdefinition_ptr_id=non_enterprise_event.id, description=""
             )
             new_enterprise_event.__dict__.update(non_enterprise_event.__dict__)
-            new_enterprise_event.save()
+            try:
+                # Savepoint so a losing race here doesn't poison a surrounding transaction.
+                with transaction.atomic():
+                    new_enterprise_event.save()
+            except IntegrityError:
+                # A concurrent request promoted the same base row first; reuse its extension.
+                existing = EnterpriseEventDefinition.objects.filter(pk=non_enterprise_event.pk).first()
+                if existing is None:
+                    raise
+                return existing
             return new_enterprise_event
 
         return EventDefinition.objects.get(**filters)
@@ -553,6 +563,9 @@ class EventDefinitionViewSet(
 
         Events already in the target state are skipped (not re-written, not logged).
         """
+        # Gate on the enterprise build, mirroring the single-object verify path, which selects the
+        # enterprise serializer under the same flag. `verified` isn't a separately-licensed feature,
+        # so there's no stricter per-license check to make here without diverging from that path.
         if not EE_AVAILABLE:
             raise serializers.ValidationError("Verifying event definitions requires an enterprise license.")
 
@@ -560,7 +573,9 @@ class EventDefinitionViewSet(
 
         serializer = EventDefinitionBulkUpdateVerifiedRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        validated_ids = serializer.validated_data["ids"]
+        # De-duplicate while preserving order: the no-op check below reads a pre-loop snapshot of
+        # verified state, so a repeated id would otherwise be written (and logged) more than once.
+        validated_ids = list(dict.fromkeys(serializer.validated_data["ids"]))
         verified = serializer.validated_data["verified"]
 
         # Base rows are authoritative for existence and project scoping.
@@ -585,48 +600,52 @@ class EventDefinitionViewSet(
         was_impersonated = is_impersonated(request)
         updated: list[dict[str, Any]] = []
 
-        for obj_id in validated_ids:
-            if obj_id not in found_ids:
-                continue
-            if bool(verified_by_id.get(obj_id, False)) == verified:
-                continue  # no-op: skip without promoting a base row or writing
+        # One transaction for the whole batch: if any event fails part-way the write rolls back
+        # entirely, so the caller never has to reason about a half-applied set. Activity logs are
+        # transaction-aware and defer to commit, so they roll back with it too.
+        with transaction.atomic():
+            for obj_id in validated_ids:
+                if obj_id not in found_ids:
+                    continue
+                if bool(verified_by_id.get(obj_id, False)) == verified:
+                    continue  # no-op: skip without promoting a base row or writing
 
-            # Promote base -> enterprise if needed (same lazy path as single-object updates).
-            # EE_AVAILABLE is checked above, so _get_event_definition returns an EnterpriseEventDefinition
-            # that carries the verified/hidden fields (absent from the base EventDefinition type).
-            enterprise = cast(
-                EnterpriseEventDefinition, self._get_event_definition(id=obj_id, team__project_id=self.project_id)
-            )
-            before_hidden = bool(enterprise.hidden)
+                # Promote base -> enterprise if needed (same lazy path as single-object updates).
+                # EE_AVAILABLE is checked above, so _get_event_definition returns an EnterpriseEventDefinition
+                # that carries the verified/hidden fields (absent from the base EventDefinition type).
+                enterprise = cast(
+                    EnterpriseEventDefinition, self._get_event_definition(id=obj_id, team__project_id=self.project_id)
+                )
+                before_hidden = bool(enterprise.hidden)
 
-            enterprise.verified = verified
-            if verified:
-                enterprise.verified_by = user
-                enterprise.verified_at = now
-                enterprise.hidden = False  # an event cannot be both hidden and verified
-            else:
-                enterprise.verified_by = None
-                enterprise.verified_at = None
-            enterprise.save()
+                enterprise.verified = verified
+                if verified:
+                    enterprise.verified_by = user
+                    enterprise.verified_at = now
+                    enterprise.hidden = False  # an event cannot be both hidden and verified
+                else:
+                    enterprise.verified_by = None
+                    enterprise.verified_at = None
+                enterprise.save()
 
-            # `verified` was necessarily the opposite before (no-ops were skipped above).
-            changes = dict_changes_between(
-                "EventDefinition",
-                {"verified": not verified, "hidden": before_hidden},
-                {"verified": verified, "hidden": bool(enterprise.hidden)},
-                use_field_exclusions=True,
-            )
-            log_activity(
-                organization_id=None,
-                team_id=self.team_id,
-                user=user,
-                item_id=str(enterprise.id),
-                scope="EventDefinition",
-                activity="changed",
-                was_impersonated=was_impersonated,
-                detail=Detail(name=str(enterprise.name), changes=changes),
-            )
-            updated.append({"id": enterprise.id, "verified": verified})
+                # `verified` was necessarily the opposite before (no-ops were skipped above).
+                changes = dict_changes_between(
+                    "EventDefinition",
+                    {"verified": not verified, "hidden": before_hidden},
+                    {"verified": verified, "hidden": bool(enterprise.hidden)},
+                    use_field_exclusions=True,
+                )
+                log_activity(
+                    organization_id=None,
+                    team_id=self.team_id,
+                    user=user,
+                    item_id=str(enterprise.id),
+                    scope="EventDefinition",
+                    activity="changed",
+                    was_impersonated=was_impersonated,
+                    detail=Detail(name=str(enterprise.name), changes=changes),
+                )
+                updated.append({"id": enterprise.id, "verified": verified})
 
         return response.Response({"updated": updated, "skipped": skipped})
 

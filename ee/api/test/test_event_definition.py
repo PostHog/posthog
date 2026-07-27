@@ -3,6 +3,7 @@ from typing import Any, Optional, cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -419,6 +420,52 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         hidden_event.refresh_from_db()
         assert hidden_event.verified is True
         assert hidden_event.hidden is False
+
+    def test_bulk_update_verified_deduplicates_repeated_ids(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_verify_dupe", verified=False)
+        ActivityLog.objects.filter(team_id=self.demo_team.pk, scope="EventDefinition").delete()
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_verified/",
+            {"ids": [str(event.id), str(event.id)], "verified": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        # A repeated id is applied and reported once, not once per occurrence.
+        assert response.json()["updated"] == [{"id": str(event.id), "verified": True}]
+        assert (
+            ActivityLog.objects.filter(team_id=self.demo_team.pk, scope="EventDefinition", activity="changed").count()
+            == 1
+        )
+
+    @patch("posthog.api.event_definition.log_activity")
+    def test_bulk_update_verified_rolls_back_batch_on_error(self, mock_log_activity):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        first = EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, name="bulk_verify_atomic_1", verified=False
+        )
+        second = EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, name="bulk_verify_atomic_2", verified=False
+        )
+        # Fail once the second event is mid-flight, after the first has already been written.
+        mock_log_activity.side_effect = [None, RuntimeError("boom")]
+
+        with self.assertRaises(RuntimeError):
+            self.client.post(
+                f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_verified/",
+                {"ids": [str(first.id), str(second.id)], "verified": True},
+            )
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        # The batch is atomic: a failure on the second event rolls back the first too.
+        assert first.verified is False
+        assert second.verified is False
 
     def test_verify_then_verify_again_no_change(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
