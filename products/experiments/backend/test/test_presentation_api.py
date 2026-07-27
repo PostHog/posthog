@@ -2304,6 +2304,28 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(list_parameters["feature_flag_variants"], expected_variants)
         self.assertEqual(list_parameters["aggregation_group_type_index"], 1)
 
+    @parameterized.expand([("string", "{}"), ("list", ["control"])])
+    def test_non_dict_parameters_column_does_not_break_reads(self, _name, stored_parameters):
+        ff_key = f"ff-bad-parameters-{_name}"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Legacy blob", "feature_flag_key": ff_key},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        # Legacy rows can hold a non-dict here; .update() bypasses the serializer, as those writes did.
+        Experiment.objects.filter(id=experiment_id).update(parameters=stored_parameters)
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}")
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual([v["key"] for v in detail.json()["parameters"]["feature_flag_variants"]], ["control", "test"])
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        parameters = next(e["parameters"] for e in listed.json()["results"] if e["id"] == experiment_id)
+        self.assertEqual([v["key"] for v in parameters["feature_flag_variants"]], ["control", "test"])
+
     def test_feature_flag_config_is_not_persisted_into_parameters(self):
         """Create and update consume feature-flag config to build/sync the flag, but never store it
         in the deprecated `parameters` column. Non-flag keys (e.g. variant_notes) are preserved.
