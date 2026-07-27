@@ -76,6 +76,7 @@ from posthog.models.property.property import Property
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.caller_tag import personhog_caller_tag
+from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.actor_base_query import get_serialized_people
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.renderers import SafeJSONRenderer
@@ -1079,6 +1080,18 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         request = self.context.get("request")
         user = getattr(request, "user", None)
         if team is None or user is None or not getattr(user, "is_authenticated", False):
+            return
+        # Gate on the same flag the enforcement in Database.create_for uses.
+        if not feature_enabled_or_false(
+            "hogql-warehouse-access-control",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            send_feature_flag_events=False,
+        ):
             return
 
         # Check what survives the save, not just the fields in the payload.
