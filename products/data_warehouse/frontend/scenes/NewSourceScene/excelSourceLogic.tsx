@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -34,9 +34,6 @@ export interface excelSourceLogicActions {
     setUploadedFilename: (filename: string | null) => {
         filename: string | null
     }
-    setSourceConnectionDetailsValues: (values: Record<string, any>) => {
-        values: Record<string, any>
-    } // sourceWizardLogic
 }
 
 export type excelSourceLogicType = MakeLogicType<excelSourceLogicValues, excelSourceLogicActions>
@@ -61,7 +58,6 @@ export const excelSourceLogic = kea<excelSourceLogicType>([
         uploading: [false, { setUploading: (_, { uploading }) => uploading }],
         uploadedFilename: [null as string | null, { setUploadedFilename: (_, { filename }) => filename }],
     }),
-    selectors({}),
     listeners(({ actions }) => ({
         selectFiles: async ({ files }) => {
             const file = files[0]

@@ -25,7 +25,8 @@ export function ExcelSourceForm(): JSX.Element {
                 <LemonMarkdown className="text-sm">{selectedConnector.caption}</LemonMarkdown>
             )}
 
-            <LemonField name="excel_file" label="Workbook">
+            {/* No kea form here — the file is uploaded on selection, not submitted — so Pure it is. */}
+            <LemonField.Pure label="Workbook">
                 <LemonFileInput
                     multiple={false}
                     accept={EXCEL_UPLOAD_ACCEPT}
@@ -38,7 +39,7 @@ export function ExcelSourceForm(): JSX.Element {
                         </div>
                     }
                 />
-            </LemonField>
+            </LemonField.Pure>
 
             {uploadedFilename && !uploading && (
                 <LemonBanner type="success">
