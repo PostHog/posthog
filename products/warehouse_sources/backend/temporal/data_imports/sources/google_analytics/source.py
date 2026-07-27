@@ -13,6 +13,8 @@ from posthog.schema import (
     SourceFieldOauthConfig,
 )
 
+from posthog.models.integration import Integration
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
     SourceResponse,
@@ -149,6 +151,13 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
 
         try:
             session = google_analytics_session(config.google_analytics_integration_id, team_id)
+        except Integration.DoesNotExist:
+            # The stored OAuth integration row has been deleted/disconnected before validation runs.
+            # Caught explicitly so an unrelated model's DoesNotExist still surfaces as a real bug below.
+            return (
+                False,
+                "The Google Analytics connection for this source no longer exists. Please reconnect your Google account.",
+            )
         except Exception as e:
             return False, f"Could not load Google Analytics credentials: {e}"
 
