@@ -425,6 +425,7 @@ class TestDockerSandboxUnit:
             patch.object(sandbox, "is_running", return_value=True),
             patch.object(sandbox, "write_file"),
             patch.object(sandbox, "agent_server_supports_auto_publish", return_value=True),
+            patch.object(sandbox, "agent_server_supports_pi_runtime", return_value=True),
             patch.object(sandbox, "execute") as mock_execute,
             patch.object(sandbox, "_launch_and_check", side_effect=[False, True]),
             patch.object(
@@ -442,6 +443,26 @@ class TestDockerSandboxUnit:
 
         assert mock_build.call_count == 2
         assert mock_build.call_args_list[1].kwargs["agent_runtime"] == "pi"
+
+    def test_start_agent_server_rejects_an_image_without_pi_support(self) -> None:
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "write_file"),
+            patch.object(sandbox, "agent_server_supports_pi_runtime", return_value=False),
+            pytest.raises(RuntimeError, match="does not support the Pi runtime"),
+        ):
+            sandbox.start_agent_server(
+                "posthog/posthog",
+                "task-123",
+                "run-456",
+                agent_runtime="pi",
+            )
 
     def test_parse_repo_mount_map_empty(self):
         with patch.dict(os.environ, {}, clear=True):

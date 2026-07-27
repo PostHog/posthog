@@ -1159,6 +1159,9 @@ class ModalSandbox(SandboxBase):
         if relayed_mcp_servers:
             relay_mcp_servers_arg = f" --relayMcpServers {shlex.quote(json.dumps(relayed_mcp_servers))}"
 
+        if agent_runtime == "pi" and not self.agent_server_supports_pi_runtime():
+            raise RuntimeError("Installed sandbox agent-server does not support the Pi runtime")
+
         if auto_publish and not self.agent_server_supports_auto_publish():
             logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
             auto_publish = False

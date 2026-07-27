@@ -168,7 +168,7 @@ class BaseTaskAPITest(TestCase):
         self.mock_feature_flag = self.feature_flag_patcher.start()
 
         def check_flag(flag_name, *_args, **_kwargs):
-            if flag_name == "tasks":
+            if flag_name in {"tasks", "pi-harness"}:
                 return enabled
             return False
 
@@ -1653,6 +1653,17 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(workflow_input["initial_message"].artifact_ids, [])
         self.assertNotIn("mode", run.state)
         self.assertNotIn("pending_user_message", run.state)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_pi_task_when_disabled(self, mock_workflow):
+        task = self.create_task(runtime=Task.Runtime.PI)
+        self.set_tasks_feature_flag(False)
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["error"], "Pi cloud runtime is disabled")
+        mock_workflow.assert_not_called()
 
     @parameterized.expand(
         [
@@ -7957,7 +7968,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
     def _open_sandbox_session(self, run, sandbox_id="sandbox-1"):
         now = django_timezone.now()
-        return SandboxSession.objects.create(
+        return SandboxSession.objects.unscoped().create(
             team=self.team,
             task_run=run,
             sandbox_id=sandbox_id,
@@ -8011,7 +8022,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertTrue(data["result"]["queued"])
 
         mock_signal_followup.assert_called_once_with(
-            run.workflow_id, "Hello agent", [], None, self.user.id, None, steer=False
+            run.workflow_id, "Hello agent", [], "req-1", self.user.id, None, steer=False
         )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
@@ -8032,7 +8043,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_signal_followup.assert_called_once_with(
-            run.workflow_id, "Change direction", [], None, self.user.id, None, steer=True
+            run.workflow_id, "Change direction", [], "req-steer", self.user.id, None, steer=True
         )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
@@ -8070,7 +8081,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["queued"])
         mock_signal_followup.assert_called_once_with(
-            run.workflow_id, "Hello agent", [], None, self.user.id, None, steer=False
+            run.workflow_id, "Hello agent", [], "req-1", self.user.id, None, steer=False
         )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
@@ -8104,7 +8115,13 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["queued"])
         mock_signal_followup.assert_called_once_with(
-            run.workflow_id, "See attached", ["artifact-123"], None, self.user.id, None, steer=False
+            run.workflow_id,
+            "See attached",
+            ["artifact-123"],
+            "req-attachments",
+            self.user.id,
+            None,
+            steer=False,
         )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
@@ -8203,7 +8220,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         response = self.client.generic(
             "POST",
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync/",
-            content,
+            cast(str, content),
             content_type="application/octet-stream",
             HTTP_IF_MATCH='"none"',
             HTTP_X_SANDBOX_ID="sandbox-1",
@@ -8236,7 +8253,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         response = self.client.generic(
             "POST",
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync/",
-            b'{"type":"session","version":3}\n',
+            cast(str, b'{"type":"session","version":3}\n'),
             content_type="application/octet-stream",
             HTTP_IF_MATCH='"stale-hash"',
             HTTP_X_SANDBOX_ID="sandbox-1",
@@ -8262,7 +8279,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         response = self.client.generic(
             "POST",
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync/",
-            b'{"type":"session"}\n',
+            cast(str, b'{"type":"session"}\n'),
             content_type="application/octet-stream",
             HTTP_IF_MATCH='"none"',
             HTTP_X_SANDBOX_ID="stale-sandbox",
@@ -8284,7 +8301,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         response = self.client.generic(
             "POST",
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync/",
-            b"",
+            cast(str, b""),
             content_type="application/octet-stream",
             HTTP_IF_MATCH='"none"',
             HTTP_X_SANDBOX_ID="sandbox-1",
@@ -8297,7 +8314,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @patch("posthog.storage.object_storage.get_presigned_url")
     def test_task_session_is_readable_for_a_public_channel_task(self, mock_download_url):
         other_user = self.create_organization_user("task-owner")
-        channel = Channel.objects.create(team=self.team, name="shared", created_by=other_user)
+        channel = Channel.objects.unscoped().create(team=self.team, name="shared", created_by=other_user)
         task = self.create_task(created_by=other_user, runtime=Task.Runtime.PI)
         task.channel = channel
         task.save(update_fields=["channel"])

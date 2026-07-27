@@ -21,6 +21,7 @@ from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.parsers import BaseParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -33,6 +34,7 @@ from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
 
+from products.tasks.backend.constants import PI_CLOUD_RUNTIME_FEATURE_FLAG
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
@@ -123,7 +125,42 @@ from products.tasks.backend.presentation.serializers import (
 
 from ee.hogai.utils.aio import async_to_sync
 
+
+class OctetStreamParser(BaseParser):
+    media_type = "application/octet-stream"
+
+    def parse(self, stream, media_type=None, parser_context=None):
+        return stream.read()
+
+
 logger = logging.getLogger(__name__)
+
+
+def _pi_cloud_runtime_enabled(user: Any, team: Any) -> bool:
+    distinct_id = getattr(user, "distinct_id", None) or str(getattr(user, "uuid", ""))
+    organization_id = str(getattr(team, "organization_id", "") or "")
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                PI_CLOUD_RUNTIME_FEATURE_FLAG,
+                distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("pi-harness flag check failed; treating as disabled")
+        return False
+
+
+def _pi_cloud_runtime_disabled_response() -> Response:
+    return Response(
+        TaskRunErrorResponseSerializer({"error": "Pi cloud runtime is disabled"}).data,
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
 
 TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
 
@@ -588,6 +625,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Original order: 404 if the task isn't visible, then gate (always cloud) before the run.
         if not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
             raise NotFound()
+        if tasks_facade.task_runtime(
+            pk, self.team_id, self._user_id(), for_control=True
+        ) == tasks_facade.TaskRuntime.PI and not _pi_cloud_runtime_enabled(request.user, self.team):
+            return _pi_cloud_runtime_disabled_response()
 
         # Self-driving report tasks (Inbox "Create PR" / "Discuss") are entitled through the Inbox
         # (`product-autonomy`), not the PostHog Code (`tasks`) product, so they skip the Code
@@ -940,6 +981,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         # Gate cloud runs before the run row is created; local runs aren't limited.
         if environment == tasks_facade.TaskRunEnvironment.CLOUD:
+            if tasks_facade.task_runtime(
+                task_id, self.team_id, self._user_id(), for_control=True
+            ) == tasks_facade.TaskRuntime.PI and not _pi_cloud_runtime_enabled(request.user, self.team):
+                return _pi_cloud_runtime_disabled_response()
             if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
                 return limit_response
 
@@ -968,6 +1013,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["post"], url_path="start", required_scopes=["task:write"])
     def start(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        if tasks_facade.task_runtime(
+            task_id, self.team_id, self._user_id(), for_control=True
+        ) == tasks_facade.TaskRuntime.PI and not _pi_cloud_runtime_enabled(request.user, self.team):
+            return _pi_cloud_runtime_disabled_response()
 
         startable = tasks_facade.check_task_run_startable(pk, task_id, self.team_id)
         if startable == "not_found":
@@ -1201,6 +1250,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["post"],
         url_path="task_session_sync",
         required_scopes=["task:write"],
+        parser_classes=[OctetStreamParser],
     )
     def sync_task_session(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -1221,7 +1271,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 self.team_id,
                 sandbox_id=sandbox_id,
                 expected_content_sha256=expected_content_sha256,
-                content=request.body,
+                content=request.data,
             )
         except ValueError as error:
             return Response(
@@ -1939,6 +1989,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self._ensure_task_accessible()
         if tasks_facade.get_task_run_detail(pk, task_id, self.team_id) is None:
             raise NotFound()
+        if tasks_facade.task_runtime(
+            task_id, self.team_id, self._user_id(), for_control=True
+        ) == tasks_facade.TaskRuntime.PI and not _pi_cloud_runtime_enabled(request.user, self.team):
+            return _pi_cloud_runtime_disabled_response()
 
         # Resume also runs in cloud: gate before handoff.
         if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:

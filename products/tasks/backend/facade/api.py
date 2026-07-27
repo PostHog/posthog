@@ -2230,7 +2230,7 @@ def get_task_run_session(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None or run.active_task_session_id is None:
         return None
-    task_session = TaskSession.objects.get(id=run.active_task_session_id)
+    task_session = TaskSession.objects.unscoped().get(id=run.active_task_session_id)
     if task_session.object_storage_key is None:
         return task_session.id, None, None
     download_url = object_storage.get_presigned_url(task_session.object_storage_key, expiration=3600)
@@ -2306,7 +2306,7 @@ def sync_task_run_session(
             if _get_open_sandbox_session(locked_run.id, sandbox_id) is None:
                 raise ValueError("The task session writer is not the active sandbox")
 
-            task_session = TaskSession.objects.select_for_update().get(id=locked_run.active_task_session_id)
+            task_session = TaskSession.objects.unscoped().select_for_update().get(id=locked_run.active_task_session_id)
             if task_session.content_sha256 == content_sha256:
                 transaction.on_commit(lambda: _delete_task_session_object(task_session.id, object_storage_key))
                 return task_session.id, content_sha256

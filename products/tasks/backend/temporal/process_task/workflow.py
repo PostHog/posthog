@@ -100,11 +100,22 @@ from .credential_refresh import SANDBOX_GONE_ERROR_MESSAGE, CredentialRefreshExi
 from .slack_agent_design_relay import SlackAgentDesignRelayInput, SlackAgentDesignRelayWorkflow
 
 DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
+MAX_ACCEPTED_MESSAGE_IDS = 500
 
 
 def _is_dead_sandbox_failure(error: BaseException) -> bool:
     cause = error.cause if isinstance(error, temporalio.exceptions.ActivityError) else error
     return isinstance(cause, temporalio.exceptions.ApplicationError) and cause.type in DEAD_SANDBOX_ERROR_TYPES
+
+
+def _message_dedupe_key(
+    message_id: str,
+    actor_user_id: int | None,
+    message_context: dict[str, Any] | None,
+) -> str:
+    slack_user_id = (message_context or {}).get("actor_slack_user_id")
+    actor_slack_user_id = slack_user_id if isinstance(slack_user_id, str) else ""
+    return f"{actor_user_id or ''}:{actor_slack_user_id}:{message_id}"
 
 
 @dataclass
@@ -2015,11 +2026,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": context.run_id if context is not None else None},
             )
             return
-        if message_id and message_id in self._accepted_message_id_set:
-            return
         if message_id:
-            self._accepted_message_ids.append(message_id)
-            self._accepted_message_id_set.add(message_id)
+            dedupe_key = _message_dedupe_key(message_id, actor_user_id, message_context)
+            if dedupe_key in self._accepted_message_id_set:
+                return
+            if len(self._accepted_message_ids) >= MAX_ACCEPTED_MESSAGE_IDS:
+                oldest_key = self._accepted_message_ids.pop(0)
+                self._accepted_message_id_set.discard(oldest_key)
+            self._accepted_message_ids.append(dedupe_key)
+            self._accepted_message_id_set.add(dedupe_key)
 
         pending_followup = PendingFollowup(
             message=message,

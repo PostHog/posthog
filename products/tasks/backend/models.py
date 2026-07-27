@@ -865,8 +865,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         return task
 
 
-class TaskSession(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+class TaskSession(TeamScopedRootMixin, UUIDModel):
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
@@ -897,7 +896,7 @@ class TaskSession(models.Model):
 
     @classmethod
     def create_for_task(cls, task: Task) -> "TaskSession":
-        return cls.objects.create(
+        return cls.objects.unscoped().create(
             organization_id=task.team.organization_id,
             team_id=task.team_id,
             task=task,

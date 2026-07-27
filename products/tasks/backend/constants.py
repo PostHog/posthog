@@ -8,6 +8,7 @@ AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
 AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
+PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
 # Run-state key the telemetry flag decision is stamped under at dispatch (temporal/client.py).
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"

@@ -263,6 +263,13 @@ class SandboxBase(ABC):
         )
         return result.exit_code == 0
 
+    def agent_server_supports_pi_runtime(self) -> bool:
+        result = self.execute(
+            "grep -q POSTHOG_AGENT_RUNTIME /scripts/node_modules/.bin/agent-server",
+            timeout_seconds=10,
+        )
+        return result.exit_code == 0
+
     def clone_repository(
         self,
         repository: str,
