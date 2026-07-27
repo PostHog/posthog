@@ -4,3 +4,4 @@ set -e
 ./bin/migrate
 ./bin/docker-worker &
 ./bin/docker-server
+
