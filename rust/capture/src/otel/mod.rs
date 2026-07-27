@@ -211,7 +211,8 @@ pub async fn otel_handler(
     // with different `overflow_reason` stamps in the same batch.
     stamp_overflow_reason(&mut processed_events, state.overflow_limiter.as_ref());
 
-    state.sink.send_batch(processed_events).await.map_err(|e| {
+    metrics::histogram!("capture_event_batch_size").record(processed_events.len() as f64);
+    state.outputs.publish(processed_events).await.map_err(|e| {
         report_internal_error_metrics(e.to_metric_tag(), "otel_sink");
         warn!("Failed to send OTel events to Kafka: {:?}", e);
         e.into_response()

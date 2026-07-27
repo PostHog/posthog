@@ -25,7 +25,6 @@ use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
-use crate::sinks::Event;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -136,7 +135,7 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
 pub struct CaptureComponents {
     pub app: Router,
     pub server_handle: lifecycle::Handle,
-    pub sink: Arc<dyn Event + Send + Sync>,
+    pub outputs: Arc<OutputTable>,
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     pub http1_header_read_timeout_ms: Option<u64>,
 }
@@ -315,11 +314,10 @@ pub async fn build_components(
         primary_output
     };
 
-    // The outputs table is the produce surface; the `Event`-typed handle is
-    // the transitional facade un-migrated call sites publish through.
+    // The outputs table is the produce surface every pipeline publishes
+    // through; the server holds a second handle for the shutdown flush.
     let outputs = Arc::new(OutputTable::new(output));
-    let sink: Arc<dyn Event + Send + Sync> = outputs.clone();
-    let sink_for_flush = sink.clone();
+    let outputs_for_flush = outputs.clone();
 
     // Create AI blob storage if S3 is configured
     let ai_blob_storage: Option<Arc<dyn crate::ai_s3::BlobStorage>> =
@@ -390,7 +388,7 @@ pub async fn build_components(
         crate::time::SystemTime {},
         readiness,
         liveness,
-        sink,
+        outputs,
         redis_client,
         global_rate_limiter_token_distinctid,
         quota_limiter,
@@ -427,7 +425,7 @@ pub async fn build_components(
     CaptureComponents {
         app,
         server_handle: server,
-        sink: sink_for_flush,
+        outputs: outputs_for_flush,
         v1_sink_router,
         http1_header_read_timeout_ms: config.http1_header_read_timeout_ms,
     }

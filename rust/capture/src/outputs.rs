@@ -73,13 +73,13 @@ enum Repr {
 }
 
 impl Output {
-    pub(crate) fn single(sink: Arc<dyn Prepare>) -> Self {
+    pub fn single(sink: Arc<dyn Prepare>) -> Self {
         Output {
             repr: Repr::Single { sink },
         }
     }
 
-    pub(crate) fn failover(
+    pub fn failover(
         primary: Output,
         secondary: Output,
         advisory_handle: lifecycle::Handle,
@@ -106,7 +106,7 @@ impl Output {
         }
     }
 
-    pub(crate) fn split(primary: Output, secondary: Output, routing: AiRouting) -> Self {
+    pub fn split(primary: Output, secondary: Output, routing: AiRouting) -> Self {
         Output {
             repr: Repr::Split {
                 primary: Box::new(primary),

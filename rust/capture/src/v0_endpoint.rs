@@ -61,7 +61,7 @@ pub async fn event(
         Ok((context, events)) => {
             let event_count = events.len() as u64;
             if let Err(err) = process_events(
-                state.sink.clone(),
+                state.outputs.clone(),
                 state.token_dropper.clone(),
                 state.event_restriction_service.clone(),
                 state.historical_cfg,
@@ -127,7 +127,7 @@ pub async fn recording(
         Ok((context, events)) => {
             let count = events.len() as u64;
             if let Err(err) = process_replay_events(
-                state.sink.clone(),
+                state.outputs.clone(),
                 state.event_restriction_service.clone(),
                 state.replay_overflow_limiter.clone(),
                 events,

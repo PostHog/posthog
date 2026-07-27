@@ -21,8 +21,9 @@ use crate::{
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
     events::overflow_stamping::stamp_overflow_reason,
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
+    outputs::OutputTable,
     prometheus::{report_clock_skew, report_dropped_events},
-    router, sinks,
+    router,
     utils::uuid_v7_from_datetime,
     v0_request::{
         DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
@@ -215,14 +216,14 @@ pub fn process_single_event(
 /// goes through the shared [`stamp_overflow_reason`] helper, which the AI
 /// (`ai_endpoint::ai_handler`) and OTEL (`otel::otel_handler`) paths also
 /// call so every `DataType::AnalyticsMain` event gets identical limiter
-/// semantics regardless of entry point. The kafka sink is a pure mechanism
-/// layer — it reads `ProcessedEventMetadata::overflow_reason`,
-/// `force_overflow`, `redirect_to_dlq`, and `redirect_to_topic` to decide
-/// which topic and key to produce to.
+/// semantics regardless of entry point. The outputs layer resolves the lane
+/// from `ProcessedEventMetadata` (`overflow_reason`, `force_overflow`,
+/// `redirect_to_dlq`, `redirect_to_topic`), serializes, and publishes through
+/// the deployment's configured targets.
 #[instrument(skip_all, fields(events = events.len(), request_id))]
 #[allow(clippy::too_many_arguments)]
 pub async fn process_events(
-    sink: Arc<dyn sinks::Event + Send + Sync>,
+    outputs: Arc<OutputTable>,
     dropper: Arc<TokenDropper>,
     restriction_service: Option<EventRestrictionService>,
     historical_cfg: router::HistoricalConfig,
@@ -391,11 +392,10 @@ pub async fn process_events(
         return Ok(());
     }
 
-    if events.len() == 1 {
-        sink.send(events[0].clone()).await?;
-    } else {
-        sink.send_batch(events).await?;
-    }
+    // Record the batch-size histogram up front so the distribution is a
+    // faithful view of batches submitted, not only those that succeeded.
+    metrics::histogram!("capture_event_batch_size").record(events.len() as f64);
+    outputs.publish(events).await?;
 
     debug_or_info!(chatty_debug_enabled, context=?context, "sent analytics events");
 
@@ -655,7 +655,15 @@ mod tests {
         EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
         RestrictionScope, RestrictionType,
     };
+    use crate::outputs::{Output, OutputTable};
+    use crate::sinks::sink::Prepare;
     use crate::sinks::test_sink::MockSink;
+
+    /// Wrap a test sink in the outputs surface `process_events` publishes
+    /// through, keeping capture-and-assert test bodies unchanged.
+    fn table<S: Prepare + 'static>(sink: &Arc<S>) -> Arc<OutputTable> {
+        Arc::new(OutputTable::new(Output::single(sink.clone())))
+    }
     use rstest::rstest;
     use std::time::Duration;
 
@@ -691,7 +699,7 @@ mod tests {
         service.update(manager).await;
 
         let result = process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             Some(service),
             historical_cfg,
@@ -739,7 +747,7 @@ mod tests {
         service.update(manager).await;
 
         let result = process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             Some(service),
             historical_cfg,
@@ -788,7 +796,7 @@ mod tests {
         service.update(manager).await;
 
         let result = process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             Some(service),
             historical_cfg,
@@ -837,7 +845,7 @@ mod tests {
         service.update(manager).await;
 
         let result = process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             Some(service),
             historical_cfg,
@@ -893,7 +901,7 @@ mod tests {
         service.update(manager).await;
 
         let result = process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             Some(service),
             historical_cfg,
@@ -929,7 +937,7 @@ mod tests {
 
         // No restriction service
         let result = process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             None,
             historical_cfg,
@@ -983,7 +991,7 @@ mod tests {
         service.update(manager).await;
 
         let result = process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             Some(service),
             historical_cfg,
@@ -1031,7 +1039,7 @@ mod tests {
         service.update(manager).await;
 
         let result = process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             Some(service),
             historical_cfg,
@@ -1089,7 +1097,7 @@ mod tests {
         service.update(manager).await;
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             Some(service),
             historical_cfg,
@@ -1162,7 +1170,7 @@ mod tests {
         service.update(manager).await;
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             Some(service),
             historical_cfg,
@@ -1234,7 +1242,7 @@ mod tests {
         service.update(manager).await;
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             Some(service),
             historical_cfg,
@@ -1301,7 +1309,7 @@ mod tests {
         service.update(manager).await;
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             Some(service),
             historical_cfg,
@@ -1360,7 +1368,7 @@ mod tests {
         service.update(manager).await;
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             Some(service),
             historical_cfg,
@@ -1413,7 +1421,7 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             None,
             historical_cfg,
@@ -1449,7 +1457,7 @@ mod tests {
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             None,
             historical_cfg,
@@ -1487,7 +1495,7 @@ mod tests {
         let limiter = build_limiter(1, 1, None, true);
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             None,
             historical_cfg,
@@ -1527,7 +1535,7 @@ mod tests {
         let limiter = build_limiter(1, 1, None, false);
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             None,
             historical_cfg,
@@ -1584,7 +1592,7 @@ mod tests {
         service.update(manager).await;
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             Some(service),
             historical_cfg,
@@ -1623,7 +1631,7 @@ mod tests {
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             None,
             historical_cfg,
@@ -1674,7 +1682,7 @@ mod tests {
         let overflow_limiter = build_limiter(1, 1, None, true);
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             None,
             historical_cfg,
@@ -1737,7 +1745,7 @@ mod tests {
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             None,
             historical_cfg,
@@ -1781,7 +1789,7 @@ mod tests {
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             None,
             historical_cfg,
@@ -1837,7 +1845,7 @@ mod tests {
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
         process_events(
-            sink,
+            table(&sink),
             dropper,
             None,
             historical_cfg,
@@ -1888,7 +1896,7 @@ mod tests {
         let limiter = build_limiter(1, 1, None, true);
 
         process_events(
-            sink,
+            table(&sink),
             dropper,
             None,
             historical_cfg,
@@ -1942,7 +1950,7 @@ mod tests {
         let limiter = build_limiter(1, 1, None, false);
 
         process_events(
-            sink,
+            table(&sink),
             dropper,
             None,
             historical_cfg,
@@ -2187,7 +2195,7 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             None,
             historical_cfg,
@@ -2235,7 +2243,7 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             None,
             historical_cfg,
@@ -2272,7 +2280,7 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         process_events(
-            sink.clone(),
+            table(&sink),
             dropper,
             None,
             historical_cfg,
@@ -2317,7 +2325,7 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         process_events(
-            sink,
+            table(&sink),
             dropper,
             None,
             historical_cfg,

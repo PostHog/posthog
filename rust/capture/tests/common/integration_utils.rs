@@ -8,9 +8,11 @@ use std::time::Duration;
 use capture::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
+    outputs::{Output, OutputTable},
     quota_limiters::CaptureQuotaLimiter,
     router::router,
-    sinks::Event,
+    sinks::producer::ProduceRecord,
+    sinks::sink::{Prepare, PreparedPayload, Sink, SinkResult},
     time::TimeSource,
     v0_request::{DataType, ProcessedEvent},
 };
@@ -1030,16 +1032,39 @@ impl MemorySink {
     }
 }
 
-#[async_trait]
-impl Event for MemorySink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().unwrap().push(event);
-        Ok(())
+/// Build an inert prepared payload: real uuid + headers, empty routing. Lets
+/// a capturing test sink ride the prep -> publish path without a broker.
+fn passthrough_payload(event: &ProcessedEvent) -> PreparedPayload {
+    PreparedPayload {
+        uuid: event.event.uuid,
+        record: ProduceRecord {
+            topic: String::new(),
+            key: None,
+            payload: Vec::new(),
+            headers: event.event.to_headers(),
+        },
     }
+}
 
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+#[async_trait]
+impl Prepare for MemorySink {
+    async fn prepare_batch(
+        &self,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<Vec<PreparedPayload>, CaptureError> {
+        let payloads = events.iter().map(passthrough_payload).collect();
         self.events.lock().unwrap().extend_from_slice(&events);
-        Ok(())
+        Ok(payloads)
+    }
+}
+
+#[async_trait]
+impl Sink for MemorySink {
+    async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
+        prepared
+            .into_iter()
+            .map(|p| SinkResult::ok(p.uuid))
+            .collect()
     }
 }
 
@@ -1085,7 +1110,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             timesource,
             readiness,
             liveness,
-            Arc::new(sink.clone()),
+            Arc::new(OutputTable::new(Output::single(Arc::new(sink.clone())))),
             redis,
             None, // global_rate_limiter_token_distinctid
             quota_limiter,

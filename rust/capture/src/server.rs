@@ -93,7 +93,7 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
     let CaptureComponents {
         app,
         server_handle,
-        sink,
+        outputs,
         v1_sink_router,
         http1_header_read_timeout_ms,
     } = components;
@@ -234,9 +234,9 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
         // use spawn_blocking internally (see KafkaSink::flush).
         info!("Flushing sinks...");
         let legacy_flush = {
-            let sink = Arc::clone(&sink);
+            let outputs = Arc::clone(&outputs);
             async move {
-                let result = tokio::task::spawn_blocking(move || sink.flush()).await;
+                let result = tokio::task::spawn_blocking(move || outputs.flush()).await;
                 match result {
                     Ok(Err(e)) => error!("Sink flush failed: {e:#}"),
                     Err(e) => error!("Sink flush task panicked: {e}"),

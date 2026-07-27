@@ -100,15 +100,17 @@ pub fn fold_results(results: Vec<SinkResult>) -> Result<(), CaptureError> {
     Ok(())
 }
 
-/// Transitional prep surface for the outputs layer: turn `ProcessedEvent`s
-/// into this backend's ready-to-publish payloads (fail-fast, input order
-/// preserved). `pub(crate)` on purpose — only the outputs layer drives it;
-/// call sites never see a two-phase protocol. It exists because payload
-/// assembly (serializer choice, topic resolution, header stamps) still
-/// physically lives with each backend; as those move into the outputs layer
-/// this trait shrinks and eventually disappears.
+/// Prep surface for the outputs layer: turn `ProcessedEvent`s into this
+/// backend's ready-to-publish payloads (fail-fast, input order preserved).
+///
+/// This is backend SPI, not caller API: only the outputs layer drives it
+/// (call sites publish through an `Output` and never see a two-phase
+/// protocol); backends and test doubles implement it. It exists because
+/// payload assembly (serializer choice, topic resolution, header stamps)
+/// still physically lives with each backend; as those move into the outputs
+/// layer this trait shrinks and eventually disappears.
 #[async_trait]
-pub(crate) trait Prepare: Sink {
+pub trait Prepare: Sink {
     async fn prepare_batch(
         &self,
         events: Vec<crate::v0_request::ProcessedEvent>,

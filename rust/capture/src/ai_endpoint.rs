@@ -445,11 +445,16 @@ async fn ai_handler_inner(
         state.overflow_limiter.as_ref(),
     );
 
-    // Step 9: Send event to Kafka
-    state.sink.send(processed_event).await.map_err(|e| {
-        warn!("Failed to send AI event to Kafka: {:?}", e);
-        e
-    })?;
+    // Step 9: Publish through the outputs layer
+    metrics::histogram!("capture_event_batch_size").record(1.0);
+    state
+        .outputs
+        .publish(vec![processed_event])
+        .await
+        .map_err(|e| {
+            warn!("Failed to send AI event to Kafka: {:?}", e);
+            e
+        })?;
 
     // Log request details for debugging
     debug!("AI endpoint request validated and sent to Kafka successfully");

@@ -8,9 +8,11 @@ use axum_test_helper::TestClient;
 use capture::ai_s3::{BlobStorage, MockBlobStorage};
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::outputs::{Output, OutputTable};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
-use capture::sinks::Event;
+use capture::sinks::producer::ProduceRecord;
+use capture::sinks::sink::{Prepare, PreparedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
 use capture::v0_request::{OverflowReason, ProcessedEvent};
 use chrono::{DateTime, TimeZone, Utc};
@@ -52,14 +54,37 @@ impl TimeSource for FixedTime {
 #[derive(Clone, Default)]
 struct TestSink;
 
-#[async_trait]
-impl Event for TestSink {
-    async fn send(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
-        Ok(())
+/// Build an inert prepared payload: real uuid + headers, empty routing. Lets
+/// a capturing test sink ride the prep -> publish path without a broker.
+fn passthrough_payload(event: &ProcessedEvent) -> PreparedPayload {
+    PreparedPayload {
+        uuid: event.event.uuid,
+        record: ProduceRecord {
+            topic: String::new(),
+            key: None,
+            payload: Vec::new(),
+            headers: event.event.to_headers(),
+        },
     }
+}
 
-    async fn send_batch(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        Ok(())
+#[async_trait]
+impl Prepare for TestSink {
+    async fn prepare_batch(
+        &self,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<Vec<PreparedPayload>, CaptureError> {
+        Ok(events.iter().map(passthrough_payload).collect())
+    }
+}
+
+#[async_trait]
+impl Sink for TestSink {
+    async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
+        prepared
+            .into_iter()
+            .map(|p| SinkResult::ok(p.uuid))
+            .collect()
     }
 }
 
@@ -82,15 +107,24 @@ impl CapturingSink {
 }
 
 #[async_trait]
-impl Event for CapturingSink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().await.push(event);
-        Ok(())
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl Prepare for CapturingSink {
+    async fn prepare_batch(
+        &self,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<Vec<PreparedPayload>, CaptureError> {
+        let payloads = events.iter().map(passthrough_payload).collect();
         self.events.lock().await.extend(events);
-        Ok(())
+        Ok(payloads)
+    }
+}
+
+#[async_trait]
+impl Sink for CapturingSink {
+    async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
+        prepared
+            .into_iter()
+            .map(|p| SinkResult::ok(p.uuid))
+            .collect()
     }
 }
 
@@ -171,7 +205,7 @@ fn setup_ai_test_router() -> Router {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputTable::new(Output::single(Arc::new(sink)))),
         redis,
         None,
         quota_limiter,
@@ -1635,7 +1669,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputTable::new(Output::single(Arc::new(sink)))),
         redis,
         None,
         quota_limiter,
@@ -2551,7 +2585,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputTable::new(Output::single(Arc::new(sink)))),
         redis,
         None,
         quota_limiter,
@@ -2762,7 +2796,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputTable::new(Output::single(Arc::new(sink)))),
         redis,
         None,
         quota_limiter,
@@ -2918,7 +2952,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputTable::new(Output::single(Arc::new(sink)))),
         redis,
         None,
         quota_limiter,
@@ -3058,7 +3092,7 @@ fn ai_router(
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputTable::new(Output::single(Arc::new(sink)))),
         redis,
         None,
         quota_limiter,

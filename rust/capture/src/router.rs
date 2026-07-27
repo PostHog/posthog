@@ -18,9 +18,10 @@ use crate::ai_s3::BlobStorage;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::otel;
+use crate::outputs::OutputTable;
 use crate::test_endpoint;
 use crate::v0_request::DataType;
-use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
+use crate::{ai_endpoint, time::TimeSource, v0_endpoint};
 use common_ingestion_warnings::WarningEmitter;
 use common_redis::Client;
 use limiters::overflow::OverflowLimiter;
@@ -38,7 +39,9 @@ const RECORDING_BODY_SIZE: usize = 25 * 1024 * 1024; // 25MB, up from the defaul
 
 #[derive(Clone)]
 pub struct State {
-    pub sink: Arc<dyn sinks::Event + Send + Sync>,
+    /// The produce surface: pipelines publish through the outputs layer,
+    /// which owns target selection, serialization, and the sink mechanism.
+    pub outputs: Arc<OutputTable>,
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
     pub global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
@@ -134,7 +137,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     timesource: TZ,
     readiness: ReadinessHandler,
     liveness: LivenessHandler,
-    sink: Arc<dyn sinks::Event + Send + Sync>,
+    outputs: Arc<OutputTable>,
     redis: Arc<R>,
     global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
     quota_limiter: CaptureQuotaLimiter,
@@ -163,7 +166,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 ) -> Router {
     let state = State {
-        sink,
+        outputs,
         timesource: Arc::new(timesource),
         redis,
         global_rate_limiter_token_distinctid,
