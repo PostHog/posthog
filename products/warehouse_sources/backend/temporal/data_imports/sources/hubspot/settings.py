@@ -185,7 +185,6 @@ DEFAULT_LEAD_PROPS = [
     "hs_lastmodifieddate",
     "hs_lead_label",
     "hs_lead_name",
-    "hs_lead_source",
     "hs_lead_type",
     "hs_object_id",
     "hs_pipeline",

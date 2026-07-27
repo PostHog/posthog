@@ -139,7 +139,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_lead_name": "The lead's name.",
             "hs_lead_type": "The type of lead (e.g. new business).",
             "hs_lead_label": "The current status label of the lead (e.g. warm, cold).",
-            "hs_lead_source": "The analytics source of the lead at creation, set automatically by HubSpot.",
             "hs_pipeline": "The pipeline the lead is in.",
             "hs_pipeline_stage": "The pipeline stage the lead is in (e.g. new, attempting, connected, qualified).",
             "hs_createdate": "Date the lead was created in HubSpot.",
