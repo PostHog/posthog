@@ -272,6 +272,107 @@ export interface NotebookCollabSaveApi {
     cursor_head?: number | null
 }
 
+export interface NotebookKernelConfigApi {
+    /** CPU cores for the notebook's sandbox kernel; must be a supported option. */
+    cpu_cores?: number
+    /** Memory in GB for the notebook's sandbox kernel; must be a supported option. */
+    memory_gb?: number
+    /** Seconds of inactivity before the sandbox kernel shuts down. */
+    idle_timeout_seconds?: number
+}
+
+export interface NotebookKernelConfigResponseApi {
+    /**
+     * Configured CPU cores; null means the default applies.
+     * @nullable
+     */
+    cpu_cores?: number | null
+    /**
+     * Configured memory in GB; null means the default applies.
+     * @nullable
+     */
+    memory_gb?: number | null
+    /**
+     * Configured idle timeout in seconds; null means the default.
+     * @nullable
+     */
+    idle_timeout_seconds?: number | null
+    /** True when a kernel is currently active: config applies at sandbox provision time, so the running kernel keeps its old resources until restarted (restarting loses materialized dataframes). */
+    restart_required: boolean
+}
+
+export interface NotebookSQLV2FrameApi {
+    /** Name a SQL node can SELECT from. */
+    name: string
+    /** Where the object came from: 'frame' (a dataframe a node produced), or 'table'/'view' (created by SQL DDL in a DuckDB node). */
+    kind: string
+    /** DuckDB type per column, as [name, type] pairs. */
+    columns?: string[][]
+    /**
+     * Rows available, or null when counting would require a table scan (a DDL view).
+     * @nullable
+     */
+    row_count?: number | null
+    /** True when row_count is DuckDB's optimizer estimate rather than a count. The estimate does not track deletes, so it must never be presented as exact. */
+    row_count_is_estimate?: boolean
+}
+
+export interface NotebookKernelStatusResponseApi {
+    /**
+     * Sandbox backend the kernel runs on: 'modal' or 'docker'.
+     * @nullable
+     */
+    backend?: string | null
+    /** Live-checked kernel state: 'starting', 'running', 'stopped', 'timed_out', 'discarded', or 'error'. */
+    status: string
+    /**
+     * When the kernel last executed anything.
+     * @nullable
+     */
+    last_used_at?: string | null
+    /**
+     * Most recent provisioning or runtime error, if any.
+     * @nullable
+     */
+    last_error?: string | null
+    /**
+     * Kernel runtime row identifier.
+     * @nullable
+     */
+    runtime_id?: string | null
+    /**
+     * Jupyter kernel identifier.
+     * @nullable
+     */
+    kernel_id?: string | null
+    /**
+     * Kernel process id inside the sandbox.
+     * @nullable
+     */
+    kernel_pid?: number | null
+    /**
+     * Sandbox container identifier.
+     * @nullable
+     */
+    sandbox_id?: string | null
+    /** Dataframes and DuckDB tables a cell can currently reference, with column names and types. Empty unless the kernel is running and the caller has query access. */
+    frames: NotebookSQLV2FrameApi[]
+    /** CPU cores the sandbox is configured with. */
+    cpu_cores: number
+    /** Memory in GB the sandbox is configured with. */
+    memory_gb: number
+    /**
+     * Disk size in GB the sandbox is configured with.
+     * @nullable
+     */
+    disk_size_gb?: number | null
+    /**
+     * Seconds of inactivity before the sandbox shuts down.
+     * @nullable
+     */
+    idle_timeout_seconds?: number | null
+}
+
 /**
  * * `hogql` - hogql
  * * `local` - local
@@ -329,22 +430,6 @@ export interface NotebookSQLV2RunRequestApi {
 export interface NotebookSQLV2RunResponseApi {
     /** Identifier of the dispatched run. Poll the run result endpoint with it until the status is terminal. */
     run_id: string
-}
-
-export interface NotebookSQLV2FrameApi {
-    /** Name a SQL node can SELECT from. */
-    name: string
-    /** Where the object came from: 'frame' (a dataframe a node produced), or 'table'/'view' (created by SQL DDL in a DuckDB node). */
-    kind: string
-    /** DuckDB type per column, as [name, type] pairs. */
-    columns?: string[][]
-    /**
-     * Rows available, or null when counting would require a table scan (a DDL view).
-     * @nullable
-     */
-    row_count?: number | null
-    /** True when row_count is DuckDB's optimizer estimate rather than a count. The estimate does not track deletes, so it must never be presented as exact. */
-    row_count_is_estimate?: boolean
 }
 
 export interface NotebookSQLV2MediaApi {
@@ -413,6 +498,76 @@ export interface NotebookSQLV2InterruptResponseApi {
     status: string
     /** Present when the interrupt could not take effect yet, e.g. the run has not reached the kernel. */
     detail?: string
+}
+
+export interface NotebookKernelStateApi {
+    /** Kernel runtime state: 'starting', 'running', 'stopped', 'timed_out', 'discarded', or 'error'. */
+    status: string
+    /**
+     * CPU cores the notebook's sandbox is configured with.
+     * @nullable
+     */
+    cpu_cores?: number | null
+    /**
+     * Memory in GB the notebook's sandbox is configured with.
+     * @nullable
+     */
+    memory_gb?: number | null
+    /**
+     * Seconds of inactivity before the sandbox shuts down.
+     * @nullable
+     */
+    idle_timeout_seconds?: number | null
+}
+
+export interface NotebookCellLastRunApi {
+    /** Identifier of the cell's most recent run. */
+    run_id: string
+    /** The run's own state: 'running', 'done', 'failed', or 'interrupted'. */
+    status: string
+    /** When the run last changed state. */
+    finished_at: string
+    /**
+     * Rows in the result, when the run produced one.
+     * @nullable
+     */
+    row_count?: number | null
+    /**
+     * Result column names.
+     * @nullable
+     */
+    columns?: string[] | null
+    /**
+     * Error message when the run failed.
+     * @nullable
+     */
+    error?: string | null
+}
+
+export interface NotebookCellStateApi {
+    /** Durable cell identity, used by the cell run and edit endpoints. */
+    node_id: string
+    /** Cell kind: 'sql', 'python', or 'saved_insight' (embedded insight, never runs). */
+    cell_type: string
+    /** Name other cells reference this cell's result by; blank means display-only. */
+    dataframe_name: string
+    /** The cell's source, truncated with a marker past 8KB. */
+    code: string
+    /** Derived cell state: 'never_run', 'running', 'done', 'failed', 'interrupted', or 'stale' — stale means re-running now would execute different code than the last completed run (the cell or an upstream dependency changed). */
+    status: string
+    /** node_ids of cells whose dataframes this cell's code references. */
+    depends_on: string[]
+    /** node_ids of cells that reference this cell's dataframe. */
+    dependents: string[]
+    /** Summary of the most recent run; null when never run. */
+    last_run?: NotebookCellLastRunApi | null
+}
+
+export interface NotebookSQLV2StateResponseApi {
+    /** The notebook's kernel runtime state and compute config. */
+    kernel: NotebookKernelStateApi
+    /** Every cell in document order, with its dependency edges and derived run state. */
+    cells: NotebookCellStateApi[]
 }
 
 export type NotebooksListParams = {

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 10 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -131,6 +131,45 @@ export const NotebooksDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Set the notebook's kernel compute configuration. Applies at sandbox provision time: a currently running kernel keeps its resources until restarted.
+ */
+export const NotebooksKernelConfigCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+export const NotebooksKernelConfigCreateBody = /* @__PURE__ */ zod.object({
+    cpu_cores: zod
+        .number()
+        .optional()
+        .describe("CPU cores for the notebook's sandbox kernel; must be a supported option."),
+    memory_gb: zod
+        .number()
+        .optional()
+        .describe("Memory in GB for the notebook's sandbox kernel; must be a supported option."),
+    idle_timeout_seconds: zod
+        .number()
+        .optional()
+        .describe('Seconds of inactivity before the sandbox kernel shuts down.'),
+})
+
+/**
+ * Live-checked kernel runtime state for this notebook, its compute configuration, and the catalog of dataframes/tables a cell can currently reference (with column schemas).
+ */
+export const NotebooksKernelStatusRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+/**
  * Read a run's durable state: its status, and — once done or interrupted — the result envelope (columns, first rows, stdout/stderr, media, error). Poll until terminal. Flag-gated (revamped-py-notebooks).
  */
 export const NotebooksSqlV2RunsRetrieveParams = /* @__PURE__ */ zod.object({
@@ -153,5 +192,17 @@ export const NotebooksSqlV2RunsInterruptCreateParams = /* @__PURE__ */ zod.objec
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     run_id: zod.string().describe('ID of the run, as returned by the run dispatch endpoint.'),
+    short_id: zod.string(),
+})
+
+/**
+ * The notebook's cell-level state: every cell with its dependency edges, derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
+ */
+export const NotebooksSqlV2StateRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
     short_id: zod.string(),
 })

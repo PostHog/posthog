@@ -81,12 +81,16 @@ from products.notebooks.backend.sql_v2_references import (
 )
 from products.notebooks.backend.sql_v2_runs import finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
+    NotebookKernelConfigResponseSerializer,
+    NotebookKernelStatusResponseSerializer,
     NotebookSQLV2InterruptResponseSerializer,
     NotebookSQLV2PageRequestSerializer,
     NotebookSQLV2RunRequestSerializer,
     NotebookSQLV2RunResponseSerializer,
     NotebookSQLV2RunStatusResponseSerializer,
+    NotebookSQLV2StateResponseSerializer,
 )
+from products.notebooks.backend.sql_v2_state import build_notebook_cell_state
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
@@ -404,9 +408,15 @@ ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS = [600, 1800, 3600, 10800, 21600, 43200]
 
 
 class NotebookKernelConfigSerializer(serializers.Serializer):
-    cpu_cores = serializers.FloatField(required=False)
-    memory_gb = serializers.FloatField(required=False)
-    idle_timeout_seconds = serializers.IntegerField(required=False)
+    cpu_cores = serializers.FloatField(
+        required=False, help_text="CPU cores for the notebook's sandbox kernel; must be a supported option."
+    )
+    memory_gb = serializers.FloatField(
+        required=False, help_text="Memory in GB for the notebook's sandbox kernel; must be a supported option."
+    )
+    idle_timeout_seconds = serializers.IntegerField(
+        required=False, help_text="Seconds of inactivity before the sandbox kernel shuts down."
+    )
 
     def validate_cpu_cores(self, value: float) -> float:
         if not any(math.isclose(value, option, rel_tol=0, abs_tol=1e-6) for option in ALLOWED_KERNEL_CPU_CORES):
@@ -793,7 +803,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "Failed to restart notebook kernel."}, status=503)
         return Response({"id": str(kernel_runtime.id), "status": kernel_runtime.status})
 
-    @action(methods=["GET"], url_path="kernel/status", detail=True)
+    @extend_schema(
+        responses={200: NotebookKernelStatusResponseSerializer},
+        description=(
+            "Live-checked kernel runtime state for this notebook, its compute configuration, and the "
+            "catalog of dataframes/tables a cell can currently reference (with column schemas)."
+        ),
+    )
+    @action(methods=["GET"], url_path="kernel/status", detail=True, required_scopes=["notebook:read"])
     def kernel_status(self, request: Request, **kwargs):
         notebook = self._get_notebook_for_kernel()
         user = self._current_user()
@@ -872,7 +889,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             }
         )
 
-    @action(methods=["POST"], url_path="kernel/config", detail=True)
+    @extend_schema(
+        request=NotebookKernelConfigSerializer,
+        responses={200: NotebookKernelConfigResponseSerializer},
+        description=(
+            "Set the notebook's kernel compute configuration. Applies at sandbox provision time: a "
+            "currently running kernel keeps its resources until restarted."
+        ),
+    )
+    @action(methods=["POST"], url_path="kernel/config", detail=True, required_scopes=["notebook:write"])
     def kernel_config(self, request: Request, **kwargs):
         serializer = NotebookKernelConfigSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -897,6 +922,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "cpu_cores": notebook.kernel_cpu_cores,
                 "memory_gb": notebook.kernel_memory_gb,
                 "idle_timeout_seconds": notebook.kernel_idle_timeout_seconds,
+                "restart_required": KernelRuntime.objects.filter(
+                    team_id=self.team_id,
+                    notebook_short_id=notebook.short_id,
+                    status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+                ).exists(),
             }
         )
 
@@ -1010,6 +1040,46 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "Failed to fetch dataframe data."}, status=503)
 
         return Response(data)
+
+    @extend_schema(
+        responses={200: NotebookSQLV2StateResponseSerializer},
+        description=(
+            "The notebook's cell-level state: every cell with its dependency edges, derived run status "
+            "(including staleness), and the kernel's runtime state and compute config. "
+            "Flag-gated (revamped-py-notebooks)."
+        ),
+    )
+    @action(methods=["GET"], url_path="sql_v2/state", detail=True, required_scopes=["notebook:read", "query:read"])
+    def sql_v2_state(self, request: Request, **kwargs):
+        user = self._current_user()
+        if not (settings.DEBUG or is_sql_v2_enabled(user)):
+            raise Http404()
+        notebook = self._get_notebook_for_kernel()
+        # Cell code and result metadata derive from the user's data, so the same query
+        # gate as run results applies.
+        self._require_query_access()
+
+        cells = build_notebook_cell_state(self.team_id, notebook)
+        runtime = (
+            KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user=user if isinstance(user, User) else None,
+            )
+            .order_by("-last_used_at")
+            .first()
+        )
+        sandbox_config = build_notebook_sandbox_config(notebook)
+        payload = {
+            "kernel": {
+                "status": runtime.status if runtime else KernelRuntime.Status.STOPPED,
+                "cpu_cores": sandbox_config.cpu_cores,
+                "memory_gb": sandbox_config.memory_gb,
+                "idle_timeout_seconds": sandbox_config.ttl_seconds,
+            },
+            "cells": cells,
+        }
+        return Response(NotebookSQLV2StateResponseSerializer(payload).data)
 
     @extend_schema(
         request=NotebookSQLV2RunRequestSerializer,

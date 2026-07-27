@@ -230,27 +230,21 @@ export const NotebooksHogqlExecuteCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ * Set the notebook's kernel compute configuration. Applies at sandbox provision time: a currently running kernel keeps its resources until restarted.
  */
-export const notebooksKernelConfigCreateBodyTitleMax = 256
-
-export const notebooksKernelConfigCreateBodyVersionMin = -2147483648
-export const notebooksKernelConfigCreateBodyVersionMax = 2147483647
-
 export const NotebooksKernelConfigCreateBody = /* @__PURE__ */ zod.object({
-    title: zod.string().max(notebooksKernelConfigCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
-    text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
-    version: zod
+    cpu_cores: zod
         .number()
-        .min(notebooksKernelConfigCreateBodyVersionMin)
-        .max(notebooksKernelConfigCreateBodyVersionMax)
         .optional()
-        .describe(
-            'Version number for optimistic concurrency control. Must match the current version when updating content.'
-        ),
-    deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
-    _create_in_folder: zod.string().optional(),
+        .describe("CPU cores for the notebook's sandbox kernel; must be a supported option."),
+    memory_gb: zod
+        .number()
+        .optional()
+        .describe("Memory in GB for the notebook's sandbox kernel; must be a supported option."),
+    idle_timeout_seconds: zod
+        .number()
+        .optional()
+        .describe('Seconds of inactivity before the sandbox kernel shuts down.'),
 })
 
 /**

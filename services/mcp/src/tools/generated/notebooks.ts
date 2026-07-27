@@ -5,14 +5,18 @@ import type { Schemas } from '@/api/generated'
 import {
     NotebooksCreateBody,
     NotebooksDestroyParams,
+    NotebooksKernelConfigCreateBody,
+    NotebooksKernelConfigCreateParams,
+    NotebooksKernelStatusRetrieveParams,
     NotebooksListQueryParams,
     NotebooksPartialUpdateBody,
     NotebooksPartialUpdateParams,
     NotebooksRetrieveParams,
     NotebooksSqlV2RunsInterruptCreateParams,
     NotebooksSqlV2RunsRetrieveParams,
+    NotebooksSqlV2StateRetrieveParams,
 } from '@/generated/notebooks/api'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const NotebooksCreateSchema = NotebooksCreateBody
@@ -60,6 +64,59 @@ const notebooksDestroy = (): ToolBase<typeof NotebooksDestroySchema, Schemas.Not
             body: { deleted: true },
         })
         return result
+    },
+})
+
+const NotebooksConfigureComputeSchema = NotebooksKernelConfigCreateParams.omit({ project_id: true }).extend(
+    NotebooksKernelConfigCreateBody.shape
+)
+
+const notebooksConfigureCompute = (): ToolBase<
+    typeof NotebooksConfigureComputeSchema,
+    Schemas.NotebookKernelConfigResponse
+> => ({
+    name: 'notebooks-configure-compute',
+    schema: NotebooksConfigureComputeSchema,
+    handler: async (context: Context, params: z.infer<typeof NotebooksConfigureComputeSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.cpu_cores !== undefined) {
+            body['cpu_cores'] = params.cpu_cores
+        }
+        if (params.memory_gb !== undefined) {
+            body['memory_gb'] = params.memory_gb
+        }
+        if (params.idle_timeout_seconds !== undefined) {
+            body['idle_timeout_seconds'] = params.idle_timeout_seconds
+        }
+        const result = await context.api.request<Schemas.NotebookKernelConfigResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/kernel/config/`,
+            body,
+        })
+        return result
+    },
+})
+
+const NotebooksListFramesSchema = NotebooksKernelStatusRetrieveParams.omit({ project_id: true })
+
+const notebooksListFrames = (): ToolBase<typeof NotebooksListFramesSchema, Schemas.NotebookKernelStatusResponse> => ({
+    name: 'notebooks-list-frames',
+    schema: NotebooksListFramesSchema,
+    handler: async (context: Context, params: z.infer<typeof NotebooksListFramesSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.NotebookKernelStatusResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/kernel/status/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'status',
+            'frames',
+            'cpu_cores',
+            'memory_gb',
+            'idle_timeout_seconds',
+        ]) as typeof result
+        return filtered
     },
 })
 
@@ -176,12 +233,30 @@ const notebooksRunCellResult = (): ToolBase<
     },
 })
 
+const NotebooksGetStateSchema = NotebooksSqlV2StateRetrieveParams.omit({ project_id: true })
+
+const notebooksGetState = (): ToolBase<typeof NotebooksGetStateSchema, Schemas.NotebookSQLV2StateResponse> => ({
+    name: 'notebooks-get-state',
+    schema: NotebooksGetStateSchema,
+    handler: async (context: Context, params: z.infer<typeof NotebooksGetStateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.NotebookSQLV2StateResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/sql_v2/state/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-create': notebooksCreate,
     'notebooks-destroy': notebooksDestroy,
+    'notebooks-configure-compute': notebooksConfigureCompute,
+    'notebooks-list-frames': notebooksListFrames,
     'notebooks-list': notebooksList,
     'notebooks-partial-update': notebooksPartialUpdate,
     'notebooks-retrieve': notebooksRetrieve,
     'notebooks-run-cell-interrupt': notebooksRunCellInterrupt,
     'notebooks-run-cell-result': notebooksRunCellResult,
+    'notebooks-get-state': notebooksGetState,
 }
