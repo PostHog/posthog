@@ -191,6 +191,7 @@ mod tests {
             phase: crate::types::HandoffPhase::Warming,
             started_at: 0,
             handoff_id: String::new(),
+            new_owner_address: None,
         }
     }
 

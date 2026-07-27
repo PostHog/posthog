@@ -11,9 +11,13 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { DataModelingDAG, DataModelingSyncInterval } from '~/types'
 
@@ -24,6 +28,9 @@ const DEFAULT_DAG_NAME = 'Default'
 export function DagsTab(): JSX.Element {
     const { dags, dagsLoading } = useValues(dagsLogic)
     const { loadDags, updateDag, deleteDag } = useActions(dagsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const dataOpsModelingEnabled =
+        !!featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB] && !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]
 
     useEffect(() => {
         loadDags()
@@ -33,12 +40,19 @@ export function DagsTab(): JSX.Element {
         {
             title: 'Name',
             key: 'name',
-            render: (_, dag) => (
-                <div className="flex flex-col">
-                    <span className="font-semibold">{dag.name}</span>
-                    {dag.description && <span className="text-muted text-xs">{dag.description}</span>}
-                </div>
-            ),
+            render: (_, dag) =>
+                dataOpsModelingEnabled ? (
+                    <LemonTableLink
+                        to={urls.dataOps('modeling', dag.id)}
+                        title={dag.name}
+                        description={dag.description || 'View this DAG in data ops'}
+                    />
+                ) : (
+                    <div className="flex flex-col">
+                        <span className="font-semibold">{dag.name}</span>
+                        {dag.description && <span className="text-muted text-xs">{dag.description}</span>}
+                    </div>
+                ),
         },
         {
             title: 'Models',

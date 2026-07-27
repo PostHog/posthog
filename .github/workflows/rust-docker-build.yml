@@ -74,12 +74,12 @@ jobs:
 
     build-images:
         needs: affected
-        # always() is required because 'affected' may be skipped (workflow_dispatch),
-        # and GitHub Actions treats skipped dependencies as failures by default.
-        # !cancelled() prevents running after manual workflow cancellation.
+        # A status function is required because 'affected' may be skipped (workflow_dispatch)
+        # and a skipped need would otherwise cascade a skip here. !cancelled() covers that
+        # while still stopping the build after manual workflow cancellation.
         # Run unless affected explicitly found zero images ('none') or failed.
         if: |
-            always() && !cancelled() &&
+            !cancelled() &&
             (github.event_name != 'pull_request' ||
              github.event.pull_request.head.repo.full_name == github.repository) &&
             needs.affected.result != 'failure' &&
@@ -179,6 +179,9 @@ jobs:
                       values_key: image
                     - release: sqlx-migrate
                       digest_key: sqlx-migrate
+                      values_key: image
+                    - release: personhog-identity
+                      digest_key: personhog-identity
                       values_key: image
                     - release: personhog-leader
                       digest_key: personhog-leader

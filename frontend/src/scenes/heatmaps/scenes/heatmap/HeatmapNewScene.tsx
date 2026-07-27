@@ -4,6 +4,7 @@ import useResizeObserver from 'use-resize-observer'
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, Spinner } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -20,7 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { HeatmapType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, HeatmapType } from '~/types'
 
 import { HeatmapCreationStep, heatmapCreationLogic } from './heatmapCreationLogic'
 import { heatmapLogic } from './heatmapLogic'
@@ -546,15 +547,20 @@ function ReviewStep(): JSX.Element {
                             View heatmap
                         </LemonButton>
                     ) : (
-                        <LemonButton
-                            type="primary"
-                            onClick={() => createHeatmap(creationContext)}
-                            loading={loading}
-                            disabledReason={reviewBlockReason}
-                            data-attr="save-heatmap"
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Heatmap}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            Create heatmap
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={() => createHeatmap(creationContext)}
+                                loading={loading}
+                                disabledReason={reviewBlockReason}
+                                data-attr="save-heatmap"
+                            >
+                                Create heatmap
+                            </LemonButton>
+                        </AccessControlAction>
                     )}
                 </div>
             </div>

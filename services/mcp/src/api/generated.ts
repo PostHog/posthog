@@ -2196,6 +2196,24 @@ export namespace Schemas {
       config?: ActivityEventsListWidgetConfig;
     }
 
+    /**
+     * * `awaiting_input` - awaiting_input
+     * * `completed` - completed
+     * * `mention` - mention
+     * * `message` - message
+     * * `created` - created
+     */
+    export type ActivityKindEnum = typeof ActivityKindEnum[keyof typeof ActivityKindEnum];
+
+
+    export const ActivityKindEnum = {
+      AwaitingInput: 'awaiting_input',
+      Completed: 'completed',
+      Mention: 'mention',
+      Message: 'message',
+      Created: 'created',
+    } as const;
+
     export interface ActivityLog {
       readonly id: string;
       user: UserBasic;
@@ -3673,6 +3691,14 @@ export namespace Schemas {
       InitialUTMTerm: 'InitialUTMTerm',
       InitialUTMContent: 'InitialUTMContent',
       InitialUTMSourceMediumCampaign: 'InitialUTMSourceMediumCampaign',
+      FirstPageviewChannelType: 'FirstPageviewChannelType',
+      FirstPageviewReferringDomain: 'FirstPageviewReferringDomain',
+      FirstPageviewUTMSource: 'FirstPageviewUTMSource',
+      FirstPageviewUTMCampaign: 'FirstPageviewUTMCampaign',
+      FirstPageviewUTMMedium: 'FirstPageviewUTMMedium',
+      FirstPageviewUTMTerm: 'FirstPageviewUTMTerm',
+      FirstPageviewUTMContent: 'FirstPageviewUTMContent',
+      FirstPageviewUTMSourceMediumCampaign: 'FirstPageviewUTMSourceMediumCampaign',
       Browser: 'Browser',
       Os: 'OS',
       Viewport: 'Viewport',
@@ -6411,6 +6437,10 @@ export namespace Schemas {
     export interface ConversionGoalFilter1 {
       conversion_goal_id: string;
       conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
       custom_name?: string | null;
       /** The event or `null` for all events. */
       event?: string | null;
@@ -6444,6 +6474,10 @@ export namespace Schemas {
     export interface ConversionGoalFilter2 {
       conversion_goal_id: string;
       conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
       custom_name?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
@@ -6473,6 +6507,10 @@ export namespace Schemas {
     export interface ConversionGoalFilter3 {
       conversion_goal_id: string;
       conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
       custom_name?: string | null;
       distinct_id_field: string;
       dw_source_type?: string | null;
@@ -6505,6 +6543,7 @@ export namespace Schemas {
 
     export const MarketingAnalyticsDrillDownLevel = {
       Channel: 'channel',
+      ChannelSource: 'channel_source',
       Source: 'source',
       Campaign: 'campaign',
       AdGroup: 'ad_group',
@@ -9803,9 +9842,25 @@ export namespace Schemas {
       customer_name: string | null;
     }
 
+    export interface AppSandboxContract {
+      status: string;
+      restart_count: number;
+      last_error: string;
+      /** @nullable */
+      started_at: string | null;
+      /** @nullable */
+      last_activity_at: string | null;
+      /** @nullable */
+      version_number: number | null;
+    }
+
     export interface AppContract {
       /** User who created this app. */
       created_by?: StreamlitAppUserInfo | null;
+      /** Currently active version, or null if none uploaded yet. */
+      active_version?: AppVersionContract | null;
+      /** Current sandbox state, or null if the app has never started. */
+      sandbox?: AppSandboxContract | null;
       id: string;
       short_id: string;
       name: string;
@@ -9831,6 +9886,20 @@ export namespace Schemas {
 
     export interface AppMetricsTotalsResponse {
       totals: AppMetricsTotalsResponseTotals;
+    }
+
+    export interface AppSummaryContract {
+      /** User who created this app. */
+      created_by?: StreamlitAppUserInfo | null;
+      id: string;
+      short_id: string;
+      name: string;
+      description: string;
+      cpu_cores: number;
+      memory_gb: number;
+      status: string;
+      created_at: string;
+      updated_at: string;
     }
 
     export interface AppfiguresReviewSignalExtra {
@@ -10867,6 +10936,7 @@ export namespace Schemas {
      * * `events` - Events
      * * `persons` - Persons
      * * `sessions` - Sessions
+     * * `hogql` - Hogql
      */
     export type ModelEnum = typeof ModelEnum[keyof typeof ModelEnum];
 
@@ -10875,6 +10945,7 @@ export namespace Schemas {
       Events: 'events',
       Persons: 'persons',
       Sessions: 'sessions',
+      Hogql: 'hogql',
     } as const;
 
     /**
@@ -11255,7 +11326,8 @@ export namespace Schemas {
        *
        * * `events` - Events
        * * `persons` - Persons
-       * * `sessions` - Sessions */
+       * * `sessions` - Sessions
+       * * `hogql` - Hogql */
       model?: ModelEnum | BlankEnum | null;
       /** Destination configuration (type, config, and optional integration). */
       destination: BatchExportDestination;
@@ -12102,7 +12174,8 @@ export namespace Schemas {
        *
        * * `events` - Events
        * * `persons` - Persons
-       * * `sessions` - Sessions */
+       * * `sessions` - Sessions
+       * * `hogql` - Hogql */
       model?: ModelEnum;
       /** Destination configuration. Required integration_id is enforced per destination type. */
       destination: BatchExportDestinationRequest;
@@ -12566,6 +12639,8 @@ export namespace Schemas {
        *
        * * `email` - email */
       dedupe_key: DedupeKeyEnum | null;
+      /** Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes. */
+      confirm_token: string;
     }
 
     /**
@@ -13385,6 +13460,18 @@ export namespace Schemas {
       failing_workflows?: string[];
     }
 
+    /**
+     * * `pytest` - PYTEST
+     * * `jest` - JEST
+     */
+    export type CITestRunnerEnum = typeof CITestRunnerEnum[keyof typeof CITestRunnerEnum];
+
+
+    export const CITestRunnerEnum = {
+      Pytest: 'pytest',
+      Jest: 'jest',
+    } as const;
+
     export interface EventsHeatMapColumnAggregationResult {
       column: number;
       value: number;
@@ -14119,12 +14206,12 @@ export namespace Schemas {
      */
     export interface ClaudeTaskRunCreateSchema {
       /**
-         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
          * @nullable
          */
       imported_mcp_servers?: ImportedMcpServer[] | null;
       /**
-         * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+         * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
          * @nullable
          */
       relayed_mcp_servers?: RelayedMcpServer[] | null;
@@ -14183,7 +14270,7 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
-      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+      /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Claude runtimes.
        *
@@ -14490,12 +14577,12 @@ export namespace Schemas {
      */
     export interface CodexTaskRunCreateSchema {
       /**
-         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
          * @nullable
          */
       imported_mcp_servers?: ImportedMcpServer[] | null;
       /**
-         * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+         * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
          * @nullable
          */
       relayed_mcp_servers?: RelayedMcpServer[] | null;
@@ -14554,7 +14641,7 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
-      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+      /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Codex runtimes.
        *
@@ -14874,6 +14961,18 @@ export namespace Schemas {
       /** @nullable */
       source_comment?: string | null;
     }
+
+    /**
+     * * `conversation` - conversation
+     * * `review` - review
+     */
+    export type CommentTypeEnum = typeof CommentTypeEnum[keyof typeof CommentTypeEnum];
+
+
+    export const CommentTypeEnum = {
+      Conversation: 'conversation',
+      Review: 'review',
+    } as const;
 
     /**
      * Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
@@ -15216,6 +15315,11 @@ export namespace Schemas {
       readonly task: ConversationTask | null;
     }
 
+    export interface ConversationsTicketImage {
+      url: string;
+      author: string;
+    }
+
     export interface ConversationsTicketSignalExtra {
       ticket_number: number;
       channel_source: string;
@@ -15224,6 +15328,7 @@ export namespace Schemas {
       priority: string | null;
       created_at: string;
       email_subject: string | null;
+      images?: ConversationsTicketImage[] | null;
     }
 
     export interface ConversionGoalSummary {
@@ -16159,6 +16264,8 @@ export namespace Schemas {
       source_column?: string | null;
       /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
       column_property_map?: unknown;
+      /** Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
+      column_descriptions?: unknown;
       /**
          * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
          * @maxLength 400
@@ -17281,7 +17388,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.
+      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
        *
        * * `never` - never
        * * `15min` - 15min
@@ -17293,6 +17400,8 @@ export namespace Schemas {
        * * `7day` - 7day
        * * `30day` - 30day */
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
+      /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
+      readonly sync_frequency_managed_by_dag: boolean;
       readonly columns: readonly DataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *
@@ -17457,6 +17566,8 @@ export namespace Schemas {
       readonly description: string;
       /** @nullable */
       readonly sync_frequency: string | null;
+      /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
+      readonly sync_frequency_managed_by_dag: boolean;
       readonly columns: readonly DataWarehouseSavedQueryMinimalColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *
@@ -22258,6 +22369,15 @@ export namespace Schemas {
      */
     export type EarlyAccessFeaturePayload = { [key: string]: unknown };
 
+    /**
+     * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+     * @nullable
+     */
+    export type EarlyAccessFeatureAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null;
+
     export type MinimalFeatureFlagFilters = { [key: string]: unknown };
 
     export interface MinimalFeatureFlag {
@@ -22341,12 +22461,28 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
       readonly created_at: string;
+      /** The user who created this early access feature. Null for features created before creator tracking was added. */
+      readonly created_by: UserBasic | null;
+      /**
+         * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+         * @nullable
+         */
+      readonly assignee: EarlyAccessFeatureAssignee;
       /**
          * The effective access level the user has for this object
          * @nullable
          */
       readonly user_access_level: string | null;
     }
+
+    /**
+     * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+     * @nullable
+     */
+    export type EarlyAccessFeatureSerializerCreateOnlyAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null;
 
     /**
      * Mixin for serializers to add user access control fields
@@ -22377,6 +22513,13 @@ export namespace Schemas {
       /** Arbitrary JSON metadata associated with this feature. */
       payload?: unknown;
       readonly created_at: string;
+      /** The user who created this early access feature. Null for features created before creator tracking was added. */
+      readonly created_by: UserBasic | null;
+      /**
+         * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+         * @nullable
+         */
+      readonly assignee: EarlyAccessFeatureSerializerCreateOnlyAssignee;
       /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate. */
       feature_flag_id?: number;
       readonly feature_flag: MinimalFeatureFlag;
@@ -22671,6 +22814,20 @@ export namespace Schemas {
       design?: EmailTemplateDesign;
     }
 
+    /**
+     * * `off` - Off
+     * * `opt_out` - Opt Out
+     * * `opt_in` - Opt In
+     */
+    export type EmailTrackingConsentModeEnum = typeof EmailTrackingConsentModeEnum[keyof typeof EmailTrackingConsentModeEnum];
+
+
+    export const EmailTrackingConsentModeEnum = {
+      Off: 'off',
+      OptOut: 'opt_out',
+      OptIn: 'opt_in',
+    } as const;
+
     export type EmbeddingStatusEnum = typeof EmbeddingStatusEnum[keyof typeof EmbeddingStatusEnum];
 
 
@@ -22903,7 +23060,7 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
-      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
     }
 
@@ -23476,6 +23633,7 @@ export namespace Schemas {
      * * `mysql` - mysql
      * * `snowflake` - snowflake
      * * `redshift` - redshift
+     * * `clickhouse` - clickhouse
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -23486,6 +23644,7 @@ export namespace Schemas {
       Mysql: 'mysql',
       Snowflake: 'snowflake',
       Redshift: 'redshift',
+      Clickhouse: 'clickhouse',
     } as const;
 
     export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra {
@@ -24943,15 +25102,32 @@ export namespace Schemas {
     };
 
     /**
-     * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+     * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
      */
     export type EvaluationTargetConfig = {
+      /** Wait a fixed window after the first matching generation, then evaluate. */
+      strategy?: 'fixed_window';
       /**
-         * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
+         * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
          * @minimum 10
          * @maximum 7200
          */
       window_seconds?: number;
+    } | {
+      /** Evaluate once the trace has had no new activity for the quiet period. */
+      strategy: 'inactivity';
+      /**
+         * Seconds without new trace activity before the trace counts as settled.
+         * @minimum 10
+         * @maximum 1800
+         */
+      quiet_period_seconds?: number;
+      /**
+         * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+         * @minimum 60
+         * @maximum 7200
+         */
+      max_age_seconds?: number;
     };
 
     /**
@@ -25130,12 +25306,12 @@ export namespace Schemas {
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
-      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
        *
        * * `generation` - Generation
        * * `trace` - Trace */
       target?: EvaluationTargetEnum;
-      /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+      /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
       target_config?: EvaluationTargetConfig;
       /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
@@ -25664,6 +25840,59 @@ export namespace Schemas {
       property_group_id: string;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    /**
+     * The caller's event stream — a live feed of selected accounts' events posted to a
+     * Slack channel of their choice. One stream per user per project.
+     */
+    export interface EventStream {
+      readonly id: string;
+      /** Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel. */
+      enabled?: boolean;
+      /**
+         * Names of the events to stream (matched exactly). Duplicates and blanks are dropped.
+         * @items.maxLength 400
+         */
+      event_names?: string[];
+      /**
+         * ID of the team's Slack workspace integration to deliver through.
+         * @nullable
+         */
+      slack_integration?: number | null;
+      /**
+         * Slack channel ID to post to (e.g. C0123ABC).
+         * @maxLength 200
+         */
+      slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel (e.g. #customer-events). Informational only.
+         * @maxLength 200
+         */
+      slack_channel_name?: string;
+      /** UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints. */
+      readonly account_ids: readonly string[];
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    /**
+     * Request body for adding or removing an event-stream member account.
+     */
+    export interface EventStreamMemberWrite {
+      /** UUID of the account to add to or remove from the stream. */
+      account_id: string;
+    }
+
+    /**
+     * Result of posting an event-stream test message to Slack.
+     */
+    export interface EventStreamTestMessage {
+      /** Slack channel ID the test message was posted to (e.g. C0123ABC). */
+      readonly channel_id: string;
     }
 
     export interface EventSuggestionsResponse {
@@ -26502,7 +26731,7 @@ export namespace Schemas {
          */
       conclusion_comment?: string | null;
       /**
-         * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+         * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
          * @nullable
          */
       readonly flag_cleanup_task_id: string | null;
@@ -26797,7 +27026,7 @@ export namespace Schemas {
     } as const;
 
     export interface ExperimentFlagCleanupTask {
-      /** ID of the flag-cleanup Code task. */
+      /** ID of the flag-cleanup Desktop task. */
       task_id: string;
       /** Status of the task's latest run.
        *
@@ -26815,7 +27044,7 @@ export namespace Schemas {
          * @nullable
          */
       pr_url: string | null;
-      /** Whether the requesting user can open the task in PostHog Code. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
+      /** Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
       can_view_task: boolean;
     }
 
@@ -26835,6 +27064,7 @@ export namespace Schemas {
 
     /**
      * * `manual` - Manual
+     * * `agent_mcp` - Agent (MCP)
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
@@ -26848,6 +27078,7 @@ export namespace Schemas {
 
     export const TriggerEnum = {
       Manual: 'manual',
+      AgentMcp: 'agent_mcp',
       ColdRun: 'cold_run',
       StaleRefresh: 'stale_refresh',
       AutoRefresh: 'auto_refresh',
@@ -26932,6 +27163,7 @@ export namespace Schemas {
       /** What triggered this recalculation
        *
        * * `manual` - Manual
+       * * `agent_mcp` - Agent (MCP)
        * * `cold_run` - Cold Run
        * * `stale_refresh` - Stale Refresh
        * * `auto_refresh` - Auto Refresh
@@ -27062,6 +27294,53 @@ export namespace Schemas {
     }
 
     /**
+     * * `source` - source
+     * * `step` - step
+     * * `numerator` - numerator
+     * * `denominator` - denominator
+     * * `retention_start` - retention_start
+     * * `retention_completion` - retention_completion
+     */
+    export type SourceRoleEnum = typeof SourceRoleEnum[keyof typeof SourceRoleEnum];
+
+
+    export const SourceRoleEnum = {
+      Source: 'source',
+      Step: 'step',
+      Numerator: 'numerator',
+      Denominator: 'denominator',
+      RetentionStart: 'retention_start',
+      RetentionCompletion: 'retention_completion',
+    } as const;
+
+    /**
+     * One event/action source of a metric with at least one matching event in a session recording.
+     */
+    export interface ExperimentSessionMetricSourceHit {
+      /** What this source means to its metric: 'source' (a mean metric's single event), 'step' (a funnel step, numbered by source_index), 'numerator'/'denominator' (a ratio metric's two sides), or 'retention_start'/'retention_completion' (a retention metric's start event and return visit). A hit on one source is not a hit on the metric as the analysis counts it.
+       *
+       * * `source` - source
+       * * `step` - step
+       * * `numerator` - numerator
+       * * `denominator` - denominator
+       * * `retention_start` - retention_start
+       * * `retention_completion` - retention_completion */
+      source_role: SourceRoleEnum;
+      /** Display name of the source event or action. */
+      source_name: string;
+      /** 0-based position of this source among all the metric's sources, data-warehouse ones included — so a funnel step keeps its real step number even when an earlier step has no session events. */
+      source_index: number;
+      /** Total number of sources the metric is defined over. */
+      source_total: number;
+      /** Number of events in the session matching this source. */
+      event_count: number;
+      /** Timestamp of the first event in the session matching this source. */
+      first_timestamp: string;
+      /** Ascending timestamps of this source's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
+      timestamps: string[];
+    }
+
+    /**
      * One experiment metric with at least one matching event in a session recording.
      */
     export interface ExperimentSessionMetricHit {
@@ -27075,6 +27354,8 @@ export namespace Schemas {
       first_timestamp: string;
       /** Ascending timestamps of the metric's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
       timestamps: string[];
+      /** Which of the metric's sources fired, so a hit reads as 'step 2 of 3' or 'the start event of a retention metric' rather than an unqualified 'this metric happened'. Sources with no matching event are omitted, as is the whole breakdown for metrics beyond the scan's aggregate ceiling. A retention metric whose start and completion are the same event contributes only the start source: the completion would match the identical events and render a duplicate. */
+      sources: ExperimentSessionMetricSourceHit[];
     }
 
     /**
@@ -27209,7 +27490,7 @@ export namespace Schemas {
          */
       conclusion_comment?: string | null;
       /**
-         * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+         * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
          * @nullable
          */
       readonly flag_cleanup_task_id: string | null;
@@ -27692,7 +27973,8 @@ export namespace Schemas {
        * * `postgres` - postgres
        * * `mysql` - mysql
        * * `snowflake` - snowflake
-       * * `redshift` - redshift */
+       * * `redshift` - redshift
+       * * `clickhouse` - clickhouse */
       readonly engine: EngineEnum | null;
       /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
        *
@@ -30246,7 +30528,7 @@ export namespace Schemas {
        * * `warehouse` - warehouse
        * * `direct` - direct */
       access_method?: AccessMethodEnum;
-      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Code-driven MCP calls. Defaults to `api`.
+      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Desktop-driven MCP calls. Defaults to `api`.
        *
        * * `web` - web
        * * `api` - api
@@ -30321,7 +30603,7 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly created_by: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
@@ -30363,7 +30645,8 @@ export namespace Schemas {
        * * `postgres` - postgres
        * * `mysql` - mysql
        * * `snowflake` - snowflake
-       * * `redshift` - redshift */
+       * * `redshift` - redshift
+       * * `clickhouse` - clickhouse */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -31148,11 +31431,16 @@ export namespace Schemas {
     } as const;
 
     export interface FlakyTestItem {
-      /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable selector — use `selector` to run or quarantine the test. */
+      /** Test runner that emitted this signal: 'pytest' or 'jest'.
+       *
+       * * `pytest` - PYTEST
+       * * `jest` - JEST */
+      runner: CITestRunnerEnum;
+      /** Runner-specific stable test identity (the CI span name). This is a grouping key, not necessarily runnable; use `selector` to run or quarantine the test. */
       nodeid: string;
-      /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
+      /** Runnable pytest or Jest selector. Exact when the CI reporter emitted it; older pytest spans use a best-effort reconstruction from the nodeid. */
       selector: string;
-      /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
+      /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: a tolerated failure was recorded while it was masked. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
        *
        * * `confirmed_flake` - CONFIRMED_FLAKE
        * * `suspected_regression` - SUSPECTED_REGRESSION
@@ -31166,9 +31454,9 @@ export namespace Schemas {
       failed_pr_count: number;
       /** Failed runs on the default branch (master/main approximation): the 'matters right now' signal that a test is breaking the trunk, not just PR branches. */
       master_failed_run_count: number;
-      /** Runs where the test failed while quarantined (xfail): already masked in CI, still failing. */
+      /** Runs where the test recorded a tolerated failure while quarantined: already masked in CI, still failing. */
       quarantined_failed_run_count: number;
-      /** Most recent failure, recovery, or xfail run for this test in the window. */
+      /** Most recent failure, recovery, or quarantined-failure run for this test in the window. */
       last_signal_at: string;
     }
 
@@ -31481,7 +31769,7 @@ export namespace Schemas {
     }
 
     export interface GitHubPrepareCallbackRequest {
-      /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code). */
+      /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Desktop). */
       next?: string;
       /** GitHub installation ID being managed; binds the seeded update state so a callback can't swap in a different installation. */
       installation_id?: string;
@@ -32074,6 +32362,9 @@ export namespace Schemas {
       has_content: boolean;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface HeatmapScreenshotResponse {
       readonly id: string;
       /** Short, URL-safe identifier used as the lookup key for saved-heatmap routes. */
@@ -32125,6 +32416,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly exception: string | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface HeatmapsResponse {
@@ -32262,7 +32558,7 @@ export namespace Schemas {
        * * `continue` - continue
        * * `branch` - branch */
       type: HogFlowEdgeTypeEnum;
-      /** Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing). */
+      /** Required for type='branch'. conditional_branch: index into config.conditions[index]. random_cohort_branch: index into config.cohorts[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing). */
       index?: number;
       /** Source action id. */
       from: string;
@@ -32281,7 +32577,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
      */
     export type HogFlowActionConfig = { [key: string]: unknown } | {
       /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
@@ -32331,7 +32627,7 @@ export namespace Schemas {
          * @maxLength 100
          */
       type: string;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
       /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
@@ -32478,7 +32774,7 @@ export namespace Schemas {
       /** ID of the workflow this batch run belongs to. */
       hog_flow: string;
       /** Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters. */
-      filters?: unknown;
+      readonly filters: unknown;
       /** Variable value overrides applied to this run. */
       variables?: unknown;
       readonly created_at: string;
@@ -36329,10 +36625,6 @@ export namespace Schemas {
       path: string;
       /** @maxLength 100 */
       content_type?: string;
-      /** Number of lines in the file content. */
-      line_count: number;
-      /** Number of characters in the file content. */
-      char_count: number;
     }
 
     export interface LLMSkillOutlineEntry {
@@ -36385,7 +36677,7 @@ export namespace Schemas {
       readonly category: string;
       /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
       readonly owners: readonly UserBasic[];
-      /** Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/. */
+      /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
       readonly files: readonly LLMSkillFileManifest[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
@@ -36694,65 +36986,6 @@ export namespace Schemas {
       skill: LLMSkill;
       versions: LLMSkillVersionSummary[];
       has_more: boolean;
-    }
-
-    export interface LLMSkillSearchError {
-      /** Explanation of why the skill search could not complete. */
-      detail: string;
-    }
-
-    /**
-     * * `name` - name
-     * * `description` - description
-     * * `body` - body
-     * * `file_path` - file_path
-     * * `file_content` - file_content
-     */
-    export type MatchedFieldEnum = typeof MatchedFieldEnum[keyof typeof MatchedFieldEnum];
-
-
-    export const MatchedFieldEnum = {
-      Name: 'name',
-      Description: 'description',
-      Body: 'body',
-      FilePath: 'file_path',
-      FileContent: 'file_content',
-    } as const;
-
-    export interface LLMSkillSearchMatch {
-      /** Skill field that matched the search query.
-       *
-       * * `name` - name
-       * * `description` - description
-       * * `body` - body
-       * * `file_path` - file_path
-       * * `file_content` - file_content */
-      matched_field: MatchedFieldEnum;
-      /** Skill-relative file path for body or bundled-file matches. Omitted for name and description matches. */
-      path?: string;
-      /**
-         * One-based line containing the match when the result came from a body or bundled file.
-         * @minimum 1
-         */
-      line?: number;
-      /** Short excerpt showing why this skill matched. */
-      excerpt: string;
-    }
-
-    export interface LLMSkillSearchResult {
-      /** Unique skill name. */
-      name: string;
-      /** What this skill does and when to use it. */
-      description: string;
-      /** Up to two locations that matched the search query, ordered by field relevance. */
-      matches: LLMSkillSearchMatch[];
-    }
-
-    export interface LLMSkillSearchResponse {
-      /** Number of matching skills returned, capped at 10. */
-      count: number;
-      /** Matching ordinary skills in relevance order. */
-      results: LLMSkillSearchResult[];
     }
 
     export interface LLMTaggerConfig {
@@ -37718,6 +37951,15 @@ export namespace Schemas {
       updated_at: string;
     }
 
+    export interface LoopSkillBundleDTO {
+      id: string;
+      skill_name: string;
+      skill_source: string;
+      size: number;
+      content_sha256: string;
+      uploaded_at: string;
+    }
+
     /**
      * Detail/create/update response for a loop, including its triggers.
      */
@@ -37763,6 +38005,8 @@ export namespace Schemas {
       updated_at: string;
       /** Triggers attached to this loop. */
       triggers: LoopTriggerDTO[];
+      /** Skill bundles attached to this loop, seeded into every fired run. */
+      skill_bundles: LoopSkillBundleDTO[];
     }
 
     /**
@@ -37918,6 +38162,64 @@ export namespace Schemas {
          * @nullable
          */
       next_cursor: string | null;
+    }
+
+    /**
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex
+     */
+    export type SkillSourceEnum = typeof SkillSourceEnum[keyof typeof SkillSourceEnum];
+
+
+    export const SkillSourceEnum = {
+      User: 'user',
+      Repo: 'repo',
+      Marketplace: 'marketplace',
+      Codex: 'codex',
+    } as const;
+
+    /**
+     * One zipped local skill in a skill-bundle replace request.
+     */
+    export interface LoopSkillBundleUpload {
+      /**
+         * File name for the stored bundle, e.g. `my-skill.zip`.
+         * @maxLength 255
+         */
+      file_name: string;
+      /**
+         * Name of the skill inside the bundle.
+         * @maxLength 255
+         */
+      skill_name: string;
+      /** Local source the bundle was built from, such as user or repo.
+       *
+       * * `user` - user
+       * * `repo` - repo
+       * * `marketplace` - marketplace
+       * * `codex` - codex */
+      skill_source: SkillSourceEnum;
+      /**
+         * SHA-256 hex digest of the bundle bytes.
+         * @pattern ^[a-f0-9]{64}$
+         */
+      content_sha256: string;
+      /** Archive format used for the bundle.
+       *
+       * * `zip` - zip */
+      bundle_format: BundleFormatEnum;
+      /** Base64-encoded bundle bytes. */
+      content_base64: string;
+    }
+
+    /**
+     * Request body for replacing a loop's attached skill bundles wholesale. Send an empty
+     * list to detach every skill.
+     */
+    export interface LoopSkillBundlesWrite {
+      bundles: LoopSkillBundleUpload[];
     }
 
     export interface LoopTriggerWrite {
@@ -39299,6 +39601,20 @@ export namespace Schemas {
       specificity_rejection?: SpecificityMetadata | null;
     }
 
+    export interface NodeSuspension {
+      /** When the node was suspended. */
+      at: string;
+      /** Error from the materialization that tripped suspension. */
+      reason: string;
+      /** Materialization job that tripped suspension. */
+      job_id: string;
+    }
+
+    /**
+     * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
+     */
+    export type NodeSuspended = {[key: string]: NodeSuspension};
+
     /**
      * * `table` - Table
      * * `view` - View
@@ -39339,6 +39655,13 @@ export namespace Schemas {
       readonly user_tag: string | null;
       /** @nullable */
       readonly sync_interval: string | null;
+      /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
+      readonly suspended: NodeSuspended;
+    }
+
+    export interface NodeResume {
+      /** False when the node was not suspended to begin with. */
+      resumed: boolean;
     }
 
     /**
@@ -39506,6 +39829,7 @@ export namespace Schemas {
      * * `experiment` - EXPERIMENT
      * * `error_tracking` - ERROR_TRACKING
      * * `customer_analytics` - CUSTOMER_ANALYTICS
+     * * `ticket` - TICKET
      */
     export type NotificationEventSourceTypeEnum = typeof NotificationEventSourceTypeEnum[keyof typeof NotificationEventSourceTypeEnum];
 
@@ -39520,6 +39844,7 @@ export namespace Schemas {
       Experiment: 'experiment',
       ErrorTracking: 'error_tracking',
       CustomerAnalytics: 'customer_analytics',
+      Ticket: 'ticket',
     } as const;
 
     export interface NotificationEvent {
@@ -40607,13 +40932,13 @@ export namespace Schemas {
       results: Announcement[];
     }
 
-    export interface PaginatedAppContractList {
+    export interface PaginatedAppSummaryContractList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: AppContract[];
+      results: AppSummaryContract[];
     }
 
     export interface PaginatedApprovalPolicyList {
@@ -42424,6 +42749,8 @@ export namespace Schemas {
       readonly estimated_monthly_credits: number | null;
       /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
       readonly credits_this_month: number;
+      /** Succeeded observations this scanner produced in the current billing period. */
+      readonly observations_this_month: number;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -44522,22 +44849,6 @@ export namespace Schemas {
       Openai: 'openai',
     } as const;
 
-    /**
-     * * `user` - user
-     * * `repo` - repo
-     * * `marketplace` - marketplace
-     * * `codex` - codex
-     */
-    export type SkillSourceEnum = typeof SkillSourceEnum[keyof typeof SkillSourceEnum];
-
-
-    export const SkillSourceEnum = {
-      User: 'user',
-      Repo: 'repo',
-      Marketplace: 'marketplace',
-      Codex: 'codex',
-    } as const;
-
     export interface TaskRunArtifactMetadata {
       /**
          * Name of the local skill included in a skill_bundle artifact.
@@ -46463,7 +46774,8 @@ export namespace Schemas {
        *
        * * `events` - Events
        * * `persons` - Persons
-       * * `sessions` - Sessions */
+       * * `sessions` - Sessions
+       * * `hogql` - Hogql */
       model?: ModelEnum;
       /** Destination configuration. Required integration_id is enforced per destination type. */
       destination?: BatchExportDestinationRequest;
@@ -47089,7 +47401,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.
+      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
        *
        * * `never` - never
        * * `15min` - 15min
@@ -47101,6 +47413,8 @@ export namespace Schemas {
        * * `7day` - 7day
        * * `30day` - 30day */
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
+      /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
+      readonly sync_frequency_managed_by_dag?: boolean;
       readonly columns?: readonly PatchedDataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *
@@ -47327,6 +47641,15 @@ export namespace Schemas {
     export type PatchedEarlyAccessFeaturePayload = { [key: string]: unknown };
 
     /**
+     * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+     * @nullable
+     */
+    export type PatchedEarlyAccessFeatureAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null;
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface PatchedEarlyAccessFeature {
@@ -47356,6 +47679,13 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
       readonly created_at?: string;
+      /** The user who created this early access feature. Null for features created before creator tracking was added. */
+      readonly created_by?: UserBasic | null;
+      /**
+         * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+         * @nullable
+         */
+      readonly assignee?: PatchedEarlyAccessFeatureAssignee;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -47802,15 +48132,32 @@ export namespace Schemas {
     };
 
     /**
-     * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+     * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
      */
     export type PatchedEvaluationTargetConfig = {
+      /** Wait a fixed window after the first matching generation, then evaluate. */
+      strategy?: 'fixed_window';
       /**
-         * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
+         * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
          * @minimum 10
          * @maximum 7200
          */
       window_seconds?: number;
+    } | {
+      /** Evaluate once the trace has had no new activity for the quiet period. */
+      strategy: 'inactivity';
+      /**
+         * Seconds without new trace activity before the trace counts as settled.
+         * @minimum 10
+         * @maximum 1800
+         */
+      quiet_period_seconds?: number;
+      /**
+         * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+         * @minimum 60
+         * @maximum 7200
+         */
+      max_age_seconds?: number;
     };
 
     export interface PatchedEvaluation {
@@ -47848,12 +48195,12 @@ export namespace Schemas {
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
-      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
        *
        * * `generation` - Generation
        * * `trace` - Trace */
       target?: EvaluationTargetEnum;
-      /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+      /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
       target_config?: PatchedEvaluationTargetConfig;
       /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
@@ -47931,6 +48278,43 @@ export namespace Schemas {
       property_group_id?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    /**
+     * The caller's event stream — a live feed of selected accounts' events posted to a
+     * Slack channel of their choice. One stream per user per project.
+     */
+    export interface PatchedEventStream {
+      readonly id?: string;
+      /** Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel. */
+      enabled?: boolean;
+      /**
+         * Names of the events to stream (matched exactly). Duplicates and blanks are dropped.
+         * @items.maxLength 400
+         */
+      event_names?: string[];
+      /**
+         * ID of the team's Slack workspace integration to deliver through.
+         * @nullable
+         */
+      slack_integration?: number | null;
+      /**
+         * Slack channel ID to post to (e.g. C0123ABC).
+         * @maxLength 200
+         */
+      slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel (e.g. #customer-events). Informational only.
+         * @maxLength 200
+         */
+      slack_channel_name?: string;
+      /** UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints. */
+      readonly account_ids?: readonly string[];
+      readonly created_at?: string;
+      /** @nullable */
+      readonly created_by?: number | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     /**
@@ -48077,7 +48461,7 @@ export namespace Schemas {
          */
       conclusion_comment?: string | null;
       /**
-         * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+         * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
          * @nullable
          */
       readonly flag_cleanup_task_id?: string | null;
@@ -48263,7 +48647,7 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
@@ -48305,7 +48689,8 @@ export namespace Schemas {
        * * `postgres` - postgres
        * * `mysql` - mysql
        * * `snowflake` - snowflake
-       * * `redshift` - redshift */
+       * * `redshift` - redshift
+       * * `clickhouse` - clickhouse */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -48706,6 +49091,8 @@ export namespace Schemas {
     }
 
     export interface PatchedHogFlowGraphUpdate {
+      /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored graph is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
+      base_updated_at?: string;
       /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
       operations?: HogFlowGraphOperation[];
     }
@@ -49590,6 +49977,11 @@ export namespace Schemas {
       tile?: MoveTileTile;
     }
 
+    /**
+     * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
+     */
+    export type PatchedNodeSuspended = {[key: string]: NodeSuspension};
+
     export interface PatchedNode {
       readonly id?: string;
       /** @maxLength 2048 */
@@ -49614,6 +50006,8 @@ export namespace Schemas {
       readonly user_tag?: string | null;
       /** @nullable */
       readonly sync_interval?: string | null;
+      /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
+      readonly suspended?: PatchedNodeSuspended;
     }
 
     /**
@@ -50075,6 +50469,12 @@ export namespace Schemas {
     export interface TeamWorkflowsConfig {
       /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
       capture_workflows_engagement_events?: boolean;
+      /** Recipient-consent enforcement for open/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.
+       *
+       * * `off` - Off
+       * * `opt_out` - Opt Out
+       * * `opt_in` - Opt In */
+      email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
     }
 
     /**
@@ -51096,6 +51496,8 @@ export namespace Schemas {
       readonly estimated_monthly_credits?: number | null;
       /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
       readonly credits_this_month?: number;
+      /** Succeeded observations this scanner produced in the current billing period. */
+      readonly observations_this_month?: number;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -54921,6 +55323,50 @@ export namespace Schemas {
     }
 
     /**
+     * One scout in either bucket of `inventory.scout_fleet`.
+     */
+    export interface ScoutFleetEntry {
+      /** The `signals-scout-*` skill this config schedules. */
+      skill_name: string;
+      /** Minutes between runs when no cron schedule is set (default 1440, every 24 hours). */
+      run_interval_minutes: number;
+      /**
+         * Optional cron expression, evaluated in the project timezone. Takes precedence over the interval.
+         * @nullable
+         */
+      run_cron_schedule: string | null;
+      /** Whether this scout's findings actually reach the inbox. False means dry-run: it runs and logs but emits nothing, so its silence says nothing about the surface it watches. */
+      emit: boolean;
+      /**
+         * ISO-8601 timestamp the coordinator last dispatched this scout, or null if it has never run.
+         * @nullable
+         */
+      last_run_at: string | null;
+      /**
+         * ISO-8601 timestamp this scout last produced output on either channel (a finding, or an authored/edited report), within `emitted_lookback_days`. Null means quiet for at least that window, not never.
+         * @nullable
+         */
+      last_emitted_at: string | null;
+      /**
+         * Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.
+         * @nullable
+         */
+      not_running_reason: string | null;
+    }
+
+    /**
+     * `inventory.scout_fleet` — the other scouts running on this project, split by enablement.
+     */
+    export interface ScoutFleet {
+      /** Scouts that actually run on this team: enabled, with a live skill the coordinator dispatches. */
+      enabled: ScoutFleetEntry[];
+      /** Scouts that do not run, each carrying a `not_running_reason` — turned off, or left on with a skill that can't dispatch. Different from a surface no scout ever covered. */
+      disabled: ScoutFleetEntry[];
+      /** The window `last_emitted_at` was resolved over, so a null reads as 'quiet', not 'never'. */
+      emitted_lookback_days: number;
+    }
+
+    /**
      * One row in `inventory.recent_activity.by_scope`.
      */
     export interface ScopeActivityEntry {
@@ -55341,6 +55787,8 @@ export namespace Schemas {
       signal_source_configs: SignalSourceConfigsBuckets;
       /** Whether scout findings can actually reach the inbox for this team — the org-level AI data-processing consent gate and the `signals_scout` source toggle, plus a one-line remediation pointer. Read at cold start to quick-close before doing throwaway work. */
       emit_eligibility: EmitEligibility;
+      /** The other scouts configured on this project, split into enabled / disabled, each with its cadence, dry-run posture, last run, and last emit. Read it to see who else is watching this project before investigating a surface a sibling already covers. */
+      scout_fleet: ScoutFleet;
       /** Counts of reports already in the inbox, grouped by status. */
       existing_inbox_reports: ExistingInboxReports;
       /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`. */
@@ -55646,6 +56094,126 @@ export namespace Schemas {
       max_proxy_records: number;
     }
 
+    /**
+     * One CI check on a pull request's head commit — a GitHub Actions check run or a legacy commit
+     * status, normalized to a common shape.
+     */
+    export interface PullRequestCheck {
+      /** Check run name or status context. */
+      readonly name: string;
+      /**
+         * Lifecycle state: 'queued', 'in_progress', or 'completed'.
+         * @nullable
+         */
+      readonly status: string | null;
+      /**
+         * Outcome once completed: 'success', 'failure', 'neutral', 'cancelled', 'skipped', 'timed_out', or 'action_required'. Null while still running.
+         * @nullable
+         */
+      readonly conclusion: string | null;
+      /**
+         * Link to the check run / status detail on GitHub.
+         * @nullable
+         */
+      readonly url: string | null;
+    }
+
+    /**
+     * Response for the PR checks endpoint — the CI status of a report's implementation PR.
+     */
+    export interface PullRequestChecksResponse {
+      readonly checks: readonly PullRequestCheck[];
+    }
+
+    /**
+     * * `LEFT` - LEFT
+     * * `RIGHT` - RIGHT
+     */
+    export type SideEnum = typeof SideEnum[keyof typeof SideEnum];
+
+
+    export const SideEnum = {
+      Left: 'LEFT',
+      Right: 'RIGHT',
+    } as const;
+
+    /**
+     * One comment on a pull request — a conversation comment or an inline review comment.
+     */
+    export interface PullRequestComment {
+      /** GitHub comment id. */
+      readonly id: string;
+      /**
+         * Comment author's GitHub login.
+         * @nullable
+         */
+      readonly author: string | null;
+      /**
+         * Author's GitHub avatar URL.
+         * @nullable
+         */
+      readonly author_avatar_url: string | null;
+      /** Comment body (GitHub-flavored markdown). */
+      readonly body: string;
+      /**
+         * ISO 8601 creation timestamp.
+         * @nullable
+         */
+      readonly created_at: string | null;
+      /**
+         * Link to the comment on GitHub.
+         * @nullable
+         */
+      readonly url: string | null;
+      /** 'conversation' for a PR discussion comment, 'review' for an inline code-review comment.
+       *
+       * * `conversation` - conversation
+       * * `review` - review */
+      readonly comment_type: CommentTypeEnum;
+      /**
+         * File path the review comment is anchored to (review comments only).
+         * @nullable
+         */
+      readonly path: string | null;
+      /**
+         * Line in the diff the review comment is anchored to — the end line for multi-line comments (review comments only; null when the comment is outdated relative to the PR head).
+         * @nullable
+         */
+      readonly line: number | null;
+      /**
+         * First line of a multi-line review comment's range (review comments only).
+         * @nullable
+         */
+      readonly start_line: number | null;
+      /** Diff side the review comment is anchored to: 'LEFT' = deletions, 'RIGHT' = additions (review comments only).
+       *
+       * * `LEFT` - LEFT
+       * * `RIGHT` - RIGHT */
+      readonly side: SideEnum | null;
+      /**
+         * Diff hunk excerpt the review comment applies to (review comments only).
+         * @nullable
+         */
+      readonly diff_hunk: string | null;
+      /**
+         * Id of the thread root comment this one replies to; null for thread roots and conversation comments.
+         * @nullable
+         */
+      readonly in_reply_to_id: string | null;
+      /**
+         * SHA of the commit the review comment was made against (review comments only).
+         * @nullable
+         */
+      readonly commit_id: string | null;
+    }
+
+    /**
+     * Response for the PR comments endpoint — conversation and review comments merged chronologically.
+     */
+    export interface PullRequestCommentsResponse {
+      readonly comments: readonly PullRequestComment[];
+    }
+
     export interface PushCISample {
       /** Head commit SHA of this push (CI round). */
       head_sha: string;
@@ -55839,6 +56407,20 @@ export namespace Schemas {
       expires_at?: string | null;
     }
 
+    /**
+     * * `pytest` - PYTEST
+     * * `jest` - JEST
+     * * `playwright` - PLAYWRIGHT
+     */
+    export type QuarantineRequestRunnerEnum = typeof QuarantineRequestRunnerEnum[keyof typeof QuarantineRequestRunnerEnum];
+
+
+    export const QuarantineRequestRunnerEnum = {
+      Pytest: 'pytest',
+      Jest: 'jest',
+      Playwright: 'playwright',
+    } as const;
+
     export interface QuarantineRequest {
       /** What to do: 'quarantine' (add or replace an entry and file a tracking issue), 'extend' (re-stamp an existing entry's expiry, reusing its issue), or 'remove' (delete the entry). All three open a pull request.
        *
@@ -55848,6 +56430,12 @@ export namespace Schemas {
       operation: OperationEnum;
       /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
       selector: string;
+      /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.
+       *
+       * * `pytest` - PYTEST
+       * * `jest` - JEST
+       * * `playwright` - PLAYWRIGHT */
+      runner?: QuarantineRequestRunnerEnum | null;
       /**
          * Optional 'owner/name' repository override; defaults to the team's most active repo.
          * @nullable
@@ -58328,7 +58916,7 @@ export namespace Schemas {
     export interface QuotaLimitsResponse {
       /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. */
       limited: QuotaLimitsResponseLimited;
-      /** Whether the team's organization pays for PostHog Code usage: billing grants the `posthog_code_usage` product feature only on the Code usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Code behavior on this; an org unknown to billing reads as not paying. */
+      /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. */
       code_usage_billing_active: boolean;
     }
 
@@ -58365,6 +58953,7 @@ export namespace Schemas {
       /** What triggered this recalculation (manual is the default for user-initiated runs)
        *
        * * `manual` - Manual
+       * * `agent_mcp` - Agent (MCP)
        * * `cold_run` - Cold Run
        * * `stale_refresh` - Stale Refresh
        * * `auto_refresh` - Auto Refresh
@@ -59195,16 +59784,6 @@ export namespace Schemas {
       chunks: ReviewSelectionChunk[];
     }
 
-    export interface ReviewFindingLineRange {
-      /** First affected line. */
-      start: number;
-      /**
-         * Last affected line; null for a single line.
-         * @nullable
-         */
-      end: number | null;
-    }
-
     /**
      * * `must_fix` - must_fix
      * * `should_fix` - should_fix
@@ -59218,6 +59797,16 @@ export namespace Schemas {
       ShouldFix: 'should_fix',
       Consider: 'consider',
     } as const;
+
+    export interface ReviewFindingLineRange {
+      /** First affected line. */
+      start: number;
+      /**
+         * Last affected line; null for a single line.
+         * @nullable
+         */
+      end: number | null;
+    }
 
     /**
      * * `bug` - bug
@@ -59385,6 +59974,12 @@ export namespace Schemas {
       perspective_selection: ReviewPerspectiveSelection | null;
       /** The rendered review body published to GitHub, as markdown. */
       report_markdown: string;
+      /** The urgency threshold the completed turn's publishing gated on (stamped at finalize from the run's own resolve snapshot); null for turns that predate its recording — readers fall back to the viewer's current setting as an approximation.
+       *
+       * * `must_fix` - must_fix
+       * * `should_fix` - should_fix
+       * * `consider` - consider */
+      run_urgency_threshold: ReviewIssuePriorityEnum | null;
       /** The latest turn's validated findings, most urgent first. */
       findings: ReviewFinding[];
       /** The latest turn's findings the validator dismissed, with its reasoning. */
@@ -60012,6 +60607,11 @@ export namespace Schemas {
       block_consent_modals?: boolean;
     }
 
+    export interface SavedQueryResume {
+      /** False when the query's materialization was not suspended. */
+      resumed: boolean;
+    }
+
     /**
      * Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown.
      */
@@ -60199,6 +60799,8 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
+      /** Where the note came from: `human` for one left directly through this API, or `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports. A `report_dismissal` note is one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. */
+      origin: string;
     }
 
     /**
@@ -60613,7 +61215,7 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
-      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
       /** The key of the variant to ship. */
       variant_key: string;
@@ -60874,11 +61476,6 @@ export namespace Schemas {
      * registered the row, the provided tunables are applied to it instead.
      */
     export interface SignalScoutConfigCreate {
-      /**
-         * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
-         * @maxLength 200
-         */
-      skill_name: string;
       /** Whether this scout runs on its schedule. Defaults to true. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -60897,6 +61494,73 @@ export namespace Schemas {
          * @nullable
          */
       run_cron_schedule?: string | null;
+      /**
+         * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
+         * @maxLength 200
+         */
+      skill_name: string;
+    }
+
+    /**
+     * Schedule, enablement, and delivery options accepted while creating a scout.
+     */
+    export interface SignalScoutConfigOptions {
+      /** Whether this scout runs on its schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).
+         * @minimum 30
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /** Destinations that receive each finding or report this scout emits. Empty by default. */
+      output_destinations?: SignalScoutOutputDestinations;
+      /**
+         * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+         * @maxLength 100
+         * @nullable
+         */
+      run_cron_schedule?: string | null;
+    }
+
+    /**
+     * Create a runnable custom scout and its config in one atomic request.
+     */
+    export interface SignalScoutCreate {
+      /**
+         * Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.
+         * @maxLength 64
+         */
+      name: string;
+      /**
+         * Short description of the signal or behavior this scout investigates.
+         * @maxLength 4096
+         */
+      description: string;
+      /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
+      body: string;
+      /** Optional reference files bundled with the scout prompt. */
+      files?: LLMSkillFileInput[];
+      /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
+      config?: SignalScoutConfigOptions;
+    }
+
+    export interface SignalScoutSkillSummary {
+      readonly id: string;
+      readonly name: string;
+      readonly description: string;
+      readonly version: number;
+      /** Server-managed report tools granted to this scout. */
+      readonly allowed_tools: readonly string[];
+    }
+
+    export interface SignalScoutCreateResponse {
+      /** True when this request created the missing scout skill or config; false when both already existed. */
+      created: boolean;
+      skill: SignalScoutSkillSummary;
+      config: SignalScoutConfig;
     }
 
     /**
@@ -66501,6 +67165,81 @@ export namespace Schemas {
     }
 
     /**
+     * Response shape for one task in the requester's activity feed (one row per task).
+     */
+    export interface TaskActivityDTO {
+      id: string;
+      task_id: string;
+      task_title: string;
+      /** @nullable */
+      channel_id: string | null;
+      /** @nullable */
+      channel_name: string | null;
+      activity_at: string;
+      /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a thread reply (message), or their creating the task (created).
+       *
+       * * `awaiting_input` - awaiting_input
+       * * `completed` - completed
+       * * `mention` - mention
+       * * `message` - message
+       * * `created` - created */
+      activity_kind: ActivityKindEnum;
+      /** Content of the thread message tied to the latest activity; empty for task-creation rows. */
+      snippet: string;
+      /** Author of the thread message tied to the latest activity, when one applies. */
+      latest_author?: TaskUserBasicInfo | null;
+      /** @nullable */
+      latest_message_id?: string | null;
+      /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
+      is_unread: boolean;
+    }
+
+    export interface TaskActivityReadMarker {
+      /** Task whose displayed activity should be marked read. */
+      task_id: string;
+      /** Mark activity at or before this timestamp read without clearing newer activity. */
+      seen_before: string;
+    }
+
+    /**
+     * Request body for clearing the unread flag on specific tasks.
+     */
+    export interface TaskActivityMarkRead {
+      /**
+         * Displayed task activities to mark read if they have not changed.
+         * @maxItems 500
+         */
+      activities: TaskActivityReadMarker[];
+    }
+
+    export interface TaskActivityMarkReadResponse {
+      /** How many feed rows changed from unread to read. */
+      marked_read: number;
+      /** The requester's remaining unread total after the update. */
+      unread_count: number;
+    }
+
+    /**
+     * A page of the requester's activity feed, plus the unread total across the whole feed.
+     */
+    export interface TaskActivityPageDTO {
+      /** Tasks with activity, most recent first. */
+      results: TaskActivityDTO[];
+      /** Unread tasks across the requester's whole feed, not just this page. Backs the sidebar badge. */
+      unread_count: number;
+      /**
+         * Activity timestamp to pass as before for the next page, or null on the final page.
+         * @nullable
+         */
+      next_before?: string | null;
+      /**
+         * Activity ID to pass as before_id for the next page, or null on the final page.
+         * @nullable
+         */
+      next_before_id?: string | null;
+    }
+
+    /**
      * * `active` - active
      * * `failed` - failed
      */
@@ -66960,12 +67699,12 @@ export namespace Schemas {
      */
     export interface TaskRunBootstrapCreateRequest {
       /**
-         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
          * @nullable
          */
       imported_mcp_servers?: ImportedMcpServer[] | null;
       /**
-         * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+         * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
          * @nullable
          */
       relayed_mcp_servers?: RelayedMcpServer[] | null;
@@ -67021,7 +67760,7 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
-      /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+      /** Ephemeral GitHub user token from PostHog Desktop for user-authored cloud pull requests. */
       github_user_token?: string;
       /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
        *
@@ -67133,7 +67872,7 @@ export namespace Schemas {
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
-      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+      /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
     }
 
@@ -67856,15 +68595,20 @@ export namespace Schemas {
     }
 
     export interface TeamTestSignal {
-      /** Reconstructed pytest nodeid (the CI span name), a stable grouping key. */
+      /** Test runner that emitted this signal: 'pytest' or 'jest'.
+       *
+       * * `pytest` - PYTEST
+       * * `jest` - JEST */
+      runner: CITestRunnerEnum;
+      /** Runner-specific test identity (the CI span name), a stable grouping key. */
       nodeid: string;
-      /** Runnable pytest selector; exact when the CI reporter emitted it. */
+      /** Runnable pytest or Jest selector; exact for newly emitted spans. */
       selector: string;
-      /** Runs in the current window where the test failed, errored, or a retry recovered it (xfail excluded). */
+      /** Runs in the current window where the test failed, errored, or a retry recovered it (quarantined failures excluded). */
       signal_count: number;
       /** Same count over the equal-length window before date_from. */
       signal_count_prior: number;
-      /** Most recent failure, recovery, or xfail run for this test, either window. */
+      /** Most recent failure, recovery, or quarantined-failure run for this test, either window. */
       last_seen_at: string;
     }
 
@@ -67896,11 +68640,11 @@ export namespace Schemas {
       same_commit_recovery_run_count: number;
       /** Same count over the prior window. */
       same_commit_recovery_run_count_prior: number;
-      /** Runs where an owned test failed while quarantined (xfail): masked in CI, still failing. */
+      /** Runs where an owned test recorded a tolerated failure while quarantined: masked in CI, still failing. */
       quarantined_failed_run_count: number;
       /** Same count over the prior window. */
       quarantined_failed_run_count_prior: number;
-      /** Most recent failure, recovery, or xfail run across the team's owned tests, either window. */
+      /** Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window. */
       last_seen_at: string;
     }
 
@@ -67983,6 +68727,15 @@ export namespace Schemas {
 
     export type TestHogRequestConditionsItem = { [key: string]: unknown };
 
+    export interface TestHogTargetConfig {
+      /**
+         * Aggregation window for trace samples, in seconds.
+         * @minimum 10
+         * @maximum 7200
+         */
+      window_seconds?: number;
+    }
+
     export interface TestHogRequest {
       /**
          * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
@@ -67999,19 +68752,36 @@ export namespace Schemas {
       allows_na?: boolean;
       /** Optional trigger conditions to filter which events are sampled. */
       conditions?: TestHogRequestConditionsItem[];
+      /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace */
+      target?: EvaluationTargetEnum;
+      /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
+      target_config?: TestHogTargetConfig;
     }
 
     export interface TestHogResultItem {
-      /** UUID of the $ai_generation event. */
-      event_uuid: string;
+      /** Stable identifier for the sampled generation or trace. */
+      sample_id: string;
+      /** Type of sampled unit: generation or trace.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace */
+      sample_type: EvaluationTargetEnum;
+      /**
+         * UUID of the sampled $ai_generation event, or null for a trace sample.
+         * @nullable
+         */
+      event_uuid: string | null;
       /**
          * Trace ID if available.
          * @nullable
          */
-      trace_id?: string | null;
-      /** First 200 chars of the generation input. */
+      trace_id: string | null;
+      /** First 200 characters of input from the sampled unit. */
       input_preview: string;
-      /** First 200 chars of the generation output. */
+      /** First 200 characters of output from the sampled unit. */
       output_preview: string;
       /**
          * True = pass, False = fail, null = N/A or error.
@@ -68402,7 +69172,7 @@ export namespace Schemas {
 
     export interface UserGitHubLinkStartRequest {
       /**
-         * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
+         * Optional team/project id (e.g. PostHog Desktop); web UI uses the session's current team.
          * @nullable
          */
       team_id?: number | null;
@@ -72753,7 +73523,7 @@ export namespace Schemas {
 
     export type ConversationsTicketsListParams = {
     /**
-     * Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.
+     * Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `me` (the requesting user), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.
      */
     assignee?: string;
     /**
@@ -77265,15 +78035,6 @@ export namespace Schemas {
     version_id?: string;
     };
 
-    export type LlmSkillsSearchRetrieveParams = {
-    /**
-     * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
-     * @minLength 1
-     * @maxLength 200
-     */
-    query: string;
-    };
-
     export type LogsAlertsListParams = {
     /**
      * Only return log alerts created by the user with this UUID.
@@ -78442,7 +79203,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Whose reviews to list: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
+     * Whose reviews to list: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
      *
      * * `mine` - mine
      * * `everyone` - everyone
@@ -78461,7 +79222,7 @@ export namespace Schemas {
 
     export type ReviewHogReviewsPerspectiveStatsRetrieveParams = {
     /**
-     * Whose reviews to aggregate: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
+     * Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
      *
      * * `mine` - mine
      * * `everyone` - everyone
@@ -79305,6 +80066,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type TaskActivityListParams = {
+    /**
+     * Activity timestamp from the final row of the previous page.
+     */
+    before?: string;
+    /**
+     * Activity ID from the final row of the previous page.
+     */
+    before_id?: string;
+    /**
+     * Maximum number of tasks to return (most recent activity first).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
     };
 
     export type TaskAutomationsListParams = {

@@ -282,6 +282,24 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   has problem tools; falls back to one report per tool where category coverage is absent
   (external-SDK regime); bundles `references/queries.md`, a HogQL cookbook validated
   against real telemetry.
+- `signals-scout-tasks/` — delivery + demand watcher for the Tasks product (the agent
+  work items a project runs), read from the `system.tasks` / `system.task_runs` system
+  tables. Two lenses in one body: **delivery health** every run (runs failing, clustered
+  by repository and by `error_message` prefix) and a ~weekly gated **demand** pass over
+  human-authored tasks (recurring asks that point at a product gap). Its discriminator is
+  failure concentration × spread — a cluster's failure rate over meaningful volume, with
+  runs ÷ distinct tasks separating a _systemic_ defect in a shared path (ratio ≈ 1 across
+  many tasks) from a _retry storm_ (ratio ≫ 1 over one or two stuck tasks), which is the
+  single biggest false positive on this surface. Two exclusions are load-bearing: it always
+  drops `origin_product = 'signals_scout'` (the fleet's own run containers, which the
+  `internal` flag does _not_ filter and which can outnumber every real origin), and the
+  demand lens reads human origins only, so the inbox's own throughput can never register as
+  user demand. On the **report channel** (`emit_report` / `edit_report`): one report per
+  cluster (a repository or a failure class), with the demand lens held to a higher bar —
+  its default outcome is compounding scratchpad memory, and it files only once a theme
+  crosses into something actionable. Bundles `references/queries.md`, a cookbook validated
+  against real task data (it also records that `stage` is unpopulated, so no lens rests on
+  it). Task text is treated as untrusted prompt material, never instructions.
 - `signals-scout-conversations/` — support-delivery health watcher for the
   Conversations (support inbox) product. Reads the `$conversation_*` ticket-lifecycle
   events for operational regressions: SLA breach-rate steps on team replies
@@ -313,8 +331,10 @@ every 24 hours) and a `last_run_at` stamp. Every tick the coordinator:
    enrolls or drains a team next tick — no manual seed.
 2. Auto-registers a config for any `signals-scout-*` skill missing one
    (`scout_harness/config_registry.register_missing_configs`) — on an enrolled team,
-   authoring a skill is enough to get a scout. To register (and tune) one immediately
-   instead, use the `scout-config-create` endpoint.
+   authoring a skill is enough to get a scout. For custom scouts, `scout-create-prepare`
+   validates and signs the skill and config, then `scout-create-execute` creates them
+   after the user confirms; `scout-config-create` remains the lower-level way to register
+   a config for an existing skill.
 3. Dispatches every enabled scout whose schedule is due (`last_run_at is None`, or
    `now - last_run_at >= run_interval_minutes`), most-overdue first, capped at
    `MAX_RUNS_PER_TICK` per tick. Each due scout becomes one `RunSignalsScoutWorkflow`
@@ -322,8 +342,8 @@ every 24 hours) and a `last_run_at` stamp. Every tick the coordinator:
 
 Pausing a scout is `enabled=False` on its config; slowing it is a larger
 `run_interval_minutes`. Both are tunable via the `scout-config-update` MCP
-tool, and settable at creation time via `scout-config-create` (an upsert that
-registers the config immediately instead of waiting for the tick). See
+tool, and settable for a new custom scout via the nested `config` object on
+`scout-create-prepare`. See
 `scout_coordinator._collect_planned_runs` for the exact due-check.
 
 ### Authoring a new scout

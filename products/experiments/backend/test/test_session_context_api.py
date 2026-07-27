@@ -754,6 +754,17 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
                 "event_count": 1,
                 "first_timestamp": "2026-01-01T10:09:00Z",
                 "timestamps": ["2026-01-01T10:09:00Z"],
+                "sources": [
+                    {
+                        "source_role": "source",
+                        "source_name": "purchase",
+                        "source_index": 0,
+                        "source_total": 1,
+                        "event_count": 1,
+                        "first_timestamp": "2026-01-01T10:09:00Z",
+                        "timestamps": ["2026-01-01T10:09:00Z"],
+                    }
+                ],
             }
         ]
         # No metric event fired for the other experiment — the additive fields stay inert and
