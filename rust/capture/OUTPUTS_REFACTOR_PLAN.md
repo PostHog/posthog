@@ -317,6 +317,6 @@ No `--no-verify` — pre-commit hooks must pass.
 | 7 · Outputs layer with policies; composites retired | done | `feat(capture): outputs layer owns failover and split policies` |
 | 8a · Call sites on the table | done | `refactor(capture): call sites publish through outputs` |
 | 8b · `Event` retired | done | `refactor(capture): retire v0 Event trait` |
-| 9 · Mode-scoped completeness | pending | `refactor(capture): mode-scoped output registry completeness` |
+| 9 · Mode-scoped completeness | done | `refactor(capture): mode-scoped output registry completeness` |
 | 10 · Breaker mode (dark) | pending | `feat(capture): breaker-driven failover mode (dark)` |
 | 11 · v1 convergence | pending | `refactor(capture): v1 resolves through shared pipeline/lane strata` |

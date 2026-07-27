@@ -18,7 +18,7 @@
 //! cost in the scatter-gather batch path at two `Arc::clone` calls (producer
 //! + topics) rather than deep copies of limiter state.
 use crate::api::CaptureError;
-use crate::config::{EnvelopeCompression, KafkaConfig};
+use crate::config::{CaptureMode, EnvelopeCompression, KafkaConfig};
 use crate::pipeline::{resolve, KeyPolicy, Lane, LaneDecision, LaneEffect, Pipeline};
 use crate::serialization::{Format, Serializer};
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
@@ -236,13 +236,14 @@ pub type KafkaSink = KafkaSinkBase<RdKafkaProducer<KafkaContext>>;
 impl KafkaSink {
     pub async fn new(
         config: KafkaConfig,
+        mode: CaptureMode,
         liveness: Option<lifecycle::Handle>,
     ) -> anyhow::Result<KafkaSink> {
         // Bind every output to its configured topic and refuse to boot if any
-        // one is empty — fail fast on a misconfig here, before we ever touch a
-        // broker, rather than at first produce (#68719).
+        // one the mode produces to is empty — fail fast on a misconfig here,
+        // before we ever touch a broker, rather than at first produce (#68719).
         let topics = Arc::new(OutputRegistry::from(&config));
-        topics.check_complete()?;
+        topics.check_complete(mode)?;
 
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
@@ -830,7 +831,7 @@ mod tests {
             kafka_metrics_metadata_max_age_ms: None,
             kafka_replay_envelope_compression: EnvelopeCompression::None,
         };
-        let sink = KafkaSink::new(config, Some(handle))
+        let sink = KafkaSink::new(config, config::CaptureMode::Events, Some(handle))
             .await
             .expect("failed to create sink");
         (cluster, sink)

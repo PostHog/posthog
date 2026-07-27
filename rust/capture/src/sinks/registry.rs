@@ -2,17 +2,25 @@
 //!
 //! Binds every fixed routing [`Outputs`] variant to its configured Kafka topic
 //! and provides a startup completeness check ([`OutputRegistry::check_complete`])
-//! that refuses to boot when any fixed output resolves to an empty topic. This is
-//! the single place the output→topic wiring lives: it replaces the ad-hoc
-//! `KafkaTopicConfig` struct plus the inline `match route.target` that used to
-//! resolve topics inside the sink. Adding an output is now a one-place change —
-//! the `topic_for` match is compiler-forced exhaustive, and `check_complete`
-//! catches an unwired output at boot rather than at first produce (#68719).
+//! that refuses to boot when any output a deployment can actually produce to
+//! resolves to an empty topic. This is the single place the output→topic wiring
+//! lives: it replaces the ad-hoc `KafkaTopicConfig` struct plus the inline
+//! `match route.target` that used to resolve topics inside the sink. Adding an
+//! output is now a one-place change — the `topic_for` match is compiler-forced
+//! exhaustive, and `check_complete` catches an unwired output at boot rather than
+//! at first produce (#68719).
+//!
+//! The check is scoped by [`CaptureMode`]: a deployment must only demand the
+//! topics its own pipelines route to. A `Recordings` pod produces only
+//! main / replay-overflow / dlq, so it must not refuse to boot on a blank
+//! analytics topic (heatmaps, historical, …); an `Events`/`Ai` pod produces the
+//! analytics family and never touches replay-overflow. Scoping the demand to the
+//! mode's reachable outputs is what keeps the check from over- or under-demanding.
 //!
 //! `Custom` topics are admin-supplied inline on the event's metadata, so they
 //! carry their own topic and are resolved by the sink, never registered here.
 
-use crate::config::KafkaConfig;
+use crate::config::{CaptureMode, KafkaConfig};
 
 /// Which configured output a routing decision selects. The sink resolves this to
 /// a concrete topic string against the [`OutputRegistry`]. Promoted from Step 2's
@@ -34,18 +42,40 @@ pub enum Outputs<'a> {
 }
 
 impl Outputs<'_> {
-    /// Every registered (non-`Custom`) output. `check_complete` walks this so a
-    /// newly added output is caught at boot rather than at first produce.
-    const REGISTERED: [Outputs<'static>; 8] = [
+    /// Outputs an `Events`/`Ai` deployment can route to. The analytics family:
+    /// every batch/event/ai/otel pipeline rides `process_events` and reaches
+    /// main / overflow / historical / client-ingestion-warning / heatmaps /
+    /// error-tracking, plus `dlq` (any pipeline can DLQ). Never replay-overflow —
+    /// that is the recordings pipeline's alone.
+    const ANALYTICS_OUTPUTS: [Outputs<'static>; 7] = [
         Outputs::Main,
         Outputs::Overflow,
         Outputs::Historical,
         Outputs::ClientIngestionWarning,
         Outputs::Heatmaps,
-        Outputs::ReplayOverflow,
-        Outputs::Dlq,
         Outputs::ErrorTracking,
+        Outputs::Dlq,
     ];
+
+    /// Outputs a `Recordings` deployment can route to. The replay pipeline emits
+    /// only `SnapshotMain`, which routes to main or replay-overflow, plus `dlq`.
+    /// It must not demand any analytics topic.
+    const RECORDINGS_OUTPUTS: [Outputs<'static>; 3] =
+        [Outputs::Main, Outputs::ReplayOverflow, Outputs::Dlq];
+
+    /// The outputs a deployment in `mode` can actually produce to — the exact set
+    /// `check_complete` demands be wired. Scoping to the mode's reachable outputs
+    /// is what keeps a `Recordings` pod from demanding analytics topics (and an
+    /// `Events`/`Ai` pod from demanding replay-overflow). `Custom` never appears
+    /// (it carries its own topic per event).
+    fn required_for(mode: CaptureMode) -> &'static [Outputs<'static>] {
+        match mode {
+            // Events and Ai share one router (batch/event + ai/otel merged), so
+            // both reach the whole analytics family.
+            CaptureMode::Events | CaptureMode::Ai => &Self::ANALYTICS_OUTPUTS,
+            CaptureMode::Recordings => &Self::RECORDINGS_OUTPUTS,
+        }
+    }
 
     /// Stable, low-cardinality label for diagnostics. `Custom` collapses to
     /// "custom" so admin topic names never leak into error messages.
@@ -95,17 +125,23 @@ impl OutputRegistry {
         }
     }
 
-    /// Startup completeness check: every registered output must resolve to a
-    /// non-empty topic. Introduced by Step 3 (#68719) — a misconfigured or
+    /// Startup completeness check, scoped to `mode`: every output the mode's
+    /// pipelines can route to must resolve to a non-empty topic. Introduced by
+    /// Step 3 (#68719) and made mode-aware in Step 10 — a misconfigured or
     /// newly-added-but-unwired output now fails fast at boot instead of at first
-    /// produce. `Custom` is excluded (it carries its own topic per event).
-    pub fn check_complete(&self) -> anyhow::Result<()> {
-        for output in &Outputs::REGISTERED {
+    /// produce, while a mode never demands a topic it cannot produce to (a
+    /// `Recordings` pod ignores analytics topics; an `Events`/`Ai` pod ignores
+    /// replay-overflow). `Custom` is always excluded (it carries its own topic
+    /// per event).
+    pub fn check_complete(&self, mode: CaptureMode) -> anyhow::Result<()> {
+        for output in Outputs::required_for(mode) {
             anyhow::ensure!(
                 !self.topic_for(output).is_empty(),
-                "output '{}' resolves to an empty Kafka topic; every non-custom \
-                 output must be bound to a configured, non-empty topic",
+                "output '{}' resolves to an empty Kafka topic in '{}' capture mode; \
+                 every output the mode produces to must be bound to a configured, \
+                 non-empty topic",
                 output.name(),
+                mode.as_tag(),
             );
         }
         Ok(())
@@ -174,35 +210,71 @@ mod tests {
         );
     }
 
-    #[test]
-    fn check_complete_accepts_full_registry() {
-        assert!(test_topics().check_complete().is_ok());
+    #[rstest]
+    #[case(CaptureMode::Events)]
+    #[case(CaptureMode::Recordings)]
+    #[case(CaptureMode::Ai)]
+    fn check_complete_accepts_full_registry(#[case] mode: CaptureMode) {
+        assert!(test_topics().check_complete(mode).is_ok());
     }
 
-    /// Every registered output, blanked one at a time, must fail the check and
-    /// the error must name the offending output — the #68719 completeness seam.
+    /// Every output a mode produces to, blanked one at a time, must fail that
+    /// mode's check and the error must name the offending output — the #68719
+    /// completeness seam, now scoped per mode.
     #[rstest]
-    #[case("main", |r: &mut OutputRegistry| r.main.clear())]
-    #[case("overflow", |r: &mut OutputRegistry| r.overflow.clear())]
-    #[case("historical", |r: &mut OutputRegistry| r.historical.clear())]
-    #[case("client_ingestion_warning", |r: &mut OutputRegistry| r.client_ingestion_warning.clear())]
-    #[case("heatmaps", |r: &mut OutputRegistry| r.heatmaps.clear())]
-    #[case("replay_overflow", |r: &mut OutputRegistry| r.replay_overflow.clear())]
-    #[case("dlq", |r: &mut OutputRegistry| r.dlq.clear())]
-    #[case("error_tracking", |r: &mut OutputRegistry| r.error_tracking.clear())]
+    // Analytics family — demanded by Events and Ai, never by Recordings.
+    #[case(CaptureMode::Events, "main", |r: &mut OutputRegistry| r.main.clear())]
+    #[case(CaptureMode::Events, "overflow", |r: &mut OutputRegistry| r.overflow.clear())]
+    #[case(CaptureMode::Events, "historical", |r: &mut OutputRegistry| r.historical.clear())]
+    #[case(CaptureMode::Events, "client_ingestion_warning", |r: &mut OutputRegistry| r.client_ingestion_warning.clear())]
+    #[case(CaptureMode::Events, "heatmaps", |r: &mut OutputRegistry| r.heatmaps.clear())]
+    #[case(CaptureMode::Events, "error_tracking", |r: &mut OutputRegistry| r.error_tracking.clear())]
+    #[case(CaptureMode::Events, "dlq", |r: &mut OutputRegistry| r.dlq.clear())]
+    #[case(CaptureMode::Ai, "overflow", |r: &mut OutputRegistry| r.overflow.clear())]
+    // Recordings family — main / replay-overflow / dlq only.
+    #[case(CaptureMode::Recordings, "main", |r: &mut OutputRegistry| r.main.clear())]
+    #[case(CaptureMode::Recordings, "replay_overflow", |r: &mut OutputRegistry| r.replay_overflow.clear())]
+    #[case(CaptureMode::Recordings, "dlq", |r: &mut OutputRegistry| r.dlq.clear())]
     fn check_complete_rejects_empty_topic(
+        #[case] mode: CaptureMode,
         #[case] output_name: &str,
         #[case] blank: fn(&mut OutputRegistry),
     ) {
         let mut registry = test_topics();
         blank(&mut registry);
         let err = registry
-            .check_complete()
+            .check_complete(mode)
             .expect_err("blank topic must fail the completeness check");
         let msg = format!("{err:#}");
         assert!(
             msg.contains(output_name),
             "error should name the missing output '{output_name}': {msg}"
+        );
+    }
+
+    /// A mode must not demand a topic it never produces to. Blanking an output
+    /// outside the mode's reachable set leaves the check green — the anti-
+    /// over-demand guarantee that lets Recordings and Events/Ai deployments share
+    /// one `KafkaConfig` without each carrying the other's topics.
+    #[rstest]
+    // Recordings ignores the whole analytics family.
+    #[case(CaptureMode::Recordings, |r: &mut OutputRegistry| r.overflow.clear())]
+    #[case(CaptureMode::Recordings, |r: &mut OutputRegistry| r.historical.clear())]
+    #[case(CaptureMode::Recordings, |r: &mut OutputRegistry| r.client_ingestion_warning.clear())]
+    #[case(CaptureMode::Recordings, |r: &mut OutputRegistry| r.heatmaps.clear())]
+    #[case(CaptureMode::Recordings, |r: &mut OutputRegistry| r.error_tracking.clear())]
+    // Events and Ai ignore replay-overflow.
+    #[case(CaptureMode::Events, |r: &mut OutputRegistry| r.replay_overflow.clear())]
+    #[case(CaptureMode::Ai, |r: &mut OutputRegistry| r.replay_overflow.clear())]
+    fn check_complete_ignores_unreachable_outputs(
+        #[case] mode: CaptureMode,
+        #[case] blank: fn(&mut OutputRegistry),
+    ) {
+        let mut registry = test_topics();
+        blank(&mut registry);
+        assert!(
+            registry.check_complete(mode).is_ok(),
+            "a blank output the mode never produces to must not fail its check"
         );
     }
 }

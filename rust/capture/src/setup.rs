@@ -294,9 +294,13 @@ pub async fn build_components(
 
     let output = if build_secondary {
         let secondary = Output::single(Arc::new(
-            KafkaSink::new(build_ai_secondary_kafka_config(&config), secondary_handle)
-                .await
-                .expect("failed to start AI secondary Kafka sink"),
+            KafkaSink::new(
+                build_ai_secondary_kafka_config(&config),
+                config.capture_mode,
+                secondary_handle,
+            )
+            .await
+            .expect("failed to start AI secondary Kafka sink"),
         ));
         let routing = if config.ai_sink_mode == AiSinkMode::SecondaryAllowlist {
             let allowlist = config
@@ -528,9 +532,13 @@ async fn create_output(
         let s3_handle = sink_handle.expect("sink lifecycle handle required for S3 fallback");
         let kafka_handle = advisory_handle.expect("kafka advisory handle required for fallback");
 
-        let kafka_sink = KafkaSink::new(config.kafka.clone(), Some(kafka_handle.clone()))
-            .await
-            .context("failed to start Kafka sink")?;
+        let kafka_sink = KafkaSink::new(
+            config.kafka.clone(),
+            config.capture_mode,
+            Some(kafka_handle.clone()),
+        )
+        .await
+        .context("failed to start Kafka sink")?;
 
         let s3_sink = S3Sink::new(
             config
@@ -552,7 +560,7 @@ async fn create_output(
     } else {
         // `sink_handle` is `None` for a primary that must not gate the pod (a
         // full `Secondary` cutover hands the gating handle to the secondary).
-        let kafka_sink = KafkaSink::new(config.kafka.clone(), sink_handle)
+        let kafka_sink = KafkaSink::new(config.kafka.clone(), config.capture_mode, sink_handle)
             .await
             .context("failed to start Kafka sink")?;
 
@@ -896,15 +904,25 @@ mod tests {
         assert!(super::parse_token_allowlist("  ,  , ").is_empty());
     }
 
-    /// A blank output topic makes `create_sink` refuse to boot in every capture
-    /// mode — the misconfig fails fast at startup (via the `OutputRegistry`
-    /// completeness check inside `KafkaSink::new`) rather than at first produce.
+    /// A blank output topic makes `create_output` refuse to boot — the misconfig
+    /// fails fast at startup (via the mode-scoped `OutputRegistry` completeness
+    /// check inside `KafkaSink::new`) rather than at first produce. Each
+    /// deployment refuses on a blank topic it actually produces to. `dlq` covers
+    /// every mode; the remaining cases exercise one of each mode's own topics
+    /// (heatmaps for the analytics family, replay-overflow for recordings).
     #[rstest::rstest]
-    #[case(CaptureMode::Events)]
-    #[case(CaptureMode::Recordings)]
-    #[case(CaptureMode::Ai)]
+    #[case(CaptureMode::Events, "dlq", |k: &mut KafkaConfig| k.kafka_dlq_topic.clear())]
+    #[case(CaptureMode::Recordings, "dlq", |k: &mut KafkaConfig| k.kafka_dlq_topic.clear())]
+    #[case(CaptureMode::Ai, "dlq", |k: &mut KafkaConfig| k.kafka_dlq_topic.clear())]
+    #[case(CaptureMode::Events, "heatmaps", |k: &mut KafkaConfig| k.kafka_heatmaps_topic.clear())]
+    #[case(CaptureMode::Ai, "overflow", |k: &mut KafkaConfig| k.kafka_overflow_topic.clear())]
+    #[case(CaptureMode::Recordings, "replay_overflow", |k: &mut KafkaConfig| k.kafka_replay_overflow_topic.clear())]
     #[tokio::test]
-    async fn create_output_refuses_boot_on_missing_output_topic(#[case] mode: CaptureMode) {
+    async fn create_output_refuses_boot_on_missing_output_topic(
+        #[case] mode: CaptureMode,
+        #[case] output_name: &str,
+        #[case] blank: fn(&mut KafkaConfig),
+    ) {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", mode.as_tag()),
@@ -915,7 +933,7 @@ mod tests {
         .collect();
         let mut config: Config =
             envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
-        config.kafka.kafka_dlq_topic = String::new();
+        blank(&mut config.kafka);
 
         let err = create_output(&config, None, None)
             .await
@@ -923,8 +941,8 @@ mod tests {
             .expect("boot must be refused when an output topic is empty");
         let msg = format!("{err:#}");
         assert!(
-            msg.contains("dlq"),
-            "error should name the missing output: {msg}"
+            msg.contains(output_name),
+            "error should name the missing output '{output_name}': {msg}"
         );
     }
 }
