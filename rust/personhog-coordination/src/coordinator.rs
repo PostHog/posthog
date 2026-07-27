@@ -735,7 +735,7 @@ impl Coordinator {
                 phase: HandoffPhase::Freezing,
                 started_at: now,
                 handoff_id: util::new_handoff_id(),
-                freeze_quorum: freeze_quorum.clone(),
+                freeze_quorum: Some(freeze_quorum.clone()),
             })
             .collect();
 

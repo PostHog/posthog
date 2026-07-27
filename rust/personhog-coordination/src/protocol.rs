@@ -159,12 +159,13 @@ pub fn required_freeze_ackers<'a>(
     routers
         .iter()
         .map(|r| r.router_name.as_str())
-        // An absent snapshot is a pre-upgrade record: fall back to
-        // requiring every live router, which is what it was written
-        // under.
-        .filter(move |name| {
-            handoff.freeze_quorum.is_empty()
-                || handoff.freeze_quorum.iter().any(|member| member == name)
+        // `None` is a pre-upgrade record: fall back to requiring every
+        // live router, which is what it was written under. A `Some`
+        // snapshot is authoritative even when empty — zero routers at
+        // creation means nobody must ack, not "apply the legacy rule".
+        .filter(move |name| match &handoff.freeze_quorum {
+            None => true,
+            Some(quorum) => quorum.iter().any(|member| member == name),
         })
 }
 
@@ -219,7 +220,7 @@ mod tests {
             phase: crate::types::HandoffPhase::Warming,
             started_at: 0,
             handoff_id: String::new(),
-            freeze_quorum: Vec::new(),
+            freeze_quorum: None,
             new_owner_address: None,
         }
     }
@@ -248,7 +249,7 @@ mod tests {
     #[test]
     fn a_router_that_joined_after_creation_is_not_required() {
         let mut h = handoff(0, Some("pod-a"), "pod-b");
-        h.freeze_quorum = vec!["router-0".to_string()];
+        h.freeze_quorum = Some(vec!["router-0".to_string()]);
         let acks = [freeze_ack("router-0", &h)];
 
         assert!(
@@ -263,7 +264,7 @@ mod tests {
     #[test]
     fn a_router_present_at_creation_is_still_required() {
         let mut h = handoff(0, Some("pod-a"), "pod-b");
-        h.freeze_quorum = vec!["router-0".to_string(), "router-1".to_string()];
+        h.freeze_quorum = Some(vec!["router-0".to_string(), "router-1".to_string()]);
         let acks = [freeze_ack("router-0", &h)];
 
         assert!(
@@ -278,13 +279,13 @@ mod tests {
     }
 
     /// Records written before the snapshot existed must keep their old
-    /// meaning. Reading an empty snapshot as "nobody needs to ack" would
-    /// advance a handoff while routers still forward to the old owner —
-    /// the one interpretation that is unsafe rather than merely stuck.
+    /// meaning: with no captured requirement, every live router is
+    /// required, since any of them might hold a table pointing at the
+    /// old owner.
     #[test]
     fn an_absent_snapshot_requires_every_live_router() {
         let h = handoff(0, Some("pod-a"), "pod-b");
-        assert!(h.freeze_quorum.is_empty());
+        assert!(h.freeze_quorum.is_none());
         let acks = [freeze_ack("router-0", &h)];
 
         assert!(
@@ -292,6 +293,22 @@ mod tests {
             "without a snapshot every live router must still be required"
         );
         assert!(freeze_quorum_met(&[router("router-0")], &acks, &h));
+    }
+
+    /// A captured-but-empty snapshot is not the legacy fallback: zero
+    /// routers were registered at creation, so nobody must ack — even
+    /// routers that register afterward. Falling back to the live-set
+    /// rule here would let the requirement grow from zero and reopen
+    /// the wedge for exactly this corner.
+    #[test]
+    fn an_empty_snapshot_requires_nobody() {
+        let mut h = handoff(0, Some("pod-a"), "pod-b");
+        h.freeze_quorum = Some(Vec::new());
+
+        assert!(
+            freeze_quorum_met(&[router("late-joiner")], &[], &h),
+            "a router that registered after a zero-router creation must not be required"
+        );
     }
 
     #[test]

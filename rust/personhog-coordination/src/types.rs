@@ -150,12 +150,17 @@ pub struct HandoffState {
     /// assignment update — an availability cost, which is exactly the
     /// currency this quorum trades in.
     ///
-    /// Empty means the record predates this field; the quorum then falls
-    /// back to every live router, which is the old behavior and the only
-    /// safe reading — an empty snapshot must never be taken to mean
-    /// "nobody needs to ack".
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub freeze_quorum: Vec<String>,
+    /// `None` means the record predates this field; the quorum then
+    /// falls back to every live router — the only safe reading of a
+    /// record whose requirement was never captured. `Some` is the
+    /// captured requirement, and `Some([])` is meaningful rather than a
+    /// missing value: zero routers were registered at creation, so
+    /// nobody was routing and nobody must ack. Conflating the two (an
+    /// empty list doing double duty as "legacy") would hand the
+    /// zero-router case back to the live-set rule and with it the
+    /// growth bug this field exists to fix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freeze_quorum: Option<Vec<String>>,
 }
 
 /// State machine for partition handoffs:
@@ -324,7 +329,7 @@ mod tests {
             phase: HandoffPhase::Freezing,
             started_at: 1700000000,
             handoff_id: "1700000000000-0".to_string(),
-            freeze_quorum: Vec::new(),
+            freeze_quorum: None,
             new_owner_address: None,
         };
         let json = serde_json::to_string(&handoff).unwrap();
@@ -341,7 +346,7 @@ mod tests {
             phase: HandoffPhase::Freezing,
             started_at: 1700000000,
             handoff_id: "1700000000000-0".to_string(),
-            freeze_quorum: Vec::new(),
+            freeze_quorum: None,
             new_owner_address: None,
         };
         let json = serde_json::to_string(&handoff).unwrap();

@@ -1417,7 +1417,7 @@ async fn handoff_delete_drains_stash_to_current_owner() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     store.put_handoff(&stuck_handoff).await.unwrap();
@@ -1543,7 +1543,7 @@ async fn stale_handoff_address_never_overwrites_a_fresher_registration() {
             phase: personhog_coordination::types::HandoffPhase::Complete,
             started_at: 0,
             handoff_id: "h-stale-addr".to_string(),
-            freeze_quorum: Vec::new(),
+            freeze_quorum: None,
         })
         .await
         .unwrap();
@@ -1765,7 +1765,7 @@ async fn late_joining_router_during_warming_begins_stash() {
         phase: HandoffPhase::Warming,
         started_at: 0,
         handoff_id: String::new(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     store.put_handoff(&warming_handoff).await.unwrap();
@@ -1830,7 +1830,7 @@ async fn dead_old_owner_in_freezing_advances_to_completion() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     store.put_handoff(&stale).await.unwrap();
@@ -1883,7 +1883,7 @@ async fn late_joining_router_during_freezing_acks_and_stashes() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     store.put_handoff(&freezing_handoff).await.unwrap();
@@ -1963,7 +1963,7 @@ async fn handoff_delete_during_warming_drains_to_current_owner() {
         phase: HandoffPhase::Warming,
         started_at: 0,
         handoff_id: String::new(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     store.put_handoff(&stuck).await.unwrap();
@@ -2062,7 +2062,7 @@ async fn reconcile_advances_warming_with_pre_staged_warmed_ack() {
         phase: HandoffPhase::Warming,
         started_at: 0,
         handoff_id: String::new(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     store.put_handoff(&warming).await.unwrap();
@@ -2142,7 +2142,7 @@ async fn draining_old_owner_blocks_phase_advance() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
@@ -2244,7 +2244,7 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
@@ -2352,7 +2352,7 @@ async fn a_handoff_that_can_never_reach_quorum_is_cancelled() {
                 .unwrap()
                 .as_secs() as i64,
             handoff_id: "wedged-handoff".to_string(),
-            freeze_quorum: vec!["silent-router".to_string()],
+            freeze_quorum: Some(vec!["silent-router".to_string()]),
         })
         .await
         .unwrap();
@@ -2435,7 +2435,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
@@ -2523,7 +2523,7 @@ async fn initial_assignment_skips_draining_phase() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: String::new(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
@@ -2583,7 +2583,7 @@ async fn dead_old_owner_in_draining_recovers() {
         phase: HandoffPhase::Draining,
         started_at: 0,
         handoff_id: String::new(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
@@ -2683,7 +2683,7 @@ async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
         phase: HandoffPhase::Draining,
         started_at: 0,
         handoff_id: String::new(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     store.put_handoff(&handoff).await.unwrap();
@@ -2743,7 +2743,7 @@ async fn late_joining_router_during_draining_begins_stash_no_ack() {
         phase: HandoffPhase::Draining,
         started_at: 0,
         handoff_id: String::new(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     store.put_handoff(&draining_handoff).await.unwrap();
@@ -2828,7 +2828,7 @@ async fn handoff_delete_during_draining_drains_to_current_owner() {
         phase: HandoffPhase::Draining,
         started_at: 0,
         handoff_id: String::new(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     store.put_handoff(&stuck).await.unwrap();
@@ -3075,7 +3075,7 @@ async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
         phase: HandoffPhase::Warming,
         started_at: 0,
         handoff_id: "first".to_string(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     assert!(store
@@ -3092,7 +3092,7 @@ async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: "second".to_string(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
     let stable = PartitionAssignment {
@@ -3141,7 +3141,7 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: id.to_string(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
 
@@ -3219,7 +3219,7 @@ async fn fresh_plan_is_rejected_when_an_assignment_appeared() {
         phase: HandoffPhase::Freezing,
         started_at: 0,
         handoff_id: id.to_string(),
-        freeze_quorum: Vec::new(),
+        freeze_quorum: None,
         new_owner_address: None,
     };
 
