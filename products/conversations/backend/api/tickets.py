@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
-from django.db.models import CharField, Exists, F, OuterRef, Q, QuerySet, Sum
+from django.db.models import CharField, Exists, F, OrderBy, OuterRef, Q, QuerySet, Sum
 from django.db.models.functions import Cast
 from django.http import Http404
 from django.utils import timezone
@@ -585,6 +585,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             order_by = "-updated_at"
 
         field_name = order_by.lstrip("-")
+        primary: OrderBy | str
         if field_name in ("sla_due_at", "snoozed_until"):
             # A ticket with no SLA (or no snooze) sorts to the bottom either direction — an
             # absent deadline isn't more urgent than a real one, and it keeps the large NULL
