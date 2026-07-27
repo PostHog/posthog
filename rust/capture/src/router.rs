@@ -18,7 +18,7 @@ use crate::ai_s3::BlobStorage;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::otel;
-use crate::outputs::{PublishesAi, PublishesAnalyticsFamily, PublishesReplay};
+use crate::outputs::{PublishesAi, PublishesAnalyticsFamily, PublishesSessionReplay};
 use crate::test_endpoint;
 use crate::v0_request::DataType;
 use crate::{ai_endpoint, time::TimeSource, v0_endpoint};
@@ -553,10 +553,10 @@ pub fn ai_router<
 /// Router for a Recordings deployment: mounts the replay ingress (`/s`). The
 /// outputs table type must prove it publishes the replay pipeline.
 #[allow(clippy::too_many_arguments)]
-pub fn replay_router<
+pub fn session_replay_router<
     TZ: TimeSource + Send + Sync + 'static,
     R: Client + Send + Sync + 'static,
-    T: PublishesReplay,
+    T: PublishesSessionReplay,
 >(
     timesource: TZ,
     readiness: ReadinessHandler,

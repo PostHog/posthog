@@ -12,7 +12,7 @@ use capture::event_restrictions::{
 };
 use capture::outputs::PrepSpec;
 use capture::quota_limiters::CaptureQuotaLimiter;
-use capture::router::replay_router;
+use capture::router::session_replay_router;
 use capture::sinks::sink::{AddressedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
 use chrono::{DateTime, Utc};
@@ -60,9 +60,9 @@ impl Sink for CapturingSink {
     }
 }
 
-fn test_outputs(sink: &CapturingSink) -> Arc<capture::outputs::ReplayOutputs> {
-    Arc::new(capture::outputs::ReplayOutputs {
-        replay: capture::outputs::Output::single(
+fn test_outputs(sink: &CapturingSink) -> Arc<capture::outputs::SessionReplayOutputs> {
+    Arc::new(capture::outputs::SessionReplayOutputs {
+        session_replay: capture::outputs::Output::single(
             Arc::new(sink.clone()),
             PrepSpec::from(&DEFAULT_CONFIG.kafka),
         ),
@@ -105,7 +105,7 @@ async fn setup_recordings_router_with_restriction(
     );
     service.update(manager).await;
 
-    let router = replay_router(
+    let router = session_replay_router(
         timesource,
         readiness,
         liveness,
@@ -205,18 +205,18 @@ fn assert_event(payload: &AddressedPayload, expected: &ExpectedEvent) {
     // Assert the routing outcome the declarative expectations imply: the
     // record's topic and person-processing header carry what used to be
     // metadata stamps.
-    use capture::pipeline::{Address, Pipeline as CapPipeline, ReplayLane};
+    use capture::pipeline::{Address, Pipeline as CapPipeline, SessionReplayLane};
     let expected_address = if expected.redirect_to_dlq {
-        Address::Replay(ReplayLane::Dlq)
+        Address::SessionReplay(SessionReplayLane::Dlq)
     } else if let Some(topic) = &expected.redirect_to_topic {
         Address::Custom {
-            pipeline: CapPipeline::Replay,
+            pipeline: CapPipeline::SessionReplay,
             topic: topic.clone(),
         }
     } else if expected.force_overflow {
-        Address::Replay(ReplayLane::Overflow)
+        Address::SessionReplay(SessionReplayLane::Overflow)
     } else {
-        Address::Replay(ReplayLane::Main)
+        Address::SessionReplay(SessionReplayLane::Main)
     };
     assert_eq!(payload.address, expected_address, "address mismatch");
     assert_eq!(
@@ -477,7 +477,7 @@ async fn setup_recordings_router_with_redirect_to_topic(
     );
     service.update(manager).await;
 
-    let router = replay_router(
+    let router = session_replay_router(
         timesource,
         readiness,
         liveness,

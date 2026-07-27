@@ -153,7 +153,7 @@ impl Config {
 /// how the v1 stack folds its topic wiring onto the one registry: topics stay
 /// per-sink (loaded from `CAPTURE_V1_SINK_*` env), but resolution runs through
 /// [`TopicTable::topic_for`] via [`Destination::as_address`], not a parallel
-/// match. v1 is analytics-only, so `replay_overflow` is left unset — an
+/// match. v1 is analytics-only, so `session_replay_overflow` is left unset — an
 /// `Events`/`Ai` deployment never produces to it.
 impl From<&Config> for TopicTable {
     fn from(config: &Config) -> Self {
@@ -163,7 +163,7 @@ impl From<&Config> for TopicTable {
             historical: config.topic_historical.clone(),
             client_ingestion_warning: config.topic_client_ingestion_warning.clone(),
             heatmaps: config.topic_heatmap.clone(),
-            replay_overflow: String::new(),
+            session_replay_overflow: String::new(),
             dlq: config.topic_dlq.clone(),
             error_tracking: config.topic_exception.clone(),
         }

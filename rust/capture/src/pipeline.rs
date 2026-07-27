@@ -5,7 +5,7 @@
 //!
 //! - [`Pipeline`] is the high-level classification decided at the edge
 //!   (endpoint + event name): which product stream is this event part of.
-//! - Each pipeline has its own lane type ([`AnalyticsLane`], [`ReplayLane`],
+//! - Each pipeline has its own lane type ([`AnalyticsLane`], [`SessionReplayLane`],
 //!   [`BasicLane`]), so an invalid pair — a historical heatmap, an
 //!   overflowing warning — is unrepresentable rather than merely unreached.
 //!   [`resolve`] folds the intent stamped during processing (restrictions,
@@ -38,7 +38,7 @@ pub enum Pipeline {
     Heatmaps,
     Warnings,
     ErrorTracking,
-    Replay,
+    SessionReplay,
 }
 
 impl Pipeline {
@@ -61,7 +61,7 @@ impl Pipeline {
             DataType::HeatmapMain => Pipeline::Heatmaps,
             DataType::ClientIngestionWarning => Pipeline::Warnings,
             DataType::ExceptionErrorTracking => Pipeline::ErrorTracking,
-            DataType::SnapshotMain => Pipeline::Replay,
+            DataType::SnapshotMain => Pipeline::SessionReplay,
         }
     }
 }
@@ -89,7 +89,7 @@ pub enum AiLane {
 
 /// The replay pipeline's lanes: main, its own overflow, and dlq.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReplayLane {
+pub enum SessionReplayLane {
     Main,
     Overflow,
     Dlq,
@@ -115,7 +115,7 @@ pub enum Address {
     Heatmaps(BasicLane),
     Warnings(BasicLane),
     ErrorTracking(BasicLane),
-    Replay(ReplayLane),
+    SessionReplay(SessionReplayLane),
     /// Admin-configured redirect: carries its own topic (borrowed from
     /// `ProcessedEventMetadata::redirect_to_topic`) and sits outside the
     /// lane model — it never registers in the output registry. The pipeline
@@ -137,7 +137,7 @@ impl Address {
             Address::Heatmaps(_) => Pipeline::Heatmaps,
             Address::Warnings(_) => Pipeline::Warnings,
             Address::ErrorTracking(_) => Pipeline::ErrorTracking,
-            Address::Replay(_) => Pipeline::Replay,
+            Address::SessionReplay(_) => Pipeline::SessionReplay,
             Address::Custom { pipeline, .. } => *pipeline,
         }
     }
@@ -203,7 +203,7 @@ fn dlq_address(pipeline: Pipeline) -> Address {
         Pipeline::Heatmaps => Address::Heatmaps(BasicLane::Dlq),
         Pipeline::Warnings => Address::Warnings(BasicLane::Dlq),
         Pipeline::ErrorTracking => Address::ErrorTracking(BasicLane::Dlq),
-        Pipeline::Replay => Address::Replay(ReplayLane::Dlq),
+        Pipeline::SessionReplay => Address::SessionReplay(SessionReplayLane::Dlq),
     }
 }
 
@@ -319,12 +319,12 @@ pub fn resolve(metadata: &ProcessedEventMetadata) -> LaneDecision {
                     metadata.overflow_reason,
                     Some(OverflowReason::ReplayLimited)
                 ) {
-                ReplayLane::Overflow
+                SessionReplayLane::Overflow
             } else {
-                ReplayLane::Main
+                SessionReplayLane::Main
             };
             LaneDecision {
-                address: Address::Replay(lane),
+                address: Address::SessionReplay(lane),
                 key_policy: KeyPolicy::SessionId,
                 effect: LaneEffect::Standard,
             }
@@ -359,7 +359,7 @@ mod tests {
             (DataType::ClientIngestionWarning, Pipeline::Warnings),
             (DataType::HeatmapMain, Pipeline::Heatmaps),
             (DataType::ExceptionErrorTracking, Pipeline::ErrorTracking),
-            (DataType::SnapshotMain, Pipeline::Replay),
+            (DataType::SnapshotMain, Pipeline::SessionReplay),
         ] {
             assert_eq!(
                 Pipeline::from_metadata(&meta(dt)),
@@ -413,13 +413,16 @@ mod tests {
                 Address::ErrorTracking(BasicLane::Main),
                 Pipeline::ErrorTracking,
             ),
-            (Address::Replay(ReplayLane::Overflow), Pipeline::Replay),
+            (
+                Address::SessionReplay(SessionReplayLane::Overflow),
+                Pipeline::SessionReplay,
+            ),
             (
                 Address::Custom {
-                    pipeline: Pipeline::Replay,
+                    pipeline: Pipeline::SessionReplay,
                     topic: "t".to_string(),
                 },
-                Pipeline::Replay,
+                Pipeline::SessionReplay,
             ),
         ] {
             assert_eq!(address.pipeline(), pipeline);
@@ -464,7 +467,10 @@ mod tests {
                 DataType::ExceptionErrorTracking,
                 Address::ErrorTracking(BasicLane::Dlq),
             ),
-            (DataType::SnapshotMain, Address::Replay(ReplayLane::Dlq)),
+            (
+                DataType::SnapshotMain,
+                Address::SessionReplay(SessionReplayLane::Dlq),
+            ),
         ] {
             let mut m = meta(dt);
             m.redirect_to_dlq = true;
@@ -516,7 +522,10 @@ mod tests {
                 DataType::ExceptionErrorTracking,
                 Address::ErrorTracking(BasicLane::Main),
             ),
-            (DataType::SnapshotMain, Address::Replay(ReplayLane::Main)),
+            (
+                DataType::SnapshotMain,
+                Address::SessionReplay(SessionReplayLane::Main),
+            ),
         ] {
             let m = meta(dt);
             let d = resolve(&m);
@@ -589,18 +598,24 @@ mod tests {
         assert_eq!(
             resolve(&m),
             LaneDecision {
-                address: Address::Replay(ReplayLane::Main),
+                address: Address::SessionReplay(SessionReplayLane::Main),
                 key_policy: KeyPolicy::SessionId,
                 effect: LaneEffect::Standard,
             }
         );
 
         m.force_overflow = true;
-        assert_eq!(resolve(&m).address, Address::Replay(ReplayLane::Overflow));
+        assert_eq!(
+            resolve(&m).address,
+            Address::SessionReplay(SessionReplayLane::Overflow)
+        );
         assert_eq!(resolve(&m).key_policy, KeyPolicy::SessionId);
 
         m.force_overflow = false;
         m.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(resolve(&m).address, Address::Replay(ReplayLane::Overflow));
+        assert_eq!(
+            resolve(&m).address,
+            Address::SessionReplay(SessionReplayLane::Overflow)
+        );
     }
 }

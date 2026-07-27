@@ -18,7 +18,7 @@
 //! table entirely.
 
 use crate::config::{CaptureMode, KafkaConfig, OutputOverrides};
-use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, Pipeline, ReplayLane};
+use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, Pipeline, SessionReplayLane};
 
 /// A named topic accessor the completeness check walks: `(label, getter)`.
 type TopicEntry = (&'static str, fn(&TopicTable) -> &str);
@@ -37,7 +37,7 @@ pub struct TopicTable {
     pub(crate) historical: String,
     pub(crate) client_ingestion_warning: String,
     pub(crate) heatmaps: String,
-    pub(crate) replay_overflow: String,
+    pub(crate) session_replay_overflow: String,
     pub(crate) dlq: String,
     pub(crate) error_tracking: String,
 }
@@ -62,7 +62,7 @@ const ANALYTICS_FAMILY_TOPICS: [TopicEntry; 7] = [
 /// emits only snapshots, which route to main or replay-overflow, plus `dlq`.
 const RECORDINGS_TOPICS: [TopicEntry; 3] = [
     ("main", |t| &t.main),
-    ("replay_overflow", |t| &t.replay_overflow),
+    ("session_replay_overflow", |t| &t.session_replay_overflow),
     ("dlq", |t| &t.dlq),
 ];
 
@@ -89,9 +89,9 @@ impl TopicTable {
             Address::Warnings(BasicLane::Dlq) => &self.dlq,
             Address::ErrorTracking(BasicLane::Main) => &self.error_tracking,
             Address::ErrorTracking(BasicLane::Dlq) => &self.dlq,
-            Address::Replay(ReplayLane::Main) => &self.main,
-            Address::Replay(ReplayLane::Overflow) => &self.replay_overflow,
-            Address::Replay(ReplayLane::Dlq) => &self.dlq,
+            Address::SessionReplay(SessionReplayLane::Main) => &self.main,
+            Address::SessionReplay(SessionReplayLane::Overflow) => &self.session_replay_overflow,
+            Address::SessionReplay(SessionReplayLane::Dlq) => &self.dlq,
         }
     }
 
@@ -167,10 +167,13 @@ impl TopicTable {
                 );
                 set(&mut self.dlq, &overrides.error_tracking_topic_dlq);
             }
-            Pipeline::Replay => {
-                set(&mut self.main, &overrides.replay_topic_main);
-                set(&mut self.replay_overflow, &overrides.replay_topic_overflow);
-                set(&mut self.dlq, &overrides.replay_topic_dlq);
+            Pipeline::SessionReplay => {
+                set(&mut self.main, &overrides.session_replay_topic_main);
+                set(
+                    &mut self.session_replay_overflow,
+                    &overrides.session_replay_topic_overflow,
+                );
+                set(&mut self.dlq, &overrides.session_replay_topic_dlq);
             }
         }
         self
@@ -206,10 +209,10 @@ impl TopicTable {
                 Address::ErrorTracking(BasicLane::Main),
                 Address::ErrorTracking(BasicLane::Dlq),
             ],
-            Pipeline::Replay => vec![
-                Address::Replay(ReplayLane::Main),
-                Address::Replay(ReplayLane::Overflow),
-                Address::Replay(ReplayLane::Dlq),
+            Pipeline::SessionReplay => vec![
+                Address::SessionReplay(SessionReplayLane::Main),
+                Address::SessionReplay(SessionReplayLane::Overflow),
+                Address::SessionReplay(SessionReplayLane::Dlq),
             ],
         };
         addresses
@@ -237,7 +240,7 @@ impl From<&KafkaConfig> for TopicTable {
             historical: config.kafka_historical_topic.clone(),
             client_ingestion_warning: config.kafka_client_ingestion_warning_topic.clone(),
             heatmaps: config.kafka_heatmaps_topic.clone(),
-            replay_overflow: config.kafka_replay_overflow_topic.clone(),
+            session_replay_overflow: config.kafka_replay_overflow_topic.clone(),
             dlq: config.kafka_dlq_topic.clone(),
             error_tracking: config.kafka_error_tracking_topic.clone(),
         }
@@ -255,7 +258,7 @@ pub(crate) fn test_topics() -> TopicTable {
         historical: "events_plugin_ingestion_historical".to_string(),
         client_ingestion_warning: "client_ingestion_warning".to_string(),
         heatmaps: "heatmaps".to_string(),
-        replay_overflow: "replay_overflow".to_string(),
+        session_replay_overflow: "session_replay_overflow".to_string(),
         dlq: "events_plugin_ingestion_dlq".to_string(),
         error_tracking: "error_tracking_events".to_string(),
     }
@@ -283,9 +286,18 @@ mod tests {
     #[case(Address::Heatmaps(BasicLane::Main), "heatmaps")]
     #[case(Address::Warnings(BasicLane::Main), "client_ingestion_warning")]
     #[case(Address::ErrorTracking(BasicLane::Main), "error_tracking_events")]
-    #[case(Address::Replay(ReplayLane::Main), "events_plugin_ingestion")]
-    #[case(Address::Replay(ReplayLane::Overflow), "replay_overflow")]
-    #[case(Address::Replay(ReplayLane::Dlq), "events_plugin_ingestion_dlq")]
+    #[case(
+        Address::SessionReplay(SessionReplayLane::Main),
+        "events_plugin_ingestion"
+    )]
+    #[case(
+        Address::SessionReplay(SessionReplayLane::Overflow),
+        "session_replay_overflow"
+    )]
+    #[case(
+        Address::SessionReplay(SessionReplayLane::Dlq),
+        "events_plugin_ingestion_dlq"
+    )]
     #[case(
         Address::Custom { pipeline: Pipeline::Analytics, topic: "admin_topic".to_string() },
         "admin_topic"
@@ -317,7 +329,7 @@ mod tests {
     #[case(CaptureMode::Ai, "overflow", |t: &mut TopicTable| t.overflow.clear())]
     // Recordings family — main / replay-overflow / dlq only.
     #[case(CaptureMode::Recordings, "main", |t: &mut TopicTable| t.main.clear())]
-    #[case(CaptureMode::Recordings, "replay_overflow", |t: &mut TopicTable| t.replay_overflow.clear())]
+    #[case(CaptureMode::Recordings, "session_replay_overflow", |t: &mut TopicTable| t.session_replay_overflow.clear())]
     #[case(CaptureMode::Recordings, "dlq", |t: &mut TopicTable| t.dlq.clear())]
     fn check_complete_rejects_empty_topic(
         #[case] mode: CaptureMode,
@@ -348,8 +360,8 @@ mod tests {
     #[case(CaptureMode::Recordings, |t: &mut TopicTable| t.heatmaps.clear())]
     #[case(CaptureMode::Recordings, |t: &mut TopicTable| t.error_tracking.clear())]
     // Events and Ai ignore replay-overflow.
-    #[case(CaptureMode::Events, |t: &mut TopicTable| t.replay_overflow.clear())]
-    #[case(CaptureMode::Ai, |t: &mut TopicTable| t.replay_overflow.clear())]
+    #[case(CaptureMode::Events, |t: &mut TopicTable| t.session_replay_overflow.clear())]
+    #[case(CaptureMode::Ai, |t: &mut TopicTable| t.session_replay_overflow.clear())]
     fn check_complete_ignores_unreachable_topics(
         #[case] mode: CaptureMode,
         #[case] blank: fn(&mut TopicTable),
@@ -381,9 +393,18 @@ mod tests {
     #[case(Pipeline::Warnings, Address::Warnings(BasicLane::Dlq))]
     #[case(Pipeline::ErrorTracking, Address::ErrorTracking(BasicLane::Main))]
     #[case(Pipeline::ErrorTracking, Address::ErrorTracking(BasicLane::Dlq))]
-    #[case(Pipeline::Replay, Address::Replay(ReplayLane::Main))]
-    #[case(Pipeline::Replay, Address::Replay(ReplayLane::Overflow))]
-    #[case(Pipeline::Replay, Address::Replay(ReplayLane::Dlq))]
+    #[case(
+        Pipeline::SessionReplay,
+        Address::SessionReplay(SessionReplayLane::Main)
+    )]
+    #[case(
+        Pipeline::SessionReplay,
+        Address::SessionReplay(SessionReplayLane::Overflow)
+    )]
+    #[case(
+        Pipeline::SessionReplay,
+        Address::SessionReplay(SessionReplayLane::Dlq)
+    )]
     fn with_overrides_retargets_exactly_the_pipelines_addresses(
         #[case] pipeline: Pipeline,
         #[case] address: Address,
@@ -430,9 +451,9 @@ mod tests {
             warnings_topic_dlq: over.clone(),
             error_tracking_topic_main: over.clone(),
             error_tracking_topic_dlq: over.clone(),
-            replay_topic_main: over.clone(),
-            replay_topic_overflow: over.clone(),
-            replay_topic_dlq: over,
+            session_replay_topic_main: over.clone(),
+            session_replay_topic_overflow: over.clone(),
+            session_replay_topic_dlq: over,
             ..Default::default()
         }
     }
@@ -443,7 +464,7 @@ mod tests {
     #[rstest]
     #[case(Pipeline::Analytics, vec!["events_plugin_ingestion", "events_plugin_ingestion_overflow", "events_plugin_ingestion_historical", "events_plugin_ingestion_dlq"])]
     #[case(Pipeline::Heatmaps, vec!["heatmaps", "events_plugin_ingestion_dlq"])]
-    #[case(Pipeline::Replay, vec!["events_plugin_ingestion", "replay_overflow", "events_plugin_ingestion_dlq"])]
+    #[case(Pipeline::SessionReplay, vec!["events_plugin_ingestion", "session_replay_overflow", "events_plugin_ingestion_dlq"])]
     fn topics_for_pipeline_lists_the_rows_reachable_topics(
         #[case] pipeline: Pipeline,
         #[case] expected: Vec<&str>,

@@ -9,8 +9,8 @@ use capture::{
     api::{CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
     outputs::PrepSpec,
-    outputs::{AnalyticsFamilyOutputs, Output, ReplayOutputs},
-    pipeline::{Address, AnalyticsLane, BasicLane, ReplayLane},
+    outputs::{AnalyticsFamilyOutputs, Output, SessionReplayOutputs},
+    pipeline::{Address, AnalyticsLane, BasicLane, SessionReplayLane},
     quota_limiters::CaptureQuotaLimiter,
     sinks::sink::{AddressedPayload, Sink, SinkResult},
     time::TimeSource,
@@ -571,7 +571,7 @@ pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<Address
 
     // introspect on the routing outcome
     assert_eq!(
-        Address::Replay(ReplayLane::Main),
+        Address::SessionReplay(SessionReplayLane::Main),
         got.address,
         "mismatched address in case: {title}",
     );
@@ -1136,8 +1136,10 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             })
         ),
         CaptureMode::Recordings => build_app!(
-            capture::router::replay_router,
-            Arc::new(ReplayOutputs { replay: row() })
+            capture::router::session_replay_router,
+            Arc::new(SessionReplayOutputs {
+                session_replay: row()
+            })
         ),
     };
     (app, sink)

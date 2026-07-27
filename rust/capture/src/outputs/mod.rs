@@ -55,14 +55,17 @@ use crate::v0_request::ProcessedEvent;
 #[derive(Clone, Copy)]
 pub struct PrepSpec {
     default_serializer: Serializer,
-    replay_serializer: Serializer,
+    session_replay_serializer: Serializer,
 }
 
 impl PrepSpec {
     pub fn new(replay_envelope_compression: EnvelopeCompression) -> Self {
         Self {
             default_serializer: Serializer::json(),
-            replay_serializer: Serializer::new(Format::Json, replay_envelope_compression.into()),
+            session_replay_serializer: Serializer::new(
+                Format::Json,
+                replay_envelope_compression.into(),
+            ),
         }
     }
 
@@ -71,7 +74,7 @@ impl PrepSpec {
     /// plain json.
     fn serializer_for(&self, pipeline: Pipeline) -> Serializer {
         match pipeline {
-            Pipeline::Replay => self.replay_serializer,
+            Pipeline::SessionReplay => self.session_replay_serializer,
             _ => self.default_serializer,
         }
     }
@@ -596,7 +599,7 @@ pub trait PublishesAi: DeploymentOutputs + 'static {
 /// The publish capability of a deployment that runs the replay pipeline —
 /// what the `/s` handler requires of its state.
 #[async_trait]
-pub trait PublishesReplay: DeploymentOutputs + 'static {
+pub trait PublishesSessionReplay: DeploymentOutputs + 'static {
     async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
 }
 
@@ -613,8 +616,8 @@ pub struct AnalyticsFamilyOutputs {
 
 /// The output table of a Recordings deployment: the replay pipeline only. A
 /// replay deployment cannot even hold an analytics output.
-pub struct ReplayOutputs {
-    pub replay: Output,
+pub struct SessionReplayOutputs {
+    pub session_replay: Output,
 }
 
 impl AnalyticsFamilyOutputs {
@@ -628,15 +631,15 @@ impl AnalyticsFamilyOutputs {
             Pipeline::Heatmaps => Some(&self.heatmaps),
             Pipeline::Warnings => Some(&self.warnings),
             Pipeline::ErrorTracking => Some(&self.error_tracking),
-            Pipeline::Replay => None,
+            Pipeline::SessionReplay => None,
         }
     }
 }
 
-impl ReplayOutputs {
+impl SessionReplayOutputs {
     fn row(&self, pipeline: Pipeline) -> Option<&Output> {
         match pipeline {
-            Pipeline::Replay => Some(&self.replay),
+            Pipeline::SessionReplay => Some(&self.session_replay),
             _ => None,
         }
     }
@@ -675,7 +678,7 @@ macro_rules! impl_table_publish {
 }
 
 impl_table_publish!(AnalyticsFamilyOutputs);
-impl_table_publish!(ReplayOutputs);
+impl_table_publish!(SessionReplayOutputs);
 
 impl DeploymentOutputs for AnalyticsFamilyOutputs {
     fn flush(&self) -> Result<(), anyhow::Error> {
@@ -688,9 +691,9 @@ impl DeploymentOutputs for AnalyticsFamilyOutputs {
     }
 }
 
-impl DeploymentOutputs for ReplayOutputs {
+impl DeploymentOutputs for SessionReplayOutputs {
     fn flush(&self) -> Result<(), anyhow::Error> {
-        self.replay.flush()
+        self.session_replay.flush()
     }
 }
 
@@ -709,7 +712,7 @@ impl PublishesAi for AnalyticsFamilyOutputs {
 }
 
 #[async_trait]
-impl PublishesReplay for ReplayOutputs {
+impl PublishesSessionReplay for SessionReplayOutputs {
     async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.publish_batch(events).await
     }

@@ -78,7 +78,7 @@ is the shape our output→sink handoff adopts.
 ### Vocabulary rules
 
 - An event's **Address** is a lane of its pipeline (lanes typed per
-  pipeline — `AnalyticsLane`, `AiLane`, `ReplayLane`, `BasicLane` — so
+  pipeline — `AnalyticsLane`, `AiLane`, `SessionReplayLane`, `BasicLane` — so
   invalid pairs are unrepresentable), or an admin **custom redirect** that
   carries its own topic outside the lane model. Pipeline and lane kind are
   projections; construction goes through `resolve`. Never reintroduce a flat
@@ -344,12 +344,12 @@ No `--no-verify` — pre-commit hooks must pass.
 
 The deployment's output table is a concrete type — `AnalyticsFamilyOutputs`
 (analytics, ai, heatmaps, warnings, error tracking rows) for Events/Ai pods,
-`ReplayOutputs` for Recordings pods — with required fields, so the narrow
+`SessionReplayOutputs` for Recordings pods — with required fields, so the narrow
 list of what a deployment must wire is the type itself. Handlers bound on
-sealed capability traits (`PublishesAnalyticsFamily`, `PublishesReplay`);
+sealed capability traits (`PublishesAnalyticsFamily`, `PublishesSessionReplay`);
 `State<T>` is generic over the table and `setup` instantiates the
 monomorphized router per `CaptureMode` (`router` for the analytics family,
-`replay_router` for recordings) — mounting an ingress on a table that cannot
+`session_replay_router` for recordings) — mounting an ingress on a table that cannot
 publish its family is a compile error. Rows share backends (one Kafka
 connection, one S3 client, one breaker controller), so per-row policy trees
 behave as the single pre-table output did. The runtime backstop for a

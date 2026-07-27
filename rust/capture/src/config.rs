@@ -159,14 +159,14 @@ pub struct OutputOverrides {
     pub error_tracking_topic_main: Option<String>,
     #[envconfig(from = "CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC_DLQ")]
     pub error_tracking_topic_dlq: Option<String>,
-    #[envconfig(from = "CAPTURE_OUTPUT_REPLAY_BROKERS")]
-    pub replay_brokers: Option<String>,
-    #[envconfig(from = "CAPTURE_OUTPUT_REPLAY_TOPIC_MAIN")]
-    pub replay_topic_main: Option<String>,
-    #[envconfig(from = "CAPTURE_OUTPUT_REPLAY_TOPIC_OVERFLOW")]
-    pub replay_topic_overflow: Option<String>,
-    #[envconfig(from = "CAPTURE_OUTPUT_REPLAY_TOPIC_DLQ")]
-    pub replay_topic_dlq: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_SESSION_REPLAY_BROKERS")]
+    pub session_replay_brokers: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_SESSION_REPLAY_TOPIC_MAIN")]
+    pub session_replay_topic_main: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_SESSION_REPLAY_TOPIC_OVERFLOW")]
+    pub session_replay_topic_overflow: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_SESSION_REPLAY_TOPIC_DLQ")]
+    pub session_replay_topic_dlq: Option<String>,
 }
 
 impl OutputOverrides {
@@ -194,10 +194,10 @@ impl OutputOverrides {
             &self.error_tracking_brokers,
             &self.error_tracking_topic_main,
             &self.error_tracking_topic_dlq,
-            &self.replay_brokers,
-            &self.replay_topic_main,
-            &self.replay_topic_overflow,
-            &self.replay_topic_dlq,
+            &self.session_replay_brokers,
+            &self.session_replay_topic_main,
+            &self.session_replay_topic_overflow,
+            &self.session_replay_topic_dlq,
         ]
         .iter()
         .any(|o| o.is_some())
@@ -211,7 +211,7 @@ impl OutputOverrides {
             Pipeline::Heatmaps => self.heatmaps_brokers.as_deref(),
             Pipeline::Warnings => self.warnings_brokers.as_deref(),
             Pipeline::ErrorTracking => self.error_tracking_brokers.as_deref(),
-            Pipeline::Replay => self.replay_brokers.as_deref(),
+            Pipeline::SessionReplay => self.session_replay_brokers.as_deref(),
         }
     }
 }

@@ -8,7 +8,7 @@ use tracing::{instrument, Span};
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     events::{analytics::process_events, recordings::process_replay_events},
-    outputs::{PublishesAnalyticsFamily, PublishesReplay},
+    outputs::{PublishesAnalyticsFamily, PublishesSessionReplay},
     payload::{handle_event_payload, handle_recording_payload, EventQuery},
     prometheus::{report_dropped_events, report_internal_error_metrics},
     router,
@@ -103,7 +103,7 @@ pub async fn event<T: PublishesAnalyticsFamily>(
         historical_migration
     )
 )]
-pub async fn recording<T: PublishesReplay>(
+pub async fn recording<T: PublishesSessionReplay>(
     state: State<router::State<T>>,
     ip: InsecureClientIp,
     meta: Query<EventQuery>,

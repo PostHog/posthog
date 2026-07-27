@@ -16,7 +16,7 @@ use crate::{
     debug_or_info,
     events::recordings::RawRecording,
     extractors::extract_body_with_timeout,
-    outputs::PublishesReplay,
+    outputs::PublishesSessionReplay,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     token::validate_token,
@@ -44,7 +44,7 @@ impl RecordingPayload {
 /// This is optimized to avoid the double serialization that would occur
 /// if we went through RawRequest -> Vec<RawEvent> -> process
 #[instrument(skip_all, fields(batch_size, params_compression))]
-pub async fn handle_recording_payload<T: PublishesReplay>(
+pub async fn handle_recording_payload<T: PublishesSessionReplay>(
     state: &State<router::State<T>>,
     InsecureClientIp(ip): &InsecureClientIp,
     query_params: &mut EventQuery,

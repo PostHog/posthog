@@ -15,7 +15,9 @@ use crate::config::{AiRouting, AiSinkMode, CaptureMode, Config, KafkaConfig};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::failover::FailoverController;
 use crate::global_rate_limiter::GlobalRateLimiter;
-use crate::outputs::{AnalyticsFamilyOutputs, DeploymentOutputs, Output, PrepSpec, ReplayOutputs};
+use crate::outputs::{
+    AnalyticsFamilyOutputs, DeploymentOutputs, Output, PrepSpec, SessionReplayOutputs,
+};
 use crate::pipeline::Pipeline as CapturePipeline;
 use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
@@ -468,10 +470,13 @@ pub async fn build_components(
             (build_app!(router::ai_router, outputs.clone()), outputs)
         }
         CaptureMode::Recordings => {
-            let outputs = Arc::new(ReplayOutputs {
-                replay: make_row(CapturePipeline::Replay),
+            let outputs = Arc::new(SessionReplayOutputs {
+                session_replay: make_row(CapturePipeline::SessionReplay),
             });
-            (build_app!(router::replay_router, outputs.clone()), outputs)
+            (
+                build_app!(router::session_replay_router, outputs.clone()),
+                outputs,
+            )
         }
     };
 
@@ -691,7 +696,7 @@ async fn create_row_factory(
             match config.capture_mode {
                 CaptureMode::Events => (CapturePipeline::Analytics, ANALYTICS_FAMILY_ROWS),
                 CaptureMode::Ai => (CapturePipeline::Ai, ANALYTICS_FAMILY_ROWS),
-                CaptureMode::Recordings => (CapturePipeline::Replay, REPLAY_ROWS),
+                CaptureMode::Recordings => (CapturePipeline::SessionReplay, SESSION_REPLAY_ROWS),
             };
         let mut ordered = row_pipelines.to_vec();
         ordered.sort_by_key(|p| *p != ingress);
@@ -755,8 +760,8 @@ const ANALYTICS_FAMILY_ROWS: &[CapturePipeline] = &[
 ];
 
 /// The pipeline rows a `Recordings` deployment's table holds — mirrors
-/// [`ReplayOutputs`].
-const REPLAY_ROWS: &[CapturePipeline] = &[CapturePipeline::Replay];
+/// [`SessionReplayOutputs`].
+const SESSION_REPLAY_ROWS: &[CapturePipeline] = &[CapturePipeline::SessionReplay];
 
 /// Probe the sink's cluster for every listed topic, failing boot on the
 /// first one missing.
@@ -1116,7 +1121,7 @@ mod tests {
     #[case(CaptureMode::Ai, "dlq", |k: &mut KafkaConfig| k.kafka_dlq_topic.clear())]
     #[case(CaptureMode::Events, "heatmaps", |k: &mut KafkaConfig| k.kafka_heatmaps_topic.clear())]
     #[case(CaptureMode::Ai, "overflow", |k: &mut KafkaConfig| k.kafka_overflow_topic.clear())]
-    #[case(CaptureMode::Recordings, "replay_overflow", |k: &mut KafkaConfig| k.kafka_replay_overflow_topic.clear())]
+    #[case(CaptureMode::Recordings, "session_replay_overflow", |k: &mut KafkaConfig| k.kafka_replay_overflow_topic.clear())]
     #[tokio::test]
     async fn create_output_refuses_boot_on_missing_output_topic(
         #[case] mode: CaptureMode,

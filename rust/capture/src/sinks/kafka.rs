@@ -937,7 +937,7 @@ mod tests {
         const HISTORICAL_TOPIC: &str = "events_plugin_ingestion_historical";
         const HEATMAPS_TOPIC: &str = "heatmaps";
         const CLIENT_INGESTION_WARNING_TOPIC: &str = "client_ingestion_warning";
-        const REPLAY_OVERFLOW_TOPIC: &str = "replay_overflow";
+        const REPLAY_OVERFLOW_TOPIC: &str = "session_replay_overflow";
         const ERROR_TRACKING_TOPIC: &str = "error_tracking_events";
 
         /// Which reroute counter (if any) an event must increment. DLQ and
