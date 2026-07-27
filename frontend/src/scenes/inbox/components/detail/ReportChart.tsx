@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -148,11 +149,10 @@ export function ReportChart({ chartId }: { chartId: string }): JSX.Element | nul
     const uniqueKey = `SQLEditor-report-chart-${chart.chart_id}`
     const openTarget = chartOpenTarget(authoredQuery)
 
+    // Tighter than the card default: a report can carry a row of these beside prose, and `p-6` gives
+    // each one more frame than chart. No hover effect, since the card isn't a click target.
     return (
-        <div
-            className="flex flex-col gap-2 rounded border border-primary bg-surface-primary p-3"
-            data-attr="report-chart"
-        >
+        <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-3" data-attr="report-chart">
             <div className="flex items-start justify-between gap-2">
                 <h4 className="m-0 text-sm font-semibold text-primary">{chart.title}</h4>
                 {openTarget ? (
@@ -177,6 +177,6 @@ export function ReportChart({ chartId }: { chartId: string }): JSX.Element | nul
                 )}
             </div>
             {chart.caption ? <p className="m-0 text-xs text-tertiary">{chart.caption}</p> : null}
-        </div>
+        </LemonCard>
     )
 }
