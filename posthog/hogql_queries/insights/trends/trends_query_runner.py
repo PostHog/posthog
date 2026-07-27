@@ -848,12 +848,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         # A series' display override. `custom_name` is set by the in-app "Rename graph series" modal;
         # a `name` that differs from the event/action label is a rename applied via the query editor or
         # API. Either should win over the raw event name in legends and tooltips.
-        custom_name = getattr(series, "custom_name", None)
-        if custom_name:
-            return custom_name
-        name = getattr(series, "name", None)
-        if name and name != series_label:
-            return name
+        if series.custom_name:
+            return series.custom_name
+        if series.name and series.name != series_label:
+            return series.name
         return None
 
     def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]) -> str | None:

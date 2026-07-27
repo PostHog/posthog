@@ -456,11 +456,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # (series, expected action.custom_name) — the legend/tooltip render `custom_name` over the raw event.
             ("custom_name set via rename modal", EventsNode(event="$pageview", custom_name="Renamed"), "Renamed"),
             ("name set via query editor / API", EventsNode(event="$pageview", name="Renamed"), "Renamed"),
             ("custom_name wins over name", EventsNode(event="$pageview", name="A", custom_name="B"), "B"),
-            # A `name` echoing the event is not a rename — must not leak into custom_name.
             ("name echoing the event is not a rename", EventsNode(event="$pageview", name="$pageview"), None),
             ("no override", EventsNode(event="$pageview"), None),
         ]
