@@ -84,11 +84,11 @@ export class ResolutionError extends Error {
     }
 }
 
-// One log line per URL-validation check run, before the verdict, so blocked requests are
-// recorded too. The DNS check only runs when undici opens a new connection (keep-alive
-// reuse skips it), and attribution reflects the request that opened the connection.
-function logUrlValidationCheck(hostname: string, resolvedIps: string[]): void {
-    logger.info('[SSRF] Running URL validation check', {
+// Logged only when a check blocks the request. The check runs inside undici's connect flow
+// where the thrown error can't carry caller context, so attribution comes from the ALS store;
+// it reflects the request that opened the connection (keep-alive reuse skips the check).
+function logBlockedUrlValidation(hostname: string, resolvedIps: string[]): void {
+    logger.warn('[SSRF] Request blocked by URL validation check', {
         hostname,
         resolvedIps,
         ...fetchAttribution.getStore(),
@@ -134,8 +134,6 @@ function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void
         return
     }
 
-    logUrlValidationCheck(hostname, [bare])
-
     let ipv4: ipaddr.IPv4 | null = null
     if (isIPv4(parsed)) {
         ipv4 = parsed
@@ -144,6 +142,7 @@ function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void
     } else {
         if (!isGlobalIPv6(parsed)) {
             unsafeRequestCounter.inc({ reason: 'internal_ip_literal' })
+            logBlockedUrlValidation(hostname, [bare])
             throw new SecureRequestError('Hostname is not allowed')
         }
         return
@@ -151,6 +150,7 @@ function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void
 
     if (!isGlobalIPv4(ipv4)) {
         unsafeRequestCounter.inc({ reason: 'internal_ip_literal' })
+        logBlockedUrlValidation(hostname, [bare])
         throw new SecureRequestError('Hostname is not allowed')
     }
 }
@@ -193,10 +193,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     } catch {
         throw new ResolutionError('Invalid hostname')
     }
-    logUrlValidationCheck(
-        hostname,
-        addrinfo.map((a) => a.address)
-    )
+    const resolvedIps = addrinfo.map((a) => a.address)
     for (const addrInfo of addrinfo) {
         const parsed = ipaddr.parse(addrInfo.address)
 
@@ -211,6 +208,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
             const allowUnsafe = !isProdEnv()
             if (!allowUnsafe && !isGlobalIPv6(parsed)) {
                 unsafeRequestCounter.inc({ reason: 'internal_hostname' })
+                logBlockedUrlValidation(hostname, resolvedIps)
                 throw new SecureRequestError('Hostname is not allowed')
             }
             validAddrinfo.push(addrInfo)
@@ -223,12 +221,14 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
         // Check if the IPv4 address is global
         if (!allowUnsafe && !isGlobalIPv4(ipv4)) {
             unsafeRequestCounter.inc({ reason: 'internal_hostname' })
+            logBlockedUrlValidation(hostname, resolvedIps)
             throw new SecureRequestError('Hostname is not allowed')
         }
         validAddrinfo.push(addrInfo)
     }
     if (validAddrinfo.length === 0) {
         unsafeRequestCounter.inc({ reason: 'unable_to_resolve' })
+        logBlockedUrlValidation(hostname, resolvedIps)
         throw new ResolutionError(`Unable to resolve ${hostname}`)
     }
 
