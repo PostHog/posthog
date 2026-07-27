@@ -118,12 +118,12 @@ export class RequestStateResolver {
 
         const { features, tools, organizationId, projectId, readOnly } = props
 
-        await reqCtx.tokenCache.setMany({
-            ...(organizationId ? { orgId: organizationId } : {}),
-            ...(projectId ? { projectId } : {}),
-        })
+        await this.applyPinnedContext(reqCtx, props.mcpSessionId, { organizationId, projectId })
 
-        let cachedProjectId = projectId || (await reqCtx.tokenCache.get('projectId'))
+        // Read the active project from the token cache (the source of truth every
+        // tool resolves through) rather than the request pin, so an in-session
+        // switch-project is reflected here too instead of the resent pin value.
+        let cachedProjectId = (await reqCtx.tokenCache.get('projectId')) || projectId
         if (!cachedProjectId) {
             await context.stateManager.setDefaultOrganizationAndProject()
             cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
@@ -228,6 +228,72 @@ export class RequestStateResolver {
             renderUiEnabled,
             metadata,
             groupTypes,
+        }
+    }
+
+    /**
+     * Apply an explicitly pinned org/project (from the `x-posthog-organization-id`
+     * / `x-posthog-project-id` headers or the `?organization_id=` / `?project_id=`
+     * query params) to the token-scoped active context that every data and write
+     * tool resolves through `StateManager.getProjectId` / `getOrgID`.
+     *
+     * A pin sets the session's *default* active context; it is not a hard lock. A
+     * project pin deliberately keeps `switch-project` available (the cross-org
+     * navigation flow depends on it), so an agent can switch away from the pinned
+     * project mid-session. Pinning clients resend the same static header on every
+     * request, so unconditionally writing the pin back each request would revert
+     * that switch on the very next tool call, leaving reads and writes pointed at
+     * the originally pinned project while `switch-project` reported success.
+     *
+     * To avoid that, record the applied pin per MCP session and only (re)apply it
+     * the first time it is seen or when it actually changes. The pin still wins at
+     * session start, each new session re-asserts its own pin (so concurrent
+     * sessions on the same token stay isolated), but a `switch-project` made
+     * within a session survives the pin being resent on later requests.
+     *
+     * Without an MCP session id there is no cross-request continuity to protect
+     * (a single-exec CLI request stands alone and runs its switch and query in the
+     * same request, after this resolves), so apply the pin unconditionally.
+     */
+    private async applyPinnedContext(
+        reqCtx: RequestContext,
+        mcpSessionId: string | undefined,
+        pinned: { organizationId?: string | undefined; projectId?: string | undefined }
+    ): Promise<void> {
+        const { organizationId, projectId } = pinned
+        if (!organizationId && !projectId) {
+            return
+        }
+
+        if (!mcpSessionId) {
+            await reqCtx.tokenCache.setMany({
+                ...(organizationId ? { orgId: organizationId } : {}),
+                ...(projectId ? { projectId } : {}),
+            })
+            return
+        }
+
+        const [appliedOrg, appliedProject] = await Promise.all([
+            organizationId ? reqCtx.sessionCache.get('pinnedOrgId') : Promise.resolve(undefined),
+            projectId ? reqCtx.sessionCache.get('pinnedProjectId') : Promise.resolve(undefined),
+        ])
+
+        const tokenUpdates: Partial<Pick<State, 'orgId' | 'projectId'>> = {}
+        const sessionUpdates: Partial<Pick<State, 'pinnedOrgId' | 'pinnedProjectId'>> = {}
+        if (organizationId && appliedOrg !== organizationId) {
+            tokenUpdates.orgId = organizationId
+            sessionUpdates.pinnedOrgId = organizationId
+        }
+        if (projectId && appliedProject !== projectId) {
+            tokenUpdates.projectId = projectId
+            sessionUpdates.pinnedProjectId = projectId
+        }
+
+        if (Object.keys(tokenUpdates).length > 0) {
+            await reqCtx.tokenCache.setMany(tokenUpdates)
+        }
+        if (Object.keys(sessionUpdates).length > 0) {
+            await reqCtx.sessionCache.setMany(sessionUpdates)
         }
     }
 

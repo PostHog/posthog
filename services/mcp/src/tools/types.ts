@@ -22,6 +22,13 @@ export type CachedProject = Schemas.ProjectBackwardCompat
 export type State = {
     projectId: string | undefined
     orgId: string | undefined
+    // The org/project last applied from an explicit request pin (the
+    // `x-posthog-*` headers / `?organization_id=` / `?project_id=` params).
+    // Session-scoped, so each session tracks the pin it has already applied and
+    // an in-session `switch-project` isn't reverted by the pin being resent on
+    // every subsequent request. See RequestStateResolver.applyPinnedContext.
+    pinnedProjectId: string | undefined
+    pinnedOrgId: string | undefined
     distinctId: string | undefined
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined

@@ -305,6 +305,40 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.toolFeatureFlags?.['dev-forced-flag']).toBe(true)
     })
 
+    describe('pinned project/org context', () => {
+        it('does not revert an in-session switch-project when the same pin is resent', async () => {
+            // Pinning clients resend `?project_id=` on every request. The first
+            // request establishes the pin; a later switch-project writes a new
+            // active project that the resent pin must not clobber.
+            await makeResolver().resolve(makeProps({ projectId: '1' }))
+            expect(mockTokenStore.get('projectId')).toBe('1')
+
+            // switch-project writes the newly selected project to the token cache.
+            mockTokenStore.set('projectId', '2')
+
+            await makeResolver().resolve(makeProps({ projectId: '1' }))
+            expect(mockTokenStore.get('projectId')).toBe('2')
+        })
+
+        it('re-applies the pin when the pinned project actually changes', async () => {
+            await makeResolver().resolve(makeProps({ projectId: '1' }))
+            mockTokenStore.set('projectId', '2')
+
+            await makeResolver().resolve(makeProps({ projectId: '9' }))
+            expect(mockTokenStore.get('projectId')).toBe('9')
+        })
+
+        it('applies the pin on every request without an MCP session id', async () => {
+            // No session means no cross-request continuity to protect, so the pin
+            // must keep winning each request (single-exec CLI stands alone).
+            await makeResolver().resolve(makeProps({ projectId: '1', mcpSessionId: undefined }))
+            mockTokenStore.set('projectId', '2')
+
+            await makeResolver().resolve(makeProps({ projectId: '1', mcpSessionId: undefined }))
+            expect(mockTokenStore.get('projectId')).toBe('1')
+        })
+    })
+
     it('captures consumer from a later request when initialize omitted the header', async () => {
         await makeResolver().resolve(
             makeProps({

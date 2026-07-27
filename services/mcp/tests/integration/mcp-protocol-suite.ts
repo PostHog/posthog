@@ -1216,10 +1216,10 @@ export function defineToolBehaviorTests(
         })
 
         // ?projectId=N in the URL pins the active project for the whole
-        // session — agents pass this to avoid needing a switch-project
-        // tool call first. The state resolver writes it to the cache on
-        // every request, so a project-scoped tool should resolve it
-        // without an explicit switch.
+        // session, so agents pass this to avoid needing a switch-project
+        // tool call first. The state resolver writes the pin to the cache
+        // when the session first sees it, so a project-scoped tool should
+        // resolve it without an explicit switch.
         it('reads the active project pinned via ?projectId= URL param', async ({ skip }) => {
             if (!harness.projectId) {
                 skip('Set TEST_PROJECT_ID to run the pinned-project URL-param test.')
