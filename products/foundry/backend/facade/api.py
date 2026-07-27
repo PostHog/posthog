@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from .. import logic
@@ -46,7 +47,7 @@ def _to_dto(bet: Bet) -> contracts.BetDTO:
         run_config=bet.run_config,
         memory_repo_url=bet.memory_repo_url,
         feature_flag_id=bet.feature_flag_id,
-        feature_flag_key=bet.feature_flag.key if bet.feature_flag_id else None,
+        feature_flag_key=bet.feature_flag.key if bet.feature_flag else None,
         experiment_id=bet.experiment_id,
         created_by_id=bet.created_by_id,
         created_at=bet.created_at,
@@ -85,28 +86,29 @@ def _to_node_dto(node: BetNode) -> contracts.BetNodeDTO:
 
 def _get_bet(team_id: int, bet_id: UUID | str) -> Bet:
     try:
-        return Bet.objects.select_related("feature_flag").get(team_id=team_id, id=bet_id)
+        return Bet.objects.for_team(team_id).select_related("feature_flag").get(id=bet_id)
     except Bet.DoesNotExist:
         raise BetNotFound(f"bet {bet_id} does not exist in this project")
 
 
 def create_bet(input: contracts.CreateBetInput, *, user: User | None = None) -> contracts.BetDTO:
-    bet = logic.create_bet(
-        team=Team.objects.get(id=input.team_id),
-        user=user,
-        slug=input.slug,
-        hypothesis=input.hypothesis,
-        success_metric=input.success_metric,
-        guardrails=input.guardrails,
-        budget=input.budget,
-        exposure_plan=input.exposure_plan,
-        sources=input.sources,
-        ttl=input.ttl,
-        execution_mode=input.execution_mode,
-        run_config=input.run_config,
-        memory_repo_url=input.memory_repo_url,
-    )
-    return _to_dto(bet)
+    with team_scope(input.team_id):
+        bet = logic.create_bet(
+            team=Team.objects.get(id=input.team_id),
+            user=user,
+            slug=input.slug,
+            hypothesis=input.hypothesis,
+            success_metric=input.success_metric,
+            guardrails=input.guardrails,
+            budget=input.budget,
+            exposure_plan=input.exposure_plan,
+            sources=input.sources,
+            ttl=input.ttl,
+            execution_mode=input.execution_mode,
+            run_config=input.run_config,
+            memory_repo_url=input.memory_repo_url,
+        )
+        return _to_dto(bet)
 
 
 def get_bet(team_id: int, bet_id: UUID | str) -> contracts.BetDTO:
@@ -115,8 +117,7 @@ def get_bet(team_id: int, bet_id: UUID | str) -> contracts.BetDTO:
 
 def list_bets(team_id: int) -> list[contracts.BetDTO]:
     return [
-        _to_dto(bet)
-        for bet in Bet.objects.select_related("feature_flag").filter(team_id=team_id).order_by("-created_at")
+        _to_dto(bet) for bet in Bet.objects.for_team(team_id).select_related("feature_flag").order_by("-created_at")
     ]
 
 
@@ -127,8 +128,9 @@ def fund_bet(
     user: User | None = None,
     serializer_context: dict | None = None,
 ) -> contracts.BetDTO:
-    bet = logic.fund_bet(_get_bet(team_id, bet_id), user, serializer_context)
-    return _to_dto(bet)
+    with team_scope(team_id):
+        bet = logic.fund_bet(_get_bet(team_id, bet_id), user, serializer_context)
+        return _to_dto(bet)
 
 
 def record_event(
@@ -139,8 +141,9 @@ def record_event(
     *,
     user: User | None = None,
 ) -> contracts.BetEventDTO:
-    event = logic.apply_event(_get_bet(team_id, bet_id), kind, payload, user)
-    return _to_event_dto(event)
+    with team_scope(team_id):
+        event = logic.apply_event(_get_bet(team_id, bet_id), kind, payload, user)
+        return _to_event_dto(event)
 
 
 def record_verdict(
@@ -150,15 +153,16 @@ def record_verdict(
     *,
     user: User | None = None,
 ) -> contracts.BetDTO:
-    bet = logic.record_verdict(_get_bet(team_id, bet_id), verdict, user)
-    return _to_dto(bet)
+    with team_scope(team_id):
+        bet = logic.record_verdict(_get_bet(team_id, bet_id), verdict, user)
+        return _to_dto(bet)
 
 
 def list_events(team_id: int, bet_id: UUID | str) -> list[contracts.BetEventDTO]:
     bet = _get_bet(team_id, bet_id)
-    return [_to_event_dto(event) for event in bet.events.all()]
+    return [_to_event_dto(event) for event in BetEvent.objects.for_team(team_id).filter(bet=bet)]
 
 
 def list_nodes(team_id: int, bet_id: UUID | str) -> list[contracts.BetNodeDTO]:
     bet = _get_bet(team_id, bet_id)
-    return [_to_node_dto(node) for node in bet.nodes.all()]
+    return [_to_node_dto(node) for node in BetNode.objects.for_team(team_id).filter(bet=bet)]

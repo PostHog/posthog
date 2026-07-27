@@ -52,8 +52,10 @@ export type foundryBetLogicType = MakeLogicType<foundryBetLogicValues, foundryBe
 
 const projectId = (): string => String(teamLogic.values.currentTeamId)
 
-// A managed run keeps producing events/nodes on its own; only these states still have live work in flight.
-const LIVE_STATES = new Set(['building', 'gated'])
+// A managed run keeps producing events/nodes on its own; these are the non-terminal states where
+// something might still be happening unattended — including 'funded', since a managed bet's
+// funded -> building transition itself happens inside the workflow, not from a user action here.
+const LIVE_STATES = new Set(['funded', 'building', 'gated'])
 
 export const foundryBetLogic = kea<foundryBetLogicType>([
     path(['products', 'foundry', 'frontend', 'foundryBetLogic']),
@@ -82,24 +84,10 @@ export const foundryBetLogic = kea<foundryBetLogicType>([
             },
         ],
     })),
-    listeners(({ actions, cache }) => ({
-        fundSuccess: () => {
-            actions.loadEvents()
-            actions.loadNodes()
-            lemonToast.success('Bet funded: feature flag and draft experiment created')
-        },
-        recordVerdictSuccess: () => {
-            actions.loadEvents()
-        },
-        fundFailure: ({ error }) => {
-            lemonToast.error(error ?? 'Failed to fund bet')
-        },
-        recordVerdictFailure: ({ error }) => {
-            lemonToast.error(error ?? 'Failed to record verdict')
-        },
-        loadBetSuccess: ({ bet }) => {
-            // Re-poll while a run is still live (managed execution, or an in-flight gate check);
-            // stops itself once the bet leaves a live state, and never runs more than one poller.
+    listeners(({ actions, cache }) => {
+        // Re-poll while a run is still live (managed execution, or an in-flight gate check);
+        // stops itself once the bet leaves a live state, and never runs more than one poller.
+        const syncLiveRunPoll = (bet: BetDTOApi | null): void => {
             if (bet && LIVE_STATES.has(bet.state)) {
                 cache.disposables.add(() => {
                     const id = window.setInterval(() => {
@@ -112,8 +100,29 @@ export const foundryBetLogic = kea<foundryBetLogicType>([
             } else {
                 cache.disposables.dispose('liveRunPoll')
             }
-        },
-    })),
+        }
+        return {
+            fundSuccess: ({ bet }) => {
+                actions.loadEvents()
+                actions.loadNodes()
+                syncLiveRunPoll(bet)
+                lemonToast.success('Bet funded: feature flag and draft experiment created')
+            },
+            recordVerdictSuccess: ({ bet }) => {
+                actions.loadEvents()
+                syncLiveRunPoll(bet)
+            },
+            fundFailure: ({ error }) => {
+                lemonToast.error(error ?? 'Failed to fund bet')
+            },
+            recordVerdictFailure: ({ error }) => {
+                lemonToast.error(error ?? 'Failed to record verdict')
+            },
+            loadBetSuccess: ({ bet }) => {
+                syncLiveRunPoll(bet)
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         actions.loadBet()
         actions.loadEvents()

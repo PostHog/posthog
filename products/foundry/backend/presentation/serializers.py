@@ -46,7 +46,9 @@ class BudgetSerializer(serializers.Serializer):
 
 
 class SourceRefSerializer(serializers.Serializer):
-    label = serializers.CharField(help_text="Short label for the lineage source, e.g. 'signal: checkout error spike'.")
+    label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
+        help_text="Short label for the lineage source, e.g. 'signal: checkout error spike'."
+    )
     url = serializers.CharField(
         required=False,
         allow_blank=True,

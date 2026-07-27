@@ -27,9 +27,14 @@ RUN_NODE_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 FOUNDRY_EVENT_PREFIX = "##FOUNDRY_EVENT## "
 
 # Installed at this path in every node's sandbox; a node's command invokes it to declare a
-# child spawn, a knowledge-repo publish, or a free-form note — see activities.py.
+# child spawn, a knowledge-repo publish, or a free-form note — see activities.py. Takes its JSON
+# payload base64-encoded (`foundry-event "$(echo -n '{"type":...}' | base64 -w0)"`), not raw: a
+# spawned child's own "command" field can itself contain further foundry-event calls (recursion),
+# and base64 has no shell-special characters at any nesting depth, so it survives being embedded
+# as a JSON string value inside an outer command however many levels deep — raw JSON wrapped in
+# shell quotes does not, since quoting rules don't compose across nesting levels.
 FOUNDRY_EVENT_HELPER_PATH = "/usr/local/bin/foundry-event"
-FOUNDRY_EVENT_HELPER_SCRIPT = f'#!/bin/sh\necho "{FOUNDRY_EVENT_PREFIX}$1"\n'
+FOUNDRY_EVENT_HELPER_SCRIPT = f'#!/bin/sh\necho "{FOUNDRY_EVENT_PREFIX}$(echo "$1" | base64 -d)"\n'
 
 # Where a bet's memory_repo_url (if set) is cloned into a managed node's sandbox.
 FOUNDRY_MEMORY_MOUNT_PATH = "/memory"

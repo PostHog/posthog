@@ -79,7 +79,7 @@ def get_review_status(*, team_id: int, pr_url: str) -> contracts.ReviewReportSta
                 continue
             violations.append(
                 contracts.ReviewViolation(
-                    code=verdict.category.value if verdict.category else "unknown",
+                    code=verdict.category if verdict.category else "unknown",
                     message=finding.title,
                     severity=effective_priority(finding.priority, verdict.adjusted_priority).value,
                 )

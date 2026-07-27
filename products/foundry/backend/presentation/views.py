@@ -5,6 +5,8 @@ Validate JSON via serializers, call facade methods,
 return serialized responses. No business logic here.
 """
 
+from typing import cast
+
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
@@ -12,6 +14,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.user import User
 
 from ..facade import api, contracts
 from ..facade.enums import BetEventKind, BetVerdict
@@ -42,6 +45,7 @@ class BetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(responses={200: BetSerializer}, description="Retrieve a single bet.")
     def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        assert pk is not None
         return Response(BetSerializer(self._get(pk)).data)
 
     @extend_schema(
@@ -54,7 +58,7 @@ class BetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         dto = api.create_bet(
             contracts.CreateBetInput(team_id=self.team_id, **serializer.validated_data),
-            user=request.user,
+            user=cast(User, request.user),
         )
         return Response(BetSerializer(dto).data, status=status.HTTP_201_CREATED)
 
@@ -65,12 +69,13 @@ class BetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"])
     def fund(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        assert pk is not None
         self._get(pk)
         try:
             dto = api.fund_bet(
                 self.team_id,
                 pk,
-                user=request.user,
+                user=cast(User, request.user),
                 serializer_context=self.get_serializer_context(),
             )
         except api.BetStateError as e:
@@ -84,6 +89,7 @@ class BetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"])
     def verdict(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        assert pk is not None
         serializer = RecordVerdictSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self._get(pk)
@@ -92,7 +98,7 @@ class BetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 self.team_id,
                 pk,
                 BetVerdict(serializer.validated_data["verdict"]),
-                user=request.user,
+                user=cast(User, request.user),
             )
         except api.BetStateError as e:
             raise exceptions.ValidationError(str(e))
@@ -115,6 +121,7 @@ class BetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["get", "post"], pagination_class=None)
     def events(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        assert pk is not None
         self._get(pk)
         if request.method == "GET":
             return Response(BetEventSerializer(api.list_events(self.team_id, pk), many=True).data)
@@ -126,7 +133,7 @@ class BetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 pk,
                 BetEventKind(serializer.validated_data["kind"]),
                 serializer.validated_data["payload"],
-                user=request.user,
+                user=cast(User, request.user),
             )
         except api.BetStateError as e:
             raise exceptions.ValidationError(str(e))
@@ -138,5 +145,6 @@ class BetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["get"], pagination_class=None)
     def nodes(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        assert pk is not None
         self._get(pk)
         return Response(BetNodeSerializer(api.list_nodes(self.team_id, pk), many=True).data)

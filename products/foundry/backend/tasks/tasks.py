@@ -35,11 +35,11 @@ def foundry_attempt_gate_task(bet_id: str, team_id: int, pr_url: str | None, att
     if bet.state != BetState.BUILDING:
         # Already gated, or moved on some other way (e.g. a manual gate.result raced this task).
         return
+    if pr_url is None:
+        _record_skip(team_id, bet_id, "No PR available to review for this run")
+        return
 
     if attempt == 0:
-        if pr_url is None:
-            _record_skip(team_id, bet_id, "No PR available to review for this run")
-            return
         if bet.created_by_id is None:
             _record_skip(team_id, bet_id, "Bet has no creator to run the review as")
             return
