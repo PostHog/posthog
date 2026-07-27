@@ -1,6 +1,6 @@
 import { defaultConfig } from '~/common/config/config'
 
-import { SesWebhookHandler } from './ses'
+import { SesWebhookHandler, resolveClickDestination } from './ses'
 import { EmailTrackingCodeSigner } from './tracking-code'
 
 // Hardcoded (not imported) so a change to the header constant fails this test.
@@ -103,6 +103,48 @@ describe('SesWebhookHandler', () => {
             $link_url: 'https://example.com',
         })
         expect(result.metrics?.[0].timestamp).toBe('2025-10-03T12:02:00Z')
+    })
+
+    it('unwraps a legacy redirect link and surfaces the SES link tag', async () => {
+        const body = [
+            {
+                eventType: 'Click',
+                mail: baseMail,
+                click: {
+                    link: `http://localhost:8010/public/m/redirect?ph_id=${signer.generate(
+                        baseInvocation
+                    )}&target=${encodeURIComponent('https://example.com/pricing?a=1')}`,
+                    linkTags: { phl: ['2'] },
+                    timestamp: '2025-10-03T12:02:00Z',
+                },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.status).toBe(200)
+        expect(result.metrics?.[0].properties).toEqual({
+            $email_to: 'to@example.com',
+            $link_url: 'https://example.com/pricing?a=1',
+            $link_index: '2',
+        })
+    })
+
+    describe('resolveClickDestination', () => {
+        it.each([
+            ['a destination link is passed through', 'https://example.com/x?a=1', 'https://example.com/x?a=1'],
+            [
+                'a redirect wrapper resolves to its target',
+                'https://webhooks.us.posthog.com/public/m/redirect?ph_id=abc.def&target=https%3A%2F%2Fexample.com%2Fx',
+                'https://example.com/x',
+            ],
+            [
+                'a redirect wrapper with no target falls back to the raw link',
+                'https://webhooks.us.posthog.com/public/m/redirect?ph_id=abc.def',
+                'https://webhooks.us.posthog.com/public/m/redirect?ph_id=abc.def',
+            ],
+            ['an unparseable link is passed through', 'not a url', 'not a url'],
+        ])('%s', (_name, link, expected) => {
+            expect(resolveClickDestination(link)).toBe(expected)
+        })
     })
 
     it('parses tracking code from header only when SES tag is absent', async () => {

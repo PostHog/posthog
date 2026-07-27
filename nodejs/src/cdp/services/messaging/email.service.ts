@@ -399,7 +399,7 @@ export class EmailService {
             ? {
                   Html: {
                       Data: maybeAddPreheaderToEmail(
-                          addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest),
+                          addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest, 'ses'),
                           params.preheader
                       ),
                       Charset: 'UTF-8',

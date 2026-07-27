@@ -73,6 +73,8 @@ const SesClickEventSchema = SesCommonEventBase.extend({
     click: z.object({
         ipAddress: z.string().optional(),
         link: z.string(),
+        // Echoes the `ses:tags` we set on each anchor at send time, as {name: [value]}.
+        linkTags: z.record(z.string(), z.array(z.string())).optional(),
         userAgent: z.string().optional(),
         timestamp: z.string(),
     }),
@@ -173,6 +175,36 @@ const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], Min
 export type SesEventLogLine = {
     level: 'warn' | 'error'
     message: string
+}
+
+// SES link tag naming an anchor's ordinal position in the email body. Set on each `<a>` at send
+// time and echoed back on the Click event, which is what lets two anchors pointing at the same URL
+// (a header logo and a footer link, say) be counted separately. SES restricts tag names and values
+// to alphanumerics, hyphens and underscores, so an integer index is the only stable identifier
+// cheap enough to carry here.
+export const SES_LINK_INDEX_TAG = 'phl'
+
+// Path of our own click-tracking redirect, which used to wrap every anchor before SES saw it.
+const TRACKING_REDIRECT_PATH = '/public/m/redirect'
+
+/**
+ * The destination the recipient actually asked for.
+ *
+ * SES reports the link as it appeared in the HTML, before SES rewrote it. Messages sent while we
+ * still wrapped anchors in our own redirect therefore report that wrapper, whose `ph_id` differs on
+ * every send, so the raw value is both unaggregatable and a carrier for a signed tracking code that
+ * should not be stored on an event. Unwrap it back to `target`. Anything else is passed through.
+ */
+export const resolveClickDestination = (link: string): string => {
+    try {
+        const url = new URL(link)
+        if (!url.pathname.endsWith(TRACKING_REDIRECT_PATH)) {
+            return link
+        }
+        return url.searchParams.get('target') || link
+    } catch {
+        return link
+    }
 }
 
 const MAX_SES_FIELD_LENGTH = 1024
@@ -580,7 +612,11 @@ export class SesWebhookHandler {
                     timestamp = rec.open.timestamp
                 } else if ('click' in rec && rec.click) {
                     timestamp = rec.click.timestamp
-                    properties.$link_url = rec.click.link
+                    properties.$link_url = resolveClickDestination(rec.click.link)
+                    const linkIndex = rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0]
+                    if (linkIndex !== undefined) {
+                        properties.$link_index = linkIndex
+                    }
                 } else if ('delivery' in rec && rec.delivery) {
                     timestamp = rec.delivery.timestamp
                 } else if ('bounce' in rec && rec.bounce) {
