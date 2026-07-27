@@ -127,14 +127,32 @@ class TestAccountRequests(ProvisioningTestBase):
         assert res.status_code == 400
         assert res.json()["error"]["code"] == expected_code
 
-    def test_existing_user_with_inaccessible_team_id_returns_400(self):
+    @parameterized.expand(["other_org", "restricted_in_own_org"])
+    def test_existing_user_with_inaccessible_team_id_returns_400(self, case):
         token = self._silent_partner_token_for(self.user)
-        other_org = Organization.objects.create(name="Other Org")
-        other_team = Team.objects.create(organization=other_org, name="Other Team")
-        payload = self._account_request_payload(email=self.user.email, configuration={"team_id": other_team.id})
+        if case == "other_org":
+            other_org = Organization.objects.create(name="Other Org")
+            target = Team.objects.create(organization=other_org, name="Other Team")
+        else:
+            target = Team.objects.create_with_data(
+                initiating_user=self.user, organization=self.organization, name="Restricted project"
+            )
+            self._restrict_team_access(target)
+
+        payload = self._account_request_payload(email=self.user.email, configuration={"team_id": target.id})
         res = self._post_account_request(payload, token=token)
         assert res.status_code == 400
         assert res.json()["error"]["code"] == "team_resolution_failed"
+
+    def test_existing_user_auto_select_skips_restricted_team(self):
+        token = self._silent_partner_token_for(self.user)
+        self._restrict_team_access(self.team)
+
+        res = self._post_account_request(self._account_request_payload(email=self.user.email), token=token)
+
+        assert res.status_code == 200
+        code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{res.json()['oauth']['code']}")
+        assert code_data["team_id"] != self.team.id
 
     def test_existing_user_multi_team_creates_new_project(self):
         token = self._silent_partner_token_for(self.user)

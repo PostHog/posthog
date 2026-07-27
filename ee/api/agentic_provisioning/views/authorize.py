@@ -32,6 +32,7 @@ from posthog.models.user import User
 from ee.api.agentic_provisioning.accounts import get_callback_url, mint_pending_auth_code, resolve_pending_partner
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.constants import PENDING_AUTH_CACHE_PREFIX, SAFE_STATE_RE
+from ee.api.agentic_provisioning.tokens import user_can_access_team
 
 
 def _sanitize_state(state: str) -> str:
@@ -69,8 +70,14 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         capture_provisioning_event("authorize", "no_organization")
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_organization")
 
+    # Only teams the user can actually reach are eligible: the auto-approve path
+    # below mints a code for non_demo_teams[0] without further checks.
     org_ids = [m.organization_id for m in memberships]
-    non_demo_teams = list(Team.objects.filter(organization_id__in=org_ids, is_demo=False))
+    non_demo_teams = [
+        team
+        for team in Team.objects.filter(organization_id__in=org_ids, is_demo=False)
+        if user_can_access_team(user, team)
+    ]
 
     if not non_demo_teams:
         organization = memberships[0].organization
@@ -176,7 +183,11 @@ class AuthorizeConfirmView(APIView):
             capture_provisioning_event("authorize_confirm", "team_not_found", team_id=team_id)
             return Response({"error": "team_not_found"}, status=404)
 
-        if not user.organization_memberships.filter(organization_id=team.organization_id).exists():
+        # The user picks the team here, so consent does not imply access: check
+        # team level too, or an org member excluded from a private project could
+        # approve a code scoped to it.
+        in_org = user.organization_memberships.filter(organization_id=team.organization_id).exists()
+        if not in_org or not user_can_access_team(user, team):
             capture_provisioning_event("authorize_confirm", "team_not_accessible", team_id=team_id)
             return Response({"error": "team_not_accessible"}, status=403)
 
