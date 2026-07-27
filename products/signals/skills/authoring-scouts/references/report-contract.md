@@ -36,7 +36,7 @@ Judges the report for safety, then persists it at the judged status.
 | `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                                                                                                                                                                                                              |
 | `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                                                                                    |
 | `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                 |
-| `charts`                    | list, ≤20, optional     | Queries the inbox draws on the report. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                                             |
+| `charts`                    | list, ≤20, optional     | Queries the inbox draws on the report — the report's full set, replacing any it already had. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                       |
 
 **Status is decided for you, from safety × actionability:**
 
@@ -57,7 +57,7 @@ A chart restating one number the summary already gives is noise; just write the 
 
 | Field      | Type             | Notes                                                                                                                                                                                                  |
 | ---------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `chart_id` | string, required | Your own slug (lowercase letters, numbers, `_`, `-`). How the summary points at the chart, and the key a later edit refreshes it under.                                                                |
+| `chart_id` | string, required | Your own slug (lowercase letters, numbers, `_`, `-`). How the summary points at the chart, and the key a later edit refreshes it under. Unique within the report.                                      |
 | `title`    | string, required | Heading above the chart.                                                                                                                                                                               |
 | `query`    | object, required | An `InsightVizNode`, `DataVisualizationNode` (a `HogQLQuery` source, plus `display` and `chartSettings` for a graph), or `SavedInsightNode` (by `shortId`). Any other `kind` is refused at write time. |
 | `caption`  | string, optional | One line on what to look at.                                                                                                                                                                           |
@@ -119,8 +119,10 @@ A reference inside a code span, a table cell, or a heading has no room to draw �
 
 **Pin the window** to absolute dates wherever the node supports it, so a reader opening the report days later sees the data you wrote about rather than whatever a relative range resolves to then.
 
-Charts append rather than replace, on both tools: re-supplying a `chart_id` on a later `edit_report` adds a fresher version and the reference resolves to it — which is what a recurring report's refreshed window wants.
-Cap is **20 distinct charts per report** (and a combined query-size budget), which is far more than most reports should use. Each chart runs its query when the report is opened, so attach the ones that carry the argument rather than everything you looked at: three charts a reader studies beat a dozen they scroll past.
+**`charts` on an edit is the report's whole set, not an addition.**
+It replaces what the report had, the way `summary` replaces the summary — so send every chart you want kept, and re-send an id under a newer window to refresh that chart.
+Leave `charts` out entirely and the report keeps the ones it has; read the report first (`inbox-reports-retrieve` returns its `charts`) when you mean to add to them.
+Cap is **20 charts per report** (and a combined query-size budget), which is far more than most reports should use. Each chart runs its query when the report is opened, so attach the ones that carry the argument rather than everything you looked at: three charts a reader studies beat a dozen they scroll past.
 
 ### Opening a draft PR (autostart)
 

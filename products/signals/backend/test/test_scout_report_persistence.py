@@ -13,11 +13,8 @@ from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 
 from products.signals.backend.artefact_schemas import (
-    MAX_REPORT_CHARTS,
     ActionabilityAssessment,
     ActionabilityChoice,
-    ArtefactContentValidationError,
-    ChartArtefact,
     SafetyJudgment,
     TaskRunArtefact,
 )
@@ -28,12 +25,13 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutRun,
 )
+from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.scout_report import (
     InvalidScoutReportError,
     ScoutReportSignal,
-    append_report_charts,
     create_scout_report,
+    set_report_charts,
     soft_delete_scout_signal,
     update_scout_report,
 )
@@ -320,17 +318,13 @@ class TestScoutReportCharts(BaseTest):
             self._team_scope_cm = None
         super().tearDown()
 
-    def _chart(self, chart_id: str, title: str) -> ChartArtefact:
-        return ChartArtefact(chart_id=chart_id, title=title, query={"kind": "InsightVizNode"})
+    def _chart(self, chart_id: str, title: str) -> ReportChart:
+        return ReportChart(chart_id=chart_id, title=title, query={"kind": "InsightVizNode"})
 
-    def _chart_artefacts(self, report_id: str) -> list[SignalReportArtefact]:
-        return list(
-            SignalReportArtefact.objects.filter(
-                report_id=report_id, type=SignalReportArtefact.ArtefactType.CHART
-            ).order_by("created_at")
-        )
+    def _stored_charts(self, report_id: str) -> list[dict]:
+        return SignalReport.objects.get(id=report_id).charts
 
-    def _create(self, charts: list[ChartArtefact] | None = None) -> str:
+    def _create(self, charts: list[ReportChart] | None = None) -> str:
         result = create_scout_report(
             team_id=self.team.id,
             title="Signups dropped",
@@ -341,12 +335,10 @@ class TestScoutReportCharts(BaseTest):
         )
         return result.report_id
 
-    def test_charts_are_written_as_log_artefacts_on_author(self) -> None:
+    def test_charts_are_stored_on_the_report_on_author(self) -> None:
         report_id = self._create([self._chart("signups-drop", "Daily signups")])
 
-        artefacts = self._chart_artefacts(report_id)
-        assert len(artefacts) == 1
-        assert ChartArtefact.model_validate_json(artefacts[0].content).chart_id == "signups-drop"
+        assert [c["chart_id"] for c in self._stored_charts(report_id)] == ["signups-drop"]
 
     def test_charts_survive_a_suppressed_report(self) -> None:
         # A suppressed report keeps its exhibits so whoever reviews the suppression sees what the
@@ -361,82 +353,52 @@ class TestScoutReportCharts(BaseTest):
             charts=[self._chart("signups-drop", "Daily signups")],
             emit_signals=False,
         )
-        assert len(self._chart_artefacts(result.report_id)) == 1
+        assert len(self._stored_charts(result.report_id)) == 1
 
-    def test_appending_a_seen_chart_id_adds_a_version_rather_than_replacing(self) -> None:
-        # Charts are log artefacts: re-supplying an id on a later edit is a refreshed window on a
-        # recurring report, so both rows are kept and the newest is what a reference resolves to.
-        report_id = self._create([self._chart("signups-drop", "Daily signups")])
+    def test_setting_charts_replaces_the_report_s_whole_set(self) -> None:
+        # `charts` is the set the report shows, the way `summary` is the whole summary — a scout that
+        # sends one chart is left with one. Sending an id it already had refreshes that chart in place.
+        report_id = self._create([self._chart("signups-drop", "Daily signups"), self._chart("churn", "Churn")])
 
-        append_report_charts(
+        set_report_charts(
             team_id=self.team.id,
             report_id=report_id,
             charts=[self._chart("signups-drop", "Daily signups (rerun)")],
-            attribution=ArtefactAttribution.system(),
         )
 
-        artefacts = self._chart_artefacts(report_id)
-        assert len(artefacts) == 2
-        assert ChartArtefact.model_validate_json(artefacts[-1].content).title == "Daily signups (rerun)"
+        stored = self._stored_charts(report_id)
+        assert [c["chart_id"] for c in stored] == ["signups-drop"]
+        assert stored[0]["title"] == "Daily signups (rerun)"
 
-    def test_chart_cap_counts_the_whole_report_not_just_the_call(self) -> None:
-        # The cap bounds how many queries one report fires when it's opened, so it has to hold across
-        # edits — charts append, and a per-call check alone lets repeated edits accumulate past it.
-        report_id = self._create([self._chart(f"chart-{i}", f"Chart {i}") for i in range(MAX_REPORT_CHARTS)])
+    def test_setting_no_charts_leaves_the_report_s_charts_alone(self) -> None:
+        # An edit that only appends a note must not clear the report's charts — the tool reaches here
+        # for every edit, and "no charts supplied" means untouched, not emptied.
+        report_id = self._create([self._chart("signups-drop", "Daily signups")])
+
+        set_report_charts(team_id=self.team.id, report_id=report_id, charts=[])
+
+        assert len(self._stored_charts(report_id)) == 1
+
+    @parameterized.expand(
+        [
+            ("over_the_count_cap", [(f"chart-{i}", {"kind": "InsightVizNode"}) for i in range(MAX_REPORT_CHARTS + 1)]),
+            (
+                "over_the_query_size_cap",
+                [(f"chart-{i}", {"kind": "InsightVizNode", "pad": "x" * 15_000}) for i in range(5)],
+            ),
+        ]
+    )
+    def test_charts_past_a_cap_are_refused(self, _name: str, specs: list[tuple[str, dict]]) -> None:
+        # Both caps bound what one report costs a reader: how many queries fire when it opens, and how
+        # much chart JSON the safety judge is shown in one call.
+        report_id = self._create([self._chart("signups-drop", "Daily signups")])
+        charts = [ReportChart(chart_id=cid, title=cid, query=query) for cid, query in specs]
 
         with pytest.raises(InvalidScoutReportError):
-            append_report_charts(
-                team_id=self.team.id,
-                report_id=report_id,
-                charts=[self._chart("one-too-many", "Over the line")],
-                attribution=ArtefactAttribution.system(),
-            )
-        assert len(self._chart_artefacts(report_id)) == MAX_REPORT_CHARTS
+            set_report_charts(team_id=self.team.id, report_id=report_id, charts=charts)
+        assert [c["chart_id"] for c in self._stored_charts(report_id)] == ["signups-drop"]
 
-    def test_refreshing_an_existing_chart_costs_no_headroom(self) -> None:
-        # Counted over distinct ids, so a scout at the cap can still refresh what it already has —
-        # otherwise the refresh workflow the append semantics exist for would be unreachable.
-        report_id = self._create([self._chart(f"chart-{i}", f"Chart {i}") for i in range(MAX_REPORT_CHARTS)])
-
-        append_report_charts(
-            team_id=self.team.id,
-            report_id=report_id,
-            charts=[self._chart("chart-0", "Chart 0 (rerun)")],
-            attribution=ArtefactAttribution.system(),
-        )
-        assert len(self._chart_artefacts(report_id)) == MAX_REPORT_CHARTS + 1
-
-    def test_cap_holds_on_the_generic_artefact_write_path(self) -> None:
-        # `chart` is writable through the generic artefact API as well as the scout report channel, so
-        # the cap lives on the model's write funnel — a limit only one caller honours is not a limit.
-        report_id = self._create([self._chart(f"chart-{i}", f"Chart {i}") for i in range(MAX_REPORT_CHARTS)])
-
-        with pytest.raises(ArtefactContentValidationError):
-            SignalReportArtefact.add_log(
-                team_id=self.team.id,
-                report_id=report_id,
-                content=self._chart("straight-to-the-model", "Bypass"),
-                attribution=ArtefactAttribution.system(),
-            )
-        assert len(self._chart_artefacts(report_id)) == MAX_REPORT_CHARTS
-
-    def test_editing_a_chart_cannot_repoint_its_id(self) -> None:
-        # Appending is where the cap lives, so a rename would be a way around it: append rows under
-        # one id (each a free refresh), then rename them apart into distinct charts. It would also
-        # break the `[label](chart:<chart_id>)` reference the summary uses to place the chart.
-        report_id = self._create([self._chart("signups-drop", "Daily signups")])
-        row = self._chart_artefacts(report_id)[0]
-
-        with pytest.raises(ArtefactContentValidationError):
-            row.update_content({"chart_id": "renamed", "title": "Daily signups", "query": {"kind": "InsightVizNode"}})
-        # Editing what the chart shows, keeping its identity, is still allowed.
-        row.update_content(
-            {"chart_id": "signups-drop", "title": "Daily signups (90d)", "query": {"kind": "InsightVizNode"}}
-        )
-        row.refresh_from_db()
-        assert ChartArtefact.model_validate_json(row.content).title == "Daily signups (90d)"
-
-    def test_appending_to_another_teams_report_is_refused(self) -> None:
+    def test_setting_charts_on_another_teams_report_is_refused(self) -> None:
         other_org = Organization.objects.create(name="other")
         other_team = Team.objects.create(organization=other_org, name="other")
         with team_scope(other_team.id):
@@ -449,11 +411,10 @@ class TestScoutReportCharts(BaseTest):
             )
 
         with pytest.raises(InvalidScoutReportError):
-            append_report_charts(
+            set_report_charts(
                 team_id=self.team.id,
                 report_id=other_report.report_id,
                 charts=[self._chart("signups-drop", "Daily signups")],
-                attribution=ArtefactAttribution.system(),
             )
         with team_scope(other_team.id):
-            assert self._chart_artefacts(other_report.report_id) == []
+            assert self._stored_charts(other_report.report_id) == []

@@ -26,8 +26,8 @@ from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import AgentRuntime
-from products.signals.backend.artefact_schemas import ChartArtefact
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
@@ -275,7 +275,7 @@ class TestReportChartsSection(SimpleTestCase):
 
         assert [c["query"]["kind"] for c in charts] == ["InsightVizNode", "DataVisualizationNode"]
         for chart in charts:
-            ChartArtefact.model_validate(chart)
+            ReportChart.model_validate(chart)
 
     def test_sql_example_names_its_axes(self) -> None:
         # A graphical DataVisualizationNode renders an empty box without chartSettings, so the

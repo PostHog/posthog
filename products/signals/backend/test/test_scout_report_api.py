@@ -15,13 +15,7 @@ from social_django.models import UserSocialAuth
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
-from products.signals.backend.artefact_schemas import (
-    MAX_REPORT_CHARTS,
-    Priority,
-    PriorityAssessment,
-    SuggestedReviewers,
-    TaskRunArtefact,
-)
+from products.signals.backend.artefact_schemas import Priority, PriorityAssessment, SuggestedReviewers, TaskRunArtefact
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.scout_harness.tools.report import (
     MAX_SUGGESTED_REVIEWERS,
@@ -29,7 +23,7 @@ from products.signals.backend.scout_harness.tools.report import (
     REPORT_KIND_SELF_IMPROVEMENT,
     EditReportResult,
     InvalidScoutReportError,
-    ReportChart,
+    ReportChartInput,
     ReviewerInput,
     _build_suggested_reviewers,
     _capture_report_edited,
@@ -520,34 +514,6 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert SignalReport.objects.get(id=report_id).title == original_title
 
-    def test_edit_report_over_cap_chart_does_not_partially_mutate(self) -> None:
-        # Same atomicity requirement as the reviewer case above, for the other input whose validity
-        # depends on stored state. The chart cap counts what the report already holds, so it can only
-        # be judged mid-request — and the title write commits on its own (no implicit per-request
-        # transaction), so checking capacity at the append would strand the rewritten title.
-        run = _make_run(self.team)
-        charts = [
-            {"chart_id": f"chart-{i}", "title": f"Chart {i}", "query": {"kind": "InsightVizNode"}}
-            for i in range(MAX_REPORT_CHARTS)
-        ]
-        with _safe_judge(), patch(EMBED_PATH):
-            created = self.client.post(
-                self._emit_url(str(run.id)), data={**self._payload(), "charts": charts}, format="json"
-            ).json()
-        report_id = created["report_id"]
-        original_title = SignalReport.objects.get(id=report_id).title
-        response = self.client.post(
-            self._edit_url(str(run.id)),
-            data={
-                "report_id": report_id,
-                "title": "should not stick",
-                "charts": [{"chart_id": "one-too-many", "title": "Over", "query": {"kind": "InsightVizNode"}}],
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert SignalReport.objects.get(id=report_id).title == original_title
-
     def test_emit_report_skips_autostart_and_artefacts_when_suppressed(self) -> None:
         # An unsafe report is suppressed — it must not write autostart inputs or try to open a PR.
         run = _make_run(self.team)
@@ -695,9 +661,9 @@ class TestScoutReportAPI(APIBaseTest):
         # Without keying on the chart ids they hash to one `event_uuid` and ingestion drops the second —
         # the team never sees that chart land. An identical retried chart edit must still stay one event.
         run = _make_run(self.team)
-        result = EditReportResult(report_id=str(uuid4()), updated_fields=[], note_appended=False, charts_appended=1)
+        result = EditReportResult(report_id=str(uuid4()), updated_fields=[], note_appended=False, charts_set=1)
 
-        def forward(charts: list[ReportChart]) -> str:
+        def forward(charts: list[ReportChartInput]) -> str:
             with patch(CAPTURE_PATH):
                 return _capture_report_edited(
                     team=self.team,
@@ -709,8 +675,8 @@ class TestScoutReportAPI(APIBaseTest):
                     charts=charts,
                 ).event_uuid
 
-        def chart(chart_id: str) -> ReportChart:
-            return ReportChart(chart_id=chart_id, title="Daily signups", query={"kind": "InsightVizNode"})
+        def chart(chart_id: str) -> ReportChartInput:
+            return ReportChartInput(chart_id=chart_id, title="Daily signups", query={"kind": "InsightVizNode"})
 
         signups = forward([chart("signups-drop")])
         churn = forward([chart("churn-spike")])
@@ -718,19 +684,19 @@ class TestScoutReportAPI(APIBaseTest):
         assert signups == forward([chart("signups-drop")])
         # Re-supplying an id is how a scout refreshes a chart to a newer window, so the key has to cover
         # content too — on ids alone the refresh collapses into the original and the team never hears it.
-        refreshed = ReportChart(
+        refreshed = ReportChartInput(
             chart_id="signups-drop", title="Daily signups", query={"kind": "InsightVizNode", "full": True}
         )
         assert forward([refreshed]) != signups
         # Title and caption are scout-authored free text, so a key that joins them on a separator lets
         # a colon move across the boundary and hash the same — a real refresh silently deduped away.
         node = {"kind": "InsightVizNode"}
-        title_carries_it = ReportChart(chart_id="signups-drop", title="Signups: daily", caption="EU", query=node)
-        caption_carries_it = ReportChart(chart_id="signups-drop", title="Signups", caption="daily: EU", query=node)
+        title_carries_it = ReportChartInput(chart_id="signups-drop", title="Signups: daily", caption="EU", query=node)
+        caption_carries_it = ReportChartInput(chart_id="signups-drop", title="Signups", caption="daily: EU", query=node)
         assert forward([title_carries_it]) != forward([caption_carries_it])
 
     def test_chart_counts_ride_the_lifecycle_events(self) -> None:
-        # `charts_appended` / `chart_count` are what a dashboard or CDP destination reads to tell a
+        # `charts_set` / `chart_count` are what a dashboard or CDP destination reads to tell a
         # chart-bearing report from a plain one; without them both event streams look identical.
         run = _make_run(self.team)
         charts = [{"chart_id": "signups-drop", "title": "Daily signups", "query": {"kind": "InsightVizNode"}}]
@@ -746,7 +712,7 @@ class TestScoutReportAPI(APIBaseTest):
         emitted = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
         edited = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_edited")
         assert emitted.kwargs["properties"]["chart_count"] == 1
-        assert edited.kwargs["properties"]["charts_appended"] == 1
+        assert edited.kwargs["properties"]["charts_set"] == 1
 
     @parameterized.expand(
         [

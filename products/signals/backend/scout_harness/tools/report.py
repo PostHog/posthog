@@ -39,19 +39,21 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.artefact_schemas import (
-    MAX_REPORT_CHARTS_QUERY_CHARS,
     ActionabilityAssessment,
     ActionabilityChoice,
-    ArtefactContentValidationError,
-    ChartArtefact,
-    ChartSize,
     Priority,
     PriorityAssessment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
-    chart_batch_query_chars,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
+from products.signals.backend.report_charts import (
+    MAX_REPORT_CHARTS,
+    MAX_REPORT_CHARTS_QUERY_CHARS,
+    ChartSize,
+    ReportChart,
+    chart_batch_query_chars,
+)
 from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
@@ -66,17 +68,16 @@ from products.signals.backend.scout_harness.tools.emit import (
     remediation_for_skip,
 )
 from products.signals.backend.scout_report import (
-    MAX_REPORT_CHARTS,
     MAX_REPORT_SIGNALS,
     InvalidScoutReportError,
     ScoutReportSignal,
-    append_report_charts,
     append_report_note,
     create_scout_report,
     get_scout_report_status,
     get_scout_report_title,
     record_report_edit,
     record_scout_run_task_artefact,
+    set_report_charts,
     set_scout_report_reviewers,
     update_scout_report,
 )
@@ -109,10 +110,10 @@ class ReportEvidence:
 
 
 @dataclass(frozen=True)
-class ReportChart:
-    """One chart a scout attaches to a report — persisted as a `chart` log artefact and rendered in
-    the inbox. `chart_id` is the scout's own slug (see `ChartArtefact`), which the summary can
-    reference to place the chart inline."""
+class ReportChartInput:
+    """One chart a scout attaches to a report, before validation — stored on the report's `charts`
+    and rendered in the inbox. `chart_id` is the scout's own slug (see `ReportChart`), which the
+    summary can reference to place the chart inline."""
 
     chart_id: str
     title: str
@@ -165,7 +166,7 @@ class EditReportResult:
     updated_fields: list[str]
     note_appended: bool
     reviewers_set: bool = False
-    charts_appended: int = 0
+    charts_set: int = 0
     # The report's effective title after the edit (the rewritten title, or the stored one for a
     # note/reviewer-only edit) — telemetry-only, so the edited lifecycle event can classify the report
     # (`_report_classification_props`) even when the edit didn't touch the title.
@@ -213,23 +214,22 @@ def _validate_emit_inputs(title: str, summary: str, evidence: list[ReportEvidenc
             )
 
 
-def _build_charts(charts: list[ReportChart] | None) -> list[ChartArtefact]:
-    """Turn the scout's chart inputs into validated artefact content.
+def _build_charts(charts: list[ReportChartInput] | None) -> list[ReportChart]:
+    """Turn the scout's chart inputs into the validated charts stored on the report.
 
     Runs before the safety judge so a malformed chart fails the call outright instead of paying for
-    the judge and then rolling back mid-persist. Duplicate `chart_id`s are rejected here even though
-    the store allows them: within a single call they'd make a summary reference ambiguous, and the
-    scout can still fix it. Across calls they're legitimate — that's a refreshed chart, latest wins.
+    the judge and then rolling back mid-persist. Duplicate `chart_id`s are rejected because the set
+    is what the report will show, and two charts under one id make a summary reference ambiguous.
     """
     if not charts:
         return []
     if len(charts) > MAX_REPORT_CHARTS:
         raise InvalidScoutReportError(f"a report accepts at most {MAX_REPORT_CHARTS} charts ({len(charts)})")
-    built: list[ChartArtefact] = []
+    built: list[ReportChart] = []
     seen: set[str] = set()
     for chart in charts:
         try:
-            content = ChartArtefact(
+            content = ReportChart(
                 chart_id=chart.chart_id,
                 title=chart.title,
                 query=chart.query,
@@ -237,8 +237,6 @@ def _build_charts(charts: list[ReportChart] | None) -> list[ChartArtefact]:
                 size=chart.size,
             )
         except ValidationError as exc:
-            raise InvalidScoutReportError(f"invalid chart {chart.chart_id!r}: {exc}")
-        except ArtefactContentValidationError as exc:
             raise InvalidScoutReportError(f"invalid chart {chart.chart_id!r}: {exc}")
         if content.chart_id in seen:
             raise InvalidScoutReportError(f"duplicate chart_id {content.chart_id!r} in the same call")
@@ -248,7 +246,7 @@ def _build_charts(charts: list[ReportChart] | None) -> list[ChartArtefact]:
     if total_query_chars > MAX_REPORT_CHARTS_QUERY_CHARS:
         raise InvalidScoutReportError(
             f"the charts' queries total {total_query_chars} characters, the limit is "
-            f"{MAX_REPORT_CHARTS_QUERY_CHARS} across one call"
+            f"{MAX_REPORT_CHARTS_QUERY_CHARS} across one report"
         )
     return built
 
@@ -631,7 +629,7 @@ def _report_url(team_id: int, report_id: str | None) -> str | None:
     return f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
 
 
-def _chart_event_key(chart: ReportChart) -> str:
+def _chart_event_key(chart: ReportChartInput) -> str:
     """Identity + content of one chart, for the edit event's dedup key. `sort_keys` keeps the query's
     serialization stable so an identical re-append hashes the same across worker processes.
 
@@ -782,7 +780,7 @@ def _capture_report_edited(
     summary: str | None,
     note: str | None,
     suggested_reviewers: list[ReviewerInput] | None = None,
-    charts: list[ReportChart] | None = None,
+    charts: list[ReportChartInput] | None = None,
 ) -> _ReportForward:
     """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
     `edit_report`, so edits are observable separately from fresh authorship. `updated_fields` /
@@ -800,7 +798,7 @@ def _capture_report_edited(
         "updated_fields": result.updated_fields,
         "note_appended": result.note_appended,
         "reviewers_set": result.reviewers_set,
-        "charts_appended": result.charts_appended,
+        "charts_set": result.charts_set,
         "title": _clip(title, MAX_REPORT_TITLE_LENGTH),
         "summary": _clip(summary, _MAX_TELEMETRY_SUMMARY_LEN),
         "note": _clip(note, _MAX_TELEMETRY_TEXT_LEN),
@@ -830,11 +828,11 @@ def _capture_report_edited(
     # Charts are a valid *sole* input to an edit, so the same reasoning applies: two chart-only edits to
     # one report in a run carry no updated_fields and no title/summary/note, and would hash identically —
     # ingestion would collapse the second and the team would never see that chart land. Key on the charts
-    # too, only when charts were appended so every other edit keeps its existing uuid.
+    # too, only when charts were set, so every other edit keeps its existing uuid.
     #
-    # The key is the charts' *content*, not just their ids: re-supplying an id is how a scout refreshes a
-    # chart to a newer window, so keying on ids alone would collapse exactly the refresh the team wants to
-    # hear about. A genuinely identical re-append still hashes the same and stays one event.
+    # The key is the charts' *content*, not just their ids: re-sending an id under a newer window is how a
+    # scout refreshes a chart, so keying on ids alone would collapse exactly the refresh the team wants to
+    # hear about. A genuinely identical re-send still hashes the same and stays one event.
     if charts:
         parts.append(",".join(sorted(_chart_event_key(c) for c in charts)))
     return _ReportForward(
@@ -859,7 +857,7 @@ async def emit_report(
     priority: str | None = None,
     priority_explanation: str | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
-    charts: list[ReportChart] | None = None,
+    charts: list[ReportChartInput] | None = None,
 ) -> EmitReportResult:
     """Author a full report: judge for safety, then persist at the judged status. Async entry (used by
     the in-Temporal runner); routes the sync DB work through `database_sync_to_async`.
@@ -868,7 +866,7 @@ async def emit_report(
     autostart inputs (custom_agent parity): with them a surfaced, immediately-actionable report can
     open a draft PR. They're only resolved/written when the report actually surfaces.
 
-    `charts` are optional query artefacts the inbox renders on the report."""
+    `charts` are the optional queries the inbox renders on the report."""
     _assert_team_owns_run(team, run)
     _validate_emit_inputs(title, summary, evidence)
     chart_contents = _build_charts(charts)
@@ -983,7 +981,7 @@ def emit_report_sync(
     priority: str | None = None,
     priority_explanation: str | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
-    charts: list[ReportChart] | None = None,
+    charts: list[ReportChartInput] | None = None,
 ) -> EmitReportResult:
     """Sync entry used by the DRF view path. Mirrors `emit_report` but keeps the sync DB work on the
     calling thread/connection (gates, persist) — only the safety-judge LLM call, the free-form repo
@@ -1095,7 +1093,7 @@ def _do_edit_report(
     summary: str | None,
     append_note: str | None,
     suggested_reviewers: list[ReviewerInput] | None,
-    charts: list[ChartArtefact],
+    charts: list[ReportChart],
 ) -> EditReportResult:
     """Fully-sync edit core (no LLM step). The async/sync entrypoints both funnel here — directly in
     the sync path, via `database_sync_to_async` in the async path. Reviewer resolution does a DB read
@@ -1118,12 +1116,9 @@ def _do_edit_report(
     reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=run.skill_name)
     updated_fields: list[str] = []
     note_appended = False
-    # One edit is one transaction. Not every input can be validated before the writes start: the chart
-    # cap depends on what the report already holds, so it is only decided at the append, by which point
-    # a title rewrite would otherwise have committed. Grouping the four content writes means a rejected
-    # chart takes the whole edit with it instead of leaving the report half-changed. The side effects
-    # below (autostart, telemetry, delivery) stay outside, and the `on_commit` hooks these writes
-    # register now fire on this block's commit.
+    # One edit is one transaction, so a rejection part-way through takes the whole edit with it
+    # instead of leaving the report half-changed. The side effects below (autostart, telemetry,
+    # delivery) stay outside, and the `on_commit` hooks these writes register fire on this commit.
     with transaction.atomic():
         if title is not None or summary is not None:
             updated_fields = update_scout_report(
@@ -1153,8 +1148,10 @@ def _do_edit_report(
                 team_id=team.id, report_id=report_id, note=append_note, attribution=attribution, author=run.skill_name
             )
             note_appended = True
+        # Replace the report's charts, the way a summary rewrite replaces the summary. Supplying
+        # none leaves the existing ones alone, so an edit that only appends a note keeps them.
         if charts:
-            append_report_charts(team_id=team.id, report_id=report_id, charts=charts, attribution=attribution)
+            set_report_charts(team_id=team.id, report_id=report_id, charts=charts)
     # Re-run autostart only when reviewers changed: it's idempotent (a report with an implementation
     # task already started no-ops), but a report that was missing a qualifying reviewer can now open a
     # draft PR. Fired outside any txn since it spawns a Task — mirrors emit's post-commit hand-off.
@@ -1168,7 +1165,7 @@ def _do_edit_report(
             "fields": updated_fields,
             "note": note_appended,
             "reviewers_set": reviewers_set,
-            "charts": len(charts),
+            "charts_set": len(charts),
         },
     )
     # Resolve the report's effective title for the edited event's classification — the rewritten title
@@ -1190,7 +1187,7 @@ def _do_edit_report(
         updated_fields=updated_fields,
         note_appended=note_appended,
         reviewers_set=reviewers_set,
-        charts_appended=len(charts),
+        charts_set=len(charts),
         report_title=report_title,
     )
     # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
@@ -1233,7 +1230,7 @@ async def edit_report(
     summary: str | None = None,
     append_note: str | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
-    charts: list[ReportChart] | None = None,
+    charts: list[ReportChartInput] | None = None,
 ) -> EditReportResult:
     """Edit an existing inbox report: rewrite title/summary, append a note, and/or set suggested
     reviewers (which re-runs autostart so a report missing a qualifying reviewer can open a draft PR).
@@ -1272,7 +1269,7 @@ def edit_report_sync(
     summary: str | None = None,
     append_note: str | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
-    charts: list[ReportChart] | None = None,
+    charts: list[ReportChartInput] | None = None,
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
     _validate_edit_inputs(team, run, title, summary, append_note, suggested_reviewers, charts)

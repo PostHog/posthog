@@ -62,6 +62,49 @@ export const SignalReportStatusEnumApi = {
 } as const
 
 /**
+ * * `small` - small
+ * * `medium` - medium
+ * * `large` - large
+ */
+export type SizeEnumApi = (typeof SizeEnumApi)[keyof typeof SizeEnumApi]
+
+export const SizeEnumApi = {
+    Small: 'small',
+    Medium: 'medium',
+    Large: 'large',
+} as const
+
+/**
+ * One chart attached to a report — rendered in the inbox and referenceable from the summary.
+ */
+export interface ReportChartApi {
+    /**
+     * Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary.
+     * @maxLength 100
+     */
+    chart_id: string
+    /**
+     * Short heading shown above the chart.
+     * @maxLength 200
+     */
+    title: string
+    /** The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report. */
+    query: unknown
+    /**
+     * Optional one-line note on what to look at in the chart.
+     * @maxLength 500
+     * @nullable
+     */
+    caption?: string | null
+    /** How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.
+     *
+     * * `small` - small
+     * * `medium` - medium
+     * * `large` - large */
+    size?: SizeEnumApi | null
+}
+
+/**
  * * `pr_incorrect` - PR incorrect
  * * `pr_not_useful` - PR not useful
  * * `duplicate` - Duplicate
@@ -158,6 +201,8 @@ export interface SignalReportApi {
     readonly created_at: string
     readonly updated_at: string
     readonly artefact_count: number
+    /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
+    readonly charts: readonly ReportChartApi[]
     /**
      * P0–P4 from the latest priority judgment artefact (when present).
      * @nullable
@@ -1404,7 +1449,6 @@ export interface SignalReportStateRequestApi {
  * * `summary_change` - Summary Change
  * * `code_review` - Code Review
  * * `related_to` - Related To
- * * `chart` - Chart
  */
 export type SignalReportArtefactTypeEnumApi =
     (typeof SignalReportArtefactTypeEnumApi)[keyof typeof SignalReportArtefactTypeEnumApi]
@@ -1426,7 +1470,6 @@ export const SignalReportArtefactTypeEnumApi = {
     SummaryChange: 'summary_change',
     CodeReview: 'code_review',
     RelatedTo: 'related_to',
-    Chart: 'chart',
 } as const
 
 export interface _UserApi {
@@ -1472,7 +1515,7 @@ export interface PaginatedSignalReportArtefactListApi {
  * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
  */
 export interface SignalReportArtefactLogCreateApi {
-    /** The artefact type. One of: actionability_judgment, chart, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+    /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
     artefact_type: string
     /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
     content: unknown
@@ -2774,49 +2817,6 @@ export interface SuggestedReviewerApi {
 }
 
 /**
- * * `small` - small
- * * `medium` - medium
- * * `large` - large
- */
-export type SizeEnumApi = (typeof SizeEnumApi)[keyof typeof SizeEnumApi]
-
-export const SizeEnumApi = {
-    Small: 'small',
-    Medium: 'medium',
-    Large: 'large',
-} as const
-
-/**
- * One chart attached to a report — rendered in the inbox and referenceable from the summary.
- */
-export interface ReportChartApi {
-    /**
-     * Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary.
-     * @maxLength 100
-     */
-    chart_id: string
-    /**
-     * Short heading shown above the chart.
-     * @maxLength 200
-     */
-    title: string
-    /** The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report. */
-    query: unknown
-    /**
-     * Optional one-line note on what to look at in the chart.
-     * @maxLength 500
-     * @nullable
-     */
-    caption?: string | null
-    /** How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.
-     *
-     * * `small` - small
-     * * `medium` - medium
-     * * `large` - large */
-    size?: SizeEnumApi | null
-}
-
-/**
  * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
  */
 export interface EditReportRequestApi {
@@ -2844,7 +2844,7 @@ export interface EditReportRequestApi {
      */
     suggested_reviewers?: SuggestedReviewerApi[]
     /**
-     * Optional charts to append to the report. Charts accumulate rather than replace, so re-supplying a `chart_id` from an earlier call adds a newer version of that chart and the report renders the newest — which is what a refreshed window on a recurring report wants.
+     * The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field to leave the report's existing charts untouched.
      * @maxItems 20
      */
     charts?: ReportChartApi[]
@@ -2859,8 +2859,8 @@ export interface EditReportResponseApi {
     note_appended: boolean
     /** Whether the report's suggested reviewers were replaced. */
     reviewers_set: boolean
-    /** How many chart artefacts were appended. */
-    charts_appended: number
+    /** How many charts the report now shows, or 0 if charts were untouched. */
+    charts_set: number
 }
 
 /**

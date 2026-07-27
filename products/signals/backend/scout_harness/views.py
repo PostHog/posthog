@@ -53,7 +53,6 @@ from posthog.permissions import AccessControlPermission, APIScopePermission, get
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.temporal.common.client import sync_connect
 
-from products.signals.backend.artefact_schemas import ChartSize
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -63,6 +62,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.quota import is_team_signals_quota_limited
+from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import (
     enabled_scout_count,
@@ -342,7 +342,7 @@ def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
 
 def _to_report_charts(entries: list[dict] | None) -> list[ReportChart] | None:
     """Map validated `charts` entries to `ReportChart`s for the report tools. Content validation lives
-    in `ChartArtefact`; this only crosses the DRF boundary. Empty/None yields None ("no charts")."""
+    in `ReportChart`; this only crosses the DRF boundary. Empty/None yields None ("no charts")."""
     if not entries:
         return None
     return [
@@ -1010,7 +1010,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "updated_fields": result.updated_fields,
                     "note_appended": result.note_appended,
                     "reviewers_set": result.reviewers_set,
-                    "charts_appended": result.charts_appended,
+                    "charts_set": result.charts_set,
                 }
             ).data,
             status=status.HTTP_200_OK,

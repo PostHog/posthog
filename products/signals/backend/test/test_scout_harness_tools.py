@@ -17,8 +17,8 @@ from parameterized import parameterized
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.artefact_schemas import ChartArtefact
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalScratchpad
+from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 from products.signals.backend.scout_harness.tools import (
     MAX_EVIDENCE_ENTRIES,
     EvidenceEntry,
@@ -44,9 +44,8 @@ from products.signals.backend.scout_harness.tools.emit import (
     normalize_tags,
 )
 from products.signals.backend.scout_harness.tools.report import (
-    MAX_REPORT_CHARTS,
     InvalidScoutReportError,
-    ReportChart,
+    ReportChartInput,
     _build_charts,
     _chart_event_key,
     _report_event_uuid,
@@ -1224,8 +1223,8 @@ def test_emit_finding_sync_rejects_team_run_mismatch(db) -> None:
 class TestBuildCharts:
     """Pure chart validation — no DB."""
 
-    def _chart(self, chart_id: str = "signups-drop") -> ReportChart:
-        return ReportChart(chart_id=chart_id, title="Daily signups", query={"kind": "InsightVizNode"})
+    def _chart(self, chart_id: str = "signups-drop") -> ReportChartInput:
+        return ReportChartInput(chart_id=chart_id, title="Daily signups", query={"kind": "InsightVizNode"})
 
     def test_no_charts_yields_nothing(self) -> None:
         assert _build_charts(None) == []
@@ -1245,7 +1244,7 @@ class TestBuildCharts:
         assert len(_build_charts([self._chart(f"chart-{i}") for i in range(MAX_REPORT_CHARTS)])) == MAX_REPORT_CHARTS
 
     def test_unrenderable_query_kind_raises_before_any_write(self) -> None:
-        chart = ReportChart(chart_id="sql", title="t", query={"kind": "HogQLQuery", "query": "SELECT 1"})
+        chart = ReportChartInput(chart_id="sql", title="t", query={"kind": "HogQLQuery", "query": "SELECT 1"})
         with pytest.raises(InvalidScoutReportError, match="invalid chart"):
             _build_charts([chart])
 
@@ -1253,7 +1252,7 @@ class TestBuildCharts:
         # The judge is shown every chart in the call, query bodies included. Each of these clears the
         # per-chart size bound, so only the batch bound stops a full report's worth of them from
         # becoming a six-figure-character judge prompt.
-        big = ReportChart(
+        big = ReportChartInput(
             chart_id="c",
             title="t",
             query={"kind": "InsightVizNode", "padding": "x" * 15_000},
@@ -1270,7 +1269,7 @@ class TestChartSafetyJudgeInput:
         # A chart is agent-authored content derived from the same untrusted evidence as the prose, so
         # dropping it from the judge input would leave an injected title/caption/query unscreened.
         charts = [
-            ChartArtefact(
+            ReportChart(
                 chart_id="c1",
                 title="Signups",
                 query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
@@ -1299,6 +1298,6 @@ class TestReportEventUuid:
         # a delimiter, a note of `x|<the chart key>` on a chartless edit keys the same as a note of `x`
         # on an edit that appends that chart — ingestion collapses the second and the chart never
         # reaches a destination.
-        chart_key = _chart_event_key(ReportChart(chart_id="c", title="Signups", query={"kind": "InsightVizNode"}))
+        chart_key = _chart_event_key(ReportChartInput(chart_id="c", title="Signups", query={"kind": "InsightVizNode"}))
 
         assert _report_event_uuid("edit", f"x|{chart_key}") != _report_event_uuid("edit", "x", chart_key)

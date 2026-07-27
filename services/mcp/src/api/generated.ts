@@ -22654,7 +22654,7 @@ export namespace Schemas {
          */
       suggested_reviewers?: SuggestedReviewer[];
       /**
-         * Optional charts to append to the report. Charts accumulate rather than replace, so re-supplying a `chart_id` from an earlier call adds a newer version of that chart and the report renders the newest — which is what a refreshed window on a recurring report wants.
+         * The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field to leave the report's existing charts untouched.
          * @maxItems 20
          */
       charts?: ReportChart[];
@@ -22669,8 +22669,8 @@ export namespace Schemas {
       note_appended: boolean;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
-      /** How many chart artefacts were appended. */
-      charts_appended: number;
+      /** How many charts the report now shows, or 0 if charts were untouched. */
+      charts_set: number;
     }
 
     export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];
@@ -43548,7 +43548,6 @@ export namespace Schemas {
      * * `summary_change` - Summary Change
      * * `code_review` - Code Review
      * * `related_to` - Related To
-     * * `chart` - Chart
      */
     export type SignalReportArtefactTypeEnum = typeof SignalReportArtefactTypeEnum[keyof typeof SignalReportArtefactTypeEnum];
 
@@ -43570,7 +43569,6 @@ export namespace Schemas {
       SummaryChange: 'summary_change',
       CodeReview: 'code_review',
       RelatedTo: 'related_to',
-      Chart: 'chart',
     } as const;
 
     export interface _User {
@@ -43707,6 +43705,8 @@ export namespace Schemas {
       readonly created_at: string;
       readonly updated_at: string;
       readonly artefact_count: number;
+      /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
+      readonly charts: readonly ReportChart[];
       /**
          * P0–P4 from the latest priority judgment artefact (when present).
          * @nullable
@@ -61314,7 +61314,7 @@ export namespace Schemas {
      * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
      */
     export interface SignalReportArtefactLogCreate {
-      /** The artefact type. One of: actionability_judgment, chart, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
       artefact_type: string;
       /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;

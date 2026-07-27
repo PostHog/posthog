@@ -17,7 +17,7 @@ _SLACK_ANGLE_TOKEN_RE = re.compile(r"<([^<>|]*)(\|[^<>]*)?>")
 # Slack has no chart to render, and the two Slack paths degrade it differently badly: the mrkdwn
 # converter turns it into a `<chart:id|label>` token that `_defang_unsafe_slack_tokens` escapes into
 # visible `&lt;…&gt;`, while the excerpt path escapes it and leaves the raw `[label](chart:id)` syntax
-# on screen. Any target is matched, not just the id charset `ChartArtefact` enforces: a typo'd
+# on screen. Any target is matched, not just the id charset `ReportChart` enforces: a typo'd
 # reference is just as unrenderable here, and pinning the charset would leave it showing as markup.
 # A markdown link title (`[label](chart:id "a note")`) is a form the inbox renders — mdast parses the
 # title off the destination and resolves the reference — so the title is matched as its own quoted

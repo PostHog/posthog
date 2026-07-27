@@ -7,8 +7,6 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
-from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Cast
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -22,10 +20,8 @@ from posthog.models.utils import UUIDModel
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
-    MAX_REPORT_CHARTS,
     ArtefactContent,
     ArtefactContentValidationError,
-    ChartArtefact,
     Dismissal,
     LogArtefactContent,
     RelatedTo,
@@ -232,6 +228,11 @@ class SignalReport(UUIDModel):
     title = models.TextField(null=True, blank=True)
     summary = models.TextField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
+    # The charts this report currently shows, each a `ReportChart` (see report_charts.py). Part of
+    # the report's content rather than its artefact log: a chart illustrates the summary, so it is
+    # replaced with the summary rather than accumulating versions beside it. `summary` places one
+    # with a `[label](chart:<chart_id>)` link; the rest render below the prose.
+    charts = models.JSONField(default=list, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -716,7 +717,6 @@ class SignalReportArtefact(UUIDModel):
         SUMMARY_CHANGE = "summary_change"
         CODE_REVIEW = "code_review"
         RELATED_TO = "related_to"
-        CHART = "chart"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -748,7 +748,6 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.SUMMARY_CHANGE,
             ArtefactType.CODE_REVIEW,
             ArtefactType.RELATED_TO,
-            ArtefactType.CHART,
         }
     )
 
@@ -879,37 +878,6 @@ class SignalReportArtefact(UUIDModel):
         transaction.on_commit(_run)
 
     @classmethod
-    def _assert_chart_headroom(cls, *, team_id: int, report_id: str, incoming: ChartArtefact) -> None:
-        """Refuse a chart that would push the report past `MAX_REPORT_CHARTS` distinct charts.
-
-        Enforced here rather than in a caller because `chart` is writable through the generic artefact
-        API as well as the scout report channel, and a limit only one of those paths honours is not a
-        limit. Counted over distinct `chart_id`s: re-supplying an id is a refresh (the renderer resolves
-        a reference to the newest version), so it costs no headroom.
-
-        This reads the report's existing charts and then inserts, so it is only exact if the two are
-        serialized. `append_report_charts` holds the report row for that; a caller reaching this from
-        somewhere else should do the same.
-
-        Only the ids come back, extracted and de-duplicated in Postgres. A refresh appends a new row
-        under an existing id and nothing prunes the old ones, so the row count grows with how often a
-        recurring report is refreshed while the distinct ids stay capped — pulling every historical
-        query body back to parse it would make each append cost more than the last, under the lock.
-        """
-        chart_ids = (
-            cls.objects.filter(team_id=team_id, report_id=report_id, type=cls.ArtefactType.CHART)
-            .annotate(extracted_chart_id=KeyTextTransform("chart_id", Cast("content", models.JSONField())))
-            .values_list("extracted_chart_id", flat=True)
-            .distinct()
-        )
-        # A row without a resolvable id can't be resolved by the renderer either — no slot held.
-        existing = {chart_id for chart_id in chart_ids if chart_id}
-        if incoming.chart_id not in existing and len(existing) >= MAX_REPORT_CHARTS:
-            raise ArtefactContentValidationError(
-                f"report {report_id} already carries {len(existing)} charts, the limit is {MAX_REPORT_CHARTS}"
-            )
-
-    @classmethod
     def add_log(
         cls, *, team_id: int, report_id: str, content: LogArtefactContent, attribution: ArtefactAttribution
     ) -> "SignalReportArtefact":
@@ -923,15 +891,6 @@ class SignalReportArtefact(UUIDModel):
         """
         if artefact_type_for(content) not in cls.LOG_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a log artefact content model")
-        if isinstance(content, ChartArtefact):
-            # The cap is read-then-insert, so it holds only if the two are serialized. Lock the report
-            # row and insert under the same transaction. This sits here rather than in a caller because
-            # every writer reaches the cap through `add_log` — the scout channel and the generic
-            # artefact API alike — and a limit one of them can race past is not a limit.
-            with transaction.atomic():
-                SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
-                cls._assert_chart_headroom(team_id=team_id, report_id=report_id, incoming=content)
-                return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
         artefact = cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
         if isinstance(content, RelatedTo):
             # Same team_id: reports link only within a team (grouping is per-team), so the reverse
@@ -994,19 +953,6 @@ class SignalReportArtefact(UUIDModel):
             raise ArtefactContentValidationError(
                 "task_run content.task_id must match the artefact's task and cannot be reassigned by editing"
             )
-        # Same shape of guard for a chart: `chart_id` is the chart's identity, not part of its content.
-        # Appending is where the per-report cap is enforced, so letting an edit repoint a row to a new
-        # id would be a way around it — append rows under one id (each a free refresh), then rename
-        # them apart. It would also silently break the `[label](chart:<chart_id>)` reference the
-        # summary uses to place the chart. Editing what a chart *shows* is fine; changing which chart
-        # it *is* is not.
-        if isinstance(parsed, ChartArtefact):
-            current_chart_id = ChartArtefact.model_validate_json(self.content).chart_id
-            if parsed.chart_id != current_chart_id:
-                raise ArtefactContentValidationError(
-                    f"chart_id is the chart's identity and cannot be reassigned by editing "
-                    f"(row is {current_chart_id!r}, got {parsed.chart_id!r})"
-                )
         self.content = parsed.model_dump_json()
         self.save(update_fields=["content", "updated_at"])
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:

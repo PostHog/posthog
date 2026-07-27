@@ -40,22 +40,23 @@ from posthog.schema import EmbeddingModelName
 from posthog.api.embedding_worker import emit_embedding_request
 
 from products.signals.backend.artefact_schemas import (
-    MAX_REPORT_CHARTS,
-    MAX_REPORT_CHARTS_QUERY_CHARS,
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_SCOUT,
     ActionabilityAssessment,
-    ArtefactContentValidationError,
-    ChartArtefact,
     NoteArtefact,
     PriorityAssessment,
     SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
     TaskRunArtefact,
-    chart_batch_query_chars,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
+from products.signals.backend.report_charts import (
+    MAX_REPORT_CHARTS,
+    MAX_REPORT_CHARTS_QUERY_CHARS,
+    ReportChart,
+    chart_batch_query_chars,
+)
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
 
@@ -120,7 +121,7 @@ def create_scout_report(
     repo_selection: RepoSelectionResult | None = None,
     priority: PriorityAssessment | None = None,
     suggested_reviewers: SuggestedReviewers | None = None,
-    charts: Sequence[ChartArtefact] = (),
+    charts: Sequence[ReportChart] = (),
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
 ) -> PersistedScoutReport:
@@ -145,9 +146,9 @@ def create_scout_report(
     in-txn, since it spawns a Task), so the `suggested_reviewers` append opts out of the model's
     autostart re-evaluation hook, mirroring `create_custom_agent_ready_report`.
 
-    `charts`, when supplied, are written as `chart` log artefacts — the queries the inbox renders on
-    the report. Unlike the autostart inputs they're written whatever the judged status, so a
-    suppressed report keeps the exhibits behind it for whoever reviews the suppression.
+    `charts`, when supplied, become the report's `charts` — the queries the inbox renders on it.
+    Unlike the autostart inputs they're written whatever the judged status, so a suppressed report
+    keeps the exhibits behind it for whoever reviews the suppression.
 
     `emit_signals` gates whether the backing observations are written to `document_embeddings`. It
     defaults to True; callers pass False for a report the safety judge marked unsafe (born SUPPRESSED)
@@ -157,7 +158,7 @@ def create_scout_report(
     `signal_count`/`total_weight`; it just stays invisible with no indexed evidence.
     """
     _validate_create_inputs(title, summary, signals)
-    if len({chart.chart_id for chart in charts}) > MAX_REPORT_CHARTS:
+    if len(charts) > MAX_REPORT_CHARTS:
         raise InvalidScoutReportError(f"a report accepts at most {MAX_REPORT_CHARTS} charts ({len(charts)})")
     if chart_batch_query_chars(charts) > MAX_REPORT_CHARTS_QUERY_CHARS:
         raise InvalidScoutReportError(f"the charts' queries exceed {MAX_REPORT_CHARTS_QUERY_CHARS} characters in total")
@@ -178,6 +179,7 @@ def create_scout_report(
             summary=summary,
             signal_count=len(signals),
             total_weight=total_weight,
+            charts=[chart.model_dump(mode="json") for chart in charts],
         )
         report_id = str(report.id)
         # Provenance: every authored report carries a note marking it scout-authored, attributed to
@@ -232,8 +234,6 @@ def create_scout_report(
                 attribution=attribution,
                 reevaluate_autostart=False,
             )
-        for chart in charts:
-            SignalReportArtefact.add_log(team_id=team_id, report_id=report_id, content=chart, attribution=attribution)
 
     # Committed: now emit the backing signals (unless suppressed-unsafe — see `emit_signals`).
     # Sequential (not on_commit) so the call is observable and so a Kafka failure surfaces to the
@@ -359,40 +359,37 @@ def append_report_note(
     return report_id
 
 
-def append_report_charts(
+def set_report_charts(
     *,
     team_id: int,
     report_id: str,
-    charts: Sequence[ChartArtefact],
-    attribution: ArtefactAttribution,
+    charts: Sequence[ReportChart],
 ) -> str:
-    """Append `chart` artefacts to an existing report (the `edit_report` chart path).
+    """Replace an existing report's charts (the `edit_report` chart path).
 
-    Team-scoped fail-closed like `append_report_note`, and appended in one transaction so a report
-    never ends up carrying half a scout's charts. Charts append rather than replace: re-supplying a
-    `chart_id` seen on an earlier call adds a newer version and the reader resolves the reference to
-    it, which is what a refreshed window on a recurring report should do.
+    Team-scoped fail-closed like `append_report_note`. `charts` is the full set the report should
+    show, the way `summary` is the whole summary — a caller passing one chart is left with one, not
+    with one added to whatever was there. Callers reach this only when the scout supplied charts;
+    omitting them leaves the report's charts alone.
+
+    No lock: this is a whole-field write with nothing read back, so the last writer wins the same way
+    it does for `title` and `summary`.
     """
     if not charts:
         return report_id
     _validate_report_id(report_id)
-    with transaction.atomic():
-        # Lock the report row, as `update_scout_report` does: the cap is a read-then-insert over the
-        # report's existing charts, so without it two concurrent appends both read the same count and
-        # both land. Held across the appends below so the count each one checks is the committed one.
-        if SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first() is None:
-            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
-        for chart in charts:
-            try:
-                SignalReportArtefact.add_log(
-                    team_id=team_id, report_id=report_id, content=chart, attribution=attribution
-                )
-            except ArtefactContentValidationError as e:
-                # Over the cap is bad scout input, not a server fault — surface it as the harness's
-                # own invalid-input error so the tool call answers 400 like every other rejection.
-                raise InvalidScoutReportError(str(e)) from e
+    if len(charts) > MAX_REPORT_CHARTS:
+        raise InvalidScoutReportError(f"a report accepts at most {MAX_REPORT_CHARTS} charts ({len(charts)})")
+    if chart_batch_query_chars(charts) > MAX_REPORT_CHARTS_QUERY_CHARS:
+        raise InvalidScoutReportError(f"the charts' queries exceed {MAX_REPORT_CHARTS_QUERY_CHARS} characters in total")
+    updated = SignalReport.objects.filter(team_id=team_id, id=report_id).update(
+        charts=[chart.model_dump(mode="json") for chart in charts],
+        updated_at=timezone.now(),
+    )
+    if not updated:
+        raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
     logger.info(
-        "signals_scout.edit_report: charts appended",
+        "signals_scout.edit_report: charts set",
         extra={"team_id": team_id, "report_id": report_id, "count": len(charts)},
     )
     return report_id

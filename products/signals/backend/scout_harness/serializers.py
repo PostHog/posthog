@@ -22,15 +22,9 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.models.integration import Integration
 from posthog.permissions import get_authenticator_scopes
 
-from products.signals.backend.artefact_schemas import (
-    CHART_SIZES,
-    MAX_CHART_CAPTION_LENGTH,
-    MAX_CHART_ID_LENGTH,
-    MAX_CHART_TITLE_LENGTH,
-    ActionabilityChoice,
-    Priority,
-)
+from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
@@ -38,13 +32,10 @@ from products.signals.backend.scout_harness.tools.emit import (
     MAX_TAGS_PER_FINDING,
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
-from products.signals.backend.scout_harness.tools.report import (
-    MAX_REPORT_CHARTS,
-    MAX_REPORT_TITLE_LENGTH,
-    MAX_SUGGESTED_REVIEWERS,
-)
+from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
 from products.signals.backend.scout_harness.tools.runs import DEFAULT_FINDINGS_WINDOW_HOURS, MAX_FINDINGS_WINDOW_HOURS
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
+from products.signals.backend.serializers import ReportChartSerializer
 from products.skills.backend.api.skill_serializers import (
     MAX_SKILL_FILE_COUNT,
     LLMSkillFileInputSerializer,
@@ -796,69 +787,6 @@ class ReportEvidenceSerializer(serializers.Serializer):
     )
 
 
-# The chart `query` is free-form JSON by design, and the generated schema has to keep it that way.
-#
-# This is load-bearing, not a style call. The MCP executor dispatches Zod's *parsed* output
-# (`services/mcp/src/tools/exec.ts` — "Dispatch the parsed output so coerced values and defaults
-# apply"), and a generated `zod.object({...})` strips keys it doesn't name. Declaring the node's
-# shape — even just `kind` — would therefore drop `source` / `display` / `shortId` on the way through
-# the tool and hand the backend a bare `{"kind": ...}`: valid per `ChartArtefact`, and a chart that
-# renders nothing. `additionalProperties` doesn't save it either; it reaches the TypeScript type but
-# not the Zod schema.
-#
-# So the field stays untyped in the schema (the `spec: zod.unknown()` precedent), and the contract
-# lives in `help_text` where the scout reads it, enforced by `ChartArtefact` server-side.
-@extend_schema_field(OpenApiTypes.ANY)
-class ChartQueryField(serializers.JSONField):
-    """The query node on a report chart. Typed for the schema pipeline so the generated MCP tool and
-    frontend types describe a query node instead of an opaque `unknown`, while still carrying the
-    node's per-kind fields through untouched."""
-
-
-class ReportChartSerializer(serializers.Serializer):
-    """One chart attached to a report — rendered in the inbox and referenceable from the summary."""
-
-    chart_id = serializers.CharField(
-        max_length=MAX_CHART_ID_LENGTH,
-        help_text=(
-            "Stable slug for this chart within the report (lowercase letters, numbers, underscores, "
-            "hyphens; must start with a letter or number). Reference it from `summary` as a markdown "
-            "link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart "
-            "at that point in the body. A chart you don't reference still renders, below the summary."
-        ),
-    )
-    title = serializers.CharField(
-        max_length=MAX_CHART_TITLE_LENGTH,
-        help_text="Short heading shown above the chart.",
-    )
-    query = ChartQueryField(
-        help_text=(
-            "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics "
-            "chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), "
-            "or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute "
-            "dates where the node supports it, so the reader sees the data you wrote about rather "
-            "than whatever a relative range resolves to when they open the report."
-        ),
-    )
-    caption = serializers.CharField(
-        required=False,
-        allow_null=True,
-        max_length=MAX_CHART_CAPTION_LENGTH,
-        help_text="Optional one-line note on what to look at in the chart.",
-    )
-    size = serializers.ChoiceField(
-        choices=CHART_SIZES,
-        required=False,
-        allow_null=True,
-        help_text=(
-            "How much height the chart gets: `small` for a single number or a short series, `medium` "
-            "for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, "
-            "a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart "
-            "from its query, and two charts referenced from the same paragraph sit side by side."
-        ),
-    )
-
-
 class SuggestedReviewerSerializer(serializers.Serializer):
     """One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
 
@@ -1063,9 +991,9 @@ class EditReportRequestSerializer(serializers.Serializer):
         child=ReportChartSerializer(),
         max_length=MAX_REPORT_CHARTS,
         help_text=(
-            "Optional charts to append to the report. Charts accumulate rather than replace, so "
-            "re-supplying a `chart_id` from an earlier call adds a newer version of that chart and the "
-            "report renders the newest — which is what a refreshed window on a recurring report wants."
+            "The full set of charts the report should show. Replaces the report's charts rather than "
+            "adding to them, the way `summary` replaces the summary — so send every chart you want "
+            "kept. Omit the field to leave the report's existing charts untouched."
         ),
     )
 
@@ -1078,7 +1006,9 @@ class EditReportResponseSerializer(serializers.Serializer):
     )
     note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
     reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
-    charts_appended = serializers.IntegerField(help_text="How many chart artefacts were appended.")
+    charts_set = serializers.IntegerField(
+        help_text="How many charts the report now shows, or 0 if charts were untouched."
+    )
 
 
 # --- Project profile ------------------------------------------------------

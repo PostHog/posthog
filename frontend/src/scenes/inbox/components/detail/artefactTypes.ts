@@ -88,7 +88,6 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     title_change: 'Title edited',
     summary_change: 'Summary edited',
     related_to: 'Related report',
-    chart: 'Chart attached',
 }
 
 export function artefactTypeLabel(type: string): string {

@@ -27,13 +27,9 @@ from dataclasses import dataclass
 
 from django.utils import timezone
 
-from products.signals.backend.artefact_schemas import (
-    ActionabilityAssessment,
-    ActionabilityChoice,
-    ChartArtefact,
-    SafetyJudgment,
-)
+from products.signals.backend.artefact_schemas import ActionabilityAssessment, ActionabilityChoice, SafetyJudgment
 from products.signals.backend.models import SignalReport
+from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.scout_report.persistence import ScoutReportSignal
 from products.signals.backend.temporal.report_safety_judge import judge_report_safety
@@ -82,7 +78,7 @@ def _report_content_signal(title: str, summary: str) -> SignalData:
     )
 
 
-def _chart_signal(charts: Sequence[ChartArtefact]) -> SignalData | None:
+def _chart_signal(charts: Sequence[ReportChart]) -> SignalData | None:
     """Wrap the report's charts as one `SignalData` so the judge sees them too.
 
     A chart is agent-authored content derived from the same untrusted evidence as the prose, and it
@@ -131,7 +127,7 @@ async def judge_scout_report(
     summary: str,
     signals: list[ScoutReportSignal],
     actionability: ActionabilityAssessment,
-    charts: Sequence[ChartArtefact] = (),
+    charts: Sequence[ReportChart] = (),
 ) -> ScoutReportJudgement:
     """Run the safety judge on the authored report and resolve the birth status.
 
