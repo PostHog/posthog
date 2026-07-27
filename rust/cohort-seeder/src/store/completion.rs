@@ -214,7 +214,12 @@ impl ReconcilingClaim {
     /// Atomically write the dispatch record per INV-3: set `reconcile_hwms`, `marker_watch`, a fresh
     /// `reconcile_dispatched_at` fence, null `reconcile_observed_at`, and reset every non-superseded
     /// participation's bits/completion/error. Returns the fence epoch minted from the RETURNING
-    /// timestamp. A missing run row (Django moved it out of `reconciling`) is a lost fence.
+    /// timestamp.
+    ///
+    /// Fenced on the mint epoch like [`ReconcilingClaim::revert`]: the reset discards marker bits and
+    /// completions, so a second claimant committing after the first would silently undo observations
+    /// already merged under the ruling epoch. The loser gets `CompletionFenceLost`, which the driver
+    /// counts and retries. A run Django moved out of `reconciling` loses the fence the same way.
     pub async fn record(
         self,
         pool: &PgPool,
@@ -229,12 +234,14 @@ impl ReconcilingClaim {
             SET reconcile_hwms = $2, marker_watch = $3,
                 reconcile_dispatched_at = now(), reconcile_observed_at = NULL, updated_at = now()
             WHERE id = $1 AND status = 'reconciling'
+              AND reconcile_dispatched_at IS NOT DISTINCT FROM $4
             RETURNING reconcile_dispatched_at
             "#,
         )
         .bind(run_id)
         .bind(Json(hwms))
         .bind(Json(watch))
+        .bind(self.dispatched_at_mint)
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(CompletionStoreError::CompletionFenceLost {
@@ -574,7 +581,7 @@ pub async fn mark_run_observed_unreconcilable(
         r#"
         UPDATE cohort_backfill_runs
         SET reconcile_observed_at = now(), updated_at = now()
-        WHERE id = $1 AND status = 'reconciling'
+        WHERE id = $1 AND backfill_kind = 'behavioral' AND status = 'reconciling'
           AND NOT EXISTS (
               SELECT 1 FROM cohort_backfill_run_cohorts
               WHERE run_id = $1 AND superseded_at IS NULL

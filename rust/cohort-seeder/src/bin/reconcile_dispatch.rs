@@ -35,11 +35,17 @@ const PARTITION_VERIFY_TIMEOUT: Duration = Duration::from_secs(10);
     long_about = "Dispatch partition-targeted reconcile snapshots for one behavioral cohort \
                   backfill run.\n\nThe default invocation is a mutation: on a complete run it \
                   transitions the run to reconciling and persists the dispatch record (produce \
-                  HWMs + marker-watch positions). Only --allow-incomplete is print-only."
+                  HWMs + marker-watch positions). Re-run with --dry-run first to validate the run \
+                  and print the plan without touching it. --allow-incomplete produces tiles but \
+                  never persists."
 )]
 struct Args {
     /// Behavioral cohort backfill run UUID.
     run_id: Uuid,
+
+    /// Validate the run and print what would be dispatched, without claiming it or producing tiles.
+    #[arg(long)]
+    dry_run: bool,
 
     /// Dispatch while the run still has unconfirmed data chunks. Intended for development only.
     #[arg(long)]
@@ -78,6 +84,22 @@ async fn async_main(args: Args, config: Config) -> Result<()> {
     let prepared = prepare_reconcile_dispatch(&pool, run_id, completion, register_backfill)
         .await
         .context("validating reconcile dispatch")?;
+    if args.dry_run {
+        println!(
+            "dry run: run {} would dispatch {} active cohorts across {} seed partitions; \
+             {}/{} chunks unconfirmed; {}",
+            prepared.run_id().0,
+            prepared.cohort_count(),
+            COHORT_PARTITION_COUNT,
+            prepared.remaining_chunks(),
+            prepared.total_chunks(),
+            match &prepared {
+                PreparedDispatch::Certified(_) => "completion certified, would persist",
+                PreparedDispatch::Uncertified(_) => "NOT certified, would not persist",
+            },
+        );
+        return Ok(());
+    }
     eprintln!(
         "Dispatching {} active cohorts across {} seed partitions for run {}.",
         prepared.cohort_count(),
@@ -218,6 +240,17 @@ mod tests {
 
         assert!(Args::try_parse_from(["reconcile_dispatch"]).is_err());
         assert!(Args::try_parse_from(["reconcile_dispatch", RUN_ID]).is_err());
+        // A dry run takes the same flags as the real invocation, so the rehearsal validates exactly
+        // the command that follows it.
+        let dry = Args::try_parse_from([
+            "reconcile_dispatch",
+            RUN_ID,
+            "--dry-run",
+            "--confirm-register-backfilled",
+        ])
+        .unwrap();
+        assert!(dry.dry_run);
+        assert!(Args::try_parse_from(["reconcile_dispatch", RUN_ID, "--dry-run"]).is_err());
         assert!(Args::try_parse_from([
             "reconcile_dispatch",
             RUN_ID,

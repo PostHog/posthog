@@ -143,13 +143,7 @@ pub async fn prepare_reconcile_dispatch(
         .chunk_progress(run_id)
         .await?;
     let planning_proven = read_planning_stamp(pool, run_id).await?.is_some();
-    validate_completion(
-        run_id,
-        run.status(),
-        progress.remaining(),
-        planning_proven,
-        completion,
-    )?;
+    validate_completion(run_id, progress.remaining(), planning_proven, completion)?;
     let prepared = PreparedReconcileDispatch {
         run,
         total_chunks: progress.total(),
@@ -161,13 +155,13 @@ pub async fn prepare_reconcile_dispatch(
     })
 }
 
-/// A run is complete when every chunk has confirmed (`remaining == 0`) AND planning is proven —
-/// either the run is already `reconciling` (its ledger is frozen) or its `chunks_planned_at` stamp is
-/// set. A planned-but-zero-chunk seeding run therefore passes; a seeding run that has never planned
-/// fails closed.
+/// A run is complete when every chunk has confirmed (`remaining == 0`) AND `chunks_planned_at` is
+/// stamped. A planned-but-zero-chunk run therefore passes; one that has never planned fails closed,
+/// whatever its status — `reconciling` proves the ledger is frozen, not that a seeding domain was
+/// ever planned, and `cas_run_reconciling` is the only writer of that status precisely because it
+/// requires the stamp.
 fn validate_completion(
     run_id: RunId,
-    status: RunStatus,
     remaining_chunks: u64,
     planning_proven: bool,
     completion: CompletionRequirement,
@@ -179,8 +173,7 @@ fn validate_completion(
                 remaining_chunks,
             });
         }
-        let planned = status == RunStatus::Reconciling || planning_proven;
-        if !planned {
+        if !planning_proven {
             return Err(PrepareReconcileDispatchError::PlanningUnproven(run_id));
         }
     }
@@ -201,7 +194,7 @@ pub enum PrepareReconcileDispatchError {
         remaining_chunks: u64,
     },
     #[error(
-        "seeding run {0:?} has no planning proof, so dispatch cannot certify completion; use --allow-incomplete to override"
+        "run {0:?} has no planning proof, so dispatch cannot certify completion; use --allow-incomplete to override"
     )]
     PlanningUnproven(RunId),
 }
@@ -431,55 +424,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn completion_requirement_requires_a_planning_proof_for_seeding_runs() {
+    fn completion_requirement_always_requires_a_planning_proof() {
         let run_id = RunId(Uuid::nil());
-        // A planned-but-zero-chunk seeding run passes now that planning is the proof, not chunk rows.
-        assert!(validate_completion(
-            run_id,
-            RunStatus::Seeding,
-            0,
-            true,
-            CompletionRequirement::Complete,
-        )
-        .is_ok());
-        // A reconciling run's frozen ledger is proof enough, regardless of the planning stamp.
-        assert!(validate_completion(
-            run_id,
-            RunStatus::Reconciling,
-            0,
-            false,
-            CompletionRequirement::Complete,
-        )
-        .is_ok());
-        assert!(validate_completion(
-            run_id,
-            RunStatus::Seeding,
-            0,
-            false,
-            CompletionRequirement::AllowIncomplete,
-        )
-        .is_ok());
+        // A planned-but-zero-chunk run passes now that planning is the proof, not chunk rows.
+        assert!(validate_completion(run_id, 0, true, CompletionRequirement::Complete).is_ok());
+        assert!(
+            validate_completion(run_id, 0, false, CompletionRequirement::AllowIncomplete).is_ok()
+        );
         assert!(matches!(
-            validate_completion(
-                run_id,
-                RunStatus::Seeding,
-                2,
-                true,
-                CompletionRequirement::Complete,
-            ),
+            validate_completion(run_id, 2, true, CompletionRequirement::Complete),
             Err(PrepareReconcileDispatchError::Incomplete {
                 remaining_chunks: 2,
                 ..
             })
         ));
+        // An unplanned run fails closed whatever its status: a `reconciling` run with no stamp is an
+        // anomaly to surface, not a run whose frozen ledger stands in for a planned seeding domain.
         assert!(matches!(
-            validate_completion(
-                run_id,
-                RunStatus::Seeding,
-                0,
-                false,
-                CompletionRequirement::Complete,
-            ),
+            validate_completion(run_id, 0, false, CompletionRequirement::Complete),
             Err(PrepareReconcileDispatchError::PlanningUnproven(id)) if id == run_id
         ));
     }

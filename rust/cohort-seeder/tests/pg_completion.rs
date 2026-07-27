@@ -256,6 +256,54 @@ async fn revert_is_fenced_against_a_dispatch_recorded_after_the_claim() -> Resul
     .await
 }
 
+/// A claim that lost the race cannot record over the winner's dispatch. Recording resets marker bits
+/// and completions, so an unfenced second write would discard observations already merged under the
+/// ruling epoch.
+#[tokio::test]
+async fn record_is_fenced_against_a_dispatch_recorded_after_the_claim() -> Result<()> {
+    with_db(|pool| async move {
+        let run_id = insert_reconciling_run(&pool, 2).await?;
+        insert_participation(&pool, run_id, 2, 301, false, empty_pinned()).await?;
+        let stale = confirm_reconciling(&pool, run_id)
+            .await?
+            .context("run should be claimable")?;
+        let winner = confirm_reconciling(&pool, run_id)
+            .await?
+            .context("run should be claimable twice")?;
+        let epoch = winner.record(&pool, &full_hwms(), &empty_watch()).await?;
+        persist_marker_observations(
+            &pool,
+            run_id,
+            epoch,
+            &[(CohortId(301), PartitionBitmap::from_bits(3)?)],
+            &WatchPositions::new(),
+        )
+        .await?;
+
+        ensure_fence_lost(
+            stale
+                .record(&pool, &full_hwms(), &empty_watch())
+                .await
+                .map(|_| ()),
+        )?;
+
+        let bits: i64 = sqlx::query_scalar(
+            "SELECT reconcile_marker_bits FROM cohort_backfill_run_cohorts \
+             WHERE run_id = $1 AND cohort_id = 301",
+        )
+        .bind(run_id)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(
+            bits == 3,
+            "a lost claim reset the ruling epoch's marker bits"
+        );
+        ensure!(test_support::dispatch_epoch(&pool, run_id).await? == epoch);
+        Ok(())
+    })
+    .await
+}
+
 /// The batched ledger check returns exactly the runs whose chunks have all confirmed.
 #[tokio::test]
 async fn runs_with_all_chunks_confirmed_selects_only_fully_confirmed_ledgers() -> Result<()> {

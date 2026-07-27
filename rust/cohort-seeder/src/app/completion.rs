@@ -218,10 +218,18 @@ impl CompletionDriver {
         }
         let context = self.context.clone();
         let guard = InFlightGuard::enter(Arc::clone(&self.in_flight), run_id);
-        tokio::spawn(async move {
+        let dispatch = tokio::spawn(async move {
             let _permit = permit;
             let _guard = guard;
             run_dispatch(&context, run_id, kind).await;
+        });
+        // `run_dispatch` reports its own failures, so a `JoinError` is a panic. Dropping the handle
+        // would make a deterministic one — a poison row, say — an invisible per-tick respawn loop.
+        tokio::spawn(async move {
+            if let Err(error) = dispatch.await {
+                counter!(RECONCILE_DISPATCHES, "outcome" => "panicked").increment(1);
+                warn!(error = %error, run_id = ?run_id, "reconcile dispatch task panicked");
+            }
         });
         true
     }
