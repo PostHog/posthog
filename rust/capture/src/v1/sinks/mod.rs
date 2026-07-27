@@ -1,9 +1,6 @@
 pub mod constants;
-pub mod event;
 pub mod kafka;
-pub mod prepare;
 pub mod router;
-pub mod sink;
 pub mod types;
 
 use std::collections::HashMap;
@@ -12,12 +9,8 @@ use std::time::Duration;
 
 use envconfig::Envconfig;
 
-pub use event::Event;
-pub use kafka::KafkaSink;
-pub use prepare::{serialize_batch, SerializedBatch, DEFAULT_SCATTER_GATHER_MIN_BATCH};
-pub use router::{OutputsRouter, Router, RouterError};
-pub use sink::Sink;
-pub use types::{Destination, Outcome, PreparedEvent, SerializationFailure, SinkResult};
+pub use router::OutputsRouter;
+pub use types::Destination;
 
 // ---------------------------------------------------------------------------
 // SinkName

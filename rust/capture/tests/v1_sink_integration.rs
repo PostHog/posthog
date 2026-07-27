@@ -1,32 +1,27 @@
-//! Sink-level integration tests for the v1 analytics pipeline.
-//!
-//! These tests verify the end-to-end path:
-//!   WrappedEvent -> KafkaSink.publish_batch() -> real Kafka -> consumer -> CapturedEvent
+//! Produce-level integration tests for the v1 analytics pipeline over the
+//! converged outputs machinery:
+//!   WrappedEvent -> to_processed -> KafkaOutputs.publish -> real Kafka ->
+//!   consumer -> CapturedEvent
 //!
 //! Requires Docker Kafka (same rig as legacy integration tests).
 //!
 //! HTTP-level round trips (POST /i/v1/analytics/events -> Kafka) live in
-//! `v1_http_integration.rs`; this file stays focused on the sink layer.
+//! `v1_http_integration.rs`; this file stays focused on the produce layer.
 
 #[path = "common/utils.rs"]
 mod utils;
 use utils::*;
 
-use std::sync::Arc;
-use std::time::Duration;
-
 use anyhow::Result;
 use common_types::{CapturedEvent, RawEvent};
 
-use capture::config::CaptureMode;
+use capture::outputs::kafka::KafkaOutputs;
+use capture::outputs::topics::TopicTable;
+use capture::outputs::Outputs;
+use capture::sinks::SinkResult;
+use capture::v1::analytics::types::WrappedEvent;
 use capture::v1::context::RequestContext;
-use capture::v1::sinks::event::Event;
-use capture::v1::sinks::kafka::producer::KafkaProducer;
-use capture::v1::sinks::kafka::KafkaSink;
-use capture::v1::sinks::sink::Sink;
-use capture::v1::sinks::types::Outcome;
-use capture::v1::sinks::{Config, SinkName};
-use capture::v1::test_utils::{self, prepared, WrappedEventMut};
+use capture::v1::test_utils::{self, WrappedEventMut};
 
 fn v1_kafka_config(topic: &str) -> capture::v1::sinks::kafka::config::Config {
     let env: std::collections::HashMap<String, String> = [
@@ -55,38 +50,30 @@ fn v1_test_context() -> RequestContext {
     ctx
 }
 
-async fn build_v1_sink(topic: &str) -> (KafkaSink<KafkaProducer>, lifecycle::MonitorGuard) {
-    let mut manager = lifecycle::Manager::builder("v1-sink-integration-test")
-        .with_trap_signals(false)
-        .with_prestop_check(false)
-        .build();
-    let handle = manager.register("v1_kafka", lifecycle::ComponentOptions::new());
-    handle.report_healthy();
-    let monitor = manager.monitor_background();
+async fn build_v1_surface(topic: &str) -> KafkaOutputs {
+    let v1_config = v1_kafka_config(topic);
+    let kafka_config = v1_config
+        .to_kafka_config()
+        .expect("v1 config must map onto the shared KafkaConfig");
+    let topics = TopicTable::from(&v1_config);
+    KafkaOutputs::new(kafka_config, topics, None)
+        .await
+        .expect("failed to create Kafka outputs")
+}
 
-    let kafka_config = v1_kafka_config(topic);
-    let producer = KafkaProducer::new(
-        SinkName::Msk,
-        &kafka_config,
-        handle.clone(),
-        CaptureMode::Events.as_tag(),
-    )
-    .expect("failed to create v1 KafkaProducer");
-
-    let config = Config {
-        produce_timeout: Duration::from_secs(10),
-        kafka: kafka_config,
-    };
-
-    let sink = KafkaSink::new(
-        SinkName::Msk,
-        Arc::new(producer),
-        config,
-        CaptureMode::Events,
-        handle,
-    );
-
-    (sink, monitor)
+/// The converged publish path exactly as the v1 request path runs it: map
+/// publishable events onto the shared interchange, publish.
+async fn publish(
+    surface: &KafkaOutputs,
+    ctx: &RequestContext,
+    events: &[WrappedEvent],
+) -> Vec<SinkResult> {
+    let processed = events
+        .iter()
+        .filter(|e| e.should_publish())
+        .map(|e| e.to_processed(ctx).expect("mapping must succeed"))
+        .collect();
+    surface.publish(processed).await
 }
 
 // ---------------------------------------------------------------------------
@@ -97,21 +84,21 @@ async fn build_v1_sink(topic: &str) -> (KafkaSink<KafkaProducer>, lifecycle::Mon
 async fn v1_single_pageview_round_trip() -> Result<()> {
     setup_tracing();
     let topic = EphemeralTopic::new().await;
-    let (sink, _monitor) = build_v1_sink(topic.topic_name()).await;
+    let surface = build_v1_surface(topic.topic_name()).await;
     let ctx = v1_test_context();
 
     let wrapped = test_utils::realistic_pageview("integ-user-1");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events = vec![wrapped];
 
-    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
+    let results = publish(&surface, &ctx, &events).await;
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key(), wrapped.uuid);
-    assert_eq!(results[0].outcome(), Outcome::Success);
+    assert_eq!(results[0].uuid, events[0].uuid);
+    assert!(results[0].result.is_ok());
 
     let event_json = topic.next_event()?;
     let captured: CapturedEvent = serde_json::from_value(event_json)?;
-    assert_eq!(captured.uuid, wrapped.uuid);
+    assert_eq!(captured.uuid, events[0].uuid);
     assert_eq!(captured.distinct_id, "integ-user-1");
     assert_eq!(captured.event, "$pageview");
     assert_eq!(captured.token, "phc_integration_test_token");
@@ -138,17 +125,17 @@ async fn v1_single_pageview_round_trip() -> Result<()> {
 async fn v1_batch_round_trip() -> Result<()> {
     setup_tracing();
     let topic = EphemeralTopic::new().await;
-    let (sink, _monitor) = build_v1_sink(topic.topic_name()).await;
+    let surface = build_v1_surface(topic.topic_name()).await;
     let ctx = v1_test_context();
 
     let batch = test_utils::realistic_batch();
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&batch[0], &batch[1], &batch[2]];
+    let events = batch;
 
-    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
+    let results = publish(&surface, &ctx, &events).await;
 
     assert_eq!(results.len(), 3);
     for r in &results {
-        assert_eq!(r.outcome(), Outcome::Success);
+        assert!(r.result.is_ok());
     }
 
     let mut event_names = Vec::new();
@@ -179,14 +166,14 @@ async fn v1_batch_round_trip() -> Result<()> {
 async fn v1_kafka_headers_round_trip() -> Result<()> {
     setup_tracing();
     let topic = EphemeralTopic::new().await;
-    let (sink, _monitor) = build_v1_sink(topic.topic_name()).await;
+    let surface = build_v1_surface(topic.topic_name()).await;
     let ctx = v1_test_context();
 
     let wrapped = test_utils::realistic_pageview("integ-user-headers");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events = vec![wrapped];
 
-    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
-    assert_eq!(results[0].outcome(), Outcome::Success);
+    let results = publish(&surface, &ctx, &events).await;
+    assert!(results[0].result.is_ok());
 
     let (_event_json, headers) = topic.next_message_with_headers()?;
 
@@ -213,14 +200,14 @@ async fn v1_kafka_headers_round_trip() -> Result<()> {
 async fn v1_partition_key_round_trip() -> Result<()> {
     setup_tracing();
     let topic = EphemeralTopic::new().await;
-    let (sink, _monitor) = build_v1_sink(topic.topic_name()).await;
+    let surface = build_v1_surface(topic.topic_name()).await;
     let ctx = v1_test_context();
 
     let wrapped = test_utils::realistic_pageview("integ-user-pkey");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events = vec![wrapped];
 
-    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
-    assert_eq!(results[0].outcome(), Outcome::Success);
+    let results = publish(&surface, &ctx, &events).await;
+    assert!(results[0].result.is_ok());
 
     let key = topic.next_message_key()?;
     assert_eq!(
@@ -239,16 +226,16 @@ async fn v1_partition_key_round_trip() -> Result<()> {
 async fn v1_dropped_event_not_published() -> Result<()> {
     setup_tracing();
     let topic = EphemeralTopic::new().await;
-    let (sink, _monitor) = build_v1_sink(topic.topic_name()).await;
+    let surface = build_v1_surface(topic.topic_name()).await;
     let ctx = v1_test_context();
 
     let wrapped = test_utils::realistic_pageview("integ-user-dropped").with_result(
         capture::v1::analytics::types::EventResult::Drop,
         Some("rate_limited"),
     );
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events = vec![wrapped];
 
-    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
+    let results = publish(&surface, &ctx, &events).await;
     assert!(results.is_empty());
 
     topic.assert_empty();
@@ -263,7 +250,7 @@ async fn v1_dropped_event_not_published() -> Result<()> {
 async fn v1_exception_event_round_trip() -> Result<()> {
     setup_tracing();
     let topic = EphemeralTopic::new().await;
-    let (sink, _monitor) = build_v1_sink(topic.topic_name()).await;
+    let surface = build_v1_surface(topic.topic_name()).await;
     let ctx = v1_test_context();
 
     let uuid = uuid::Uuid::new_v4();
@@ -273,10 +260,10 @@ async fn v1_exception_event_round_trip() -> Result<()> {
     wrapped.event.uuid = uuid.to_string();
     wrapped.destination = capture::v1::sinks::Destination::ExceptionErrorTracking;
 
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
-    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
+    let events = vec![wrapped];
+    let results = publish(&surface, &ctx, &events).await;
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].outcome(), Outcome::Success);
+    assert!(results[0].result.is_ok());
 
     let event_json = topic.next_event()?;
     let captured: CapturedEvent = serde_json::from_value(event_json)?;
@@ -296,7 +283,7 @@ async fn v1_exception_event_round_trip() -> Result<()> {
 async fn v1_cookieless_mode_partition_key() -> Result<()> {
     setup_tracing();
     let topic = EphemeralTopic::new().await;
-    let (sink, _monitor) = build_v1_sink(topic.topic_name()).await;
+    let surface = build_v1_surface(topic.topic_name()).await;
     let mut ctx = v1_test_context();
     ctx.client_ip = "198.51.100.7".parse().unwrap();
 
@@ -306,9 +293,9 @@ async fn v1_cookieless_mode_partition_key() -> Result<()> {
     wrapped.event.uuid = uuid.to_string();
     wrapped.options.cookieless_mode = Some(true);
 
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
-    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
-    assert_eq!(results[0].outcome(), Outcome::Success);
+    let events = vec![wrapped];
+    let results = publish(&surface, &ctx, &events).await;
+    assert!(results[0].result.is_ok());
 
     let key = topic.next_message_key()?;
     assert_eq!(
@@ -328,7 +315,7 @@ async fn v1_cookieless_mode_partition_key() -> Result<()> {
 async fn v1_all_options_property_injection() -> Result<()> {
     setup_tracing();
     let topic = EphemeralTopic::new().await;
-    let (sink, _monitor) = build_v1_sink(topic.topic_name()).await;
+    let surface = build_v1_surface(topic.topic_name()).await;
     let ctx = v1_test_context();
 
     let uuid = uuid::Uuid::new_v4();
@@ -344,9 +331,9 @@ async fn v1_all_options_property_injection() -> Result<()> {
     wrapped.event.session_id = Some("sess-opt-test".to_string());
     wrapped.event.window_id = Some("win-opt-test".to_string());
 
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
-    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
-    assert_eq!(results[0].outcome(), Outcome::Success);
+    let events = vec![wrapped];
+    let results = publish(&surface, &ctx, &events).await;
+    assert!(results[0].result.is_ok());
 
     let event_json = topic.next_event()?;
     let captured: CapturedEvent = serde_json::from_value(event_json)?;
@@ -371,7 +358,7 @@ async fn v1_all_options_property_injection() -> Result<()> {
 async fn v1_empty_options_no_injection() -> Result<()> {
     setup_tracing();
     let topic = EphemeralTopic::new().await;
-    let (sink, _monitor) = build_v1_sink(topic.topic_name()).await;
+    let surface = build_v1_surface(topic.topic_name()).await;
     let ctx = v1_test_context();
 
     let uuid = uuid::Uuid::new_v4();
@@ -387,9 +374,9 @@ async fn v1_empty_options_no_injection() -> Result<()> {
     wrapped.event.session_id = None;
     wrapped.event.window_id = None;
 
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
-    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
-    assert_eq!(results[0].outcome(), Outcome::Success);
+    let events = vec![wrapped];
+    let results = publish(&surface, &ctx, &events).await;
+    assert!(results[0].result.is_ok());
 
     let event_json = topic.next_event()?;
     let captured: CapturedEvent = serde_json::from_value(event_json)?;
@@ -414,7 +401,7 @@ async fn v1_empty_options_no_injection() -> Result<()> {
 async fn v1_multi_destination_batch() -> Result<()> {
     setup_tracing();
     let topic = EphemeralTopic::new().await;
-    let (sink, _monitor) = build_v1_sink(topic.topic_name()).await;
+    let surface = build_v1_surface(topic.topic_name()).await;
     let ctx = v1_test_context();
 
     let main_ev = test_utils::realistic_pageview("integ-dest-main");
@@ -423,11 +410,11 @@ async fn v1_multi_destination_batch() -> Result<()> {
     let overflow_ev = test_utils::realistic_pageview("integ-dest-overflow")
         .with_destination(capture::v1::sinks::Destination::Overflow);
 
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&main_ev, &hist_ev, &overflow_ev];
-    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
+    let events = vec![main_ev, hist_ev, overflow_ev];
+    let results = publish(&surface, &ctx, &events).await;
     assert_eq!(results.len(), 3);
     for r in &results {
-        assert_eq!(r.outcome(), Outcome::Success);
+        assert!(r.result.is_ok());
     }
 
     let mut distinct_ids = Vec::new();

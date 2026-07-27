@@ -24,7 +24,6 @@ use tracing::Level;
 use super::context::Context;
 use crate::router;
 use crate::v1::context::RequestContext;
-use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::Destination;
 use crate::v1::Error;
 use common_ingestion_warnings::{WarningType, CAPTURE_V1_ANALYTICS};

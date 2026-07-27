@@ -2,7 +2,9 @@ use std::io;
 use std::ops::Not;
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use common_types::{CapturedEventHeaders, HasEventName};
+#[cfg(test)]
+use common_types::CapturedEventHeaders;
+use common_types::HasEventName;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::Value;
@@ -24,7 +26,6 @@ impl io::Write for StringWriter<'_> {
 }
 
 use crate::v1::context::RequestContext;
-use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::Destination;
 
 fn empty_raw_object() -> Box<RawValue> {
@@ -222,32 +223,51 @@ pub struct WrappedEvent {
     pub is_gateway_verified: bool,
 }
 
-impl SinkEvent for WrappedEvent {
-    // Pre-parsed UUID for result correlation. By the Sink stage,
-    // we know ALL well-formed incoming events have a valid UUID.
-    fn uuid(&self) -> Uuid {
-        self.uuid
-    }
-
-    // Publish Ok and Warning events; skip Drop, Retry, and anything routed to Destination::Drop.
-    fn should_publish(&self) -> bool {
+impl WrappedEvent {
+    /// Publish Ok and Warning events; skip Drop, Retry, and anything routed
+    /// to `Destination::Drop`. Dropping is a processing decision, recorded in
+    /// the response — dropped events never reach the outputs layer.
+    pub fn should_publish(&self) -> bool {
         (self.result == EventResult::Ok || self.result == EventResult::Warning)
             && self.destination != Destination::Drop
     }
 
-    // Resolve the storage-agnostic Destination scope for this event.
-    // The config for each Sink implementation knows how to resolve
-    // these to topics (etc.) depending on the sink type
-    fn destination(&self) -> &Destination {
-        &self.destination
+    /// The partition key this event publishes under (token:distinct_id;
+    /// cookieless uses token:ip). Also the key the overflow limiter meters.
+    pub fn partition_key(&self, ctx: &RequestContext) -> String {
+        use std::fmt::Write;
+        let mut buf = String::with_capacity(128);
+        match (
+            self.options.cookieless_mode == Some(true),
+            ctx.capture_internal,
+        ) {
+            (true, true) => {
+                let _ = write!(buf, "{}:127.0.0.1", ctx.api_token);
+            }
+            (true, false) => {
+                let _ = write!(buf, "{}:{}", ctx.api_token, ctx.client_ip);
+            }
+            (false, _) => {
+                let _ = write!(buf, "{}:{}", ctx.api_token, self.event.distinct_id);
+            }
+        }
+        buf
     }
+}
 
+/// Frozen legacy wire oracle for the shared-prep parity tests: the exact
+/// serializer, header builder, and partition-key logic the retired v1 sink
+/// stack ran. Kept test-only so the parity suite keeps proving that the
+/// converged path (`to_processed` + shared prep) reproduces the v1 wire —
+/// do not "fix" or modernize these bodies.
+#[cfg(test)]
+impl WrappedEvent {
     // Returns the full typed header set for this event, combining per-request
     // context fields (token, now, historical_migration) with event-owned
     // fields. Sinks convert the returned CapturedEventHeaders to their
     // backend-specific format (e.g. OwnedHeaders for Kafka) via the From impl
     // in common_types — same conversion legacy capture uses.
-    fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders {
+    fn legacy_headers(&self, ctx: &RequestContext) -> CapturedEventHeaders {
         // v0 compat: downstream consumers key on "force_disable_person_processing".
         // v1 decouples overflow routing from person-processing (unlike v0 where
         // overflow ForceLimited unconditionally sets this); operators configure
@@ -299,27 +319,7 @@ impl SinkEvent for WrappedEvent {
         }
     }
 
-    fn partition_key(&self, ctx: &RequestContext) -> String {
-        use std::fmt::Write;
-        let mut buf = String::with_capacity(128);
-        match (
-            self.options.cookieless_mode == Some(true),
-            ctx.capture_internal,
-        ) {
-            (true, true) => {
-                let _ = write!(buf, "{}:127.0.0.1", ctx.api_token);
-            }
-            (true, false) => {
-                let _ = write!(buf, "{}:{}", ctx.api_token, ctx.client_ip);
-            }
-            (false, _) => {
-                let _ = write!(buf, "{}:{}", ctx.api_token, self.event.distinct_id);
-            }
-        }
-        buf
-    }
-
-    fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
+    fn legacy_serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
         let spliced = self.build_spliced_properties(ctx)?;
         let properties: &RawValue = spliced.as_deref().unwrap_or(&self.event.properties);
         let ingestion_data = IngestionData {
@@ -1107,7 +1107,6 @@ mod tests {
 
     // --- SinkEvent impl for WrappedEvent ---
 
-    use crate::v1::sinks::event::Event as SinkEventTrait;
     use crate::v1::sinks::Destination;
     use crate::v1::test_utils;
     use common_types::HasEventName;
@@ -1148,7 +1147,7 @@ mod tests {
     fn headers_base_fields_always_present() {
         let ctx = test_utils::test_context();
         let ev = ok_wrapped("$pageview", "user-1");
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         assert_eq!(h.distinct_id.as_deref(), Some("user-1"));
         assert_eq!(h.event.as_deref(), Some("$pageview"));
         assert!(h.uuid.is_some());
@@ -1162,7 +1161,7 @@ mod tests {
     fn headers_timestamp_is_millis_epoch() {
         let ctx = test_utils::test_context();
         let ev = ok_wrapped("$pageview", "user-1");
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         let ts_str = h.timestamp.expect("timestamp should be set");
         let ts_millis: i64 = ts_str.parse().expect("timestamp should be numeric millis");
         assert_eq!(ts_millis, ev.adjusted_timestamp.unwrap().timestamp_millis());
@@ -1173,7 +1172,7 @@ mod tests {
         let ctx = test_utils::test_context();
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.adjusted_timestamp = None;
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         assert!(h.timestamp.is_none());
     }
 
@@ -1182,7 +1181,7 @@ mod tests {
         let ctx = test_utils::test_context();
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.event.session_id = Some("sess-abc".to_string());
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         assert_eq!(h.session_id.as_deref(), Some("sess-abc"));
     }
 
@@ -1191,7 +1190,7 @@ mod tests {
         let ctx = test_utils::test_context();
         let ev = ok_wrapped("$pageview", "user-1");
         assert!(ev.event.session_id.is_none());
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         assert!(h.session_id.is_none());
     }
 
@@ -1200,7 +1199,7 @@ mod tests {
         let ctx = test_utils::test_context();
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.force_disable_person_processing = true;
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         assert_eq!(h.force_disable_person_processing, Some(true));
     }
 
@@ -1209,7 +1208,7 @@ mod tests {
         let ctx = test_utils::test_context();
         let ev = ok_wrapped("$pageview", "user-1");
         assert!(!ev.force_disable_person_processing);
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         assert!(h.force_disable_person_processing.is_none());
     }
 
@@ -1218,7 +1217,7 @@ mod tests {
         let ctx = test_utils::test_context();
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.destination = Destination::Dlq;
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         assert_eq!(h.dlq_reason.as_deref(), Some("event_restriction"));
         assert_eq!(h.dlq_step.as_deref(), Some("capture"));
         let dlq_ts = h.dlq_timestamp.expect("dlq_timestamp should be set");
@@ -1233,7 +1232,7 @@ mod tests {
         let ctx = test_utils::test_context();
         let ev = ok_wrapped("$pageview", "user-1");
         assert_ne!(ev.destination, Destination::Dlq);
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         assert!(h.dlq_reason.is_none());
         assert!(h.dlq_step.is_none());
         assert!(h.dlq_timestamp.is_none());
@@ -1246,7 +1245,7 @@ mod tests {
         // event's typed headers.
         let ctx = test_utils::test_context();
         let ev = ok_wrapped("$pageview", "user-1");
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         assert_eq!(h.token, Some(ctx.api_token.clone()));
     }
 
@@ -1257,7 +1256,7 @@ mod tests {
         // matches IngestionEvent.now and legacy CapturedEvent::to_headers()).
         let ctx = test_utils::test_context();
         let ev = ok_wrapped("$pageview", "user-1");
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         let now = h
             .now
             .expect("now should be set from ctx.server_received_at");
@@ -1283,11 +1282,11 @@ mod tests {
 
         let mut ctx = test_utils::test_context();
         ctx.historical_migration = true;
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         assert_eq!(h.historical_migration, Some(true));
 
         ctx.historical_migration = false;
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         assert!(h.historical_migration.is_none());
     }
 
@@ -1325,7 +1324,7 @@ mod tests {
     fn destination_returns_event_destination() {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.destination = Destination::Overflow;
-        assert_eq!(*ev.destination(), Destination::Overflow);
+        assert_eq!(ev.destination, Destination::Overflow);
     }
 
     #[test]
@@ -1429,7 +1428,7 @@ mod tests {
         wrapped: &WrappedEvent,
         ctx: &crate::v1::context::RequestContext,
     ) -> (CapturedEvent, RawEvent) {
-        let buf = wrapped.serialize(ctx).expect("serialize failed");
+        let buf = wrapped.legacy_serialize(ctx).expect("serialize failed");
         let captured: CapturedEvent =
             serde_json::from_slice(&buf).expect("v1 output must deserialize as CapturedEvent");
         let data: RawEvent =
@@ -1442,7 +1441,7 @@ mod tests {
         let mut ev = pageview_event();
         ev.adjusted_timestamp = None;
         let ctx = serialize_ctx();
-        let err = ev.serialize(&ctx).unwrap_err();
+        let err = ev.legacy_serialize(&ctx).unwrap_err();
         assert!(
             err.to_string().contains("adjusted_timestamp"),
             "error should mention adjusted_timestamp: {err}"
@@ -1553,7 +1552,7 @@ mod tests {
         assert_eq!(captured.distinct_id, "user-42");
         assert_eq!(data.distinct_id, Some(Value::String("user-42".to_string())));
 
-        let headers = wrapped.headers(&ctx);
+        let headers = wrapped.legacy_headers(&ctx);
         assert_eq!(headers.distinct_id.as_deref(), Some("user-42"));
 
         let key = wrapped.partition_key(&ctx);
@@ -1794,7 +1793,7 @@ mod tests {
         let wrapped = pageview_event();
         assert_eq!(wrapped.options.cookieless_mode, Some(false));
         let ctx = serialize_ctx();
-        let buf = wrapped.serialize(&ctx).unwrap();
+        let buf = wrapped.legacy_serialize(&ctx).unwrap();
         let val: Value = serde_json::from_slice(&buf).unwrap();
         assert!(
             val.get("is_cookieless_mode").is_none(),
@@ -1815,7 +1814,7 @@ mod tests {
     fn serialize_historical_migration_false_skipped() {
         let wrapped = pageview_event();
         let ctx = serialize_ctx();
-        let buf = wrapped.serialize(&ctx).unwrap();
+        let buf = wrapped.legacy_serialize(&ctx).unwrap();
         let val: Value = serde_json::from_slice(&buf).unwrap();
         assert!(
             val.get("historical_migration").is_none(),
@@ -1972,7 +1971,7 @@ mod tests {
         };
 
         let ctx = serialize_ctx();
-        let err = wrapped.serialize(&ctx).unwrap_err();
+        let err = wrapped.legacy_serialize(&ctx).unwrap_err();
         assert!(
             err.to_string().contains("must be a JSON object"),
             "expected object guard, got: {err}"
@@ -2093,7 +2092,7 @@ mod tests {
     fn headers_parity_pageview() {
         let ctx = serialize_ctx();
         let ev = realistic_pageview("user-42");
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         assert_eq!(h.token, Some(ctx.api_token.clone()));
         assert_eq!(h.distinct_id.as_deref(), Some("user-42"));
         assert_eq!(h.event.as_deref(), Some("$pageview"));
@@ -2112,7 +2111,7 @@ mod tests {
         let mut ctx = serialize_ctx();
         ctx.historical_migration = true;
         let ev = realistic_pageview("user-42");
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         assert_eq!(h.historical_migration, Some(true));
     }
 
@@ -2120,7 +2119,7 @@ mod tests {
     fn headers_parity_force_disable_person_processing() {
         let ctx = serialize_ctx();
         let ev = realistic_pageview("user-42").with_force_disable_person_processing(true);
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         assert_eq!(h.force_disable_person_processing, Some(true));
     }
 
@@ -2128,7 +2127,7 @@ mod tests {
     fn headers_parity_dlq_destination() {
         let ctx = serialize_ctx();
         let ev = realistic_pageview("user-42").with_destination(Destination::Dlq);
-        let h = ev.headers(&ctx);
+        let h = ev.legacy_headers(&ctx);
         assert_eq!(h.dlq_reason.as_deref(), Some("event_restriction"));
         assert_eq!(h.dlq_step.as_deref(), Some("capture"));
         assert!(h.dlq_timestamp.is_some());
@@ -2227,7 +2226,7 @@ mod tests {
 
             // Payload bytes: shared prep serializes the mapped CapturedEvent;
             // v1 writes IngestionEvent. Must be identical on the wire.
-            let v1_payload = SinkEvent::serialize(&ev, &ctx).expect("v1 serialize");
+            let v1_payload = ev.legacy_serialize(&ctx).expect("v1 serialize");
             assert_eq!(
                 prepared.payload,
                 v1_payload.as_ref(),
@@ -2253,14 +2252,14 @@ mod tests {
             } else {
                 assert_eq!(
                     prepared.key.as_deref(),
-                    Some(SinkEvent::partition_key(&ev, &ctx).as_str()),
+                    Some(ev.partition_key(&ctx).as_str()),
                     "key must match v1 for {destination:?}"
                 );
             }
 
             // Headers: identical modulo the dlq timestamp (both sides stamp
             // wall-clock now).
-            let mut v1_headers = SinkEvent::headers(&ev, &ctx);
+            let mut v1_headers = ev.legacy_headers(&ctx);
             let mut prep_headers = prepared.headers.clone();
             if destination == Destination::Dlq {
                 assert!(prep_headers.dlq_timestamp.is_some());
@@ -2289,7 +2288,7 @@ mod tests {
             let ev = ok_wrapped("$pageview", "user-1");
 
             let prepared = prepared_for(&ev, &ctx);
-            let v1_payload = SinkEvent::serialize(&ev, &ctx).expect("v1 serialize");
+            let v1_payload = ev.legacy_serialize(&ctx).expect("v1 serialize");
 
             let mut ours: serde_json::Value = serde_json::from_slice(&prepared.payload).unwrap();
             let mut theirs: serde_json::Value = serde_json::from_slice(&v1_payload).unwrap();
@@ -2316,7 +2315,7 @@ mod tests {
             let prepared = prepared_for(&ev, &ctx);
             assert_eq!(
                 prepared.key.as_deref(),
-                Some(SinkEvent::partition_key(&ev, &ctx).as_str()),
+                Some(ev.partition_key(&ctx).as_str()),
                 "cookieless key must match v1 (internal={capture_internal})"
             );
         }

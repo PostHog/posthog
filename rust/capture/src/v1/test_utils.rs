@@ -11,26 +11,10 @@ use crate::v1::analytics::constants::CAPTURE_V1_PATH;
 use crate::v1::analytics::context::Context as AnalyticsContext;
 use crate::v1::analytics::query::Query;
 use crate::v1::analytics::types::{Event, EventResult, Options, RawOptions, WrappedEvent};
-use crate::v1::context::RequestContext;
-use crate::v1::sinks::event::Event as SinkEvent;
-use crate::v1::sinks::types::PreparedEvent;
-use crate::v1::sinks::Destination;
+use std::time::Duration;
 
-/// Serialize publishable events into `PreparedEvent`s for driving sinks in tests.
-/// Accepts `&[&dyn Event]` (integration) or `&[&ConcreteType]` (unit) via `?Sized`.
-pub fn prepared<E: SinkEvent + ?Sized>(events: &[&E], ctx: &RequestContext) -> Vec<PreparedEvent> {
-    events
-        .iter()
-        .filter(|e| e.should_publish())
-        .map(|e| PreparedEvent {
-            uuid: e.uuid(),
-            destination: e.destination().clone(),
-            payload: e.serialize(ctx).expect("test payload must serialize"),
-            headers: e.headers(ctx),
-            partition_key: e.partition_key(ctx),
-        })
-        .collect()
-}
+use crate::v1::context::RequestContext;
+use crate::v1::sinks::Destination;
 
 pub fn raw_obj(s: &str) -> Box<RawValue> {
     RawValue::from_string(s.to_owned()).unwrap()
@@ -425,9 +409,10 @@ pub fn assert_round_trip(
     wrapped: &WrappedEvent,
     ctx: &RequestContext,
 ) -> (common_types::CapturedEvent, common_types::RawEvent) {
-    use crate::v1::sinks::event::Event as SinkEvent;
-
-    let buf = wrapped.serialize(ctx).expect("serialize failed");
+    let processed = wrapped.to_processed(ctx).expect("mapping failed");
+    let buf = crate::serialization::Serializer::json()
+        .serialize(&processed.event)
+        .expect("serialize failed");
     let captured: common_types::CapturedEvent =
         serde_json::from_slice(&buf).expect("v1 output must deserialize as CapturedEvent");
     let data: common_types::RawEvent =
@@ -546,94 +531,6 @@ pub fn event_with_empty_options() -> Event {
 // ---------------------------------------------------------------------------
 // Mock SinkResult for unit testing merge logic
 // ---------------------------------------------------------------------------
-
-use std::borrow::Cow;
-use std::time::Duration;
-
-use crate::v1::sinks::types::{Outcome, SinkResult as SinkResultTrait};
-
-/// Concrete SinkResult for testing — all fields are user-specified.
-pub struct MockSinkResult {
-    pub uuid: Uuid,
-    pub outcome: Outcome,
-    pub cause: Option<&'static str>,
-    pub detail: Option<String>,
-    pub elapsed: Option<Duration>,
-}
-
-impl MockSinkResult {
-    pub fn success(uuid: Uuid) -> Box<dyn SinkResultTrait> {
-        Box::new(Self {
-            uuid,
-            outcome: Outcome::Success,
-            cause: None,
-            detail: None,
-            elapsed: Some(Duration::from_millis(5)),
-        })
-    }
-
-    pub fn retriable(uuid: Uuid, cause: &'static str) -> Box<dyn SinkResultTrait> {
-        Box::new(Self {
-            uuid,
-            outcome: Outcome::RetriableError,
-            cause: Some(cause),
-            detail: Some(format!("{cause}: queue full")),
-            elapsed: Some(Duration::from_millis(100)),
-        })
-    }
-
-    pub fn timeout(uuid: Uuid) -> Box<dyn SinkResultTrait> {
-        Box::new(Self {
-            uuid,
-            outcome: Outcome::Timeout,
-            cause: Some("timeout"),
-            detail: Some("message delivery timed out".to_string()),
-            elapsed: Some(Duration::from_secs(30)),
-        })
-    }
-
-    pub fn fatal(uuid: Uuid, cause: &'static str) -> Box<dyn SinkResultTrait> {
-        Box::new(Self {
-            uuid,
-            outcome: Outcome::FatalError,
-            cause: Some(cause),
-            detail: Some(format!("{cause}: permanent failure")),
-            elapsed: None,
-        })
-    }
-
-    pub fn fatal_no_cause(uuid: Uuid) -> Box<dyn SinkResultTrait> {
-        Box::new(Self {
-            uuid,
-            outcome: Outcome::FatalError,
-            cause: None,
-            detail: None,
-            elapsed: None,
-        })
-    }
-}
-
-impl SinkResultTrait for MockSinkResult {
-    fn key(&self) -> Uuid {
-        self.uuid
-    }
-
-    fn outcome(&self) -> Outcome {
-        self.outcome
-    }
-
-    fn cause(&self) -> Option<&'static str> {
-        self.cause
-    }
-
-    fn detail(&self) -> Option<Cow<'_, str>> {
-        self.detail.as_ref().map(|s| Cow::Borrowed(s.as_str()))
-    }
-
-    fn elapsed(&self) -> Option<Duration> {
-        self.elapsed
-    }
-}
 
 // ---------------------------------------------------------------------------
 // TestStateBuilder — builds a router::State for V1 pipeline integration tests

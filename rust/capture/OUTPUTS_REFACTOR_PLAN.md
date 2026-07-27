@@ -402,7 +402,7 @@ applies broker add/remove and mapping changes with an enabled-partition set
 per address — the incremental, key-deterministic drain-and-switch — with
 tests simulating a topic switchover and a broker switchover end to end.
 
-### v1 convergence on the outputs machinery (Step 20, in progress)
+### v1 convergence on the outputs machinery (Step 20)
 
 Goal: v1 endpoints publish through `dyn Outputs` like every other ingress,
 so fallback/split/dynamic policies apply uniformly. Plan:
@@ -428,7 +428,20 @@ so fallback/split/dynamic policies apply uniformly. Plan:
    (overflow/person-processing decoupling) must be preserved in the
    mapping, not silently erased.
 
-Scouting findings for the implementation:
+Landed: the boundary mapping (`WrappedEvent::to_processed`) with a 14-case
+parity suite; the request path publishing through `OutputsRouter` (named
+shared `KafkaOutputs` surfaces, per-sink env config mapped field-for-field
+onto the shared `KafkaConfig`); and the legacy stack deleted — the v1
+`Event`/`Sink`/`Router` traits, `serialize_batch`, and the v1 Kafka
+producer/mock are gone. The legacy serializer/header builder survive only as
+a frozen `cfg(test)` oracle (`legacy_serialize`/`legacy_headers`) that the
+parity suite compares against; `v1_sink_integration` runs its real-Kafka
+round-trips through the converged path. Accepted deltas: `sent_at`
+fractional-second formatting (parse-equal; v1 adopts v0's serializer) and
+the v1 sink-stage metrics (`capture_v1_serialize_*`, per-sink publish
+metrics), superseded by the outputs-layer metrics.
+
+Scouting findings that shaped the implementation:
 
 - v1's `IngestionEvent` is a zero-copy mirror of `CapturedEvent`'s wire
   shape (same fields, same serde contract), and `CapturedEvent::key()`
@@ -571,4 +584,6 @@ All steps are complete. The five strata are landed:
 | 19b · Outputs as an open trait; sinks pure transport | done | `refactor(capture): outputs own namespace realization; Outputs becomes an open trait` |
 | 19c · Dynamic outputs prototype | done | `feat(capture): prototype dynamic outputs with incremental switchover (test-only)` |
 | 19d · Per-event publish results | done | `refactor(capture): Outputs::publish reports per-event results` |
-| 20 · v1 converges on the outputs machinery | in progress | — |
+| 20a · v1 boundary mapping + parity oracle | done | `feat(capture): v1 boundary mapping onto the shared produce interchange` |
+| 20b · v1 publishes through shared outputs | done | `feat(capture): v1 endpoints publish through the shared outputs machinery` |
+| 20c · Legacy v1 sink stack deleted | done | `refactor(capture): delete the legacy v1 sink stack` |
