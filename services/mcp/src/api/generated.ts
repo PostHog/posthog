@@ -2196,6 +2196,24 @@ export namespace Schemas {
       config?: ActivityEventsListWidgetConfig;
     }
 
+    /**
+     * * `awaiting_input` - awaiting_input
+     * * `completed` - completed
+     * * `mention` - mention
+     * * `message` - message
+     * * `created` - created
+     */
+    export type ActivityKindEnum = typeof ActivityKindEnum[keyof typeof ActivityKindEnum];
+
+
+    export const ActivityKindEnum = {
+      AwaitingInput: 'awaiting_input',
+      Completed: 'completed',
+      Mention: 'mention',
+      Message: 'message',
+      Created: 'created',
+    } as const;
+
     export interface ActivityLog {
       readonly id: string;
       user: UserBasic;
@@ -9824,9 +9842,25 @@ export namespace Schemas {
       customer_name: string | null;
     }
 
+    export interface AppSandboxContract {
+      status: string;
+      restart_count: number;
+      last_error: string;
+      /** @nullable */
+      started_at: string | null;
+      /** @nullable */
+      last_activity_at: string | null;
+      /** @nullable */
+      version_number: number | null;
+    }
+
     export interface AppContract {
       /** User who created this app. */
       created_by?: StreamlitAppUserInfo | null;
+      /** Currently active version, or null if none uploaded yet. */
+      active_version?: AppVersionContract | null;
+      /** Current sandbox state, or null if the app has never started. */
+      sandbox?: AppSandboxContract | null;
       id: string;
       short_id: string;
       name: string;
@@ -9852,6 +9886,20 @@ export namespace Schemas {
 
     export interface AppMetricsTotalsResponse {
       totals: AppMetricsTotalsResponseTotals;
+    }
+
+    export interface AppSummaryContract {
+      /** User who created this app. */
+      created_by?: StreamlitAppUserInfo | null;
+      id: string;
+      short_id: string;
+      name: string;
+      description: string;
+      cpu_cores: number;
+      memory_gb: number;
+      status: string;
+      created_at: string;
+      updated_at: string;
     }
 
     export interface AppfiguresReviewSignalExtra {
@@ -10888,6 +10936,7 @@ export namespace Schemas {
      * * `events` - Events
      * * `persons` - Persons
      * * `sessions` - Sessions
+     * * `hogql` - Hogql
      */
     export type ModelEnum = typeof ModelEnum[keyof typeof ModelEnum];
 
@@ -10896,6 +10945,7 @@ export namespace Schemas {
       Events: 'events',
       Persons: 'persons',
       Sessions: 'sessions',
+      Hogql: 'hogql',
     } as const;
 
     /**
@@ -11276,7 +11326,8 @@ export namespace Schemas {
        *
        * * `events` - Events
        * * `persons` - Persons
-       * * `sessions` - Sessions */
+       * * `sessions` - Sessions
+       * * `hogql` - Hogql */
       model?: ModelEnum | BlankEnum | null;
       /** Destination configuration (type, config, and optional integration). */
       destination: BatchExportDestination;
@@ -12123,7 +12174,8 @@ export namespace Schemas {
        *
        * * `events` - Events
        * * `persons` - Persons
-       * * `sessions` - Sessions */
+       * * `sessions` - Sessions
+       * * `hogql` - Hogql */
       model?: ModelEnum;
       /** Destination configuration. Required integration_id is enforced per destination type. */
       destination: BatchExportDestinationRequest;
@@ -13407,6 +13459,18 @@ export namespace Schemas {
       /** The workflow names behind `failing`, sorted - names what is failing instead of leaving a bare count. */
       failing_workflows?: string[];
     }
+
+    /**
+     * * `pytest` - PYTEST
+     * * `jest` - JEST
+     */
+    export type CITestRunnerEnum = typeof CITestRunnerEnum[keyof typeof CITestRunnerEnum];
+
+
+    export const CITestRunnerEnum = {
+      Pytest: 'pytest',
+      Jest: 'jest',
+    } as const;
 
     export interface EventsHeatMapColumnAggregationResult {
       column: number;
@@ -23555,6 +23619,7 @@ export namespace Schemas {
      * * `mysql` - mysql
      * * `snowflake` - snowflake
      * * `redshift` - redshift
+     * * `clickhouse` - clickhouse
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -23565,6 +23630,7 @@ export namespace Schemas {
       Mysql: 'mysql',
       Snowflake: 'snowflake',
       Redshift: 'redshift',
+      Clickhouse: 'clickhouse',
     } as const;
 
     export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra {
@@ -25022,15 +25088,32 @@ export namespace Schemas {
     };
 
     /**
-     * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+     * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
      */
     export type EvaluationTargetConfig = {
+      /** Wait a fixed window after the first matching generation, then evaluate. */
+      strategy?: 'fixed_window';
       /**
-         * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
+         * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
          * @minimum 10
          * @maximum 7200
          */
       window_seconds?: number;
+    } | {
+      /** Evaluate once the trace has had no new activity for the quiet period. */
+      strategy: 'inactivity';
+      /**
+         * Seconds without new trace activity before the trace counts as settled.
+         * @minimum 10
+         * @maximum 1800
+         */
+      quiet_period_seconds?: number;
+      /**
+         * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+         * @minimum 60
+         * @maximum 7200
+         */
+      max_age_seconds?: number;
     };
 
     /**
@@ -25209,12 +25292,12 @@ export namespace Schemas {
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
-      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
        *
        * * `generation` - Generation
        * * `trace` - Trace */
       target?: EvaluationTargetEnum;
-      /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+      /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
       target_config?: EvaluationTargetConfig;
       /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
@@ -26967,6 +27050,7 @@ export namespace Schemas {
 
     /**
      * * `manual` - Manual
+     * * `agent_mcp` - Agent (MCP)
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
@@ -26980,6 +27064,7 @@ export namespace Schemas {
 
     export const TriggerEnum = {
       Manual: 'manual',
+      AgentMcp: 'agent_mcp',
       ColdRun: 'cold_run',
       StaleRefresh: 'stale_refresh',
       AutoRefresh: 'auto_refresh',
@@ -27064,6 +27149,7 @@ export namespace Schemas {
       /** What triggered this recalculation
        *
        * * `manual` - Manual
+       * * `agent_mcp` - Agent (MCP)
        * * `cold_run` - Cold Run
        * * `stale_refresh` - Stale Refresh
        * * `auto_refresh` - Auto Refresh
@@ -27873,7 +27959,8 @@ export namespace Schemas {
        * * `postgres` - postgres
        * * `mysql` - mysql
        * * `snowflake` - snowflake
-       * * `redshift` - redshift */
+       * * `redshift` - redshift
+       * * `clickhouse` - clickhouse */
       readonly engine: EngineEnum | null;
       /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
        *
@@ -30544,7 +30631,8 @@ export namespace Schemas {
        * * `postgres` - postgres
        * * `mysql` - mysql
        * * `snowflake` - snowflake
-       * * `redshift` - redshift */
+       * * `redshift` - redshift
+       * * `clickhouse` - clickhouse */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -31329,11 +31417,16 @@ export namespace Schemas {
     } as const;
 
     export interface FlakyTestItem {
-      /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable selector — use `selector` to run or quarantine the test. */
+      /** Test runner that emitted this signal: 'pytest' or 'jest'.
+       *
+       * * `pytest` - PYTEST
+       * * `jest` - JEST */
+      runner: CITestRunnerEnum;
+      /** Runner-specific stable test identity (the CI span name). This is a grouping key, not necessarily runnable; use `selector` to run or quarantine the test. */
       nodeid: string;
-      /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
+      /** Runnable pytest or Jest selector. Exact when the CI reporter emitted it; older pytest spans use a best-effort reconstruction from the nodeid. */
       selector: string;
-      /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
+      /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: a tolerated failure was recorded while it was masked. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
        *
        * * `confirmed_flake` - CONFIRMED_FLAKE
        * * `suspected_regression` - SUSPECTED_REGRESSION
@@ -31347,9 +31440,9 @@ export namespace Schemas {
       failed_pr_count: number;
       /** Failed runs on the default branch (master/main approximation): the 'matters right now' signal that a test is breaking the trunk, not just PR branches. */
       master_failed_run_count: number;
-      /** Runs where the test failed while quarantined (xfail): already masked in CI, still failing. */
+      /** Runs where the test recorded a tolerated failure while quarantined: already masked in CI, still failing. */
       quarantined_failed_run_count: number;
-      /** Most recent failure, recovery, or xfail run for this test in the window. */
+      /** Most recent failure, recovery, or quarantined-failure run for this test in the window. */
       last_signal_at: string;
     }
 
@@ -39494,6 +39587,20 @@ export namespace Schemas {
       specificity_rejection?: SpecificityMetadata | null;
     }
 
+    export interface NodeSuspension {
+      /** When the node was suspended. */
+      at: string;
+      /** Error from the materialization that tripped suspension. */
+      reason: string;
+      /** Materialization job that tripped suspension. */
+      job_id: string;
+    }
+
+    /**
+     * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
+     */
+    export type NodeSuspended = {[key: string]: NodeSuspension};
+
     /**
      * * `table` - Table
      * * `view` - View
@@ -39534,6 +39641,13 @@ export namespace Schemas {
       readonly user_tag: string | null;
       /** @nullable */
       readonly sync_interval: string | null;
+      /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
+      readonly suspended: NodeSuspended;
+    }
+
+    export interface NodeResume {
+      /** False when the node was not suspended to begin with. */
+      resumed: boolean;
     }
 
     /**
@@ -40804,13 +40918,13 @@ export namespace Schemas {
       results: Announcement[];
     }
 
-    export interface PaginatedAppContractList {
+    export interface PaginatedAppSummaryContractList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: AppContract[];
+      results: AppSummaryContract[];
     }
 
     export interface PaginatedApprovalPolicyList {
@@ -46644,7 +46758,8 @@ export namespace Schemas {
        *
        * * `events` - Events
        * * `persons` - Persons
-       * * `sessions` - Sessions */
+       * * `sessions` - Sessions
+       * * `hogql` - Hogql */
       model?: ModelEnum;
       /** Destination configuration. Required integration_id is enforced per destination type. */
       destination?: BatchExportDestinationRequest;
@@ -48001,15 +48116,32 @@ export namespace Schemas {
     };
 
     /**
-     * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+     * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
      */
     export type PatchedEvaluationTargetConfig = {
+      /** Wait a fixed window after the first matching generation, then evaluate. */
+      strategy?: 'fixed_window';
       /**
-         * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
+         * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
          * @minimum 10
          * @maximum 7200
          */
       window_seconds?: number;
+    } | {
+      /** Evaluate once the trace has had no new activity for the quiet period. */
+      strategy: 'inactivity';
+      /**
+         * Seconds without new trace activity before the trace counts as settled.
+         * @minimum 10
+         * @maximum 1800
+         */
+      quiet_period_seconds?: number;
+      /**
+         * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+         * @minimum 60
+         * @maximum 7200
+         */
+      max_age_seconds?: number;
     };
 
     export interface PatchedEvaluation {
@@ -48047,12 +48179,12 @@ export namespace Schemas {
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
-      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
        *
        * * `generation` - Generation
        * * `trace` - Trace */
       target?: EvaluationTargetEnum;
-      /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+      /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
       target_config?: PatchedEvaluationTargetConfig;
       /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
@@ -48541,7 +48673,8 @@ export namespace Schemas {
        * * `postgres` - postgres
        * * `mysql` - mysql
        * * `snowflake` - snowflake
-       * * `redshift` - redshift */
+       * * `redshift` - redshift
+       * * `clickhouse` - clickhouse */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -49828,6 +49961,11 @@ export namespace Schemas {
       tile?: MoveTileTile;
     }
 
+    /**
+     * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
+     */
+    export type PatchedNodeSuspended = {[key: string]: NodeSuspension};
+
     export interface PatchedNode {
       readonly id?: string;
       /** @maxLength 2048 */
@@ -49852,6 +49990,8 @@ export namespace Schemas {
       readonly user_tag?: string | null;
       /** @nullable */
       readonly sync_interval?: string | null;
+      /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
+      readonly suspended?: PatchedNodeSuspended;
     }
 
     /**
@@ -56243,6 +56383,20 @@ export namespace Schemas {
       expires_at?: string | null;
     }
 
+    /**
+     * * `pytest` - PYTEST
+     * * `jest` - JEST
+     * * `playwright` - PLAYWRIGHT
+     */
+    export type QuarantineRequestRunnerEnum = typeof QuarantineRequestRunnerEnum[keyof typeof QuarantineRequestRunnerEnum];
+
+
+    export const QuarantineRequestRunnerEnum = {
+      Pytest: 'pytest',
+      Jest: 'jest',
+      Playwright: 'playwright',
+    } as const;
+
     export interface QuarantineRequest {
       /** What to do: 'quarantine' (add or replace an entry and file a tracking issue), 'extend' (re-stamp an existing entry's expiry, reusing its issue), or 'remove' (delete the entry). All three open a pull request.
        *
@@ -56252,6 +56406,12 @@ export namespace Schemas {
       operation: OperationEnum;
       /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
       selector: string;
+      /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.
+       *
+       * * `pytest` - PYTEST
+       * * `jest` - JEST
+       * * `playwright` - PLAYWRIGHT */
+      runner?: QuarantineRequestRunnerEnum | null;
       /**
          * Optional 'owner/name' repository override; defaults to the team's most active repo.
          * @nullable
@@ -58769,6 +58929,7 @@ export namespace Schemas {
       /** What triggered this recalculation (manual is the default for user-initiated runs)
        *
        * * `manual` - Manual
+       * * `agent_mcp` - Agent (MCP)
        * * `cold_run` - Cold Run
        * * `stale_refresh` - Stale Refresh
        * * `auto_refresh` - Auto Refresh
@@ -60420,6 +60581,11 @@ export namespace Schemas {
       deleted?: boolean;
       /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
       block_consent_modals?: boolean;
+    }
+
+    export interface SavedQueryResume {
+      /** False when the query's materialization was not suspended. */
+      resumed: boolean;
     }
 
     /**
@@ -66975,6 +67141,81 @@ export namespace Schemas {
     }
 
     /**
+     * Response shape for one task in the requester's activity feed (one row per task).
+     */
+    export interface TaskActivityDTO {
+      id: string;
+      task_id: string;
+      task_title: string;
+      /** @nullable */
+      channel_id: string | null;
+      /** @nullable */
+      channel_name: string | null;
+      activity_at: string;
+      /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a thread reply (message), or their creating the task (created).
+       *
+       * * `awaiting_input` - awaiting_input
+       * * `completed` - completed
+       * * `mention` - mention
+       * * `message` - message
+       * * `created` - created */
+      activity_kind: ActivityKindEnum;
+      /** Content of the thread message tied to the latest activity; empty for task-creation rows. */
+      snippet: string;
+      /** Author of the thread message tied to the latest activity, when one applies. */
+      latest_author?: TaskUserBasicInfo | null;
+      /** @nullable */
+      latest_message_id?: string | null;
+      /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
+      is_unread: boolean;
+    }
+
+    export interface TaskActivityReadMarker {
+      /** Task whose displayed activity should be marked read. */
+      task_id: string;
+      /** Mark activity at or before this timestamp read without clearing newer activity. */
+      seen_before: string;
+    }
+
+    /**
+     * Request body for clearing the unread flag on specific tasks.
+     */
+    export interface TaskActivityMarkRead {
+      /**
+         * Displayed task activities to mark read if they have not changed.
+         * @maxItems 500
+         */
+      activities: TaskActivityReadMarker[];
+    }
+
+    export interface TaskActivityMarkReadResponse {
+      /** How many feed rows changed from unread to read. */
+      marked_read: number;
+      /** The requester's remaining unread total after the update. */
+      unread_count: number;
+    }
+
+    /**
+     * A page of the requester's activity feed, plus the unread total across the whole feed.
+     */
+    export interface TaskActivityPageDTO {
+      /** Tasks with activity, most recent first. */
+      results: TaskActivityDTO[];
+      /** Unread tasks across the requester's whole feed, not just this page. Backs the sidebar badge. */
+      unread_count: number;
+      /**
+         * Activity timestamp to pass as before for the next page, or null on the final page.
+         * @nullable
+         */
+      next_before?: string | null;
+      /**
+         * Activity ID to pass as before_id for the next page, or null on the final page.
+         * @nullable
+         */
+      next_before_id?: string | null;
+    }
+
+    /**
      * * `active` - active
      * * `failed` - failed
      */
@@ -68330,15 +68571,20 @@ export namespace Schemas {
     }
 
     export interface TeamTestSignal {
-      /** Reconstructed pytest nodeid (the CI span name), a stable grouping key. */
+      /** Test runner that emitted this signal: 'pytest' or 'jest'.
+       *
+       * * `pytest` - PYTEST
+       * * `jest` - JEST */
+      runner: CITestRunnerEnum;
+      /** Runner-specific test identity (the CI span name), a stable grouping key. */
       nodeid: string;
-      /** Runnable pytest selector; exact when the CI reporter emitted it. */
+      /** Runnable pytest or Jest selector; exact for newly emitted spans. */
       selector: string;
-      /** Runs in the current window where the test failed, errored, or a retry recovered it (xfail excluded). */
+      /** Runs in the current window where the test failed, errored, or a retry recovered it (quarantined failures excluded). */
       signal_count: number;
       /** Same count over the equal-length window before date_from. */
       signal_count_prior: number;
-      /** Most recent failure, recovery, or xfail run for this test, either window. */
+      /** Most recent failure, recovery, or quarantined-failure run for this test, either window. */
       last_seen_at: string;
     }
 
@@ -68370,11 +68616,11 @@ export namespace Schemas {
       same_commit_recovery_run_count: number;
       /** Same count over the prior window. */
       same_commit_recovery_run_count_prior: number;
-      /** Runs where an owned test failed while quarantined (xfail): masked in CI, still failing. */
+      /** Runs where an owned test recorded a tolerated failure while quarantined: masked in CI, still failing. */
       quarantined_failed_run_count: number;
       /** Same count over the prior window. */
       quarantined_failed_run_count_prior: number;
-      /** Most recent failure, recovery, or xfail run across the team's owned tests, either window. */
+      /** Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window. */
       last_seen_at: string;
     }
 
@@ -79796,6 +80042,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type TaskActivityListParams = {
+    /**
+     * Activity timestamp from the final row of the previous page.
+     */
+    before?: string;
+    /**
+     * Activity ID from the final row of the previous page.
+     */
+    before_id?: string;
+    /**
+     * Maximum number of tasks to return (most recent activity first).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
     };
 
     export type TaskAutomationsListParams = {
