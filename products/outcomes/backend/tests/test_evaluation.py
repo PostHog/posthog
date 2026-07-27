@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import MagicMock, patch
 
@@ -10,7 +11,12 @@ from products.outcomes.backend.tasks import calculate_outcome
 
 from .test_criteria import atom, criteria, path
 
+# Fixture events sit in the days before this; freezing keeps them inside the default lookback
+# window forever, instead of the suite silently going empty once the dates age out of it.
+NOW = "2026-01-10T00:00:00Z"
 
+
+@freeze_time(NOW)
 @patch("products.outcomes.backend.evaluation.capture_batch_internal", return_value=MagicMock())
 class TestOutcomeEvaluation(ClickhouseTestMixin, BaseTest):
     def _create_outcome(self, criteria_dict: dict, name: str = "Activated") -> OutcomeDefinition:
@@ -167,24 +173,73 @@ class TestOutcomeEvaluation(ClickhouseTestMixin, BaseTest):
 
         assert [latch.distinct_id for latch in self._latches()] == ["p1"]
 
-    def test_only_new_reachers_emit_on_later_runs_and_are_not_backfilled(self, mock_capture: MagicMock) -> None:
+    def test_backfilled_tracks_the_fact_not_the_run(self, mock_capture: MagicMock) -> None:
+        # p2 also reached before the outcome existed, just on a later run. Deriving `backfilled`
+        # from the run instead of from reached_at marks them live and fires automations on a
+        # historical fact, which is the failure the spec calls the most dangerous default.
         _create_person(distinct_ids=["p1"], team=self.team)
         _create_event(event="signed_up", distinct_id="p1", team=self.team, timestamp="2026-01-01T10:00:00Z")
         outcome = self._create_outcome(criteria(path(atom("signed_up"))))
 
         self._calculate(outcome)
-        assert len(self._latches()) == 1
+        assert mock_capture.call_args.kwargs["events"][0]["properties"]["backfilled"] is True
 
         _create_person(distinct_ids=["p2"], team=self.team)
         _create_event(event="signed_up", distinct_id="p2", team=self.team, timestamp="2026-01-05T10:00:00Z")
+        self._calculate(outcome)
+
+        second_run = mock_capture.call_args.kwargs["events"]
+        assert [e["distinct_id"] for e in second_run] == ["p2"]
+        assert second_run[0]["properties"]["backfilled"] is True
+
+        # Reached after the definition existed: a live fact, safe for automations to act on.
+        _create_person(distinct_ids=["p3"], team=self.team)
+        with freeze_time("2026-01-12T00:00:00Z"):
+            _create_event(event="signed_up", distinct_id="p3", team=self.team, timestamp="2026-01-11T10:00:00Z")
+            self._calculate(outcome)
+
+        third_run = mock_capture.call_args.kwargs["events"]
+        assert [e["distinct_id"] for e in third_run] == ["p3"]
+        assert third_run[0]["properties"]["backfilled"] is False
+
+    def test_events_older_than_the_lookback_window_do_not_count(self, mock_capture: MagicMock) -> None:
+        # Without the timestamp bound the evaluator scans a team's whole history on every run,
+        # which is what makes it unaffordable on large teams.
+        _create_person(distinct_ids=["p1"], team=self.team)
+        _create_event(event="signed_up", distinct_id="p1", team=self.team, timestamp="2025-10-01T10:00:00Z")
+        outcome = self._create_outcome(criteria(path(atom("signed_up"))))
+        with team_scope(self.team.id):
+            OutcomeDefinition.objects.filter(id=outcome.id).update(lookback_days=30)
+        outcome.refresh_from_db()
 
         self._calculate(outcome)
 
+        assert self._latches() == []
+        mock_capture.assert_not_called()
+
+    @patch("products.outcomes.backend.evaluation.MAX_SUBJECTS_PER_RUN", 1)
+    def test_sweep_advances_past_the_per_run_cap(self, mock_capture: MagicMock) -> None:
+        # Every reacher must eventually latch even when the matching population exceeds what one
+        # run can process. A run that cannot advance past its own cap stalls forever, latching
+        # the same first page on every tick.
+        for distinct_id in ["p1", "p2"]:
+            _create_person(distinct_ids=[distinct_id], team=self.team)
+            _create_event(event="signed_up", distinct_id=distinct_id, team=self.team, timestamp="2026-01-01T10:00:00Z")
+        outcome = self._create_outcome(criteria(path(atom("signed_up"))))
+
+        self._calculate(outcome)
+        assert len(self._latches()) == 1
+        outcome.refresh_from_db()
+        assert outcome.evaluation_cursor is not None
+
+        self._calculate(outcome)
         assert len(self._latches()) == 2
-        assert mock_capture.call_count == 2
-        second_run_events = mock_capture.call_args.kwargs["events"]
-        assert [e["distinct_id"] for e in second_run_events] == ["p2"]
-        assert second_run_events[0]["properties"]["backfilled"] is False
+
+        # A run that comes up short has swept the population; the next one starts over so
+        # persons who reach behind the cursor are still picked up.
+        self._calculate(outcome)
+        outcome.refresh_from_db()
+        assert outcome.evaluation_cursor is None
 
     def test_invalid_stored_criteria_skip_evaluation(self, mock_capture: MagicMock) -> None:
         # Serializer validation guards the API, but a stored definition could still be

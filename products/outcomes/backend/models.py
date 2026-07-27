@@ -5,6 +5,11 @@ from posthog.models.utils import UUIDModel
 
 from products.outcomes.backend.criteria import OUTCOME_REACHED_EVENT as OUTCOME_REACHED_EVENT
 
+# The evaluator scans one window of history per run. Unbounded scans are not viable on large
+# teams, so the window is part of the definition and capped at the spec's one-year backfill depth.
+DEFAULT_LOOKBACK_DAYS = 90
+MAX_LOOKBACK_DAYS = 365
+
 
 class OutcomeDefinition(TeamScopedRootMixin, UUIDModel):
     """A user-defined compound condition over events that, once met by a person, becomes a permanent dated fact.
@@ -31,6 +36,15 @@ class OutcomeDefinition(TeamScopedRootMixin, UUIDModel):
     )
     last_calculated_at = models.DateTimeField(
         null=True, blank=True, help_text="When the batch evaluator last ran for this outcome."
+    )
+    lookback_days = models.PositiveIntegerField(
+        default=DEFAULT_LOOKBACK_DAYS,
+        help_text="How far back the evaluator looks. Only events within this window count toward the criteria.",
+    )
+    evaluation_cursor = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Person UUID a sweep has progressed past. Internal to the batch evaluator; null starts a new sweep.",
     )
 
     class Meta:

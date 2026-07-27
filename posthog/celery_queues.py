@@ -41,3 +41,4 @@ class CeleryQueue(Enum):
     INTEGRATIONS = "integrations"
     FEATURE_FLAGS = "feature_flags"
     FEATURE_FLAGS_LONG_RUNNING = "feature_flags_long_running"
+    OUTCOMES = "outcomes"  # batch outcome evaluation, isolated so a slow sweep starves only itself

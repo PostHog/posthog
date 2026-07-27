@@ -27,7 +27,7 @@ from products.outcomes.backend.criteria import (
     CriteriaValidationError,
     parse_criteria,
 )
-from products.outcomes.backend.models import OutcomeDefinition, OutcomeLatch
+from products.outcomes.backend.models import DEFAULT_LOOKBACK_DAYS, MAX_LOOKBACK_DAYS, OutcomeDefinition, OutcomeLatch
 from products.outcomes.backend.tasks import calculate_outcome
 
 logger = structlog.get_logger(__name__)
@@ -146,6 +146,14 @@ class OutcomeDefinitionSerializer(serializers.ModelSerializer):
     reached_count = serializers.SerializerMethodField(
         help_text="Number of persons who have reached this outcome so far."
     )
+    lookback_days = serializers.IntegerField(
+        required=False,
+        default=DEFAULT_LOOKBACK_DAYS,
+        min_value=1,
+        max_value=MAX_LOOKBACK_DAYS,
+        help_text="How far back to look for events, in days. Only events within this window count "
+        "toward the criteria, so a longer window finds older reachers but scans more data.",
+    )
 
     class Meta:
         model = OutcomeDefinition
@@ -154,6 +162,7 @@ class OutcomeDefinitionSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "criteria",
+            "lookback_days",
             "reached_count",
             "last_calculated_at",
             "created_at",
@@ -201,6 +210,17 @@ class OutcomeDefinitionSerializer(serializers.ModelSerializer):
         )
         logger.info("outcome_created", outcome_id=str(definition.id), team_id=team.id)
         return definition
+
+    def update(self, instance: OutcomeDefinition, validated_data: dict[str, Any]) -> OutcomeDefinition:
+        # A widened window or new criteria describe a different population, so the in-flight
+        # sweep's position no longer means anything. Restart it rather than skipping everyone
+        # behind the cursor.
+        if any(
+            field in validated_data and validated_data[field] != getattr(instance, field)
+            for field in ("criteria", "lookback_days")
+        ):
+            instance.evaluation_cursor = None
+        return super().update(instance, validated_data)
 
 
 @extend_schema_field(

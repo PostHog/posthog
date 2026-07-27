@@ -137,6 +137,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'metrics:write',
     'notebook:read',
     'notebook:write',
+    'outcome:read',
+    'outcome:write',
     'organization:read',
     'organization:write',
     'organization_integration:read',

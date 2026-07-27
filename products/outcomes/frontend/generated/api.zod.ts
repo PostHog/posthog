@@ -22,6 +22,8 @@ export const outcomesCreateBodyCriteriaOnePathsItemAtomsItemAggregationDefault =
 export const outcomesCreateBodyCriteriaOnePathsItemAtomsItemAggregationPropertyMax = 400
 
 export const outcomesCreateBodyCriteriaOnePathsItemAtomsItemThresholdDefault = 1
+export const outcomesCreateBodyLookbackDaysDefault = 90
+export const outcomesCreateBodyLookbackDaysMax = 365
 
 export const OutcomesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(outcomesCreateBodyNameMax).describe('Human-readable name of the outcome.'),
@@ -88,6 +90,14 @@ export const OutcomesCreateBody = /* @__PURE__ */ zod.object({
                 .describe("Paths OR'd together: a person reaches the outcome by completing any one path."),
         })
         .describe("Monotone criteria: paths OR'd together, conditions AND'd within a path (optionally M-of-N)."),
+    lookback_days: zod
+        .number()
+        .min(1)
+        .max(outcomesCreateBodyLookbackDaysMax)
+        .default(outcomesCreateBodyLookbackDaysDefault)
+        .describe(
+            'How far back to look for events, in days. Only events within this window count toward the criteria, so a longer window finds older reachers but scans more data.'
+        ),
 })
 
 /**
@@ -103,6 +113,8 @@ export const outcomesUpdateBodyCriteriaOnePathsItemAtomsItemAggregationDefault =
 export const outcomesUpdateBodyCriteriaOnePathsItemAtomsItemAggregationPropertyMax = 400
 
 export const outcomesUpdateBodyCriteriaOnePathsItemAtomsItemThresholdDefault = 1
+export const outcomesUpdateBodyLookbackDaysDefault = 90
+export const outcomesUpdateBodyLookbackDaysMax = 365
 
 export const OutcomesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(outcomesUpdateBodyNameMax).describe('Human-readable name of the outcome.'),
@@ -169,6 +181,14 @@ export const OutcomesUpdateBody = /* @__PURE__ */ zod.object({
                 .describe("Paths OR'd together: a person reaches the outcome by completing any one path."),
         })
         .describe("Monotone criteria: paths OR'd together, conditions AND'd within a path (optionally M-of-N)."),
+    lookback_days: zod
+        .number()
+        .min(1)
+        .max(outcomesUpdateBodyLookbackDaysMax)
+        .default(outcomesUpdateBodyLookbackDaysDefault)
+        .describe(
+            'How far back to look for events, in days. Only events within this window count toward the criteria, so a longer window finds older reachers but scans more data.'
+        ),
 })
 
 /**
@@ -184,6 +204,8 @@ export const outcomesPartialUpdateBodyCriteriaOnePathsItemAtomsItemAggregationDe
 export const outcomesPartialUpdateBodyCriteriaOnePathsItemAtomsItemAggregationPropertyMax = 400
 
 export const outcomesPartialUpdateBodyCriteriaOnePathsItemAtomsItemThresholdDefault = 1
+export const outcomesPartialUpdateBodyLookbackDaysDefault = 90
+export const outcomesPartialUpdateBodyLookbackDaysMax = 365
 
 export const OutcomesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(outcomesPartialUpdateBodyNameMax).optional().describe('Human-readable name of the outcome.'),
@@ -255,4 +277,12 @@ export const OutcomesPartialUpdateBody = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe("Monotone criteria: paths OR'd together, conditions AND'd within a path (optionally M-of-N)."),
+    lookback_days: zod
+        .number()
+        .min(1)
+        .max(outcomesPartialUpdateBodyLookbackDaysMax)
+        .default(outcomesPartialUpdateBodyLookbackDaysDefault)
+        .describe(
+            'How far back to look for events, in days. Only events within this window count toward the criteria, so a longer window finds older reachers but scans more data.'
+        ),
 })

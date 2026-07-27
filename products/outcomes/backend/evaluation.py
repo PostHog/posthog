@@ -8,15 +8,20 @@ least one path; `criteria.resolve()` then folds the per-atom columns into
 `reached_at`, the winning path, and the evidence payload — so query and kernel
 cannot disagree on what "reached" means.
 
-Every run recomputes from the full event set: the grammar is monotone, so
-re-evaluation can only confirm or add facts, never flip one. Already-latched
-persons are excluded from the query so a run's subject cap always admits new
-reachers. Latching goes through `try_latch` (unique constraint +
-insert-if-absent), and `$outcome_reached` is emitted only for rows this run
-created, which keeps emission effectively-once across replays and crashes.
+Each run recomputes from the definition's lookback window: the grammar is
+monotone, so re-evaluation can only confirm or add facts, never flip one.
+
+A run processes at most `MAX_SUBJECTS_PER_RUN` persons, so the population is
+walked in person_id order across runs, with `evaluation_cursor` carrying the
+high-water mark and resetting to null when a sweep runs dry. The cursor is what
+guarantees forward progress: dedup is left entirely to `try_latch` (unique
+constraint + insert-if-absent) rather than to an exclusion list, which cannot
+both fit in a query and cover a large reached population. `$outcome_reached` is
+emitted only for rows this run created, which keeps emission effectively-once
+across replays and crashes.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.utils import timezone
@@ -47,11 +52,10 @@ logger = structlog.get_logger(__name__)
 
 EVENT_SOURCE = "outcomes_batch_evaluator"
 
-# POC guardrails: cap how many subjects a single evaluation run processes, and how many
-# already-latched persons the query excludes (the exclusion list is inlined into the query,
-# so it must stay well below the query size limit).
-MAX_SUBJECTS_PER_RUN = 10_000
-MAX_LATCH_EXCLUSIONS = 10_000
+# POC guardrail: cap how many subjects a single evaluation run processes. A sweep walks the
+# whole matching population `MAX_SUBJECTS_PER_RUN` at a time, so this bounds the result set and
+# the per-run latch writes, not how much of the population is ever reachable.
+MAX_SUBJECTS_PER_RUN = 50_000
 
 
 def _atom_condition(atom: Atom, team: Team) -> ast.Expr:
@@ -121,12 +125,15 @@ def _atom_columns(atom: Atom, index: int) -> tuple[list[str], dict[str, ast.Expr
     return columns, placeholders
 
 
-def _compile_query(criteria: Criteria, team: Team, excluded_person_ids: list[str]) -> tuple[str, dict[str, ast.Expr]]:
+def _compile_query(
+    criteria: Criteria, team: Team, *, lookback_days: int, cursor: str | None
+) -> tuple[str, dict[str, ast.Expr]]:
     flat = criteria.flat_atoms()
     columns: list[str] = ["person_id", "any(distinct_id) AS subject_distinct_id"]
     placeholders: dict[str, ast.Expr] = {
         "events": ast.Constant(value=sorted({atom.event for _, atom in flat})),
         "limit": ast.Constant(value=MAX_SUBJECTS_PER_RUN),
+        "since": ast.Constant(value=timezone.now() - timedelta(days=lookback_days)),
     }
 
     for index, (_, atom) in enumerate(flat):
@@ -142,10 +149,12 @@ def _compile_query(criteria: Criteria, team: Team, excluded_person_ids: list[str
         path_conditions.append(f"(({' + '.join(satisfied_terms)}) >= {path.effective_min_matches})")
         offset += len(path.atoms)
 
-    where = "event IN {events}"
-    if excluded_person_ids:
-        where += " AND person_id NOT IN {excluded_person_ids}"
-        placeholders["excluded_person_ids"] = ast.Constant(value=excluded_person_ids)
+    # The timestamp bound is what keeps the scan proportional to the window rather than to the
+    # team's whole history; without it this is a full-history scan on every run.
+    where = "event IN {events} AND timestamp >= {since}"
+    if cursor is not None:
+        where += " AND person_id > {cursor}"
+        placeholders["cursor"] = ast.Constant(value=cursor)
 
     query = f"""
         SELECT {", ".join(columns)}
@@ -197,37 +206,12 @@ def evaluate_outcome(definition: OutcomeDefinition) -> int:
         logger.exception("outcomes_invalid_criteria_skipped", outcome_id=str(definition.id), team_id=definition.team_id)
         return 0
 
-    excluded_person_ids = [
-        str(person_id)
-        for person_id in OutcomeLatch.objects.filter(team_id=definition.team_id, definition=definition).values_list(
-            "person_id", flat=True
-        )[: MAX_LATCH_EXCLUSIONS + 1]
-    ]
-    if len(excluded_person_ids) > MAX_LATCH_EXCLUSIONS:
-        # Beyond the cap the query would grow unboundedly; latching stays idempotent, but a
-        # run may spend its subject budget re-confirming old reachers.
-        logger.warning(
-            "outcomes_latch_exclusion_truncated",
-            outcome_id=str(definition.id),
-            team_id=definition.team_id,
-            limit=MAX_LATCH_EXCLUSIONS,
-        )
-        excluded_person_ids = excluded_person_ids[:MAX_LATCH_EXCLUSIONS]
-
-    query, placeholders = _compile_query(criteria, definition.team, excluded_person_ids)
+    cursor = str(definition.evaluation_cursor) if definition.evaluation_cursor else None
+    query, placeholders = _compile_query(
+        criteria, definition.team, lookback_days=definition.lookback_days, cursor=cursor
+    )
     response = execute_hogql_query(query, placeholders=placeholders, team=definition.team)
     results = response.results or []
-    if len(results) >= MAX_SUBJECTS_PER_RUN:
-        logger.warning(
-            "outcomes_evaluation_truncated",
-            outcome_id=str(definition.id),
-            team_id=definition.team_id,
-            limit=MAX_SUBJECTS_PER_RUN,
-        )
-
-    # Facts found before the first calculation are historical catch-up: mark them so
-    # downstream automation can opt out of reacting to a mass backfill.
-    backfilled = definition.last_calculated_at is None
 
     atom_count = len(criteria.flat_atoms())
     new_latches: list[OutcomeLatch] = []
@@ -248,10 +232,14 @@ def evaluate_outcome(definition: OutcomeDefinition) -> int:
             new_latches.append(latch)
 
     if new_latches:
-        _emit_outcome_reached(definition, new_latches, backfilled=backfilled)
+        _emit_outcome_reached(definition, new_latches)
 
+    # A short page means the sweep reached the end of the population; start the next one from
+    # the beginning so persons who reach the outcome behind the cursor are still picked up.
+    swept_to_end = len(results) < MAX_SUBJECTS_PER_RUN
+    definition.evaluation_cursor = None if swept_to_end else results[-1][0]
     definition.last_calculated_at = timezone.now()
-    definition.save(update_fields=["last_calculated_at", "updated_at"])
+    definition.save(update_fields=["evaluation_cursor", "last_calculated_at", "updated_at"])
 
     logger.info(
         "outcomes_evaluation_completed",
@@ -259,15 +247,21 @@ def evaluate_outcome(definition: OutcomeDefinition) -> int:
         team_id=definition.team_id,
         matched=len(results),
         newly_latched=len(new_latches),
+        sweep_completed=swept_to_end,
     )
     return len(new_latches)
 
 
-def _emit_outcome_reached(definition: OutcomeDefinition, latches: list[OutcomeLatch], *, backfilled: bool) -> None:
+def _emit_outcome_reached(definition: OutcomeDefinition, latches: list[OutcomeLatch]) -> None:
     """Capture `$outcome_reached` into the team's own event stream — the only integration surface.
 
     Emission happens strictly after latching: a capture failure delays the event but never
     loses the fact (a reconciler re-emit is deferred to post-POC).
+
+    `backfilled` is per fact, not per run: a person whose threshold-crossing event predates the
+    definition reached it historically no matter which run happened to find them. Deriving it
+    from the run instead marks everything after the first run as live, which is what would
+    fire automations on years-old facts as a sweep works through the population.
     """
     try:
         capture_batch_internal(
@@ -280,7 +274,7 @@ def _emit_outcome_reached(definition: OutcomeDefinition, latches: list[OutcomeLa
                         "outcome_id": str(definition.id),
                         "outcome_name": definition.name,
                         "evidence": latch.evidence,
-                        "backfilled": backfilled,
+                        "backfilled": latch.reached_at < definition.created_at,
                     },
                 }
                 for latch in latches

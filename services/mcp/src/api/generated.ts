@@ -40575,6 +40575,12 @@ export namespace Schemas {
       description?: string;
       /** Monotone criteria: paths OR'd together, conditions AND'd within a path (optionally M-of-N). */
       criteria: OutcomeCriteria;
+      /**
+         * How far back to look for events, in days. Only events within this window count toward the criteria, so a longer window finds older reachers but scans more data.
+         * @minimum 1
+         * @maximum 365
+         */
+      lookback_days?: number;
       /** Number of persons who have reached this outcome so far. */
       readonly reached_count: number;
       /**
@@ -50158,6 +50164,12 @@ export namespace Schemas {
       description?: string;
       /** Monotone criteria: paths OR'd together, conditions AND'd within a path (optionally M-of-N). */
       criteria?: OutcomeCriteria;
+      /**
+         * How far back to look for events, in days. Only events within this window count toward the criteria, so a longer window finds older reachers but scans more data.
+         * @minimum 1
+         * @maximum 365
+         */
+      lookback_days?: number;
       /** Number of persons who have reached this outcome so far. */
       readonly reached_count?: number;
       /**

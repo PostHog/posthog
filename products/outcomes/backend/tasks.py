@@ -18,7 +18,7 @@ def schedule_outcome_calculations() -> None:
         calculate_outcome.delay(outcome_id=str(outcome_id), team_id=team_id)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+@shared_task(ignore_result=True, queue=CeleryQueue.OUTCOMES.value)
 @with_team_scope()
 def calculate_outcome(outcome_id: str, team_id: int) -> None:
     """Evaluate a single outcome definition against its team's events, latching and emitting new facts."""
