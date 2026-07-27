@@ -324,12 +324,9 @@ export function InboxDetailFrame({
         onClick: action.onClick,
     }))
 
-    // The rating row is a third grid child rather than part of the main column: stacked (one column)
-    // that puts it last on the page, and on the two-column layout it's placed back under the main
-    // column so it still reads as the end of the report rather than the end of the sidebar.
     const overviewBody = (
-        <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] @5xl:grid-rows-[auto_1fr] gap-5">
-            <div className="min-w-0 flex flex-col gap-5 @5xl:col-start-1 @5xl:row-start-1">
+        <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
+            <div className="min-w-0 flex flex-col gap-5">
                 <DetailSection icon={summary.icon} title={summary.title}>
                     {report.summary ? (
                         <LemonMarkdown
@@ -345,9 +342,12 @@ export function InboxDetailFrame({
                     )}
                 </DetailSection>
                 {summaryFooter}
+                {/* The rating closes out the report body, where the reading ends – ahead of the
+                    supporting sections, which stack underneath once the layout drops to one column. */}
+                <ReportFeedbackFooter report={report} />
             </div>
 
-            <div className="flex flex-col min-w-0 gap-5 @5xl:col-start-2 @5xl:row-start-1 @5xl:row-span-2">
+            <div className="flex flex-col min-w-0 gap-5">
                 {/* Pull request (when present) first, then reviewers, evidence, runs, and activity. */}
                 {children}
                 <SuggestedReviewersSection report={report} />
@@ -376,11 +376,6 @@ export function InboxDetailFrame({
                 )}
                 <ReportTasksSection report={report} />
                 <ReportActivitySection report={report} />
-            </div>
-
-            {/* `self-start` keeps this pinned under the summary when a tall sidebar stretches the row. */}
-            <div className="min-w-0 self-start @5xl:col-start-1 @5xl:row-start-2">
-                <ReportFeedbackFooter report={report} />
             </div>
         </div>
     )

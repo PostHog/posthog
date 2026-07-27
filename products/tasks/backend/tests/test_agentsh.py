@@ -463,6 +463,8 @@ class TestModalSandboxAgentShWrapping(TestCase):
             if "--taskId" in command:
                 launched.append(command)
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
+            if "chmod" in command:  # gh shim install
+                return ExecutionResult(stdout="", stderr="", exit_code=0)
             self.assertIn("grep", command)
             return ExecutionResult(stdout="", stderr="", exit_code=0 if supported else 1)
 
