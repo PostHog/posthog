@@ -720,14 +720,14 @@ export interface sessionRecordingsPlaylistLogicActions {
     setNewCollectionName: (newCollectionName: string) => {
         newCollectionName: string
     }
-    setSessionRecordingsErrored: () => {
-        value: true
-    }
     setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => {
         id: string | null
     }
     setSelectedRecordingsIds: (recordingsIds: string[]) => {
         recordingsIds: string[]
+    }
+    setSessionRecordingsErrored: () => {
+        value: true
     }
     setShowFilters: (showFilters: boolean) => {
         showFilters: boolean
