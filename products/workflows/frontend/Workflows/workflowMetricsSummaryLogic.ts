@@ -356,6 +356,7 @@ export interface workflowMetricsSummaryLogicValues {
             message_category_type?: 'marketing' | 'transactional' | undefined
             template_id: 'template-email'
             template_uuid?: string | undefined
+            tracking_enabled?: boolean | undefined
         }
         created_at?: number | undefined
         description: string
@@ -563,6 +564,7 @@ export interface workflowMetricsSummaryLogicMeta {
                 message_category_type?: 'marketing' | 'transactional' | undefined
                 template_id: 'template-email'
                 template_uuid?: string | undefined
+                tracking_enabled?: boolean | undefined
             }
             created_at?: number | undefined
             description: string
@@ -661,7 +663,7 @@ export interface workflowMetricsSummaryLogicMeta {
                 dateFrom: Dayjs
                 dateTo: Dayjs
                 diffMs: number
-            }, // appMetricsLogic
+            },
             arg: string
         ) => string
         workflowSummaryTrends: (
@@ -671,7 +673,7 @@ export interface workflowMetricsSummaryLogicMeta {
             getCompletedSingleTrendSeries: (
                 name: string,
                 previousPeriod?: boolean
-            ) => AppMetricsTimeSeriesResponse | null, // appMetricsLogic
+            ) => AppMetricsTimeSeriesResponse | null,
             messagingChannels: {
                 hasEmail: boolean
                 hasPush: boolean
@@ -695,6 +697,7 @@ export interface workflowMetricsSummaryLogicMeta {
                     message_category_type?: 'marketing' | 'transactional' | undefined
                     template_id: 'template-email'
                     template_uuid?: string | undefined
+                    tracking_enabled?: boolean | undefined
                 }
                 created_at?: number | undefined
                 description: string
