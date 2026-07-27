@@ -17,8 +17,9 @@ from posthog.storage import object_storage
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.tracking import track_uploaded_file
 from products.replay_vision.backend.temporal.types import UploadedVideo, UploadVideoToGeminiInputs
@@ -43,6 +44,12 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
     if workflow_id is None:
         raise ScannerFailureError("upload_video_to_gemini_activity has no workflow_id", kind=FailureKind.INTERNAL_ERROR)
     asset = await ExportedAsset.objects.aget(id=inputs.asset_id)
+
+    # Re-check consent at the egress boundary, keyed off the team that owns the bytes: an admin may have
+    # revoked it after the observation was created but before these bytes leave for Gemini. Fail closed so
+    # a withdrawn org can't have recordings processed.
+    if not await sync_to_async(is_ai_data_processing_approved)(asset.team_id):
+        raise ConsentWithdrawnError("AI data processing consent was withdrawn before this recording could be analyzed")
 
     video_bytes: bytes | None
     if asset.content:

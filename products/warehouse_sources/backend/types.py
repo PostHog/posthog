@@ -1291,6 +1291,11 @@ class ExternalDataSourceType(models.TextChoices):
     MELTWATER = "Meltwater", "Meltwater"
     USERCOM = "UserCom", "UserCom"
     LATITUDE = "Latitude", "Latitude"
+    WORKATO = "Workato", "Workato"
+    SIDESHIFT = "SideShift", "SideShift"
+    DUCKLAKE = "DuckLake", "DuckLake"
+    STARBURST = "Starburst", "Starburst"
+    EASYBILL = "Easybill", "Easybill"
     EXCEL = "Excel", "Excel"
 
 
@@ -1302,6 +1307,8 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.MYSQL: "mysql",
     ExternalDataSourceType.SNOWFLAKE: "snowflake",
     ExternalDataSourceType.REDSHIFT: "redshift",
+    ExternalDataSourceType.CLICKHOUSE: "clickhouse",
+    ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
 }
 
 

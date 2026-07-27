@@ -72,7 +72,7 @@ from products.notebooks.backend.sql_v2 import (
     is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
-from products.notebooks.backend.sql_v2_direct import enqueue_direct_run, sync_direct_run
+from products.notebooks.backend.sql_v2_direct import cancel_direct_run, enqueue_direct_run, sync_direct_run
 from products.notebooks.backend.sql_v2_references import (
     SQLV2Ref,
     SQLV2ReferenceError,
@@ -1268,11 +1268,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"status": run.status})
 
         if run.node_type == NotebookNodeRun.NodeType.HOGQL:
-            # A direct (hogql) run has no kernel to signal and no cancellation — the query
-            # runs to its bounded completion. Mark the row abandoned; the guarded update
-            # yields to a completion that already landed, and sync_direct_run's own guard
-            # can never overwrite this interrupt afterwards.
-            finish_node_run(run, NotebookNodeRun.Status.INTERRUPTED, error="Run stopped.")
+            # A direct (hogql) run has no kernel to signal, so stop it at the query manager
+            # instead. Mark the row abandoned first so the stop is durable even if the
+            # cancellation below is slow or fails; the guarded update yields to a completion
+            # that already landed, and sync_direct_run's own guard can never overwrite this
+            # interrupt afterwards. Only the caller that won the transition has a live query
+            # to stop, because a run that finished on its own has nothing left running.
+            if finish_node_run(run, NotebookNodeRun.Status.INTERRUPTED, error="Run stopped."):
+                cancel_direct_run(run)
             return Response({"status": run.status})
 
         try:

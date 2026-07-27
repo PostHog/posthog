@@ -146,7 +146,7 @@ export function ConfigurationTab({
         case 'descriptions':
             // Deep-link guard: the section nav already hides this when the flag is off.
             return featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SEMANTIC_ENRICHMENT] ? (
-                <DescriptionsSection schema={schema} />
+                <DescriptionsSection schema={schema} source={source} />
             ) : (
                 <></>
             )
@@ -1232,6 +1232,7 @@ function DescriptionRow({
     source,
     saving,
     onSave,
+    disabledReason,
 }: {
     columnName: string
     label: string
@@ -1240,6 +1241,7 @@ function DescriptionRow({
     source?: string
     saving: boolean
     onSave: (columnName: string, description: string) => void
+    disabledReason?: string
 }): JSX.Element {
     const [value, setValue] = useState(description)
     // Keep local state in sync when the annotation reloads (e.g. after a save or AI enrichment).
@@ -1259,6 +1261,7 @@ function DescriptionRow({
                 onChange={setValue}
                 placeholder="Describe what this means…"
                 onPressEnter={() => dirty && onSave(columnName, value)}
+                disabled={!!disabledReason}
             />
             <DescriptionSourceTag source={source} />
             <LemonButton
@@ -1266,7 +1269,7 @@ function DescriptionRow({
                 type="secondary"
                 onClick={() => onSave(columnName, value)}
                 loading={saving}
-                disabledReason={!dirty ? 'No changes to save' : undefined}
+                disabledReason={disabledReason ?? (!dirty ? 'No changes to save' : undefined)}
             >
                 Save
             </LemonButton>
@@ -1274,8 +1277,15 @@ function DescriptionRow({
     )
 }
 
-function DescriptionsSection({ schema }: { schema: ExternalDataSourceSchema }): JSX.Element {
+function DescriptionsSection({
+    schema,
+    source,
+}: {
+    schema: ExternalDataSourceSchema
+    source: SchemaSceneSource | null
+}): JSX.Element {
     const tableId = schema.table?.id
+    const { disabledReason: accessDisabledReason } = useSourceEditorAccess(source)
 
     if (!tableId) {
         return (
@@ -1288,15 +1298,23 @@ function DescriptionsSection({ schema }: { schema: ExternalDataSourceSchema }): 
         )
     }
 
-    return <DescriptionsSectionContent tableId={tableId} columns={schema.available_columns ?? []} />
+    return (
+        <DescriptionsSectionContent
+            tableId={tableId}
+            columns={schema.available_columns ?? []}
+            disabledReason={accessDisabledReason}
+        />
+    )
 }
 
 function DescriptionsSectionContent({
     tableId,
     columns,
+    disabledReason,
 }: {
     tableId: string
     columns: { name: string; data_type?: string; is_nullable?: boolean }[]
+    disabledReason?: string
 }): JSX.Element {
     const logic = columnAnnotationsLogic({ tableId })
     const { annotationByColumn, annotationsLoading, savingColumn } = useValues(logic)
@@ -1318,6 +1336,7 @@ function DescriptionsSectionContent({
                     source={tableAnnotation?.description_source}
                     saving={savingColumn === ''}
                     onSave={saveDescription}
+                    disabledReason={disabledReason}
                 />
                 {annotationsLoading && columns.length === 0 ? (
                     <LemonSkeleton className="w-full h-8 mt-2" />
@@ -1336,6 +1355,7 @@ function DescriptionsSectionContent({
                                 source={annotation?.description_source}
                                 saving={savingColumn === column.name}
                                 onSave={saveDescription}
+                                disabledReason={disabledReason}
                             />
                         )
                     })

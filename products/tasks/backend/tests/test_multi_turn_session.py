@@ -233,6 +233,36 @@ class TestPollForTurnStaleSalvage:
         assert total_lines == 2 + len(trailing)
 
     @pytest.mark.asyncio
+    async def test_salvages_dropped_finalization_despite_side_channels_arriving_every_poll(self):
+        # The prod failure shape that the single-static-log test above can't reach: the agent finishes
+        # (close-out + null-cost usage_update) early, then the relay keeps trickling a NEW side-channel
+        # line on every poll right up to the wall. The silence marker must ignore that transient growth
+        # so STALE_TURN_SALVAGE_SECONDS clears and the finished turn is salvaged. If the marker counted
+        # any line (the old behavior), each poll would reset it and the run would time out despite being
+        # done — the systemic ~8-12% baseline / ~36% spike failure.
+        base = [_agent_message_line("close-out summary"), _usage_update_line(165000)]
+        logs = ["\n".join(base + [_console_line(f"agentsh network events {i}") for i in range(n)]) for n in range(6)]
+        poll_iter = iter(logs)
+
+        def next_log(*_args, **_kwargs):
+            return next(poll_iter, logs[-1])
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 60),
+            # Floor scaled to the tiny test budget: the agent falls silent (turn-relevant) after poll 1
+            # at elapsed 10, so 50s of real silence accrues by the 60s wall and clears this 15s floor.
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "close-out summary"
+
+    @pytest.mark.asyncio
     async def test_does_not_salvage_when_console_lines_follow_a_live_tail(self):
         # Trailing console noise must NOT manufacture a salvage when the agent's own tail isn't the
         # finalization fingerprint: here the last turn-relevant line is a bare agent_message (no
