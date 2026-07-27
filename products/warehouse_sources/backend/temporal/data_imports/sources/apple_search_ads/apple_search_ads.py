@@ -1,6 +1,7 @@
 import time
+import itertools
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.settings import (
     APPLE_SEARCH_ADS_ENDPOINTS,
     DEFAULT_INITIAL_LOOKBACK_DAYS,
+    MAX_INITIAL_LOOKBACK_DAYS,
     PAGE_SIZE,
     REPORT_WINDOW_DAYS,
     AppleSearchAdsEndpointConfig,
@@ -303,7 +305,9 @@ def _report_start_date(
 
     configured = _to_date(start_date) if start_date else None
     if configured is not None:
-        return configured
+        # Floor the configured date so an implausibly old start can't fan the report out over
+        # thousands of empty windows and exhaust the import worker.
+        return max(configured, today - timedelta(days=MAX_INITIAL_LOOKBACK_DAYS))
     return today - timedelta(days=DEFAULT_INITIAL_LOOKBACK_DAYS)
 
 
@@ -429,24 +433,44 @@ def _list_campaign_ids(client: AppleSearchAdsClient) -> list[int]:
     return sorted(ids)
 
 
-def _resume_index(
-    tasks: list[tuple[date, date, Optional[int]]],
+ReportTask = tuple[date, date, Optional[int]]
+
+
+def _report_tasks(start: date, end: date, campaign_ids: list[Optional[int]]) -> Iterator[ReportTask]:
+    """Every (window, campaign) report request this run must make, lazily.
+
+    Yielded rather than listed so a large window range never materialises as millions of
+    tuples up front.
+    """
+    for window_start, window_end in _report_windows(start, end):
+        for campaign_id in campaign_ids:
+            yield window_start, window_end, campaign_id
+
+
+def _advance_to_resume(
+    make_tasks: Callable[[], Iterator[ReportTask]],
     resume: Optional[AppleSearchAdsResumeConfig],
     request_logger: FilteringBoundLogger,
-) -> tuple[int, int]:
-    """Locate a saved checkpoint in this run's task list, by value rather than position."""
+) -> tuple[Iterator[ReportTask], int]:
+    """Fast-forward the lazy task stream to a saved checkpoint, matched by value not position.
+
+    A checkpoint from a different window range (e.g. the start date changed) is never found, so
+    the run restarts from the first task with a fresh stream.
+    """
     if resume is None or not resume.window_start:
-        return 0, 0
+        return make_tasks(), 0
 
     key = (resume.window_start, resume.campaign_id)
-    for index, (window_start, _window_end, campaign_id) in enumerate(tasks):
+    tasks = make_tasks()
+    for task in tasks:
+        window_start, _window_end, campaign_id = task
         if (window_start.isoformat(), campaign_id) == key:
-            return index, resume.offset
+            return itertools.chain([task], tasks), resume.offset
 
     request_logger.debug(
         f"Apple Search Ads: saved checkpoint {key} is not in this run's window range, starting from the beginning"
     )
-    return 0, 0
+    return make_tasks(), 0
 
 
 def _iter_report_rows(
@@ -466,17 +490,17 @@ def _iter_report_rows(
     if config.fan_out_over_campaigns:
         campaign_ids = list(_list_campaign_ids(client))
 
-    tasks = [
-        (window_start, window_end, campaign_id)
-        for window_start, window_end in _report_windows(start, today)
-        for campaign_id in campaign_ids
-    ]
-    start_index, start_offset = _resume_index(tasks, resume, request_logger)
+    tasks, start_offset = _advance_to_resume(lambda: _report_tasks(start, today, campaign_ids), resume, request_logger)
 
-    for index in range(start_index, len(tasks)):
-        window_start, window_end, campaign_id = tasks[index]
+    current = next(tasks, None)
+    resume_offset = start_offset
+    while current is not None:
+        window_start, window_end, campaign_id = current
+        # Peek at the next task so a completed window can checkpoint where the run should pick up.
+        upcoming = next(tasks, None)
         path = config.path.format(campaign_id=campaign_id) if campaign_id is not None else config.path
-        offset = start_offset if index == start_index else 0
+        offset = resume_offset
+        resume_offset = 0
 
         while True:
             payload = client.request_json(
@@ -500,13 +524,14 @@ def _iter_report_rows(
                 )
             )
 
-        if index + 1 < len(tasks):
-            next_window_start, _next_window_end, next_campaign_id = tasks[index + 1]
+        if upcoming is not None:
+            next_window_start, _next_window_end, next_campaign_id = upcoming
             resumable_source_manager.save_state(
                 AppleSearchAdsResumeConfig(
                     offset=0, window_start=next_window_start.isoformat(), campaign_id=next_campaign_id
                 )
             )
+        current = upcoming
 
 
 def get_rows(

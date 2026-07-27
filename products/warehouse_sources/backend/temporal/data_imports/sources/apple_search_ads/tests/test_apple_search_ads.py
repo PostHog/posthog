@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apple_sear
     APPLE_SEARCH_ADS_ENDPOINTS,
     DEFAULT_INITIAL_LOOKBACK_DAYS,
     ENDPOINTS,
+    MAX_INITIAL_LOOKBACK_DAYS,
     PAGE_SIZE,
     REPORT_WINDOW_DAYS,
 )
@@ -375,6 +376,9 @@ class TestReportWindows:
             ("unparseable_start_date_falls_back", False, None, "not-a-date", None),
             ("no_watermark_no_start_date", False, None, None, None),
             ("incremental_without_watermark", True, None, None, None),
+            # An implausibly old configured start is floored so it can't fan out over thousands
+            # of empty windows.
+            ("ancient_start_date_is_floored", False, None, "0001-01-01", None),
         ]
     )
     def test_report_start_date(
@@ -388,7 +392,10 @@ class TestReportWindows:
         today = date(2026, 6, 1)
         resolved = _report_start_date(should_use_incremental_field, watermark, start_date, today)
 
-        assert resolved == (expected or today - timedelta(days=DEFAULT_INITIAL_LOOKBACK_DAYS))
+        if _name == "ancient_start_date_is_floored":
+            assert resolved == today - timedelta(days=MAX_INITIAL_LOOKBACK_DAYS)
+        else:
+            assert resolved == (expected or today - timedelta(days=DEFAULT_INITIAL_LOOKBACK_DAYS))
 
 
 class TestFlattenReportRows:
