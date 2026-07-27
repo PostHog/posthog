@@ -198,7 +198,7 @@ export function WorkflowRunsScene(): JSX.Element {
             key: 'pr',
             width: 80,
             render: (_, run) =>
-                run.prNumber > 0 ? (
+                run.prNumber != null ? (
                     <Link
                         to={withScope(
                             urls.engineeringAnalyticsPullRequest(run.repoOwner, run.repoName, run.prNumber),

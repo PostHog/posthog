@@ -68,9 +68,24 @@ def trim_pr(pr: dict[str, Any]) -> dict[str, Any]:
 
 def trim_run(run: dict[str, Any]) -> dict[str, Any]:
     trimmed: dict[str, Any] = {field: run[field] for field in RUN_FIELDS}
-    trimmed["repository"] = {"full_name": run["repository"]["full_name"]}
-    # The PR-list push / re-run rollup attributes runs to a PR via this association.
-    trimmed["pull_requests"] = [{"number": pr["number"]} for pr in (run.get("pull_requests") or [])]
+    trimmed["repository"] = {"full_name": run["repository"]["full_name"], "id": run["repository"]["id"]}
+    # The PR-list push / re-run rollup attributes runs to a PR via this association. `base.repo.id`
+    # is load-bearing, not decoration: GitHub lists every PR in the fork network sharing the run's
+    # head SHA, and the curated builder keeps only the entries based in this repo.
+    trimmed["pull_requests"] = [
+        {"number": pr["number"], "base": {"repo": {"id": pr["base"]["repo"]["id"]}}}
+        for pr in (run.get("pull_requests") or [])
+    ]
+    # A default-branch push has no association at all — its squash-merge subject is the only PR
+    # attribution it has, and the author fields back the ci_job_history view.
+    head_commit = run.get("head_commit") or {}
+    trimmed["head_commit"] = {
+        "message": head_commit.get("message", ""),
+        "author": {
+            "name": (head_commit.get("author") or {}).get("name", ""),
+            "email": (head_commit.get("author") or {}).get("email", ""),
+        },
+    }
     return trimmed
 
 

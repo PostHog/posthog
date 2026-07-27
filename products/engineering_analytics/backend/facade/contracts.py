@@ -295,6 +295,11 @@ class WorkflowRunDetail:
     run_attempt: int
     # Attributed pull request number, or 0 when unattributed.
     pr_number: int
+    # The PR whose squash merge produced this run's head commit, parsed from the commit subject's
+    # `(#NNNN)` suffix. None when the commit carries no such suffix. This is the only PR attribution a
+    # default-branch push has — its `pull_requests` association is empty by then — so consumers read
+    # `pr_number` first and fall back to this (SPEC §6, "two PR keys, by design").
+    commit_pr_number: int | None
 
 
 @dataclass(frozen=True)

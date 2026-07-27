@@ -10,13 +10,25 @@ re-runs. The source table name is resolved per-team and passed in (see
 ``logic.sources``); it is never hardcoded, because a warehouse table's name carries
 the user-chosen source prefix.
 
-``pr_number`` is the FIRST entry of the run's ``pull_requests`` association. Two cases:
-a run with no association (fork PRs, and pushes to a branch with no open PR) extracts
-``0`` (filtered out of the rollup, which only counts ``pr_number > 0``); a run shared
-across more than one PR (uncommon — one head tied to multiple open PRs) is credited to
-its first PR only, not fanned out across all of them. That's a deliberate v1
-simplification: the rollup is an approximate friction signal (pushes / re-runs), not
-billing.
+``pr_number`` is the first entry of the run's ``pull_requests`` association **whose base repo
+is this run's own repo**. That filter is load-bearing, not defensive: GitHub populates the
+association with every PR in the fork network whose head SHA matches the run, so a push to
+``PostHog/posthog:master`` arrives carrying the downstream forks' open "sync from upstream"
+PRs (``Mu-L/posthog-1#1379``, ``em3ndez/posthog#3``, ...). Taking the first entry unfiltered
+credited ~14% of runs to a stranger's PR number, and — since the number was then paired with
+this repo's owner/name — linked it to an unrelated PR of ours. Only an entry whose
+``base.repo.id`` equals the run's ``repository.id`` describes a PR this run actually ran for.
+
+Two cases still extract ``0``: a run with no own-repo association (fork PRs, and pushes to a
+branch with no open PR), which is filtered out of the rollup (it only counts ``pr_number > 0``);
+and a run shared across more than one of our PRs (uncommon — one head tied to multiple open PRs),
+which is credited to its first PR only, not fanned out across all of them. That's a deliberate v1
+simplification: the rollup is an approximate friction signal (pushes / re-runs), not billing.
+
+``commit_pr_number`` is the complementary key, parsed from the head commit's squash-merge
+``(#NNNN)`` suffix: it is how a push run gets PR attribution at all, since a merged commit on the
+default branch has no association of its own. Consumers prefer ``pr_number`` and fall back to
+this (SPEC §6 — "two PR keys, by design"); ``ci_job_history`` exposes both under these names.
 
 The real GitHub source lands timestamps as **strings** and ``repository`` /
 ``pull_requests`` as **Nullable** JSON, so this builder runs in two layers: an inner
@@ -40,6 +52,23 @@ Every query module embeds this ``SELECT`` as a subquery (see ``_curated``);
 nothing registers it as a global HogQL view.
 """
 
+# The run's PR association, narrowed to PRs based in the run's OWN repo (see module docstring).
+# ``> 0`` guards the both-missing case: JSONExtractInt yields 0 for an absent key, so a malformed
+# entry would otherwise "match" a run whose ``repository`` JSON never landed.
+_OWN_REPO_PR = """arrayFirst(
+                    p -> JSONExtractInt(p, 'base', 'repo', 'id') > 0
+                        AND JSONExtractInt(p, 'base', 'repo', 'id') = ifNull(JSONExtractInt(repository, 'id'), 0),
+                    JSONExtractArrayRaw(ifNull(pull_requests, '[]'))
+                )"""
+
+# The squash-merge PR number off the head commit's subject. Anchored to a line end ((?m) — the
+# squash title): an unanchored match would take the FIRST (#N) in the message, misattributing
+# reverts ('Revert "x (#A)" (#B)') to the reverted PR instead of the reverting one.
+_COMMIT_PR_NUMBER = (
+    "accurateCastOrNull("
+    "regexpExtract(JSONExtractString(ifNull(head_commit, '{}'), 'message'), '(?m)[(]#([0-9]+)[)]$'), 'Int64')"
+)
+
 
 def build_query(table_name: str, *, started_floor: bool = False) -> str:
     # The raw floor must live in its OWN innermost SELECT, not the parsing SELECT below: that SELECT
@@ -62,6 +91,7 @@ def build_query(table_name: str, *, started_floor: bool = False) -> str:
             run_attempt,
             default_branch,
             pr_number,
+            commit_pr_number,
             if(status = 'completed', dateDiff('second', run_started_at, updated_at), NULL) AS duration_seconds,
             arrayElement(repo_parts, 1) AS repo_owner,
             arrayElement(repo_parts, 2) AS repo_name
@@ -74,7 +104,8 @@ def build_query(table_name: str, *, started_floor: bool = False) -> str:
                 status,
                 conclusion,
                 run_attempt,
-                JSONExtractInt(arrayElement(JSONExtractArrayRaw(ifNull(pull_requests, '[]')), 1), 'number') AS pr_number,
+                JSONExtractInt({_OWN_REPO_PR}, 'number') AS pr_number,
+                {_COMMIT_PR_NUMBER} AS commit_pr_number,
                 splitByChar('/', ifNull(JSONExtractString(repository, 'full_name'), '')) AS repo_parts,
                 ifNull(JSONExtractString(repository, 'default_branch'), '') AS default_branch,
                 parseDateTimeBestEffort(run_started_at) AS run_started_at,

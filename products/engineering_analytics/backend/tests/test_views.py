@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -18,6 +19,9 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     _run_row,
     create_github_source,
     create_github_warehouse_table,
+    pr_association,
+    pr_association_entry,
+    repo_id,
 )
 
 from ee.models.rbac.access_control import AccessControl
@@ -167,12 +171,59 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         raw = (
             "(SELECT 1 AS id, 'CI' AS name, 'sha1' AS head_sha, 'main' AS head_branch, 'completed' AS status, "
             "'success' AS conclusion, 1 AS run_attempt, nullIf('', '') AS pull_requests, "
-            f"'{repo_json}' AS repository, "
+            f"'{repo_json}' AS repository, nullIf('', '') AS head_commit, "
             "'2026-01-20 10:00:00' AS run_started_at, '2026-01-20 10:30:00' AS updated_at, "
             "'2026-01-20 10:00:00' AS created_at)"
         )
         rows = self._select(f"SELECT pr_number, repo_owner, repo_name FROM ({workflow_runs.build_query(raw)}) AS r")
         assert rows[0] == (0, "PostHog", "posthog")
+
+    def test_workflow_runs_view_attributes_only_own_repo_prs_and_falls_back_to_the_merge_commit(self) -> None:
+        # GitHub's pull_requests association lists every PR in the fork network sharing the run's
+        # head SHA, so a push to our default branch arrives carrying downstream forks' "sync from
+        # upstream" PRs. Taking the first entry unfiltered credited those runs to a stranger's PR
+        # number under our own owner/name. Only a base.repo.id matching the run's repository.id is
+        # ours; a push's real attribution is the (#NNNN) squash-merge suffix instead.
+        own, fork = "PostHog/posthog", "Mu-L/posthog-1"
+        cases: list[tuple[str, str | None, str | None, int, int | None]] = [
+            # (head_branch, pull_requests, commit message, expected pr_number, expected commit_pr_number)
+            ("pr-branch", pr_association(42, base_repo=own), "feat: wip", 42, None),
+            # The real master-push shape: only foreign entries, so nothing is ours.
+            ("master", pr_association(1379, 3, base_repo=fork), "feat: thing (#73832)", 0, 73832),
+            # A foreign entry listed FIRST must not shadow ours — position is what the old code used.
+            (
+                "pr-branch",
+                json.dumps([pr_association_entry(1379, base_repo=fork), pr_association_entry(42, base_repo=own)]),
+                "feat: wip",
+                42,
+                None,
+            ),
+            ("master", None, "chore: direct push", 0, None),
+        ]
+        rows = [
+            {
+                "id": 5000 + index,
+                "name": "CI",
+                "head_sha": f"sha{index}",
+                "head_branch": head_branch,
+                "status": "completed",
+                "conclusion": "success",
+                "created_at": "2026-01-20 10:00:00",
+                "run_started_at": "2026-01-20 10:00:00",
+                "updated_at": "2026-01-20 10:30:00",
+                "run_attempt": 1,
+                "pull_requests": association,
+                "repository": json.dumps({"full_name": own, "id": repo_id(own)}),
+                "head_commit": json.dumps({"message": message}),
+            }
+            for index, (head_branch, association, message, _, _) in enumerate(cases)
+        ]
+        table_name = self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, rows)
+
+        results = self._select(
+            f"SELECT id, pr_number, commit_pr_number FROM ({workflow_runs.build_query(table_name)}) AS r ORDER BY id"
+        )
+        assert results == [(5000 + index, pr, commit_pr) for index, (_, _, _, pr, commit_pr) in enumerate(cases)]
 
     def test_workflow_runs_view_tolerates_all_nullable_columns(self) -> None:
         # Prod lands every column Nullable, so a single run can carry NULL across timestamps,

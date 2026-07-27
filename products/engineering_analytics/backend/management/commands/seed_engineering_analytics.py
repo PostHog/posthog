@@ -26,6 +26,7 @@ Usage:
 
 import csv
 import json
+import zlib
 from datetime import datetime, timedelta
 from io import StringIO
 from pathlib import Path
@@ -94,14 +95,29 @@ def _flatten_pr(pr: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _synthetic_repo_id(full_name: str) -> int:
+    """A stable stand-in for GitHub's numeric repo id, derived from ``owner/name``."""
+    return zlib.crc32(full_name.encode())
+
+
 def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
     json_keys = ("repository", "pull_requests", "head_commit")
     scalar_keys = [key for key in WORKFLOW_RUNS_COLUMNS if key not in json_keys]
+    # A run is attributed to a PR only when the PR's base repo id equals the run's own — that's what
+    # keeps the fork network's PRs out (see logic/views/workflow_runs). Snapshots captured before
+    # those ids were kept, and the synthetic demo rows below, carry neither, so stamp both ends with
+    # one synthetic id rather than seeding data that attributes nothing.
+    repository = {**run["repository"]}
+    repository.setdefault("id", _synthetic_repo_id(repository["full_name"]))
+    associations = [
+        {**pr, "base": {"repo": {"id": pr.get("base", {}).get("repo", {}).get("id", repository["id"])}}}
+        for pr in run.get("pull_requests") or []
+    ]
     return {
         # .get() tolerates a pre-existing fixture captured before run_attempt / pull_requests were added.
         **{key: run.get(key) for key in scalar_keys},
-        "repository": json.dumps(run["repository"]),
-        "pull_requests": json.dumps(run.get("pull_requests", [])),
+        "repository": json.dumps(repository),
+        "pull_requests": json.dumps(associations),
         "head_commit": json.dumps(run.get("head_commit", {})),
     }
 

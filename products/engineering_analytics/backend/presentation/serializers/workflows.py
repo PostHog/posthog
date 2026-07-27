@@ -55,7 +55,16 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "run_attempt": {"help_text": "Re-run attempt number; 1 for the first attempt."},
-            "pr_number": {"help_text": "Attributed pull request number, or 0 when unattributed."},
+            "pr_number": {
+                "help_text": "Pull request this run ran for, from the run's own-repo PR association; "
+                "0 when unattributed (a default-branch push, or a fork PR)."
+            },
+            "commit_pr_number": {
+                "help_text": "Pull request whose squash merge produced this run's head commit, parsed from the "
+                "commit subject. Null when the commit carries no '(#NNNN)' suffix. The only PR attribution a "
+                "default-branch push has — read pr_number first and fall back to this.",
+                "allow_null": True,
+            },
         }
 
 
