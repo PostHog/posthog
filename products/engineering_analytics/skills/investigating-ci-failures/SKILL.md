@@ -50,7 +50,7 @@ falls out of three columns:
 | --------------------------------------- | ------------------------------- | ---------------------------------------------------- |
 | 1 branch, any window                    | That PR's own problem           | Read its failure lines; done                         |
 | Many branches, dense burst, hits master | Trunk break (master is/was red) | Boundary query → culprit (below)                     |
-| Many branches, sporadic over days/weeks | Flaky                           | Corroborate with `engineering-analytics-flaky-tests` |
+| Many branches, sporadic over days/weeks | Flaky                           | Corroborate with `engineering-analytics-test-signal-history` |
 
 Why cross-branch means trunk: PR CI runs the PR **merged with master**, so one bad master commit
 fails every concurrently-running PR. A failure appearing on many unrelated branches in a tight
@@ -79,10 +79,18 @@ different problems sharing a test.
 
 ## Flaky → corroborate, don't guess
 
-Sporadic shape alone is suggestive, not proof. The `engineering-analytics-flaky-tests` MCP tool reads per-test CI spans
-(rerun-pass signal — a test that failed then passed on retry in the same job) and is the stronger
-signal where it has coverage. Counts only, never rates: passing runs below the emitter's duration
-threshold aren't recorded, so there is no honest denominator.
+Sporadic shape alone is suggestive, not proof. Two MCP tools read the per-test CI spans (rerun-pass
+signal — a test that failed then passed on retry in the same job) and are the stronger signal where
+they have coverage. Counts only, never rates: passing runs below the emitter's duration threshold
+aren't recorded, so there is no honest denominator.
+
+- **`engineering-analytics-test-signal-history`** — the direct answer for one named test. Pass `test`
+  the failing node id (or its selector) and read `runs` newest first: `recovered` is the same-commit
+  proof that makes it a `confirmed_flake`, `pr_number` and `branch` say where each failure landed, and
+  `master_failed_run_count` says whether it has hit trunk. An empty history means no signal in the
+  window, not that the test is fine.
+- **`engineering-analytics-flaky-tests`** — the ranked queue, for when you want the surrounding
+  context (what else is failing, and what this test costs relative to it).
 
 ## Caveats you must carry into every answer
 
@@ -116,7 +124,7 @@ threshold aren't recorded, so there is no honest denominator.
 | "What's broken across CI right now?"   | `engineering-analytics-broken-tests` MCP tool (triaged, classified)    |
 | "Why did MY PR's CI fail?"             | `engineering-analytics-ci-failure-logs` MCP tool (PR-scoped, grouped)  |
 | "Who broke master / when did X start?" | The two views, workflow above                                          |
-| "Is X flaky?"                          | Shape from `ci_failures` + the flaky-tests tool                        |
+| "Is X flaky?"                          | `engineering-analytics-test-signal-history` MCP tool (that test's runs) |
 | "What's failing on master right now?"  | `engineering-analytics-master-failures` MCP tool (grouped triage feed) |
 | "Is CI slow / expensive / PRs stuck?"  | The `diagnosing-ci-and-merge-bottlenecks` skill                        |
 | "Save this as a dashboard/insight"     | The `turning-engineering-analytics-into-insights` skill                |

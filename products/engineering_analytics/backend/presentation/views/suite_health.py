@@ -10,13 +10,18 @@ from rest_framework.response import Response
 from posthog.api.mixins import TypedRequest, validated_request
 
 from products.engineering_analytics.backend.facade import api
-from products.engineering_analytics.backend.facade.contracts import FLAKY_TEST_SIGNAL_CAVEAT, QuarantineRequest
+from products.engineering_analytics.backend.facade.contracts import (
+    FLAKY_TEST_SIGNAL_CAVEAT,
+    CITestRunner,
+    QuarantineRequest,
+)
 from products.engineering_analytics.backend.presentation.serializers.suite_health import (
     BrokenTestsResultSerializer,
     FlakyTestListSerializer,
     QuarantineFileSerializer,
     QuarantineRequestResultSerializer,
     QuarantineRequestSerializer,
+    TestSignalHistorySerializer,
 )
 from products.engineering_analytics.backend.presentation.views._base import (
     _DATE_TO,
@@ -29,7 +34,7 @@ from products.engineering_analytics.backend.presentation.views._base import (
 
 
 class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
-    READ_ACTIONS = ["flaky_tests", "broken_tests", "quarantine"]
+    READ_ACTIONS = ["flaky_tests", "test_signal_history", "broken_tests", "quarantine"]
     WRITE_ACTIONS = ["quarantine_request"]
 
     @extend_schema(
@@ -95,6 +100,81 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid date, threshold, limit, or source_id")
         return Response(FlakyTestListSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_test_signal_history",
+        parameters=[
+            OpenApiParameter(
+                name="test",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="The test to read, matched against either the nodeid or the selector the CI reporter "
+                "emitted. Paste either field from a flaky_tests row, or a literal pytest or Jest selector. Every "
+                "span carries the nodeid, so prefer it if a lookup by selector comes back empty.",
+            ),
+            OpenApiParameter(
+                name="runner",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=[runner.value for runner in CITestRunner],
+                description="Optional test runner to scope to, for the rare case where a pytest and a Jest test "
+                "share an identity. Omit to read both.",
+            ),
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Window start: relative ('-7d', '-30d') or ISO8601. Defaults to -7d; the window "
+                "may span at most 30 days.",
+            ),
+            _DATE_TO,
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum number of runs to return (1-200). Defaults to 50.",
+            ),
+            _SOURCE_ID,
+            _REPO,
+        ],
+        responses={
+            200: TestSignalHistorySerializer,
+            400: OpenApiResponse(
+                description="Missing or blank test, or an invalid runner, date, limit, or source_id, or a window "
+                "longer than 30 days."
+            ),
+        },
+        description=(
+            "One test's signal-bearing CI runs over a window (default -7d, maximum 30 days), newest first, each with "
+            "its PR number, branch, and what the run proved: it failed, one commit both failed and passed it "
+            "(same-commit recovery), or it recorded a tolerated failure while quarantined. This is the per-test "
+            "drill-down behind flaky_tests, which ranks which tests are worth acting on; the rollup counts here match "
+            "that queue's for the same test and window, and cover the whole window even when the run list is "
+            "truncated. Pass a run's run_id to run_failure_logs for the failing lines. A test with no signal in the "
+            "window returns an empty history rather than a 404. " + FLAKY_TEST_SIGNAL_CAVEAT
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def test_signal_history(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_test_signal_history(
+                team=self.team,
+                test=request.query_params.get("test") or "",
+                runner=request.query_params.get("runner") or None,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                limit=_optional_int_param(request, "limit"),
+                source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid test, runner, date, limit, or source_id")
+        return Response(TestSignalHistorySerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_broken_tests",

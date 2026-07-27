@@ -598,6 +598,64 @@ class FlakyTestList:
 
 
 @dataclass(frozen=True)
+class TestSignalRun:
+    """One CI run that produced signal for a single test: what that run proved, and where it ran.
+
+    Only signal-bearing runs exist here (a failure, a quarantined failure, or a same-commit
+    recovery); ordinary passing runs are never emitted, so a list of these is a failure history and
+    never a pass/fail rate. See ``FLAKY_TEST_SIGNAL_CAVEAT``.
+    """
+
+    run_id: str
+    # None for default-branch pushes and any branch CI ran without a PR association.
+    pr_number: int | None
+    branch: str
+    failed: bool
+    # One commit both failed and passed the test in this run: a re-run attempt went green, or an
+    # in-job retry recovered it. This is the only proof that makes a test a confirmed_flake.
+    recovered: bool
+    quarantined: bool
+    signal_at: datetime
+
+
+@dataclass(frozen=True)
+class TestSignalHistory:
+    """One test's per-run signal history over a window, newest first, plus the same rollup the
+    test-health queue reports for that test.
+
+    The per-run drill-down behind ``FlakyTestItem``: the queue ranks *which* tests are worth acting
+    on, this says what one of them has done across recent runs, PRs, and branches. Both read the same
+    per-run evidence, so the counts here match the queue's for the same test and window.
+
+    ``runs`` is capped at ``limit`` with an explicit ``truncated`` flag (the ``{items, truncated,
+    limit}`` shape ``FlakyTestList`` uses). The rollup counts always cover the whole window, never
+    just the returned page, so they cannot undercount against the queue when ``truncated`` is true.
+
+    A test with no signal in the window is a legitimate empty answer rather than a 404: the counts
+    are 0, ``runs`` is empty, ``runner`` / ``classification`` / ``last_signal_at`` are null because
+    no evidence resolved them, and ``nodeid`` / ``selector`` echo the requested test. See
+    ``FLAKY_TEST_SIGNAL_CAVEAT`` for why every figure is an absolute count.
+    """
+
+    # Null when nothing matched, since the runner is only known from the matched spans.
+    runner: CITestRunner | None
+    nodeid: str
+    selector: str
+    # Null when nothing matched: with no failures recorded, 'suspected_regression' would read as a
+    # verdict on a test this window says nothing about.
+    classification: FlakyTestClassification | None
+    same_commit_recovery_run_count: int
+    failed_run_count: int
+    failed_pr_count: int
+    master_failed_run_count: int
+    quarantined_failed_run_count: int
+    last_signal_at: datetime | None
+    runs: list[TestSignalRun]
+    truncated: bool
+    limit: int
+
+
+@dataclass(frozen=True)
 class TeamCIHealthItem:
     """One owning team's rollup of the CI test surfaces it owns, with equal-length
     previous-window twins so a caller can render honest deltas.

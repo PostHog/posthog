@@ -49,6 +49,15 @@ autonomous agents (e.g. PostHog Desktop) reasoning about their own PRs.
   and Frontend Jest suites, and recovery proof only arrives when someone re-runs failed jobs (or a pytest test is hand-marked
   `@pytest.mark.flaky(reruns=N)`). Counts are absolute signal, never rates: passing runs are mostly not
   emitted, so there is no honest denominator.
+- **`engineering-analytics-test-signal-history`** — the per-test drill-down behind that queue: one test's
+  signal-bearing CI runs over the same window (`date_from` default `-7d`, max 30 days), newest first, each with
+  `run_id`, `pr_number` (`null` on master pushes), `branch`, and `failed` / `recovered` / `quarantined`. Pass
+  `test` the `nodeid` or the `selector` from a flaky-tests row. Answers "how flaky is this one test, and what has
+  it done across recent PRs": the run-by-run evidence the queue aggregates away. The rollup counts it returns
+  match the queue's for the same test and window, and stay window-complete even when `truncated` is `true`
+  (the `runs` list is then the newest `limit` of them). Passing runs are never emitted, so this is a failure
+  history, not a pass rate. A test with no signal in the window returns an empty history, not an error. Take a
+  row's `run_id` to `engineering-analytics-run-failure-logs` for the failing lines.
 
 There is no aggregate time-to-merge tool and no "counts" tool — derive those from `pull-requests` (the stuck/failing
 counts, the merge-time percentiles).
@@ -84,6 +93,7 @@ These are structural limits of today's snapshot data — state them, don't paper
 | How long are PRs taking to merge? Per author?          | `pull-requests`                     | Over merged rows (`merged_at` set, not bot, not draft), aggregate `open_to_merge_seconds` — median and p95. Group by `author.handle` for **cohort context, not a ranking** (per-developer surveillance is an explicit non-goal). Trend it by calling with two `date_from` windows.             |
 | Where is PR N stuck?                                   | `pr-lifecycle`                      | Walk the sorted events: `opened → first CI started`, the CI span (first start → last finish; one pair per workflow), `last CI finished → merged`. The largest gap is the bottleneck. A long open→merge with quick CI points at review/idle time the `partial` data can't itemize yet — say so. |
 | What is a failing test costing us? What to quarantine? | `engineering-analytics-flaky-tests` | Default window is `-7d`; rows are already ranked by blast radius (master failures, then distinct PRs hit). Report counts, never rates. For "is it flaky": only `confirmed_flake` rows are proven, and only for tests hand-marked with reruns.                                                  |
+| How flaky is _this_ test? What has it done across recent PRs? | `engineering-analytics-test-signal-history` | Pass `test` the `nodeid` or `selector`. Walk `runs` newest first: `pr_number` and `branch` say where each failure landed, `recovered` marks the same-commit proof. Report the run count, never a rate. Take a `run_id` to `engineering-analytics-run-failure-logs` for the lines.        |
 
 ## The high-value chain
 

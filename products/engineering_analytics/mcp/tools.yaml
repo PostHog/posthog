@@ -217,6 +217,33 @@ tools:
     engineering-analytics-team-merge-trend:
         operation: engineering_analytics_team_merge_trend
         enabled: false
+    engineering-analytics-test-signal-history:
+        operation: engineering_analytics_test_signal_history
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: One test's failure history across PRs
+        description: >
+            One test's signal-bearing CI runs over a window (date_from default -7d, maximum 30 days), newest first,
+            each with its run_id, pr_number (null on master pushes), branch, and what that run proved: failed, a
+            same-commit recovery (one commit both failed and passed it, so it is provably nondeterministic), or a
+            tolerated failure recorded while quarantine masked it. This is the per-test drill-down counterpart to
+            engineering-analytics-flaky-tests, which ranks which tests are worth acting on; use it to answer "how flaky
+            is this one test, and what has it done across recent PRs". The rollup counts (failed_run_count,
+            failed_pr_count, master_failed_run_count, same_commit_recovery_run_count, quarantined_failed_run_count)
+            match what the queue reports for the same test and window, and always cover the whole window even when
+            truncated is true and runs holds only the newest limit of them. Passing runs are never emitted, so this is a
+            failure history and never a pass rate, and every count is absolute with no denominator to divide by. Pass
+            test the nodeid or the selector from a flaky-tests row, or a literal pytest or Jest selector; every span
+            carries the nodeid, so prefer it if a lookup by selector comes back empty. Add runner only to break a rare
+            pytest/Jest identity collision. A test with no signal in the window returns an empty history, not an error.
+            This data sees the main Backend pytest and Frontend Jest suites; package-specific runners are not included.
+            Pass a run's run_id to run-failure-logs for the actual failing lines.
+        feature_flag: engineering-analytics
     engineering-analytics-workflow-jobs:
         operation: engineering_analytics_workflow_jobs
         enabled: true

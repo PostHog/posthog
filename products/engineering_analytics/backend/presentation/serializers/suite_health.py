@@ -11,6 +11,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineFile,
     QuarantineRequest,
     QuarantineRequestResult,
+    TestSignalHistory,
+    TestSignalRun,
 )
 from products.engineering_analytics.backend.presentation.serializers._shared import RepoRefSerializer
 
@@ -75,6 +77,97 @@ class FlakyTestListSerializer(DataclassSerializer):
                 "help_text": "True when more tests qualified than the cap; `items` is the highest-ranked `limit` rows.",
             },
             "limit": {"help_text": "Maximum number of tests returned in `items`."},
+        }
+
+
+class TestSignalRunSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TestSignalRun
+        extra_kwargs = {
+            "run_id": {
+                "help_text": "The CI workflow run this signal came from. Pass it to run_failure_logs to read the "
+                "failing lines.",
+            },
+            "pr_number": {
+                "help_text": "Pull request the run belonged to, or null for default-branch pushes and any branch "
+                "CI ran without a PR association.",
+            },
+            "branch": {"help_text": "Git branch the run was for."},
+            "failed": {
+                "help_text": "The test failed or errored in this run. A run counts once however many matrix legs "
+                "it failed in.",
+            },
+            "recovered": {
+                "help_text": "One commit both failed and passed the test in this run: a 'Re-run failed jobs' "
+                "attempt went green, or an in-job pytest retry recovered it. This is the only proof that makes "
+                "the test a confirmed_flake.",
+            },
+            "quarantined": {
+                "help_text": "The test recorded a tolerated failure in this run while quarantine masked it.",
+            },
+            "signal_at": {"help_text": "When the run's most recent failure, recovery, or quarantined failure ran."},
+        }
+
+
+class TestSignalHistorySerializer(DataclassSerializer):
+    runs = TestSignalRunSerializer(
+        many=True,
+        help_text="The CI runs that produced signal for this test, newest first. Only signal-bearing runs are "
+        "here: passing runs are not emitted, so this is a failure history and never a pass rate.",
+    )
+
+    class Meta:
+        dataclass = TestSignalHistory
+        extra_kwargs = {
+            "runner": {
+                "help_text": "Test runner the matched spans came from: 'pytest' or 'jest'. Null when the test had "
+                "no signal in the window.",
+            },
+            "nodeid": {
+                "help_text": "Runner-specific stable test identity (the CI span name) the match resolved to. Echoes "
+                "the requested test when nothing matched.",
+            },
+            "selector": {
+                "help_text": "Runnable pytest or Jest selector, as the CI reporter emitted it. Echoes the requested "
+                "test when the matched spans carry no selector, or when nothing matched.",
+            },
+            "classification": {
+                "help_text": "confirmed_flake: one commit both failed and passed the test, so it is provably "
+                "nondeterministic. quarantined: a tolerated failure was recorded while it was masked. "
+                "suspected_regression: only failures were recorded, which is absence of proof, not proof that it is "
+                "a real break. Null when the test had no signal in the window.",
+            },
+            "same_commit_recovery_run_count": {
+                "help_text": "Runs where one commit both failed and passed the test: a 'Re-run failed jobs' attempt "
+                "went green on the same commit, or an in-job pytest retry (tests hand-marked "
+                "@pytest.mark.flaky(reruns=N)) recovered it. A pass in a different run is a different commit and "
+                "never counts.",
+            },
+            "failed_run_count": {
+                "help_text": "Distinct CI runs whose recorded outcome was failed or error. An absolute count, never "
+                "a rate: passing runs are not emitted, so there is no execution denominator.",
+            },
+            "failed_pr_count": {
+                "help_text": "Distinct pull requests among the failed runs. Failures on master or unattributed "
+                "branches carry no PR number and are excluded here (still in failed_run_count).",
+            },
+            "master_failed_run_count": {
+                "help_text": "Failed runs on the default branch (master/main approximation): the 'matters right now' "
+                "signal that the test is breaking the trunk, not just PR branches.",
+            },
+            "quarantined_failed_run_count": {
+                "help_text": "Runs where the test recorded a tolerated failure while quarantined: already masked in "
+                "CI, still failing.",
+            },
+            "last_signal_at": {
+                "help_text": "Most recent failure, recovery, or quarantined-failure run for this test in the window. "
+                "Null when it had no signal in the window.",
+            },
+            "truncated": {
+                "help_text": "True when more runs matched than the cap; `runs` is the newest `limit` of them. Every "
+                "count above still covers the whole window, so they never undercount against a truncated list.",
+            },
+            "limit": {"help_text": "Maximum number of runs returned in `runs`."},
         }
 
 

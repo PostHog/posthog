@@ -34,7 +34,7 @@ import {
 } from '../generated/api'
 import type {
     BrokenTestRowApi,
-    FlakyTestItemClassificationEnumApi,
+    FlakyTestClassificationEnumApi,
     GitHubSourceApi,
     PullRequestListItemApi,
     PushCISampleApi,
@@ -447,7 +447,7 @@ export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts
 /** Test-health windows the UI offers; the endpoint accepts any window up to 30 days. */
 export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
 export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
-export type FlakyTestClassification = FlakyTestItemClassificationEnumApi
+export type FlakyTestClassification = FlakyTestClassificationEnumApi
 export type TestRunner = NonNullable<QuarantineRequestApi['runner']>
 export const TEST_RUNNERS: readonly TestRunner[] = ['pytest', 'jest', 'playwright']
 
