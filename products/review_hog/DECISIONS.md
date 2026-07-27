@@ -198,6 +198,49 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-07-21 — held-back reviews reach PR authors (deep links, authored-PRs scope, truthful drawer + comment)
+
+Dogfooding surfaced a dead-end: a review triggered from the Code review scene runs under the **requester's**
+`urgency_threshold` ("requester wins" — deliberate, unchanged), and when every finding fell below it, publish
+self-skipped and the findings were effectively invisible to the PR author — not in their "For you" tab (which
+matched `acting_user` only), no way to link to the report (drawer state was kea-only), the status comment
+blamed "the author's … ReviewHog settings" for a threshold that wasn't theirs, and the drawer's "Published (N)"
+tab claimed publication for findings computed against the _viewer's current_ threshold. Decisions:
+
+- **Report deep links**: `/code_review?review=<report UUID>`, mirrored both ways by the existing URL sync in
+  `reviewHogSettingsLogic` (`replace`, never `push`, so drawer open/close doesn't stack history). The status
+  comment's held-back sentence links here ("View them in PostHog", auth-gated — same posture as Slack links),
+  which makes the param a **permanent public contract**. A deep link has no list row, so the drawer renders
+  entirely from the loaded detail (skeletons until then) via an id-only `openReviewDetailById` action.
+- **`ReviewReport.author_login`** (nullable, refreshed from `pr_metadata.author` every turn at upsert): the
+  "For you" scope becomes `acting_user = me OR author_login ~= my linked GitHub login` — the reverse of the
+  author→user mapping the reviewer already uses. Chosen over joining the snapshot jsonb (per-row parse on a
+  list endpoint) and over resolving login→user at write time (the mapping can change; the login is the stable
+  fact). No backfill: old rows stay null and re-stamp organically on their next turn. Accepted limit: authors
+  without a linked GitHub identity only get the PR-comment link.
+- **`ReviewReport.run_urgency_threshold`**, stamped at **finalize** (with `run_count` / `completed_head_sha`)
+  from the same snapshot the body renderer and publish gate consumed — NOT at resolve, which describes the
+  _next_ turn and would drift mid re-review under a different acting user. The drawer buckets by it; the
+  viewer-settings proxy survives only as the fallback for pre-column rows. "Published (N)" now reads "Kept (N)"
+  unless the review actually posted (`published_head_sha` set).
+- **Default-fallback threshold guard**: a default-resolved run (label trigger, unmapped author) now gates at
+  `DEFAULT_URGENCY_THRESHOLD` instead of the borrowed run user's saved threshold — the same "borrowed settings
+  must not leak into someone else's PR" rule that already forced `review_labeled_prs=True`. Applied where
+  `ResolveActingUserResult` is built so publish, the comment, and the finalize stamp agree. Consequence: a
+  default-resolved run gates at `consider`, so its held-back count is always 0 and the comment's "the default"
+  wording variant is defensive-only (kept + render-tested anyway).
+- **Bot-author guard on `_review_already_posted`**: the publish idempotency marker scan now requires
+  `user.type == "Bot"` like the status comment's `_find_marker_comment` always did — on a public repo anyone
+  can paste the marker, and a spoofed match silently suppressed the publish.
+- **Deferred residual (2026-07-24, pre-merge safety review):** the drawer's published flag is
+  report-lifetime, not per-turn — `published` = `published_head_sha IS NOT NULL`, while the drawer buckets
+  the latest completed turn. A once-published report whose later turn finalizes without posting (store-only
+  re-run, or publish failure past retries — finalize stamps before publish by design) shows that turn's
+  never-posted findings under "Published". Deferred as a follow-up with the user: the edge needs a
+  once-published report plus a never-posting later turn, and store-only re-runs are currently internal
+  experiments. Fix sketch in ARCHITECTURE.md's known issues (per-turn `published_head_sha ==
+completed_head_sha` on the detail payload).
+
 ### ✅ BUILT 2026-07-17 — one-shot LLM stages retry across provider overload spells
 
 First cross-repo dogfood run (a `PostHog/billing` PR via the Stage 5c UI trigger) died in dedup on
@@ -2037,7 +2080,7 @@ fixes via a companion PR, maximum reuse of a verified engine), skip B.**
 
 #### Conversational / control surface (optional; channel-agnostic)
 
-Per the maintainer the **interaction channel is pluggable** (Slack, GitHub comments, PostHog Code, …) and out of
+Per the maintainer the **interaction channel is pluggable** (Slack, GitHub comments, PostHog Desktop, …) and out of
 scope — design the durable part, leave the UI a thin adapter. **Must-have (ships with Variant A):** `@workflow.query`
 for live state (stage, findings-so-far, lifecycle counts, watermarks — zero history cost; copy `get_buffer_size` /
 `get_paused_state`) and `@workflow.signal` for inject-context / pause / cancel / force-turn (copy `submit_signal` /
@@ -3348,7 +3391,7 @@ reasoning_effort}]` → `get_task_processing_context` reads it back → `start_a
   `build_agent_runtime_env_prefix` (`logic/services/sandbox.py`) emits `env POSTHOG_CODE_{RUNTIME_ADAPTER,PROVIDER,MODEL,
 REASONING_EFFORT}=…` prefixed onto the agent launch command (guarded by `test_agentsh.py`).
 
-**`@posthog/agent` — where they are consumed + applied (the PostHog Code monorepo, _not_ this repo).** Clone via
+**`@posthog/agent` — where they are consumed + applied (the PostHog Desktop monorepo, _not_ this repo).** Clone via
 `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` (legacy alias `LOCAL_TWIG_MONOREPO_ROOT`); package `packages/agent`
 (npm `@posthog/agent`, baked into `Dockerfile.sandbox-base`).
 

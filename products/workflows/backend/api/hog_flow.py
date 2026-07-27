@@ -331,6 +331,7 @@ class HogFlowEdgeSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Required for type='branch'. conditional_branch: index into config.conditions[index]. "
+            "random_cohort_branch: index into config.cohorts[index]. "
             "wait_until_condition: use index:0 — it advances via the index:0 branch edge when it "
             "resolves (a condition match or an events entry firing)."
         ),
@@ -460,6 +461,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
             "Max 30d. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
+            "random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' "
+            "edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). "
             "wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, "
             "type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as "
             "delay). Continues when condition.filters match OR any events entry fires; each events entry "
@@ -650,6 +653,41 @@ class HogFlowActionSerializer(serializers.Serializer):
                 else:
                     function_config_serializer.is_valid(raise_exception=True)
                     data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+
+        # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
+        # its array crashes the editor panel and assigns nothing at runtime. Presence is only
+        # enforceable here (the config field is a lenient JSONField), so strict callers fail at
+        # write time. Web drafts stay lenient for mid-edit saves.
+        if strict:
+            branch_array_keys = {"conditional_branch": "conditions", "random_cohort_branch": "cohorts"}
+            branch_key = branch_array_keys.get(data.get("type", ""))
+            if branch_key is not None and not isinstance(data.get("config", {}).get(branch_key), list):
+                shape = (
+                    "{conditions: [{filters: {properties: [...]}}, ...]}"
+                    if branch_key == "conditions"
+                    else "{cohorts: [{percentage: <number>, name?: <string>}, ...]}"
+                )
+                raise serializers.ValidationError(
+                    {
+                        "config": (
+                            f"{data.get('type')} requires a '{branch_key}' array: {shape}. "
+                            f"Entry N pairs with the 'branch' edge with index N."
+                        )
+                    }
+                )
+            if branch_key == "cohorts":
+                # A cohort without a numeric percentage contributes NaN to the runtime's cumulative
+                # sum, silently routing every person to the last cohort instead of splitting.
+                for cohort in data["config"]["cohorts"]:
+                    if not isinstance(cohort, dict) or not isinstance(cohort.get("percentage"), (int, float)):
+                        raise serializers.ValidationError(
+                            {
+                                "config": (
+                                    "Each cohorts entry must be an object with a numeric 'percentage', "
+                                    "e.g. {cohorts: [{percentage: 50, name: 'A'}, {percentage: 50, name: 'B'}]}."
+                                )
+                            }
+                        )
 
         conditions = data.get("config", {}).get("conditions", [])
 
@@ -1663,6 +1701,13 @@ def mint_publish_confirm_token(hog_flow: HogFlow) -> str:
 AUDIENCE_CONFIRM_TOKEN_MAX_AGE = timedelta(minutes=15)
 _AUDIENCE_CONFIRM_SALT = "hogflow-batch-audience"
 
+# Surfaces where an LLM drives the request through a managed channel (classification is stamped by
+# the harness, not self-reported by the model). These get the audience-confirm gate; the web builder
+# has its own confirm UI, and headless callers (raw API keys, Terraform) dispatch in one call.
+AGENT_EVENT_SOURCES = frozenset(
+    {EventSource.MCP, EventSource.POSTHOG_CODE, EventSource.WIZARD, EventSource.CLI, EventSource.POSTHOG_AI}
+)
+
 
 def _audience_confirm_value(
     team_id: int, filters: dict, group_type_index: Optional[int] = None, dedupe_key: Optional[str] = None
@@ -1728,7 +1773,12 @@ class HogFlowViewSet(
         # lists above can't distinguish GET (read) from POST (write) on the same action. Without
         # this, these actions declare no scope and reject all personal-API-key (MCP) access.
         if self.action in ("batch_jobs", "schedules"):
-            return ["hog_flow:read"] if request.method in ("GET", "HEAD", "OPTIONS") else ["hog_flow:write"]
+            # Dispatching (or scheduling) fans out to persons and renders person properties into
+            # outbound messages, so it's person-data access on top of the workflow write - same
+            # rationale as user_blast_radius. Listing jobs/schedules stays workflow-read.
+            if request.method in ("GET", "HEAD", "OPTIONS"):
+                return ["hog_flow:read"]
+            return ["hog_flow:write", "person:read"]
         # Sizing an audience runs a person/group count over caller-supplied filters — that's person-data
         # access, so require person:read on top of workflow read. Without it a hog_flow:read-only token
         # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
@@ -2188,7 +2238,9 @@ class HogFlowViewSet(
 
     def _maybe_reschedule_timing_edits(self, before: Optional[HogFlow], after: HogFlow) -> None:
         """Kick off a reschedule sweep of parked runs when a go-live config change could move
-        their wake times earlier (issue #66380): shortened delays and moved wait windows.
+        their wake times earlier or change what they resolve to (issue #66380): shortened
+        delays, moved wait windows, edited wait conditions, and deleted timing steps (whose
+        parked runs should skip forward or exit now, not at their old wake time).
 
         Called wherever the LIVE config changes - a direct save (the builder path, where save
         is go-live), the graph endpoint, or publish - and never for draft writes, which don't
@@ -2924,11 +2976,12 @@ class HogFlowViewSet(
             if hog_flow.status != HogFlow.State.ACTIVE:
                 raise exceptions.ValidationError("Workflow must be active to run a batch. Enable it first.")
 
-            # A batch run is an irreversible mass send: programmatic callers must prove they previewed
-            # the audience, because only the blast-radius preview mints this token and it signs the
-            # exact filters being dispatched. The web builder has its own confirmation UI and stays
-            # token-free.
-            if get_event_source(request) != EventSource.WEB:
+            # A batch run is an irreversible mass send: interactive agent surfaces must prove they
+            # previewed the audience, because only the blast-radius preview mints this token and it
+            # signs the exact filters being dispatched. The web builder has its own confirmation UI,
+            # and headless callers (raw API keys, Terraform) are professional surfaces where the
+            # two-step would be ceremony with no human to read the count - they stay token-free.
+            if get_event_source(request) in AGENT_EVENT_SOURCES:
                 self._require_audience_confirm_token(request, hog_flow)
 
             serializer = HogFlowBatchJobSerializer(
@@ -2956,10 +3009,10 @@ class HogFlowViewSet(
         hog_flow = self.get_object()
 
         if request.method == "POST":
-            # A schedule is a recurring batch dispatch - without this, a programmatic caller could
-            # sidestep the batch_jobs token gate by scheduling the send instead. Same rules: the
-            # web builder keeps its own confirm UI and stays token-free.
-            if get_event_source(request) != EventSource.WEB:
+            # A schedule is a recurring batch dispatch - without this, an agent could sidestep the
+            # batch_jobs token gate by scheduling the send instead. Same scoping: the web builder
+            # keeps its own confirm UI, headless callers stay token-free.
+            if get_event_source(request) in AGENT_EVENT_SOURCES:
                 # A draft's trigger can still be edited after the audience was sized, so a schedule
                 # staged on a draft could fire on a broadened audience once enabled. Same rule the
                 # MCP tool enforces, applied at the API boundary.

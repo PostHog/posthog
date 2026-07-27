@@ -9,7 +9,7 @@ The product surfaces PR + CI data through **named, typed endpoints** that run cu
 
 Reads are the product. The one write is the test-health sidecar (quarantine: issue plus PR through the team's GitHub App), carved out here because this UI is the fastest surface to iterate on it.
 
-The goal is Signals for PostHog Code (README → "The goal"): Signal detection is defined once in `logic/` over the read layer, shared by the surfaces and the Signal emitter. Emission rides the curated builders; it does not wait on lifecycle events.
+The goal is Signals for PostHog Desktop (README → "The goal"): Signal detection is defined once in `logic/` over the read layer, shared by the surfaces and the Signal emitter. Emission rides the curated builders; it does not wait on lifecycle events.
 
 ## 2. Non-goals
 
@@ -30,7 +30,7 @@ graph TB
     subgraph Consumers
         MCP["MCP clients: Claude Code / Cursor / PostHog AI"]
         UI["in-app UI: React + kea"]
-        Other["PostHog Code & other agent-driven callers"]
+        Other["PostHog Desktop & other agent-driven callers"]
         SQL["insights / subscriptions / execute-sql"]
     end
 

@@ -166,7 +166,11 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
                         ),
                     },
                     this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED
-                        ? { outputs, pseudonymSecret }
+                        ? {
+                              outputs,
+                              pseudonymSecret,
+                              producedRefCacheMax: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX,
+                          }
                         : undefined
                 ),
             // Isolate the mirror's session tracker/filter keys from the main lane. Sharing them would let

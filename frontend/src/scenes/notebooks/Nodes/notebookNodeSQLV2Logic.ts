@@ -55,7 +55,8 @@ export function collectSqlV2Refs(doc: JSONContent | null | undefined, selfNodeId
         }
     }
     for (const node of collectPythonKernelNodes(doc)) {
-        if (node.nodeId && node.nodeId !== selfNodeId && !(node.returnVariable in refs)) {
+        // An unnamed python cell binds nothing in the kernel, so there is no frame to reference.
+        if (node.nodeId && node.nodeId !== selfNodeId && node.returnVariable && !(node.returnVariable in refs)) {
             refs[node.returnVariable] = { node_id: node.nodeId, kind: 'local' }
         }
     }

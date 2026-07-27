@@ -14,8 +14,9 @@
 # ///
 """Emit OTLP traces from CI JUnit XML artifacts.
 
-Reads `junit-results-*` artifacts (downloaded by the workflow) and emits one
-trace per job (shard) shaped:
+Reads the JUnit artifacts downloaded by the workflow (`junit-results-backend-*`,
+`junit-results-frontend-*`, and `product-junit-results-*`) and emits one trace
+per job (shard) shaped:
 
     <workflow> / <job>               (root, one trace per job)
     ├── <runner-specific test id>    (test)
@@ -50,7 +51,7 @@ import secrets
 import argparse
 import posixpath
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from functools import cache
 from pathlib import Path
@@ -273,7 +274,30 @@ def test_identity(runner: Runner, file: str, classname: str, name: str) -> tuple
         normalized_file = normalize_jest_file(file)
         selector = f"{normalized_file}::{name}" if normalized_file and name else ""
         return normalized_file, selector or name, selector
+    # Products run pytest with `--rootdir ../..`, so `file`/`classname` are already
+    # repo-relative (`products/<name>/...`) — no prefixing needed here.
     return file, to_pytest_nodeid(classname, name), to_pytest_selector(file, classname, name)
+
+
+def product_name(junit_filename: str) -> str:
+    """`junit-product-<name>.xml` → `<name>`; '' for any other junit filename."""
+    if not junit_filename.startswith("junit-product-") or not junit_filename.endswith(".xml"):
+        return ""
+    return junit_filename[len("junit-product-") : -len(".xml")]
+
+
+def product_shard_info(info: ArtifactInfo, junit_filename: str) -> ArtifactInfo:
+    """Give each product its own suite/segment so its spans form a distinct, readable trace.
+
+    Product shards arrive in bin-packed `product-junit-results-<job-index>` artifacts, so the
+    artifact-derived suite/segment is a meaningless `product-junit-results`; the product name
+    lives in the JUnit filename instead. Keep `<job-index>` as the group so a product split across
+    buckets stays one trace per bucket rather than colliding with its siblings into a single trace.
+    """
+    product = product_name(junit_filename)
+    if not product:
+        return info
+    return replace(info, suite="product", segment=product, total=None)
 
 
 def parse_iso_utc(value: str) -> datetime | None:
@@ -409,7 +433,7 @@ def parse_shard(
     wall_seconds = (end - start).total_seconds()
     testcase_seconds = sum(t.duration_seconds for t in tests)
     return Shard(
-        info=info,
+        info=product_shard_info(info, xml_path.name),
         junit_filename=xml_path.name,
         start=start,
         end=end,
@@ -728,7 +752,12 @@ def emission_tokens(env: Mapping[str, str]) -> list[str]:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else "")
-    parser.add_argument("artifacts_root", type=Path, help="directory of downloaded junit-results-* artifacts")
+    parser.add_argument(
+        "artifacts_root",
+        type=Path,
+        help="directory of downloaded JUnit artifacts (junit-results-backend-*, junit-results-frontend-*, "
+        "and product-junit-results-*)",
+    )
     parser.add_argument("--runner", choices=tuple(SERVICE_NAMES), default=DEFAULT_RUNNER, help="JUnit producer")
     parser.add_argument(
         "--min-duration-seconds",
