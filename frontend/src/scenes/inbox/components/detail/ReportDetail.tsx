@@ -309,7 +309,15 @@ export function InboxDetailFrame({
     const summaryPending =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.CANDIDATE
 
-    const chartsById = useMemo(() => new Map(reportCharts.map((chart) => [chart.chart_id, chart])), [reportCharts])
+    // A report awaiting input polls its artefacts on a timer, so the loader hands back a fresh array
+    // even when nothing changed. Identity is what decides whether React keeps a rendered chart:
+    // a new array reaches `LemonMarkdown` as a new component map, which unmounts every inline chart
+    // and re-runs its query. Hold the array steady while the effective charts are unchanged.
+    const chartsSignature = JSON.stringify(reportCharts)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on chart content, not array identity
+    const charts = useMemo(() => reportCharts, [chartsSignature])
+
+    const chartsById = useMemo(() => new Map(charts.map((chart) => [chart.chart_id, chart])), [charts])
     // A `chart:` link places its chart at that point in the prose; every other chart follows the
     // summary. The reference decides where a chart goes, not whether it shows at all.
     const renderChartRef = useCallback(
@@ -321,8 +329,8 @@ export function InboxDetailFrame({
     )
     const trailingCharts = useMemo(() => {
         const referenced = referencedChartIds(report.summary)
-        return reportCharts.filter((chart) => !referenced.has(chart.chart_id))
-    }, [reportCharts, report.summary])
+        return charts.filter((chart) => !referenced.has(chart.chart_id))
+    }, [charts, report.summary])
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
