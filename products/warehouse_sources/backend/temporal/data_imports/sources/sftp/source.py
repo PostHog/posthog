@@ -85,7 +85,7 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
                 "server right now."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/sftp",
-            iconPath="/static/services/sftp.png",
+            iconPath="/static/services/sftp.svg",
             keywords=["ssh file transfer", "ssh", "files"],
             releaseStatus=ReleaseStatus.ALPHA,
             fields=cast(
