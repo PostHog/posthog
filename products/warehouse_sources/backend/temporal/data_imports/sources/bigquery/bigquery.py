@@ -1352,17 +1352,24 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 rest_api_version=_bigquery_rest_api_version(inputs.api_version),
             )
         finally:
-            # Delete the destination table (if it exists) after we're done with it
-            delete_table(
-                table_id=destination_table,
-                project_id=project_id,
-                location=region,
-                private_key=config.key_file.private_key,
-                private_key_id=config.key_file.private_key_id,
-                client_email=config.key_file.client_email,
-                token_uri=config.key_file.token_uri,
-            )
-            inputs.logger.info(f"Deleting bigquery temp destination table: {destination_table}")
+            # Delete the destination table (if it exists) after we're done with it. This is
+            # scratch space only — `delete_all_temp_destination_tables` sweeps it by prefix on
+            # the next run too — so a lost permission, a deleted dataset, or a transient token
+            # refresh failure here (the same conditions that function already treats as
+            # best-effort) must not turn an otherwise-successful sync into a failure.
+            try:
+                delete_table(
+                    table_id=destination_table,
+                    project_id=project_id,
+                    location=region,
+                    private_key=config.key_file.private_key,
+                    private_key_id=config.key_file.private_key_id,
+                    client_email=config.key_file.client_email,
+                    token_uri=config.key_file.token_uri,
+                )
+                inputs.logger.info(f"Deleting bigquery temp destination table: {destination_table}")
+            except (Forbidden, NotFound, RefreshError) as e:
+                inputs.logger.warning(f"Skipping cleanup of bigquery destination table {destination_table}: {e}")
 
     def _build_source_response(
         self,

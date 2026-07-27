@@ -305,6 +305,60 @@ def test_bigquery_build_pipeline_resolves_dataset_routing(
 
 
 @pytest.mark.parametrize(
+    "exception",
+    [
+        Forbidden("Access Denied: Permission bigquery.tables.delete denied on table"),
+        NotFound("Table not found (or it may not exist)"),
+        RefreshError("<!DOCTYPE html><html><head><title>Error 502 (Server Error)</title></head></html>"),
+    ],
+)
+def test_bigquery_build_pipeline_swallows_expected_cleanup_errors(exception):
+    """A lost permission, a deleted table, or a transient token-refresh failure (e.g. a 502 from
+    Google's OAuth endpoint) while deleting the run's own scratch destination table must not turn
+    an otherwise-successful sync into a failure — `delete_all_temp_destination_tables` sweeps it
+    by prefix on the next run regardless."""
+    config = _make_config()
+    logger = mock.MagicMock()
+    inputs = _make_inputs(logger=logger)
+    build_result = mock.MagicMock()
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
+        ),
+        mock.patch.object(BigQueryImplementation, "_build_source_response", return_value=build_result),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_table",
+            side_effect=exception,
+        ),
+    ):
+        result = BigQuerySource().source_for_pipeline(config, inputs)
+
+    assert result is build_result
+    logger.warning.assert_called_once()
+
+
+def test_bigquery_build_pipeline_propagates_unexpected_cleanup_errors():
+    """A genuinely unexpected cleanup failure must still surface — only the specific
+    permission/not-found/refresh-error conditions above are treated as best-effort."""
+    config = _make_config()
+    inputs = _make_inputs()
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
+        ),
+        mock.patch.object(BigQueryImplementation, "_build_source_response", return_value=mock.MagicMock()),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_table",
+            side_effect=RuntimeError("boom"),
+        ),
+        pytest.raises(RuntimeError),
+    ):
+        BigQuerySource().source_for_pipeline(config, inputs)
+
+
+@pytest.mark.parametrize(
     "enabled_columns,primary_keys,incremental_field,expected",
     [
         (None, ["id"], None, "*"),
