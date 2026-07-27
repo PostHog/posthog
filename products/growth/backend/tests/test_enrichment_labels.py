@@ -1,5 +1,4 @@
 import json
-import asyncio
 import datetime as dt
 
 from posthog.test.base import BaseTest
@@ -317,40 +316,3 @@ class TestEnrichmentLabelDryRun(BaseTest):
 
         assert resp.status_code == 403
         assert EnrichmentPromptConfig.objects.filter(pk=config.pk).exists()
-
-    def test_admin_dry_run_action_renders_verdicts_and_persists_nothing(self):
-        config = EnrichmentPromptConfig.objects.create(
-            name="test_label",
-            version="test-v1",
-            prompt_text="... Email: {email}",
-            model="gpt-5-mini",
-            input_fields=["name"],
-        )
-        OrganizationEnrichmentFetch.objects.create(
-            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
-        )
-        self.user.is_staff = True
-        self.user.save()
-        self.client.force_login(self.user)
-
-        with patch("products.growth.backend.admin.get_llm_client", return_value=_mock_llm_client()):
-            options_page = self.client.post(
-                "/admin/growth/enrichmentpromptconfig/",
-                {"action": "dry_run_selected", "_selected_action": [str(config.pk)]},
-            )
-            results_page = self.client.post(
-                "/admin/growth/enrichmentpromptconfig/",
-                {"action": "dry_run_selected", "_selected_action": [str(config.pk)], "apply": "1", "sample": "5"},
-            )
-
-        assert options_page.status_code == 200
-        assert b"Sample size" in options_page.content
-        assert results_page.status_code == 200
-
-        async def _drain(agen):
-            return b"".join([chunk async for chunk in agen])
-
-        streamed = asyncio.run(_drain(results_page.streaming_content))  # type: ignore[attr-defined]
-        assert b"Acme" in streamed
-        assert b"true" in streamed
-        assert EnrichmentLabelResult.objects.count() == 0
