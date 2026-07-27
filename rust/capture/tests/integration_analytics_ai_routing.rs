@@ -179,6 +179,8 @@ fn allowlist(tokens: &[&str]) -> AiRouting {
 #[case::secondary(AiRouting::Secondary, false, DataType::AiEvents)]
 #[case::allowlisted_token(allowlist(&[TOKEN]), false, DataType::AiEvents)]
 #[case::unlisted_token(allowlist(&["phc_other"]), false, DataType::AnalyticsMain)]
+#[case::full_percentage(AiRouting::SecondaryPercentage(100), false, DataType::AiEvents)]
+#[case::zero_percentage(AiRouting::SecondaryPercentage(0), false, DataType::AnalyticsMain)]
 #[case::primary_with_valve_armed(AiRouting::Primary, true, DataType::AnalyticsMain)]
 #[tokio::test]
 async fn mixed_batch_diverts_only_ai_events_per_routing_mode(
