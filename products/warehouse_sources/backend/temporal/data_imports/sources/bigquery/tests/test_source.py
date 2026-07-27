@@ -304,19 +304,10 @@ def test_bigquery_build_pipeline_resolves_dataset_routing(
     assert mock_delete.call_args.kwargs["table_id"] == expected_table_id
 
 
-@pytest.mark.parametrize(
-    "exception",
-    [
-        Forbidden("Access Denied: Permission bigquery.tables.delete denied on table"),
-        NotFound("Table not found (or it may not exist)"),
-        RefreshError("<!DOCTYPE html><html><head><title>Error 502 (Server Error)</title></head></html>"),
-    ],
-)
-def test_bigquery_build_pipeline_swallows_expected_cleanup_errors(exception):
-    """A lost permission, a deleted table, or a transient token-refresh failure (e.g. a 502 from
-    Google's OAuth endpoint) while deleting the run's own scratch destination table must not turn
-    an otherwise-successful sync into a failure — `delete_all_temp_destination_tables` sweeps it
-    by prefix on the next run regardless."""
+def test_bigquery_build_pipeline_swallows_transient_cleanup_refresh_error():
+    """A transient token-refresh failure (e.g. a 502 from Google's OAuth endpoint) while deleting
+    the run's own destination table must not turn an otherwise-successful sync into a failure —
+    retrying the whole sync just to retry this delete is wasteful."""
     config = _make_config()
     logger = mock.MagicMock()
     inputs = _make_inputs(logger=logger)
@@ -329,7 +320,9 @@ def test_bigquery_build_pipeline_swallows_expected_cleanup_errors(exception):
         mock.patch.object(BigQueryImplementation, "_build_source_response", return_value=build_result),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_table",
-            side_effect=exception,
+            side_effect=RefreshError(
+                "<!DOCTYPE html><html><head><title>Error 502 (Server Error)</title></head></html>"
+            ),
         ),
     ):
         result = BigQuerySource().source_for_pipeline(config, inputs)
@@ -338,9 +331,23 @@ def test_bigquery_build_pipeline_swallows_expected_cleanup_errors(exception):
     logger.warning.assert_called_once()
 
 
-def test_bigquery_build_pipeline_propagates_unexpected_cleanup_errors():
-    """A genuinely unexpected cleanup failure must still surface — only the specific
-    permission/not-found/refresh-error conditions above are treated as best-effort."""
+@pytest.mark.parametrize(
+    "exception",
+    [
+        # A genuine permission denial must keep propagating: this table holds a real materialized
+        # copy of the customer's data, so swallowing it here would let readable copies accumulate
+        # on every run instead of the sync failing via the "Access Denied:" non-retryable key.
+        Forbidden("Access Denied: Permission bigquery.tables.delete denied on table"),
+        # `invalid_grant` (rejected credentials) is not transient and must reach the sync-path
+        # classifier rather than being silently swallowed as a routine refresh hiccup.
+        RefreshError(("invalid_grant: Invalid JWT Signature.", {"error": "invalid_grant"})),
+        RuntimeError("boom"),
+    ],
+)
+def test_bigquery_build_pipeline_propagates_unexpected_cleanup_errors(exception):
+    """Only a transient (non-`invalid_grant`) `RefreshError` is treated as best-effort during
+    destination-table cleanup — anything else, including permission denials and rejected
+    credentials, must still surface."""
     config = _make_config()
     inputs = _make_inputs()
 
@@ -351,9 +358,9 @@ def test_bigquery_build_pipeline_propagates_unexpected_cleanup_errors():
         mock.patch.object(BigQueryImplementation, "_build_source_response", return_value=mock.MagicMock()),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_table",
-            side_effect=RuntimeError("boom"),
+            side_effect=exception,
         ),
-        pytest.raises(RuntimeError),
+        pytest.raises(type(exception)),
     ):
         BigQuerySource().source_for_pipeline(config, inputs)
 
