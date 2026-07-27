@@ -36,6 +36,7 @@ Judges the report for safety, then persists it at the judged status.
 | `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                                                                                                                                                                                                              |
 | `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                                                                                    |
 | `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                 |
+| `charts`                    | list, ≤4, optional      | Queries the inbox draws on the report. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                                             |
 
 **Status is decided for you, from safety × actionability:**
 
@@ -47,6 +48,30 @@ Judges the report for safety, then persists it at the judged status.
 | unsafe       | (any)                    | `SUPPRESSED`     | no                 |
 
 The result tells you what happened: `report_id` (always set when a report was persisted — **even when suppressed**, so you can edit or dedup against it), `report_status` (the birth status — `ready` / `pending_input` / `suppressed` — the field is named `report_status` in the response, not `status`), `emitted` (true only when it actually surfaced — `READY` / `PENDING_INPUT`), `safety_explanation`, and `skipped_reason` (set only when a preflight gate stopped the call before any report was created — the AI-data-processing / source-enabled gates that govern every scout write).
+
+### Attaching charts
+
+`charts` puts the data next to the claim, so a reader sees the move instead of taking the number on trust.
+Worth it when the _shape_ is the point — a trend that broke, a distribution that shifted, a funnel step that collapsed.
+A chart restating one number the summary already gives is noise; just write the number.
+
+| Field      | Type             | Notes                                                                                                                                                                                             |
+| ---------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chart_id` | string, required | Your own slug (lowercase letters, numbers, `_`, `-`). How the summary points at the chart, and the key a later edit refreshes it under.                                                           |
+| `title`    | string, required | Heading above the chart.                                                                                                                                                                          |
+| `query`    | object, required | An `InsightVizNode`, `DataVisualizationNode` (a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (by `shortId`). Any other `kind` is refused at write time.                           |
+| `caption`  | string, optional | One line on what to look at.                                                                                                                                                                      |
+| `size`     | enum, optional   | `small` / `medium` / `large`. Leave it out unless the default looks wrong — the inbox sizes a chart from its query (a big single number gets a short box, a retention grid a tall scrolling one). |
+
+**Placement comes from the summary.** A markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — draws the chart at that point in the body; a chart you never reference still renders, after the prose.
+Reference each chart once: a repeated reference reads as pointing back at the chart, not as asking for a second copy of it.
+Two references in one paragraph sit side by side, so put a pair you want compared in a paragraph of their own.
+A reference inside a code span, a table cell, or a heading has no room to draw — its chart falls to the end of the report instead.
+
+**Pin the window** to absolute dates wherever the node supports it, so a reader opening the report days later sees the data you wrote about rather than whatever a relative range resolves to then.
+
+Charts append rather than replace, on both tools: re-supplying a `chart_id` on a later `edit_report` adds a fresher version and the reference resolves to it — which is what a recurring report's refreshed window wants.
+Cap is **4 distinct charts per report**, and each one runs its query when someone opens the report, so attach the ones that carry the argument rather than everything you looked at.
 
 ### Opening a draft PR (autostart)
 
@@ -105,7 +130,7 @@ The fleet's reviewer map should compound over time.
 ## `edit_report` — update an existing report
 
 Rewrite `title`/`summary`, append a note, and/or set `suggested_reviewers` on a report that already exists.
-Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `suggested_reviewers`.
+Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `suggested_reviewers`, `charts`.
 
 `edit_report` can target **any** of the team's inbox reports — not just ones a scout authored.
 That makes it the right tool when a later run learns something about a report the pipeline (or another scout) created.

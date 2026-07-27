@@ -5,6 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from products.signals.backend.artefact_schemas import MAX_REPORT_CHARTS
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, SkillAuthor, skill_uses_report_channel
 
 
@@ -275,6 +276,17 @@ A report you author renders in the inbox like any pipeline report — `title` is
 
 If your skill body defines its own report structure (required sections, a fixed template), follow that instead — the skill body owns the prose contract."""
 
+_REPORT_CHARTS = f"""# Attaching charts
+
+`charts` on the report tools carries queries the inbox draws on the report itself, so the move you describe is visible next to the sentence describing it instead of being a number the reader has to go and reproduce. Optional, and worth it only when the shape of the data is the point — a trend that broke, a distribution that shifted, a funnel step that collapsed. A chart restating one number the summary already gives is noise; write the number.
+
+- **Each chart is `chart_id` + `title` + `query`.** `chart_id` is your own slug (lowercase letters, numbers, `_`, `-`), `title` the heading above it, `query` a query node: `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Anything else is refused. Add a `caption` when there's something specific to look at.
+- **Place it from the summary.** A markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — draws the chart at that point in the body. A chart you never reference still renders, after the prose. Reference it once: repeating the reference doesn't draw a second copy.
+- **Two references in one paragraph sit side by side.** Put a pair you want compared in a paragraph of their own; anywhere else they stack. A reference inside a table cell or a heading has no room to draw, so its chart falls to the end.
+- **Pin the window.** Use absolute dates wherever the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report days later.
+- **Size only when the default is wrong.** The inbox sizes a chart from its query. Set `size` to `small` (a single number, a short series), `medium`, or `large` (rows or a grid to read — retention, paths, a wide breakdown) when it isn't.
+- **At most {MAX_REPORT_CHARTS} per report**, and every one fires its query when someone opens the report — so attach the ones that carry the argument, not everything you looked at. Re-supplying a `chart_id` on a later edit refreshes that chart in place rather than adding another."""
+
 _WRITING_SUMMARY = """# Writing the summary (how it renders in run history)
 
 Your close-out `summary` is rendered as GitHub-flavored markdown in the scout's run history, **collapsed to the first ~2 lines** until expanded. The same rules as the description apply — front-load, structure, no walls:
@@ -435,6 +447,7 @@ def _report_tail_sections(*, can_emit: bool, can_edit: bool, github_read_access:
             _SUGGESTED_REVIEWERS_REPORT,
             *([_GITHUB_EVIDENCE_REPORT] if github_read_access else []),
             _WRITING_REPORT,
+            _REPORT_CHARTS,
         ]
     elif can_emit:
         how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_EMIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
@@ -444,6 +457,7 @@ def _report_tail_sections(*, can_emit: bool, can_edit: bool, github_read_access:
             _SUGGESTED_REVIEWERS_REPORT,
             *([_GITHUB_EVIDENCE_REPORT] if github_read_access else []),
             _WRITING_REPORT,
+            _REPORT_CHARTS,
         ]
     else:  # edit-only — no authoring, so no suggested-reviewers / writing-a-report sections
         how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_EDIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
@@ -451,6 +465,7 @@ def _report_tail_sections(*, can_emit: bool, can_edit: bool, github_read_access:
             _EDITING_REPORT_EDIT_ONLY,
             _REPORT_SCRATCHPAD_POINTER,
             *([_GITHUB_EVIDENCE_REPORT] if github_read_access else []),
+            _REPORT_CHARTS,
         ]
     return [
         how_a_run_works,
