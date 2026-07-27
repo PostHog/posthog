@@ -137,3 +137,24 @@ class TestReadSheetRows(SimpleTestCase):
             chunks = list(read_sheet_rows(1, "u1", "book.xlsx", "Orders"))
 
         assert [len(chunk) for chunk in chunks] == [1000, 1000, 500]
+
+
+class TestWorkbookBudgets(SimpleTestCase):
+    def test_rejects_an_archive_that_declares_too_much_decompressed_data(self) -> None:
+        # A zip bomb fits the 50MB upload cap but declares a huge decompressed payload; the central
+        # directory exposes that without decompressing, so it must fail before openpyxl runs — sheet
+        # discovery happens in a web request.
+        data = _workbook_bytes({"S1": [["a"], [1]]})
+        with patch(f"{MODULE}.MAX_DECLARED_UNCOMPRESSED_BYTES", 10):
+            with patch(f"{MODULE}.get_s3_client", return_value=_FakeS3(data)):
+                with self.assertRaises(ExcelReadError) as ctx:
+                    list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
+        assert "too large once decompressed" in str(ctx.exception)
+
+    def test_rejects_a_sheet_with_too_many_columns(self) -> None:
+        data = _workbook_bytes({"Wide": [["a", "b", "c"], [1, 2, 3]]})
+        with patch(f"{MODULE}.MAX_COLUMNS_PER_SHEET", 2):
+            with patch(f"{MODULE}.get_s3_client", return_value=_FakeS3(data)):
+                with self.assertRaises(ExcelReadError) as ctx:
+                    list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
+        assert "too many columns" in str(ctx.exception)

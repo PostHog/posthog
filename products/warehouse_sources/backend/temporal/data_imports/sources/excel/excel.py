@@ -9,6 +9,7 @@ costs roughly 13 seconds per million cells, which is fine on a worker and is not
 """
 
 import io
+import zipfile
 from collections.abc import Iterator
 from typing import Any
 
@@ -22,6 +23,19 @@ from products.warehouse_sources.backend.facade.api import build_file_upload_s3_p
 # Rows buffered per yield. The pipeline batches on top of this (5000 rows / 200 MiB); the point here
 # is only to avoid materializing a whole sheet before the first batch reaches it.
 ROW_CHUNK = 1000
+
+# The upload cap (50 MB) bounds the *compressed* file, but an .xlsx is a ZIP: a crafted workbook can
+# declare a far larger decompressed payload (a zip bomb), and openpyxl eagerly loads the shared-string
+# table even in read_only mode — while sheet discovery runs in a web request. The archive's central
+# directory declares every member's uncompressed size without decompressing anything, so the budget is
+# enforced before openpyxl touches the file. ~20x the upload cap: comfortably above what real
+# workbooks decompress to, far below what a bomb targets. Rows are deliberately NOT capped — full
+# imports stream in bounded chunks on workers, which exist for exactly that work.
+MAX_DECLARED_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024
+
+# One warehouse table per sheet: thousands of columns break the schema UI and ClickHouse long before
+# they're useful, and a bomb can declare them for free.
+MAX_COLUMNS_PER_SHEET = 2000
 
 
 class ExcelReadError(Exception):
@@ -43,6 +57,18 @@ def _uploaded_workbook_bytes(team_id: int, upload_id: str, filename: str) -> byt
 
 
 def _open_workbook(data: bytes):
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            declared_bytes = sum(info.file_size for info in archive.infolist())
+    except zipfile.BadZipFile as error:
+        raise ExcelReadError(
+            "Could not read the Excel file. Make sure it's a valid .xlsx or .xlsm workbook."
+        ) from error
+    if declared_bytes > MAX_DECLARED_UNCOMPRESSED_BYTES:
+        raise ExcelReadError(
+            "The workbook is too large once decompressed. Export the data to CSV or Parquet and "
+            "connect it as a self-managed source instead."
+        )
     try:
         # read_only streams rows instead of building a cell object graph; data_only returns a formula
         # cell's last computed value rather than the formula text. openpyxl reads .xlsx/.xlsm only,
@@ -90,6 +116,8 @@ def list_sheets(team_id: int, upload_id: str, filename: str) -> list[tuple[str, 
             header = next(worksheet.iter_rows(values_only=True), None)
             if not header or not any(cell is not None and str(cell).strip() for cell in header):
                 continue
+            if len(header) > MAX_COLUMNS_PER_SHEET:
+                raise ExcelReadError(f"Sheet '{worksheet.title}' has too many columns (max {MAX_COLUMNS_PER_SHEET:,}).")
             sheets.append((worksheet.title, dedupe_headers(header)))
         return sheets
     finally:
@@ -121,6 +149,8 @@ def read_sheet_rows(
         header = next(rows, None)
         if not header:
             return
+        if len(header) > MAX_COLUMNS_PER_SHEET:
+            raise ExcelReadError(f"Sheet '{sheet_name}' has too many columns (max {MAX_COLUMNS_PER_SHEET:,}).")
         columns = dedupe_headers(header)
         keep = [name in enabled_columns for name in columns] if enabled_columns is not None else None
 
