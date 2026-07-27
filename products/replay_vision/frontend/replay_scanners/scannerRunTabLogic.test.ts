@@ -29,14 +29,15 @@ describe('scannerRunTabLogic', () => {
                             results: [
                                 { id: 'obs-retry', session_id: 's1', status: 'running' },
                                 { id: 'obs-original', session_id: 's1', status: 'failed' },
+                                { id: 'obs-2', session_id: 's2', status: 'succeeded' },
                                 {
-                                    id: 'obs-2',
-                                    session_id: 's2',
+                                    id: 'obs-3',
+                                    session_id: 's3',
                                     status: 'ineligible',
                                     error_reason: 'too_short:Only 5.0s long; min is 15s',
                                 },
                             ],
-                            count: 3,
+                            count: 4,
                         },
                     ]
                 },
@@ -51,16 +52,18 @@ describe('scannerRunTabLogic', () => {
         logic?.unmount()
     })
 
-    it('keeps the newest observation fields per session and does not cap the page to the visible-row count', async () => {
-        await expectLogic(logic, () => logic.actions.setVisibleSessionIds(['s1', 's2'])).toDispatchActions([
+    it('keeps the newest observation per session and does not cap the page to the visible-row count', async () => {
+        await expectLogic(logic, () => logic.actions.setVisibleSessionIds(['s1', 's2', 's3'])).toDispatchActions([
             'loadObservationsSuccess',
         ])
 
         // A retried session shows its fresh running observation, not the stale failed one the API lists after it.
+        // An ineligible row keeps its reason, which is what the status tag needs to explain the skip on hover.
         expect(logic.values.observationBySession).toEqual({
             s1: { id: 'obs-retry', status: 'running', errorReason: null },
-            s2: {
-                id: 'obs-2',
+            s2: { id: 'obs-2', status: 'succeeded', errorReason: null },
+            s3: {
+                id: 'obs-3',
                 status: 'ineligible',
                 errorReason: 'too_short:Only 5.0s long; min is 15s',
             },

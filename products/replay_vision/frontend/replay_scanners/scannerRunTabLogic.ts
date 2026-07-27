@@ -23,7 +23,8 @@ import { replayScannerLogic } from './replayScannerLogic'
 export interface RowObservation {
     id: string
     status: ReplayObservationApi['status']
-    errorReason: ReplayObservationApi['error_reason'] | null
+    // Normalized to null when the API sends the blank default, so the status tag's tooltip check stays a plain truthiness test.
+    errorReason: string | null
 }
 
 export const IN_PROGRESS_STATUSES = new Set<string>(['pending', 'running'])

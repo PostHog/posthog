@@ -128,7 +128,7 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                     return <ObservationStatusTag status={observation.status} errorReason={observation.errorReason} />
                 }
                 if (pendingId === recording.id) {
-                    return <ObservationStatusTag status="running" />
+                    return <ObservationStatusTag status="running" errorReason={null} />
                 }
                 return <span className="text-muted italic">Not scanned</span>
             },
