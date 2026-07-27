@@ -2880,9 +2880,12 @@ class FeatureFlagViewSet(
         )
 
         # Annotate with replay settings usage to avoid N+1 queries
-        # This checks if any team in the same project uses this flag for session recording
-        # Extract the 'id' key from the JSONB field and cast to integer for safe comparison
-        from django.db.models import IntegerField
+        # This checks if any team in the same project uses this flag for session recording.
+        # Compare as text (`->>`) rather than casting the JSON value to integer: a team may hold a
+        # non-numeric `session_recording_linked_flag.id`, and `::integer` would raise a Postgres
+        # DataError that 500s the whole query (list, retrieve, and the bulk_update_tags path).
+        from django.db.models import CharField
+        from django.db.models.fields.json import KeyTextTransform
         from django.db.models.functions import Cast
 
         queryset = queryset.annotate(
@@ -2890,8 +2893,8 @@ class FeatureFlagViewSet(
                 Team.objects.filter(
                     project_id=OuterRef("team__project_id"),
                 )
-                .annotate(json_flag_id=Cast("session_recording_linked_flag__id", IntegerField()))
-                .filter(json_flag_id=OuterRef("id"))
+                .annotate(replay_linked_flag_id=KeyTextTransform("id", "session_recording_linked_flag"))
+                .filter(replay_linked_flag_id=Cast(OuterRef("id"), output_field=CharField()))
             )
         )
 
