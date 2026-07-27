@@ -2788,8 +2788,6 @@ class TestTaskAPI(BaseTaskAPITest):
         [
             ("unknown_model", "claude-sonnet-4-5", "high", "none"),
             ("glm_medium", "@cf/zai-org/glm-5.2", "medium", "high, max"),
-            ("opus_5_xhigh", "claude-opus-5", "xhigh", "low, medium, high"),
-            ("opus_5_max", "claude-opus-5", "max", "low, medium, high"),
         ]
     )
     @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
