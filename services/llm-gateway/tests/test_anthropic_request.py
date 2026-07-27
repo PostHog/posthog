@@ -2,13 +2,41 @@ from typing import Any
 
 import pytest
 
-from llm_gateway.anthropic_request import drop_orphaned_clear_thinking
+from llm_gateway.anthropic_request import drop_orphaned_clear_thinking, enable_required_opus_5_thinking
 from llm_gateway.metrics.prometheus import CLEAR_THINKING_EDIT_DROPPED
 
 PRODUCT = "posthog_code"
 OTHER_PRODUCT = "llm_gateway"
 CLEAR_THINKING = {"type": "clear_thinking_20251015", "keep": "all"}
 CLEAR_TOOL_USES = {"type": "clear_tool_uses_20250919"}
+
+
+@pytest.mark.parametrize("effort", ["xhigh", "max"])
+def test_opus_5_high_effort_enables_adaptive_thinking(effort: str) -> None:
+    request = {
+        "model": "claude-opus-5",
+        "output_config": {"effort": effort},
+        "thinking": {"type": "disabled"},
+    }
+
+    normalized = enable_required_opus_5_thinking(request)
+
+    assert normalized["thinking"] == {"type": "adaptive"}
+    assert request["thinking"] == {"type": "disabled"}
+
+
+@pytest.mark.parametrize(
+    ("model", "effort", "thinking"),
+    [
+        pytest.param("claude-opus-5", "high", {"type": "disabled"}, id="lower_effort"),
+        pytest.param("claude-opus-4-8", "xhigh", {"type": "disabled"}, id="other_model"),
+        pytest.param("claude-opus-5", "xhigh", {"type": "adaptive"}, id="already_adaptive"),
+    ],
+)
+def test_other_thinking_configurations_are_untouched(model: str, effort: str, thinking: dict[str, str]) -> None:
+    request = {"model": model, "output_config": {"effort": effort}, "thinking": thinking}
+
+    assert enable_required_opus_5_thinking(request) is request
 
 
 def _dropped_count(product: str) -> float:
