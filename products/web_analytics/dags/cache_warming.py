@@ -35,6 +35,7 @@ from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute impo
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     BACKGROUND_WARMING_TRIGGERS,
+    MAX_PRECOMPUTE_DAYS,
     SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS,
 )
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
@@ -143,14 +144,32 @@ def maybe_opt_into_lazy_precompute(query_json: dict) -> dict:
 # once covers every narrower request at no recurring cost.
 WARMING_EXPANDED_DATE_FROM = "-30d"
 
-# Relative date_from presets that are always narrower than 30 days. -Nh/-Nd/-Nw
-# forms are matched by pattern and compared in days; absolute dates and wider
-# presets (mStart, all, yStart, -90d, …) are left untouched. Months/years are
-# deliberately unmatched: -1m can span 31 days, so expanding it would narrow it.
+# Sub-30d presets that widen to WARMING_EXPANDED_DATE_FROM. Absolute dates and
+# wider or point-in-time presets (mStart, all, yStart, -90d, …) are left
+# untouched. Months/years are deliberately excluded: -1m can span 31 days, so
+# expanding it would narrow it.
 _SUB_30D_DATE_FROM_PRESETS = frozenset({"dStart", "-1dStart", "wStart", "-1wStart"})
-_SUB_30D_DATE_FROM_RE = re.compile(r"^-(\d+)([hdw])$")
 _HOURS_PER_DAY = 24
 _DAYS_PER_WEEK = 7
+
+# Only -Nh/-Nd/-Nw have an exact, monotonic lookback (deeper strictly covers
+# shallower), so only these are safe to rank when choosing how deep to warm a
+# shape. mStart/-1m/absolute have variable or point-in-time spans — mStart is a
+# single day early in the month — so ranking them as "deep" could shrink coverage.
+_EXACT_LOOKBACK_DATE_FROM_RE = re.compile(r"^-(\d+)([hdw])$")
+
+
+def _exact_lookback_days(date_from: str | None) -> int | None:
+    """Days a -Nh/-Nd/-Nw range reaches back, or None for any other form."""
+    match = _EXACT_LOOKBACK_DATE_FROM_RE.match(date_from or "")
+    if not match:
+        return None
+    value, unit = int(match.group(1)), match.group(2)
+    if unit == "h":
+        return value // _HOURS_PER_DAY
+    if unit == "w":
+        return value * _DAYS_PER_WEEK
+    return value
 
 
 def _is_within_30_days(date_from: str | None) -> bool:
@@ -158,15 +177,32 @@ def _is_within_30_days(date_from: str | None) -> bool:
         return True  # unset falls back to the -7d default
     if date_from in _SUB_30D_DATE_FROM_PRESETS:
         return True
-    match = _SUB_30D_DATE_FROM_RE.match(date_from)
-    if not match:
-        return False
-    value, unit = int(match.group(1)), match.group(2)
-    if unit == "h":
-        return value < 30 * _HOURS_PER_DAY
-    if unit == "w":
-        return value * _DAYS_PER_WEEK < 30
-    return value < 30
+    days = _exact_lookback_days(date_from)
+    return days is not None and days < 30
+
+
+def deepen_to_widest_warmable_range(query_json: dict, observed_date_froms: list[str], max_days: int) -> dict:
+    """Point a shape's replay at the deepest -Nd/-Nw/-Nh range its own demand
+    covers, capped at max_days.
+
+    Fragmentation grouping collapses every date-range variant of a shape into one
+    replay, and the representative's own range is arbitrary. Since per-day buckets
+    are immutable and shared, warming the deepest observed range once builds the
+    buckets every narrower variant reuses — otherwise a shape whose deepest demand
+    is -90d but whose representative is -7d only warms 30 days, and each -90d
+    request cold-builds the 31-90d tail inline. Ranges past max_days can't be
+    precomputed at all, so they're excluded rather than picked and rejected.
+    """
+    depths = [
+        (days, date_from)
+        for date_from in observed_date_froms
+        if (days := _exact_lookback_days(date_from)) is not None and days <= max_days
+    ]
+    if not depths:
+        return query_json
+    _, deepest = max(depths)
+    date_range = query_json.get("dateRange") or {}
+    return {**query_json, "dateRange": {**date_range, "date_from": deepest}}
 
 
 def maybe_expand_warming_date_range(query_json: dict) -> dict:
@@ -266,13 +302,15 @@ def queries_to_keep_fresh(
     # JSON with the range-varying and non-shape fields stripped
     # (SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS: dateRange, compareFilter, limit, …) —
     # which is the same set the precompute bucket namespace collapses to, so one
-    # warmed -30d bucket serves every date-range variant of a shape. Grouping by
+    # warmed bucket serves every date-range variant of a shape. Grouping by
     # the raw JSON instead fragmented a shape queried across many date ranges into
     # many sub-threshold entries that never cleared min-count, even though warming
     # it once would serve them all; the largest, most date-varied teams were the
-    # worst hit. any(query_json_raw) keeps a representative to replay — its date
-    # range is widened to -30d anyway. Demand is counted as distinct query_ids so
-    # duplicated log rows for one request can't inflate it. The per-shape hash is
+    # worst hit. The representative to replay is the most-demanded variant (argMax
+    # below); its range is then deepened to the widest the shape actually needs
+    # (its distinct ranges come back in observed_date_froms). Demand is counted as
+    # distinct query_ids so duplicated log rows for one request can't inflate it.
+    # The per-shape hash is
     # cityHash64 of the group key rather than normalizedQueryHash(query), which
     # would read the full `query` SQL-text column — the largest in query_log —
     # across the whole window purely for a logging id.
@@ -307,7 +345,12 @@ def queries_to_keep_fresh(
             -- inherit a popular sibling's demand — raw replays aren't shared, so
             -- each stale hour re-runs a full live query.
             max(variant_count) AS representative_query_count,
-            cityHash64(normalized_shape) AS normalized_query_hash
+            cityHash64(normalized_shape) AS normalized_query_hash,
+            -- The distinct date ranges this shape was queried at, read from each
+            -- variant's own JSON. The representative's range is arbitrary after
+            -- normalization, so the warmer deepens it to the widest of these
+            -- (see deepen_to_widest_warmable_range).
+            groupUniqArray(JSONExtractString(query_json_raw, 'dateRange', 'date_from')) AS observed_date_froms
         FROM (
             SELECT
                 team_id,
@@ -408,7 +451,7 @@ def queries_to_keep_fresh(
     return [
         {
             "team_id": result[0],
-            "query_json": json.loads(result[1]),
+            "query_json": deepen_to_widest_warmable_range(json.loads(result[1]), result[5], MAX_PRECOMPUTE_DAYS),
             "query_count": result[2],
             "representative_query_count": result[3],
             "normalized_query_hash": result[4],
@@ -435,7 +478,7 @@ def queries_to_keep_fresh(
 # selection query (new filter, different grouping) would otherwise keep replaying
 # a stale blob written by the old logic until its TTL expired. Bump the version
 # whenever the selection query changes so the new logic takes effect on deploy.
-_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v3.json.gz"
+_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v4.json.gz"
 
 
 def _read_cached_warmable_queries(

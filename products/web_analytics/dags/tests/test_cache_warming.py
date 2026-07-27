@@ -12,6 +12,7 @@ from posthog.clickhouse.query_tagging import Feature, get_query_tags, reset_quer
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
 from products.web_analytics.dags.cache_warming import (
     build_replay_runner,
+    deepen_to_widest_warmable_range,
     get_warmable_queries_op,
     maybe_expand_warming_date_range,
     maybe_opt_into_lazy_precompute,
@@ -100,6 +101,49 @@ class TestMaybeExpandWarmingDateRange(BaseTest):
         self.assertEqual(maybe_expand_warming_date_range(query), query)
 
 
+class TestDeepenToWidestWarmableRange(BaseTest):
+    @parameterized.expand(
+        [
+            # Deepen to the widest exact range the shape's demand covers, so one
+            # warm builds the buckets every narrower variant reuses.
+            ("picks_deepest_day", "-7d", ["-7d", "-30d", "-90d"], 180, "-90d"),
+            ("weeks_convert_to_days", "-7d", ["-7d", "-5w"], 180, "-5w"),  # 5w = 35d > 7d
+            ("hours_are_shallow", "-90d", ["-90d", "-12h"], 180, "-90d"),  # 12h = 0d
+            ("cap_boundary_is_inclusive", "-7d", ["-7d", "-180d"], 180, "-180d"),
+            # Ranges past the cap can't be precomputed, so a warmable sibling must
+            # win instead of an unwarmable deep one being picked and rejected.
+            ("excludes_over_cap", "-7d", ["-7d", "-365d"], 180, "-7d"),
+            ("picks_deepest_in_cap", "-7d", ["-7d", "-90d", "-365d"], 180, "-90d"),
+            # Variable / point-in-time / unbounded forms have no monotonic depth,
+            # so they never override a concrete range and are left untouched.
+            ("skips_month_start", "-7d", ["-7d", "mStart"], 180, "-7d"),
+            ("skips_absolute_and_all", "-14d", ["-14d", "all", "2026-01-01"], 180, "-14d"),
+            ("no_exact_forms_is_noop", "mStart", ["mStart", "all"], 180, "mStart"),
+            ("single_variant_is_noop", "-30d", ["-30d"], 180, "-30d"),
+        ]
+    )
+    def test_deepening(
+        self, _name: str, representative_from: str, observed: list[str], max_days: int, expected_from: str
+    ) -> None:
+        query = {"kind": "WebOverviewQuery", "dateRange": {"date_from": representative_from}}
+
+        result = deepen_to_widest_warmable_range(query, observed, max_days)
+
+        self.assertEqual(result["dateRange"]["date_from"], expected_from)
+
+    def test_preserves_other_date_range_keys(self) -> None:
+        # Deepening only moves date_from; date_to and flags must survive, or a
+        # widened replay would silently shift the window it precomputes.
+        query = {
+            "kind": "WebStatsTableQuery",
+            "dateRange": {"date_from": "-7d", "date_to": "-1d", "explicitDate": True},
+        }
+
+        result = deepen_to_widest_warmable_range(query, ["-7d", "-90d"], 180)
+
+        self.assertEqual(result["dateRange"], {"date_from": "-90d", "date_to": "-1d", "explicitDate": True})
+
+
 class TestBuildReplayRunner(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -177,13 +221,16 @@ class TestBuildReplayRunner(BaseTest):
 class TestFleetQuerySelection(BaseTest):
     @patch("products.web_analytics.dags.cache_warming.sync_execute")
     def test_parses_fleet_rows_into_query_infos(self, mock_exec: MagicMock) -> None:
-        # Guards the row-shape contract with the selection SQL: a column reorder
-        # or JSON handling change would make the warmer warm nothing or crash. The
-        # summed and representative counts are distinct columns — the raw guard
-        # keys on the representative, so they must not be swapped.
+        # Guards the row-shape contract with the selection SQL and the wiring of
+        # both new columns: the summed and representative counts are distinct (the
+        # raw guard keys on the representative, so they must not be swapped), and
+        # observed_date_froms must reach deepening. Row 1's demand reaches -90d, so
+        # the replay deepens off its -7d representative; row 2's only range is a
+        # variable preset, so it stays exactly as selected. A column reorder, a
+        # dropped column, or a broken deepen call fails here.
         mock_exec.return_value = [
-            (101, '{"kind": "WebOverviewQuery"}', 50, 8, "hash-a"),
-            (202, '{"kind": "WebStatsTableQuery"}', 12, 12, "hash-b"),
+            (101, '{"kind": "WebOverviewQuery", "dateRange": {"date_from": "-7d"}}', 50, 8, "hash-a", ["-7d", "-90d"]),
+            (202, '{"kind": "WebStatsTableQuery"}', 12, 12, "hash-b", ["mStart"]),
         ]
         result = queries_to_keep_fresh(dagster.build_op_context(), days=7, minimum_query_count=10, max_shapes=100)
 
@@ -192,7 +239,7 @@ class TestFleetQuerySelection(BaseTest):
             [
                 {
                     "team_id": 101,
-                    "query_json": {"kind": "WebOverviewQuery"},
+                    "query_json": {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-90d"}},
                     "query_count": 50,
                     "representative_query_count": 8,
                     "normalized_query_hash": "hash-a",
@@ -251,7 +298,7 @@ class TestWarmableQueriesCaching(BaseTest):
         # The whole reason this cache exists: the fleet-wide query_log scan is
         # terabytes. If the cache read regresses, the scan runs every warming run
         # again — this fails when the second run re-hits ClickHouse.
-        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 50, 123)]
+        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 50, 123, ["-7d"])]
 
         first = get_warmable_queries_op(dagster.build_op_context())
         second = get_warmable_queries_op(dagster.build_op_context())
@@ -265,7 +312,7 @@ class TestWarmableQueriesCaching(BaseTest):
     def test_storage_failure_falls_back_to_scan(self, mock_exec: MagicMock, mock_storage: MagicMock) -> None:
         # Object storage being unavailable must degrade to a fresh scan, not break warming.
         mock_storage.read_bytes.side_effect = Exception("storage unavailable")
-        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 50, 123)]
+        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 50, 123, ["-7d"])]
 
         result = get_warmable_queries_op(dagster.build_op_context())
 
@@ -278,7 +325,7 @@ class TestWarmableQueriesCaching(BaseTest):
         # A decodable-but-malformed blob (missing the expected fields) must miss
         # and trigger a fresh scan, not raise out of the op and skip warming.
         mock_storage.read_bytes.return_value = gzip.compress(json.dumps({"unexpected": "shape"}).encode())
-        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 50, 123)]
+        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 50, 123, ["-7d"])]
 
         result = get_warmable_queries_op(dagster.build_op_context())
 
