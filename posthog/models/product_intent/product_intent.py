@@ -64,6 +64,11 @@ make activation metrics require multiple things to happen.
 # (the only one with data today); retune once real customer warehouses report usage.
 MANAGED_WAREHOUSE_ACTIVATION_CPU_SECONDS = 100_000
 MANAGED_WAREHOUSE_ACTIVATION_WINDOW_DAYS = 30
+# Throttle the (ClickHouse-backed) managed warehouse activation check to at most once per hour
+# per team, since register() runs it synchronously on every intent PATCH. Activation is sticky
+# and also re-evaluated by the daily calculate_product_activation task, so an hour of latency
+# on first activation is harmless.
+MANAGED_WAREHOUSE_ACTIVATION_CHECK_TTL_SECONDS = 60 * 60
 
 
 def get_managed_warehouse_compute_usage(team_id: int, start: datetime, end: datetime) -> float:
@@ -274,14 +279,28 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         # 30 days of the intent (mirrors has_activated_data_warehouse's window).
         window_end = self.created_at + timedelta(days=MANAGED_WAREHOUSE_ACTIVATION_WINDOW_DAYS)
 
-        # Unlike the other (Postgres-backed) checks, this one reads ClickHouse, and
-        # check_and_update_activation re-runs daily until activation. Gate the ClickHouse query
+        # Unlike the other (Postgres-backed) checks, this one reads ClickHouse. Gate the query
         # behind cheap Postgres checks so it only fires when it could change the answer:
         #   1. once the 30-day window has closed, activation is permanently impossible, and
         #   2. a team that never emitted the compute-usage heartbeat cannot have any usage.
         if datetime.now(tz=UTC) > window_end:
             return False
         if not EventDefinition.objects.filter(team=self.team, name="managed warehouse compute usage").exists():
+            return False
+
+        # register() calls check_and_update_activation() synchronously on every intent PATCH, so
+        # without this an authenticated member could drive an unbounded ClickHouse query rate by
+        # re-hitting add_product_intent. Debounce the query per team via a short cache TTL; on a
+        # miss we skip and report not-activated for now — the daily calculate_product_activation
+        # task (and the next call after the TTL) will run the real check. Fail open on cache errors.
+        debounce_key = f"managed_warehouse_activation_checked:{self.team_id}"
+        try:
+            should_query = cache.add(debounce_key, "1", timeout=MANAGED_WAREHOUSE_ACTIVATION_CHECK_TTL_SECONDS)
+        except Exception as e:
+            logger.warning("managed_warehouse_activation_debounce_cache_failure", team_id=self.team_id, exc_info=True)
+            capture_exception(e)
+            should_query = True
+        if not should_query:
             return False
 
         usage = get_managed_warehouse_compute_usage(self.team_id, self.created_at, window_end)

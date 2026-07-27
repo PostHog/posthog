@@ -78,7 +78,6 @@ function ConnectionDetails({ connection }: { connection: WarehouseConnectionApi 
                     thing="psql command"
                     onCopy={() => posthog.capture('managed warehouse connection details copied')}
                 >
-
                     {psqlCmd}
                 </CodeSnippet>
             </div>

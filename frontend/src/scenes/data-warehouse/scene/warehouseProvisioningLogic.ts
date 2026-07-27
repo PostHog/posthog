@@ -22,6 +22,7 @@ import {
 } from 'products/data_warehouse/frontend/generated/api'
 import type { WarehouseStatusResponseApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
+import type { WarehouseStatusResponseStateEnumApi } from '../../../../../products/data_warehouse/frontend/generated/api.schemas'
 import type { PreflightStatus } from '../../../types'
 
 // The warehouse name becomes the connection's SNI subdomain (a DNS-1123 label), so it
@@ -76,10 +77,10 @@ export interface warehouseProvisioningLogicValues {
     isValidSchemaName: boolean
     lastRequestedDatabaseName: string | null
     needsTeamOnboarding: boolean
-    previousWarehouseState: WarehouseStatusResponseApi['state'] | null
     orgDeletionFailed: boolean
     orgDeletionSucceeded: boolean
     pollingActive: boolean
+    previousWarehouseState: WarehouseStatusResponseApi['state'] | null
     retryDatabaseName: string
     schemaName: string
     schemaNameAvailable: boolean | null
@@ -167,7 +168,7 @@ export interface warehouseProvisioningLogicActions {
         name: string | null
     }
     setPreviousWarehouseState: (state: WarehouseStatusResponseApi['state'] | null) => {
-        state: WarehouseStatusResponseApi['state'] | null
+        state: WarehouseStatusResponseStateEnumApi | null
     }
     setSchemaName: (name: string) => {
         name: string

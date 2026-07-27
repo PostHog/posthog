@@ -40,6 +40,9 @@ class TestProductIntent(BaseTest):
         # Joining the org seeds the fixed default product set; these tests assert on
         # product-intent-driven rows, so start from a clean slate.
         UserProductList.objects.filter(user=self.user, team=self.team).delete()
+        # The managed warehouse activation check debounces via the cache; clear it so the
+        # per-team key from one test can't suppress the ClickHouse check in the next.
+        cache.clear()
         self.product_intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.DATA_WAREHOUSE)
 
     def test_str_representation(self):
@@ -456,6 +459,16 @@ class TestProductIntent(BaseTest):
         with freeze_time("2024-03-01T12:00:00Z"):
             assert intent.has_activated_managed_warehouse() is False
         mock_compute_usage.assert_not_called()
+
+    @patch("posthog.models.product_intent.product_intent.get_managed_warehouse_compute_usage", return_value=0.0)
+    def test_managed_warehouse_activation_query_is_debounced(self, mock_compute_usage):
+        # register() runs this check synchronously on every intent PATCH, so repeated calls must
+        # not each hit ClickHouse — the per-team cache TTL collapses them to one query.
+        EventDefinition.objects.create(team=self.team, name="managed warehouse compute usage")
+        intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.MANAGED_WAREHOUSE)
+        assert intent.has_activated_managed_warehouse() is False
+        assert intent.has_activated_managed_warehouse() is False
+        mock_compute_usage.assert_called_once()
 
     def test_has_activated_product_analytics_with_all_criteria(self):
         self.product_intent.product_type = ProductKey.PRODUCT_ANALYTICS
