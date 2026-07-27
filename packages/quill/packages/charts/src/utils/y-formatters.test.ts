@@ -36,17 +36,14 @@ describe('buildYTickFormatter', () => {
     it('respects decimalPlaces for numeric format', () => {
         const fmt = buildYTickFormatter({ format: 'numeric', decimalPlaces: 2 })
         expect(fmt(1.2345)).toBe('1.23')
-        // An explicit setting wins over the small-value precision below
         expect(fmt(0.012)).toBe('0.01')
     })
 
-    // A two-decimal default collapsed every tick of a small-valued axis (e.g. latency in seconds)
-    // into the same "0.01" / "0" label.
     const smallTickCases: { format: YAxisFormat; ticks: number[]; expected: string[] }[] = [
         {
             format: 'numeric',
-            ticks: [0, 0.002, 0.008, 0.01, 0.012],
-            expected: ['0', '0.002', '0.008', '0.01', '0.012'],
+            ticks: [0, -0.002, 0.002, 0.008, 0.01, 0.012],
+            expected: ['0', '-0.002', '0.002', '0.008', '0.01', '0.012'],
         },
         { format: 'percentage', ticks: [0.005, 0.01], expected: ['0.005%', '0.01%'] },
         { format: 'percentage_scaled', ticks: [0.00005, 0.0001], expected: ['0.005%', '0.01%'] },
