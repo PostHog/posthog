@@ -716,7 +716,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             setEvaluationTarget: () => null,
             setEvaluationType: () => null,
             setHogSource: () => null,
-            setTraceWindowSeconds: () => null,
+            setSettleStrategy: () => null,
+            patchTargetConfig: () => null,
             setTriggerConditions: () => null,
         },
         selectedModel: [

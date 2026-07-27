@@ -1375,7 +1375,7 @@ return result`,
 
             logic.actions.setEvaluationType('hog')
             logic.actions.setEvaluationTarget('trace')
-            logic.actions.setTraceWindowSeconds(120)
+            logic.actions.patchTargetConfig({ window_seconds: 120 })
             logic.actions.testHogOnSample()
 
             await expectLogic(logic)
@@ -1388,7 +1388,7 @@ return result`,
                 target_config: { window_seconds: 120 },
             })
 
-            logic.actions.setTraceWindowSeconds(240)
+            logic.actions.patchTargetConfig({ window_seconds: 240 })
             await expectLogic(logic).toMatchValues({ hogTestResults: null })
         })
 
