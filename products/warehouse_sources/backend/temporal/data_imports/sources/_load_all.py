@@ -358,6 +358,7 @@ from .dropbox.source import DropboxSource
 from .dropbox_sign.source import DropboxSignSource
 from .dub.source import DubSource
 from .dubsado.source import DubsadoSource
+from .ducklake.source import DuckLakeSource
 from .dwolla.source import DwollaSource
 from .dynamics365.source import Dynamics365Source
 from .dynamics_365_business_central.source import Dynamics365BusinessCentralSource
@@ -365,6 +366,7 @@ from .dynamodb.source import DynamoDBSource
 from .dynatrace.source import DynatraceSource
 from .e2b.source import E2BSource
 from .e_conomic.source import EConomicSource
+from .easybill.source import EasybillSource
 from .easypost.source import EasypostSource
 from .easypromos.source import EasypromosSource
 from .ebay.source import EbaySource
@@ -1013,6 +1015,7 @@ from .shopwired.source import ShopWiredSource
 from .shortcut.source import ShortcutSource
 from .shortio.source import ShortioSource
 from .shutterstock.source import ShutterstockSource
+from .sideshift.source import SideShiftSource
 from .sigma_computing.source import SigmaComputingSource
 from .signnow.source import SignNowSource
 from .signoz.source import SigNozSource
@@ -1064,6 +1067,7 @@ from .squadcast.source import SquadcastSource
 from .square.source import SquareSource
 from .squarespace.source import SquarespaceSource
 from .stack_overflow_for_teams.source import StackOverflowForTeamsSource
+from .starburst.source import StarburstSource
 from .statsig.source import StatsigSource
 from .statuscake.source import StatuscakeSource
 from .statuspage.source import StatuspageSource
@@ -1207,6 +1211,7 @@ from .wompi.source import WompiSource
 from .woocommerce.source import WooCommerceSource
 from .wordpress.source import WordpressSource
 from .workable.source import WorkableSource
+from .workato.source import WorkatoSource
 from .workday.source import WorkdaySource
 from .workflowmax.source import WorkflowmaxSource
 from .workiz.source import WorkizSource
