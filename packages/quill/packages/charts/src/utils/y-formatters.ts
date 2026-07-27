@@ -5,6 +5,7 @@ import {
     humanFriendlyDuration,
     humanFriendlyNumber,
     percentage,
+    significantDecimalPlaces,
 } from './format'
 
 export type YAxisFormat =
@@ -45,7 +46,11 @@ function formatNanoseconds(value: number): string {
 export function buildYTickFormatter(config: YFormatterConfig): (value: number) => string {
     const { format, prefix, suffix, decimalPlaces, minDecimalPlaces, currency } = config
     return (value: number): string => {
-        let formatted = humanFriendlyNumber(value, decimalPlaces, minDecimalPlaces)
+        let formatted = humanFriendlyNumber(
+            value,
+            decimalPlaces ?? significantDecimalPlaces(value, minDecimalPlaces),
+            minDecimalPlaces
+        )
         switch (format) {
             case 'duration':
                 formatted = humanFriendlyDuration(value)
@@ -57,10 +62,10 @@ export function buildYTickFormatter(config: YFormatterConfig): (value: number) =
                 formatted = formatNanoseconds(value)
                 break
             case 'percentage':
-                formatted = percentage(value / 100, decimalPlaces)
+                formatted = percentage(value / 100, decimalPlaces ?? significantDecimalPlaces(value, minDecimalPlaces))
                 break
             case 'percentage_scaled':
-                formatted = percentage(value, decimalPlaces)
+                formatted = percentage(value, decimalPlaces ?? significantDecimalPlaces(value * 100, minDecimalPlaces))
                 break
             case 'currency':
                 try {

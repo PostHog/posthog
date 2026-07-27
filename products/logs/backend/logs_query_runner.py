@@ -692,10 +692,12 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                     "where": self.where(),
                     "live_logs_checkpoint": LIVE_LOGS_CHECKPOINT_QUERY,
                     # Attribute maps dominate payload size. When excluded we still SELECT a column
-                    # (an empty map) so the positional result mapping in _calculate stays stable.
-                    "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
+                    # (an empty map) so the positional result mapping in _calculate stays stable. The
+                    # placeholder must stay unaliased — aliasing it to `attributes`/`resource_attributes`
+                    # would shadow the physical field a WHERE-clause attribute filter needs to resolve.
+                    "attributes": parse_expr("map()" if self.query.excludeAttributes else "attributes"),
                     "resource_attributes": parse_expr(
-                        "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
+                        "map()" if self.query.excludeAttributes else "resource_attributes"
                     ),
                 },
             )

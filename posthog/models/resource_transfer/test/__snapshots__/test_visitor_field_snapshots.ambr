@@ -368,6 +368,8 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_relation_fields_EarlyAccessFeature
   list([
+    'assigned_role',
+    'assigned_user',
     'created_by',
     'feature_flag',
     'team',
@@ -662,6 +664,8 @@
     '__static_attributes__',
     '__str__',
     '_meta',
+    'assigned_role_id',
+    'assigned_user_id',
     'created_at',
     'created_by_id',
     'feature_flag_id',
