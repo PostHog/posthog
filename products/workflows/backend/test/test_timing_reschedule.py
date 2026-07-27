@@ -85,13 +85,13 @@ class TestTimingRescheduleDiff(SimpleTestCase):
             ("max_wait_unchanged", _condition(), _condition(), False),
             ("max_wait_clamped_shortening", _condition(max_wait="7d"), _condition(max_wait="168h"), True),
             ("max_wait_unparseable_after", _condition(max_wait="7d"), _condition(max_wait="banana"), True),
-            # Condition edits never move a parked run's wake time (the matcher and the poll
-            # both evaluate live config), so they must not trigger a sweep
+            # An edited condition must re-evaluate against parked runs promptly (e.g. fixing a
+            # filter that could never match) - the sweep wake replaces the poll re-check
             (
                 "condition_only_change",
                 _condition(),
                 _condition(condition={"filters": {"events": [{"id": "$identify"}]}}),
-                False,
+                True,
             ),
         ]
     )

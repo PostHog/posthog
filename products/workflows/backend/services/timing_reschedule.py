@@ -100,9 +100,10 @@ def get_timing_reschedule_action_ids(
     - delay: trigger on a shortened effective duration; unparseable durations trigger
       conservatively (the worker throws on them at wake, and a spurious sweep is a cheap
       no-op re-park).
-    - wait_until_condition: trigger on a shortened max_wait_duration, same comparison as
-      delay. Condition edits never trigger - they don't move a parked run's wake time
-      (the matcher and the poll both evaluate live config at wake).
+    - wait_until_condition: trigger on a shortened max_wait_duration (same comparison as
+      delay) and on any condition edit - a swept run re-evaluates the live condition at
+      wake (advance if it now matches, re-park if not), which keeps fixes to broken
+      conditions taking effect promptly once the poll re-check is gone.
     - wait_until_time_window: trigger on any timing-config change - whether a window edit
       moves a given run's wake earlier depends on each person's timezone and position in
       the week, so it isn't statically decidable.
@@ -148,6 +149,8 @@ def get_timing_reschedule_action_ids(
                 if before_config.get(duration_key) != after_config.get(duration_key):
                     action_ids.add(action["id"])
             elif after_seconds < before_seconds:
+                action_ids.add(action["id"])
+            if after_type == "wait_until_condition" and before_config.get("condition") != after_config.get("condition"):
                 action_ids.add(action["id"])
         elif after_type == "wait_until_time_window":
             if any(before_config.get(key) != after_config.get(key) for key in _TIME_WINDOW_CONFIG_KEYS):
