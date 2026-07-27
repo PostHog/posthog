@@ -11,6 +11,7 @@ from botocore.exceptions import ClientError
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from llm_gateway.anthropic_request import drop_orphaned_clear_thinking
 from llm_gateway.api.handler import (
     ANTHROPIC_CONFIG,
     BEDROCK_CONFIG,
@@ -538,6 +539,11 @@ async def _handle_anthropic_messages(
 
     if await _maybe_bypass_anthropic(breaker, body.model, product, use_bedrock_fallback=use_bedrock_fallback):
         return await _send_bedrock_messages(data, user, request, body.stream or False, product)
+
+    # A body assembled for a non-thinking model reaches Anthropic when a runtime retries under its
+    # fallback model. Only this leg needs the fix: GLM normalizes its own traffic and Bedrock drops
+    # context_management wholesale.
+    data = drop_orphaned_clear_thinking(data, product=product)
 
     litellm_data = {**data, "model": normalize_litellm_model_name(body.model, ANTHROPIC_CONFIG.name)}
 
