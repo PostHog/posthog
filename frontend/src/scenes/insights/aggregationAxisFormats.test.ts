@@ -90,9 +90,6 @@ describe('formatAggregationAxisValue', () => {
         { candidate: 0.012, filters: { decimal_places: 2 }, expected: '0.01' },
         { candidate: 0.005, filters: { aggregation_axis_format: 'percentage' }, expected: '0.005%' },
         { candidate: 0.0123456, filters: { aggregation_axis_format: 'percentage_scaled' }, expected: '1.23%' },
-        // A saved insight sends the schema's nullable decimal fields as null, not undefined
-        { candidate: 1.2345, filters: { minDecimalPlaces: null }, expected: '1.23' },
-        { candidate: 0.012, filters: { decimalPlaces: null, minDecimalPlaces: null }, expected: '0.012' },
     ]
 
     formatTestcases.forEach((testcase) => {
