@@ -172,6 +172,36 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
     afterEach(() => {
         localStorage.clear()
+        jest.restoreAllMocks()
+    })
+
+    describe('suppressErrorToast', () => {
+        it('surfaces a failed list load as sessionRecordingsAPIErrored without raising (default)', async () => {
+            jest.spyOn(api.recordings, 'list').mockRejectedValue(new Error('Field not found: browser'))
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'err-default' })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadSessionRecordings', 'loadSessionRecordingsFailure'])
+                .toMatchValues({ sessionRecordingsAPIErrored: true })
+        })
+
+        it('swallows a failed list load into an empty success when suppressErrorToast is set', async () => {
+            jest.spyOn(api.recordings, 'list').mockRejectedValue(new Error('Field not found: browser'))
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'err-suppressed', suppressErrorToast: true })
+            logic.mount()
+
+            // The load resolves as a success with no results (so kea-loaders raises no toast), and the
+            // error is surfaced only via the flag the widget renders an inline empty state from.
+            await expectLogic(logic)
+                .toDispatchActions([
+                    'loadSessionRecordings',
+                    'setSessionRecordingsErrored',
+                    'loadSessionRecordingsSuccess',
+                ])
+                .toNotHaveDispatchedActions(['loadSessionRecordingsFailure'])
+                .toMatchValues({ sessionRecordingsAPIErrored: true, sessionRecordings: [] })
+        })
     })
 
     describe('global logic', () => {

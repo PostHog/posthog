@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 
+from django.test import SimpleTestCase
+
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
@@ -20,9 +22,72 @@ from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
+from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool, sanitize_recording_filters
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
+
+
+def _filters_with_event_properties(properties: list[dict]) -> dict:
+    return {
+        "filter_group": {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [{"id": "$pageview", "type": "events", "properties": properties}],
+                }
+            ],
+        },
+    }
+
+
+class TestSanitizeRecordingFilters(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("placeholder_type_name", "hogql"),
+            ("bare_field", "browser"),
+            ("bare_posthog_field", "$browser"),
+            ("bare_snake_field", "keypress_count"),
+            ("empty", ""),
+            ("whitespace", "   "),
+        ]
+    )
+    def test_drops_unresolvable_hogql_leaf(self, _name: str, key: str):
+        filters = _filters_with_event_properties([{"type": "hogql", "key": key}])
+
+        sanitize_recording_filters(filters)
+
+        event_filter = filters["filter_group"]["values"][0]["values"][0]
+        # The unresolvable leaf is dropped, but the event filter itself is kept
+        self.assertEqual(event_filter["properties"], [])
+
+    @parameterized.expand(
+        [
+            ("comparison", "properties.$browser = 'Chrome'"),
+            ("like", "properties.$current_url LIKE '%/pricing%'"),
+            ("scoped_truthiness", "properties.$browser"),
+            ("function_call", "toFloat(properties.duration) > 30"),
+        ]
+    )
+    def test_keeps_valid_hogql_leaf(self, _name: str, key: str):
+        leaf = {"type": "hogql", "key": key}
+        filters = _filters_with_event_properties([leaf])
+
+        sanitize_recording_filters(filters)
+
+        event_filter = filters["filter_group"]["values"][0]["values"][0]
+        self.assertEqual(event_filter["properties"], [leaf])
+
+    def test_keeps_non_hogql_leaf_with_bare_key(self):
+        # A regular event property filter legitimately uses a bare `$browser` key — only hogql
+        # expression leaves are pruned.
+        leaf = {"type": "event", "key": "$browser", "operator": "exact", "value": ["Chrome"]}
+        filters = _filters_with_event_properties([leaf])
+
+        sanitize_recording_filters(filters)
+
+        event_filter = filters["filter_group"]["values"][0]["values"][0]
+        self.assertEqual(event_filter["properties"], [leaf])
 
 
 @freeze_time("2025-01-15T12:00:00Z")

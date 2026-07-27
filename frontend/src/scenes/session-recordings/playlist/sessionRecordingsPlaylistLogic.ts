@@ -449,6 +449,13 @@ export interface SessionRecordingPlaylistLogicProps {
     pinnedFilters?: UniversalFiltersGroup
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
+    /**
+     * When true, a failed recordings list request is surfaced only via `sessionRecordingsAPIErrored`
+     * (for the consumer to render an inline empty/error state) instead of raising a global toast with
+     * the raw backend message. Used by embedded surfaces like the Max AI recordings widget, where an
+     * AI-generated filter can produce an invalid query and a scary toast is worse than a quiet empty state.
+     */
+    suppressErrorToast?: boolean
 }
 
 const isRelativeDate = (x: RecordingUniversalFilters['date_from']): boolean => !!x && x.startsWith('-')
@@ -713,6 +720,9 @@ export interface sessionRecordingsPlaylistLogicActions {
     setNewCollectionName: (newCollectionName: string) => {
         newCollectionName: string
     }
+    setSessionRecordingsErrored: () => {
+        value: true
+    }
     setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => {
         id: string | null
     }
@@ -856,6 +866,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             userModifiedFilters,
         }),
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
+        setSessionRecordingsErrored: true,
         loadNext: true,
         loadPrev: true,
         setSelectedRecordingsIds: (recordingsIds: string[]) => ({ recordingsIds }),
@@ -969,7 +980,28 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     await breakpoint(400) // Debounce for lots of quick filter changes
 
                     const startTime = performance.now()
-                    const response = await api.recordings.list(params)
+                    let response: RecordingsQueryResponse
+                    try {
+                        response = await api.recordings.list(params)
+                    } catch (error: any) {
+                        // Embedded surfaces (e.g. the Max AI recordings widget) handle failures inline.
+                        // Swallow the error so kea-loaders doesn't raise a global toast with the raw backend
+                        // message (an AI-generated filter can produce an invalid query), and flag it so the
+                        // consumer can render a friendly empty/error state instead. AbortErrors (superseded
+                        // queries/unmount) are cooperative cancellation, not failures — let those propagate.
+                        if (props.suppressErrorToast && error?.name !== 'AbortError') {
+                            posthog.captureException(error)
+                            actions.setSessionRecordingsErrored()
+                            return {
+                                has_next: false,
+                                next_cursor: undefined,
+                                results: [],
+                                order: params.order,
+                                order_direction: params.order_direction,
+                            }
+                        }
+                        throw error
+                    }
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListFetched(loadTimeMs, values.filters, defaultRecordingDurationFilter)
@@ -1145,7 +1177,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         sessionRecordingsAPIErrored: [
             false,
             {
+                loadSessionRecordings: () => false,
                 loadSessionRecordingsFailure: () => true,
+                setSessionRecordingsErrored: () => true,
                 loadSessionRecordingSuccess: () => false,
                 setFilters: () => false,
                 setAdvancedFilters: () => false,

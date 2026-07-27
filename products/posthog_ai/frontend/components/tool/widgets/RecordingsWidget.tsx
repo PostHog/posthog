@@ -33,6 +33,9 @@ export function RecordingsWidget({
         filters,
         updateSearchParams: false,
         autoPlay: false,
+        // Handle a failed query inline (see RecordingsListContent) rather than raising a global
+        // toast with the raw backend error — an AI-generated filter can produce an invalid query.
+        suppressErrorToast: true,
     }
     const content = (
         <>
@@ -72,7 +75,8 @@ function AcceptFiltersBar({
 }
 
 function RecordingsListContent(): JSX.Element {
-    const { otherRecordings, sessionRecordingsResponseLoading, hasNext } = useValues(sessionRecordingsPlaylistLogic)
+    const { otherRecordings, sessionRecordingsResponseLoading, sessionRecordingsAPIErrored, hasNext } =
+        useValues(sessionRecordingsPlaylistLogic)
     const { maybeLoadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic())
 
@@ -84,6 +88,13 @@ function RecordingsListContent(): JSX.Element {
                 <div className="flex items-center justify-center gap-2 py-12 text-muted">
                     <Spinner textColored />
                     <span>Loading recordings...</span>
+                </div>
+            ) : sessionRecordingsAPIErrored && !hasRecordings ? (
+                <div className="py-2">
+                    <EmptyMessage
+                        title="Couldn't load recordings"
+                        description="These filters couldn't be applied. Try rephrasing your request or adjusting the filters."
+                    />
                 </div>
             ) : !hasRecordings ? (
                 <div className="py-2">

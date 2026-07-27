@@ -1,3 +1,4 @@
+import re
 from textwrap import dedent
 from typing import Any, Literal
 
@@ -24,6 +25,43 @@ from products.replay.backend.prompts import (
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 
 logger = structlog.get_logger(__name__)
+
+# A HogQL leaf whose expression is a bare identifier — e.g. `hogql` (the type name used as a
+# placeholder), `browser`, or `$browser` — instead of a scoped boolean expression like
+# `properties.$browser = 'Chrome'`. The comparison is missing, so it can never resolve and makes
+# RecordingsQuery raise (`Unable to resolve field: hogql`, `Field not found: browser`).
+_BARE_HOGQL_EXPRESSION = re.compile(r"^\$?[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _is_unresolvable_hogql_leaf(leaf: Any) -> bool:
+    if not isinstance(leaf, dict) or leaf.get("type") != "hogql":
+        return False
+    key = leaf.get("key")
+    if not isinstance(key, str) or not key.strip():
+        return True
+    return bool(_BARE_HOGQL_EXPRESSION.match(key.strip()))
+
+
+def _prune_unresolvable_hogql_leaves(node: Any) -> None:
+    if not isinstance(node, dict):
+        return
+    properties = node.get("properties")
+    if isinstance(properties, list):
+        node["properties"] = [p for p in properties if not _is_unresolvable_hogql_leaf(p)]
+    for child in node.get("values") or []:
+        _prune_unresolvable_hogql_leaves(child)
+
+
+def sanitize_recording_filters(filters: dict[str, Any]) -> dict[str, Any]:
+    """Drop AI-generated HogQL leaves that reference a bare/placeholder field.
+
+    Mutates and returns ``filters``. The filter tool occasionally emits a HogQL leaf whose expression
+    is a bare identifier (``hogql``, ``browser``, ``$browser``) rather than a scoped expression such as
+    ``properties.$browser = 'Chrome'``. These can't resolve and make the RecordingsQuery raise, so we
+    drop them to keep the query runnable instead of surfacing a raw HogQL error to the user.
+    """
+    _prune_unresolvable_hogql_leaves(filters.get("filter_group"))
+    return filters
 
 
 class FilterSessionRecordingsToolArgs(BaseModel):
@@ -162,8 +200,10 @@ class FilterSessionRecordingsTool(MaxTool):
     async def _arun_impl(
         self, recordings_filters: MaxRecordingUniversalFilters
     ) -> tuple[str, ToolMessagesArtifact | None]:
-        # Convert filters to recordings query and execute
-        recordings_query = convert_filters_to_recordings_query(recordings_filters.model_dump(exclude_none=True))
+        # Convert filters to recordings query and execute. Sanitize first: AI-generated HogQL leaves
+        # can reference a bare/placeholder field that makes the query raise a raw HogQL error.
+        sanitized_filters = sanitize_recording_filters(recordings_filters.model_dump(exclude_none=True))
+        recordings_query = convert_filters_to_recordings_query(sanitized_filters)
 
         try:
             query_results = await database_sync_to_async(self._get_recordings_with_filters, thread_sensitive=False)(
