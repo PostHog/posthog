@@ -1,9 +1,11 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { urls } from 'scenes/urls'
 
 import {
     dataCatalogMetricsApproveCreate,
@@ -26,8 +28,7 @@ export const DEFAULT_METRICS_FILTERS: MetricsFilters = {
     status: 'all',
 }
 
-// SQL metrics are created from the SQL editor's "Save as metric", not this modal.
-export type NewMetricDefinitionType = 'markdown' | 'insight'
+export type NewMetricDefinitionType = 'markdown' | 'insight' | 'sql'
 
 export interface NewMetricForm {
     name: string
@@ -136,6 +137,9 @@ export interface metricsLogicActions {
     openNewMetricModal: () => {
         value: true
     }
+    openSqlEditorForNewMetric: () => {
+        value: true
+    }
     refreshMetricFromInsight: (name: string) => {
         name: string
     }
@@ -177,6 +181,7 @@ export const metricsLogic = kea<metricsLogicType>([
     actions({
         setFilters: (filters: Partial<MetricsFilters>) => ({ filters }),
         openNewMetricModal: true,
+        openSqlEditorForNewMetric: true,
         closeNewMetricModal: true,
         setNewMetricForm: (form: Partial<NewMetricForm>) => ({ form }),
         createMetric: true,
@@ -271,6 +276,10 @@ export const metricsLogic = kea<metricsLogicType>([
     }),
     listeners(({ values, actions }) => ({
         openNewMetricModal: () => actions.loadSavedInsights(),
+        openSqlEditorForNewMetric: () => {
+            actions.closeNewMetricModal()
+            router.actions.push(urls.sqlEditor({ source: 'metric' }))
+        },
         createMetric: async () => {
             if (values.isCreatingMetric) {
                 return

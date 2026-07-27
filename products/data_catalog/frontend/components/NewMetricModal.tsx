@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -14,24 +15,27 @@ import { metricsLogic, NewMetricDefinitionType } from '../metricsLogic'
 
 const DEFINITION_TYPE_OPTIONS: { value: NewMetricDefinitionType; label: string }[] = [
     { value: 'markdown', label: 'Markdown' },
+    { value: 'sql', label: 'SQL' },
     { value: 'insight', label: 'Insight' },
 ]
 
 export function NewMetricModal(): JSX.Element {
     const { newMetricModalOpen, newMetricForm, isCreatingMetric, savedInsights, savedInsightsLoading } =
         useValues(metricsLogic)
-    const { setNewMetricForm, createMetric, closeNewMetricModal } = useActions(metricsLogic)
+    const { setNewMetricForm, createMetric, closeNewMetricModal, openSqlEditorForNewMetric } = useActions(metricsLogic)
 
     const nameError = validateMetricName(newMetricForm.name.trim())
     const submitDisabledReason = nameError
         ? nameError
         : !newMetricForm.description.trim()
           ? 'Add a description'
-          : newMetricForm.definitionType === 'insight' && !newMetricForm.sourceInsightShortId
-            ? 'Choose an insight'
-            : newMetricForm.definitionType === 'markdown' && !newMetricForm.markdown.trim()
-              ? 'Add the markdown definition'
-              : undefined
+          : newMetricForm.definitionType === 'sql'
+            ? 'Create SQL metrics from the SQL editor'
+            : newMetricForm.definitionType === 'insight' && !newMetricForm.sourceInsightShortId
+              ? 'Choose an insight'
+              : newMetricForm.definitionType === 'markdown' && !newMetricForm.markdown.trim()
+                ? 'Add the markdown definition'
+                : undefined
 
     return (
         <LemonModal isOpen={newMetricModalOpen} onClose={closeNewMetricModal} width={640} title="New metric">
@@ -75,10 +79,7 @@ export function NewMetricModal(): JSX.Element {
                         />
                     </LemonField.Pure>
 
-                    <LemonField.Pure
-                        label="Definition"
-                        info="For a SQL definition, use Save as metric in the SQL editor."
-                    >
+                    <LemonField.Pure label="Definition">
                         <LemonSegmentedButton
                             value={newMetricForm.definitionType}
                             onChange={(definitionType) => setNewMetricForm({ definitionType })}
@@ -94,6 +95,21 @@ export function NewMetricModal(): JSX.Element {
                                 placeholder="Numbered steps describing how to calculate this metric"
                             />
                         </LemonField.Pure>
+                    )}
+
+                    {newMetricForm.definitionType === 'sql' && (
+                        <LemonBanner type="info">
+                            <div className="flex flex-col items-start gap-2">
+                                <span>Write the query in the SQL editor, then use Save as metric to define it.</span>
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={openSqlEditorForNewMetric}
+                                    data-attr="data-catalog-new-metric-open-sql-editor"
+                                >
+                                    Open SQL editor
+                                </LemonButton>
+                            </div>
+                        </LemonBanner>
                     )}
 
                     {newMetricForm.definitionType === 'insight' && (
