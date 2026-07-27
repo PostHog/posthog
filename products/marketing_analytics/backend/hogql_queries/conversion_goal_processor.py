@@ -2114,6 +2114,21 @@ class ConversionGoalProcessor:
             ],
         )
 
+    def _apply_organic_default(self, expr: ast.Expr, default_value: str) -> ast.Call:
+        """Fall back to the organic default when the value is NULL or empty, matching the
+        events attribution path so all goal kinds classify unattributed conversions alike."""
+        return ast.Call(
+            name="if",
+            args=[
+                ast.Call(
+                    name="notEmpty",
+                    args=[ast.Call(name="coalesce", args=[expr, ast.Constant(value="")])],
+                ),
+                expr,
+                ast.Constant(value=default_value),
+            ],
+        )
+
     def _resolve_direct_field_expr(self, field: TrackedField, table: str) -> ast.Expr:
         """Resolve a tracked field to an AST expression for direct queries (no attribution pipeline)."""
         if self.goal.kind in ["EventsNode", "ActionsNode"]:
@@ -2200,11 +2215,9 @@ class ConversionGoalProcessor:
         where_conditions.extend(additional_conditions)
 
         # Campaign expression with organic default
-        campaign_expr = ast.Call(
-            name="coalesce", args=[utm_campaign_expr, ast.Constant(value=self.config.organic_campaign)]
-        )
+        campaign_expr = self._apply_organic_default(utm_campaign_expr, self.config.organic_campaign)
         source_expr = self._normalize_source_field(
-            ast.Call(name="coalesce", args=[utm_source_expr, ast.Constant(value=self.config.organic_source)])
+            self._apply_organic_default(utm_source_expr, self.config.organic_source)
         )
 
         # Build field expressions for all tracked fields
