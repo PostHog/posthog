@@ -906,6 +906,98 @@ export interface PatchedSandboxEnvironmentWriteApi {
 }
 
 /**
+ * * `awaiting_input` - awaiting_input
+ * * `completed` - completed
+ * * `mention` - mention
+ * * `message` - message
+ * * `created` - created
+ */
+export type ActivityKindEnumApi = (typeof ActivityKindEnumApi)[keyof typeof ActivityKindEnumApi]
+
+export const ActivityKindEnumApi = {
+    AwaitingInput: 'awaiting_input',
+    Completed: 'completed',
+    Mention: 'mention',
+    Message: 'message',
+    Created: 'created',
+} as const
+
+/**
+ * Response shape for one task in the requester's activity feed (one row per task).
+ */
+export interface TaskActivityDTOApi {
+    id: string
+    task_id: string
+    task_title: string
+    /** @nullable */
+    channel_id: string | null
+    /** @nullable */
+    channel_name: string | null
+    activity_at: string
+    /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a thread reply (message), or their creating the task (created).
+     *
+     * * `awaiting_input` - awaiting_input
+     * * `completed` - completed
+     * * `mention` - mention
+     * * `message` - message
+     * * `created` - created */
+    activity_kind: ActivityKindEnumApi
+    /** Content of the thread message tied to the latest activity; empty for task-creation rows. */
+    snippet: string
+    /** Author of the thread message tied to the latest activity, when one applies. */
+    latest_author?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    latest_message_id?: string | null
+    /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
+    is_unread: boolean
+}
+
+/**
+ * A page of the requester's activity feed, plus the unread total across the whole feed.
+ */
+export interface TaskActivityPageDTOApi {
+    /** Tasks with activity, most recent first. */
+    results: TaskActivityDTOApi[]
+    /** Unread tasks across the requester's whole feed, not just this page. Backs the sidebar badge. */
+    unread_count: number
+    /**
+     * Activity timestamp to pass as before for the next page, or null on the final page.
+     * @nullable
+     */
+    next_before?: string | null
+    /**
+     * Activity ID to pass as before_id for the next page, or null on the final page.
+     * @nullable
+     */
+    next_before_id?: string | null
+}
+
+export interface TaskActivityReadMarkerApi {
+    /** Task whose displayed activity should be marked read. */
+    task_id: string
+    /** Mark activity at or before this timestamp read without clearing newer activity. */
+    seen_before: string
+}
+
+/**
+ * Request body for clearing the unread flag on specific tasks.
+ */
+export interface TaskActivityMarkReadApi {
+    /**
+     * Displayed task activities to mark read if they have not changed.
+     * @maxItems 500
+     */
+    activities: TaskActivityReadMarkerApi[]
+}
+
+export interface TaskActivityMarkReadResponseApi {
+    /** How many feed rows changed from unread to read. */
+    marked_read: number
+    /** The requester's remaining unread total after the update. */
+    unread_count: number
+}
+
+/**
  * Detail/create/update/run response for a task automation.
  */
 export interface TaskAutomationDTOApi {
@@ -3541,6 +3633,23 @@ export type SandboxListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type TaskActivityListParams = {
+    /**
+     * Activity timestamp from the final row of the previous page.
+     */
+    before?: string
+    /**
+     * Activity ID from the final row of the previous page.
+     */
+    before_id?: string
+    /**
+     * Maximum number of tasks to return (most recent activity first).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
 }
 
 export type TaskAutomationsListParams = {

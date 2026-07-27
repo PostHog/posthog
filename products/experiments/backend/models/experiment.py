@@ -503,6 +503,7 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
 
     class Trigger(models.TextChoices):
         MANUAL = "manual", "Manual"
+        AGENT_MCP = "agent_mcp", "Agent (MCP)"
         COLD_RUN = "cold_run", "Cold Run"
         STALE_REFRESH = "stale_refresh", "Stale Refresh"
         AUTO_REFRESH = "auto_refresh", "Auto Refresh"
