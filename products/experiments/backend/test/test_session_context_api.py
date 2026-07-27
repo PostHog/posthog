@@ -982,6 +982,61 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         by_id = {entry["session_id"]: entry["results"] for entry in response.json()["results"]}
         assert [result["variant"] for result in by_id[DAY_TWO_SESSION_ID]] == ["control"]
 
+    def test_batch_caps_candidates_per_day_chunk(self) -> None:
+        # A newest-first candidate cap applied once over the whole batch's window can displace
+        # an older experiment that a single request for an old recording would surface —
+        # stamped-only evidence is never rescued. The cap must apply per day-chunk.
+        self._create_experiment(
+            key="old-exp",
+            name="Old experiment",
+            start_date=datetime(2025, 12, 1, tzinfo=UTC),
+            end_date=datetime(2025, 12, 31, 23, 0, tzinfo=UTC),
+        )
+        self._create_experiment(key="new-exp", name="New experiment", start_date=datetime(2026, 1, 1, tzinfo=UTC))
+        self._create_recording()
+        self._create_session_event(event="$pageview", properties={"$feature/new-exp": "test"})
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=DAY_TWO_SESSION_ID,
+            distinct_id="user1",
+            first_timestamp=DAY_TWO_RECORDING_START,
+            last_timestamp=DAY_TWO_RECORDING_END,
+        )
+        self._create_session_event(
+            event="$pageview",
+            timestamp="2025-12-31T10:03:00Z",
+            properties={"$feature/old-exp": "control"},
+            session_id=DAY_TWO_SESSION_ID,
+        )
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.session_context.MAX_CANDIDATE_EXPERIMENTS", 1):
+            response = self._post_session_contexts([SESSION_ID, DAY_TWO_SESSION_ID])
+
+        assert response.status_code == status.HTTP_200_OK
+        by_id = {entry["session_id"]: entry["results"] for entry in response.json()["results"]}
+        assert [result["flag_key"] for result in by_id[SESSION_ID]] == ["new-exp"]
+        assert [result["flag_key"] for result in by_id[DAY_TWO_SESSION_ID]] == ["old-exp"]
+
+    def test_batch_caps_distinct_recording_days(self) -> None:
+        # Ids scattered across many days would fan one throttled HTTP request out into a scan
+        # set per day; only the most recent days within the budget are computed, and the rest
+        # are omitted without being cached, so the single endpoint still computes them.
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        self._create_day_two_recording_with_exposure()
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.session_context.MAX_SESSION_CONTEXT_BATCH_DAYS", 1):
+            response = self._post_session_contexts([SESSION_ID, DAY_TWO_SESSION_ID])
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [entry["session_id"] for entry in response.json()["results"]] == [SESSION_ID]
+
+        single = self._get_session_context(DAY_TWO_SESSION_ID)
+        assert [result["variant"] for result in single.json()["results"]] == ["control"]
+
     def test_batch_rejects_invalid_session_id_lists(self) -> None:
         assert self._post_session_contexts([]).status_code == status.HTTP_400_BAD_REQUEST
         over_cap = [str(uuid7()) for _ in range(MAX_SESSION_CONTEXT_BATCH + 1)]

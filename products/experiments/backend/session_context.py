@@ -85,6 +85,11 @@ SESSION_CONTEXT_CACHE_TTL = 10 * 60
 # Hard cap on the batch endpoint's id list. A playlist page holds 20 recordings, and every
 # extra session widens the grouped scans; anything larger should arrive as separate batches.
 MAX_SESSION_CONTEXT_BATCH = 20
+# Each distinct recording day in a batch runs its own set of scans, so ids scattered across
+# many days would fan one throttled HTTP request out into dozens of ClickHouse queries. The
+# most recent days win (recordings lists sort by recency); sessions beyond the budget are
+# omitted — never cached — so the single-session endpoint computes them on demand.
+MAX_SESSION_CONTEXT_BATCH_DAYS = 5
 
 
 @dataclass(frozen=True)
@@ -127,12 +132,11 @@ class _SessionWindow:
 
 @dataclass(frozen=True)
 class _ResolvedCandidates:
-    """The batch's candidate experiments and their resolved exposure metadata, computed once
-    over the union of the sessions' recording windows and shared by every day-chunk."""
+    """The batch's overlapping experiments and their resolved exposure metadata, computed once
+    over the union of the sessions' recording windows and shared by every day-chunk. The
+    capped candidate slice is per chunk, not here — see _compute_session_experiment_contexts."""
 
     overlapping: QuerySet[Experiment]
-    candidates: list[Experiment]
-    candidate_keys: set[str]
     flag_key_by_id: dict[int, str]
     variant_keys_by_id: dict[int, set[str]]
     batchable_ids: set[int]
@@ -273,21 +277,18 @@ def _compute_session_experiment_contexts(
         .filter(Q(end_date__isnull=True) | Q(end_date__gte=union_start))
         .select_related("feature_flag")
     )
-    # The stamped-property query needs one column per flag, so its candidate set must be capped;
-    # newest-first keeps the slice deterministic and biased toward the most relevant experiments.
-    candidates = list(overlapping.order_by("-start_date")[:MAX_CANDIDATE_EXPERIMENTS])
-    if not candidates:
-        return {window.session_id: [] for window in windows}
-
     # Every overlapping experiment's flag key (uncapped — the rescue below must be able to see
-    # beyond the candidate cap), its exposure criteria, and its defined variant names. Filtering
-    # the exposure queries to these bounds their cardinality by real configuration: sessions call
-    # plenty of non-experiment flags, and event payloads can carry arbitrary keys/variants.
+    # beyond the candidate cap), its exposure criteria, its defined variant names, and its run
+    # window (so each day-chunk can pick its own candidate slice below). Filtering the exposure
+    # queries to these bounds their cardinality by real configuration: sessions call plenty of
+    # non-experiment flags, and event payloads can carry arbitrary keys/variants.
     flag_meta = list(
         overlapping.order_by("-start_date").values_list(
-            "id", "feature_flag__key", "feature_flag__filters", "exposure_criteria"
+            "id", "feature_flag__key", "feature_flag__filters", "exposure_criteria", "start_date", "end_date"
         )
     )
+    if not flag_meta:
+        return {window.session_id: [] for window in windows}
     # Each experiment's exposure criteria resolve (through the shared helpers) to what counts
     # as its exposure event and which property carries the variant. Experiments with the plain
     # default shape take their exposure moment straight from the shared flag-evaluations query;
@@ -298,7 +299,7 @@ def _compute_session_experiment_contexts(
     batchable_ids: set[int] = set()
     all_variant_keys: set[str] = set()
     branch_meta: list[tuple[int, _ResolvedExposure, set[str]]] = []
-    for experiment_id, flag_key, filters, exposure_criteria in flag_meta:
+    for experiment_id, flag_key, filters, exposure_criteria, _start_date, _end_date in flag_meta:
         variant_keys = _variant_keys_from_filters(filters)
         if not variant_keys:
             continue
@@ -313,6 +314,40 @@ def _compute_session_experiment_contexts(
     if not flag_key_by_id:
         # No overlapping experiment defines variants, so nothing could surface a variant seen.
         return {window.session_id: [] for window in windows}
+
+    chunks = _chunk_windows_by_recording_day(windows)
+    if len(chunks) > MAX_SESSION_CONTEXT_BATCH_DAYS:
+        # Ascending day order, so the slice keeps the most recent days' chunks. The dropped
+        # sessions are omitted from the result (never cached as anything).
+        dropped = [window.session_id for chunk in chunks[:-MAX_SESSION_CONTEXT_BATCH_DAYS] for window in chunk]
+        logger.warning(
+            "Session-context batch spans more than %s recording days; omitting sessions %s",
+            MAX_SESSION_CONTEXT_BATCH_DAYS,
+            dropped,
+        )
+        chunks = chunks[-MAX_SESSION_CONTEXT_BATCH_DAYS:]
+
+    # The stamped-property query needs one column per flag, so each chunk's candidate set must
+    # be capped; newest-first keeps a slice deterministic and biased toward the most relevant
+    # experiments. Capping per chunk — against the chunk's own recording window — means a batch
+    # mixing old and new recordings surfaces the same experiments N single-session requests
+    # would: a global slice over the union window could displace an older chunk's experiments
+    # behind newer ones, and stamped-only evidence is never rescued.
+    candidate_ids_by_chunk: list[list[int]] = []
+    for chunk in chunks:
+        chunk_start = min(window.recording_start for window in chunk)
+        chunk_end = max(window.recording_end for window in chunk)
+        candidate_ids_by_chunk.append(
+            [
+                experiment_id
+                for experiment_id, _flag_key, _filters, _criteria, start_date, end_date in flag_meta
+                if start_date is not None and start_date <= chunk_end and (end_date is None or end_date >= chunk_start)
+            ][:MAX_CANDIDATE_EXPERIMENTS]
+        )
+    all_candidate_ids = {experiment_id for chunk_ids in candidate_ids_by_chunk for experiment_id in chunk_ids}
+    if not all_candidate_ids:
+        return {window.session_id: [] for chunk in chunks for window in chunk}
+    experiments_by_id = {experiment.pk: experiment for experiment in overlapping.filter(id__in=all_candidate_ids)}
 
     # Every scan below goes through HogQL, and constructing the virtual database dominates this
     # endpoint's wall time on teams with a large warehouse schema — several seconds per query,
@@ -338,8 +373,6 @@ def _compute_session_experiment_contexts(
 
     resolved = _ResolvedCandidates(
         overlapping=overlapping,
-        candidates=candidates,
-        candidate_keys={experiment.feature_flag.key for experiment in candidates},
         flag_key_by_id=flag_key_by_id,
         variant_keys_by_id=variant_keys_by_id,
         batchable_ids=batchable_ids,
@@ -348,9 +381,17 @@ def _compute_session_experiment_contexts(
     )
 
     results: dict[str, list[ExperimentSessionContextItem]] = {}
-    for chunk in _chunk_windows_by_recording_day(windows):
+    for chunk, candidate_ids in zip(chunks, candidate_ids_by_chunk):
+        candidates = [
+            experiments_by_id[experiment_id] for experiment_id in candidate_ids if experiment_id in experiments_by_id
+        ]
+        if not candidates:
+            # No experiment overlaps this chunk's recordings — the same empty answer a
+            # single-session request would compute (and cache) without running any scan.
+            results.update({window.session_id: [] for window in chunk})
+            continue
         try:
-            results.update(_compute_chunk_contexts(team, user, shared_hogql, resolved, chunk))
+            results.update(_compute_chunk_contexts(team, user, shared_hogql, resolved, chunk, candidates))
         except Exception:
             if not fail_open:
                 raise
@@ -369,6 +410,7 @@ def _compute_chunk_contexts(
     shared_hogql: SharedHogQLDatabase,
     resolved: _ResolvedCandidates,
     windows: list[_SessionWindow],
+    candidates: list[Experiment],
 ) -> dict[str, list[ExperimentSessionContextItem]]:
     session_ids = [window.session_id for window in windows]
     window_start = min(window.recording_start for window in windows) - EVENT_WINDOW_SLACK
@@ -402,13 +444,14 @@ def _compute_chunk_contexts(
         window_end,
         resolved.branch_meta[:MAX_CANDIDATE_EXPERIMENTS],
     )
+    candidate_keys = {experiment.feature_flag.key for experiment in candidates}
     query_stamped = partial(
         _query_stamped_flag_properties,
         team,
         user,
         shared_hogql,
         session_ids,
-        resolved.candidate_keys,
+        candidate_keys,
         window_start,
         window_end,
     )
@@ -454,8 +497,7 @@ def _compute_chunk_contexts(
     for session_id in session_ids:
         evidenced_keys |= set(flag_evaluations.get(session_id, {}))
         evidenced_keys |= {resolved.flag_key_by_id[experiment_id] for experiment_id in exposures[session_id]}
-    rescued_keys = evidenced_keys - resolved.candidate_keys
-    candidates = resolved.candidates
+    rescued_keys = evidenced_keys - candidate_keys
     if rescued_keys:
         candidates = candidates + list(resolved.overlapping.filter(feature_flag__key__in=sorted(rescued_keys)))
         rescued_stamped = _query_stamped_flag_properties(
