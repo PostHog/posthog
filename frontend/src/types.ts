@@ -6252,6 +6252,8 @@ export interface ExternalDataSource {
     user_access_level: AccessControlLevel
     supports_webhooks?: boolean
     supports_column_selection?: boolean
+    /** One-off import (e.g. an uploaded workbook): the sync schedule stays paused, refreshes are explicit. */
+    syncs_once?: boolean
     api_version?: string | null
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
 }

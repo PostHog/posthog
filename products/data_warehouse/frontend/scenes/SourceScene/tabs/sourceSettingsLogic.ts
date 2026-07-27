@@ -368,6 +368,7 @@ function reportBulkResult(verb: string, total: number, failed: number, skipped: 
 export interface sourceSettingsLogicValues {
     availableSources: Record<string, SourceConfig> | null // availableSourcesLogic
     bulkEnableLoading: boolean
+    excelWorkbookUploading: boolean
     canLoadMoreJobs: boolean
     cdcStatus: CdcStatus | null
     cdcStatusError: string | null
@@ -550,6 +551,12 @@ export interface sourceSettingsLogicActions {
     setBulkEnableLoading: (loading: boolean) => {
         loading: boolean
     }
+    uploadNewExcelWorkbook: (file: File) => {
+        file: File
+    }
+    setExcelWorkbookUploading: (loading: boolean) => {
+        loading: boolean
+    }
     setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => {
         canLoadMoreJobs: boolean
     }
@@ -690,6 +697,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
         bulkEnable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         setBulkEnableLoading: (loading: boolean) => ({ loading }),
+        uploadNewExcelWorkbook: (file: File) => ({ file }),
+        setExcelWorkbookUploading: (loading: boolean) => ({ loading }),
         bulkDisable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         bulkSetFrequency: (schemas: ExternalDataSourceSchema[], frequency: DataWarehouseSyncInterval) => ({
             schemas,
@@ -890,6 +899,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             {
                 bulkEnable: () => true,
                 setBulkEnableLoading: (_, { loading }) => loading,
+            },
+        ],
+        excelWorkbookUploading: [
+            false as boolean,
+            {
+                uploadNewExcelWorkbook: () => true,
+                setExcelWorkbookUploading: (_, { loading }) => loading,
             },
         ],
         pollPauseCount: [
@@ -1441,6 +1457,45 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     } else {
                         lemonToast.error('Cant refresh schema at this time')
                     }
+                }
+            },
+            uploadNewExcelWorkbook: async ({ file }) => {
+                if (!values.source) {
+                    return
+                }
+                if (file.size > 50 * 1024 * 1024) {
+                    lemonToast.error('This file is larger than the 50MB upload limit.')
+                    actions.setExcelWorkbookUploading(false)
+                    return
+                }
+
+                const formData = new FormData()
+                formData.append('file', file)
+                formData.append('file_format', 'xlsx')
+
+                try {
+                    const upload = await api.dataWarehouseTables.uploadFile(formData)
+                    // Point the source at the new object — the update re-validates that it exists
+                    // and opens before anything is saved.
+                    await sourcesDataLogic.asyncActions.updateSource({
+                        ...values.source,
+                        job_inputs: {
+                            ...values.source.job_inputs,
+                            upload_id: upload.upload_id,
+                            filename: upload.filename,
+                        },
+                    })
+                    // The new workbook may add or drop sheets — rediscover them, then re-import
+                    // what's enabled. `reload` fires the paused schedules once, same as the
+                    // initial import.
+                    await api.externalDataSources.refreshSchemas(values.source.id)
+                    await api.externalDataSources.reload(values.source.id)
+                    actions.loadSource()
+                    lemonToast.success('New workbook uploaded — re-importing its sheets')
+                } catch (e: any) {
+                    lemonToast.error(e.data?.message ?? e.message ?? 'Could not upload the workbook.')
+                } finally {
+                    actions.setExcelWorkbookUploading(false)
                 }
             },
             cancelSchema: async ({ schema }) => {

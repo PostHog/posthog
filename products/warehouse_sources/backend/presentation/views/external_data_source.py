@@ -147,6 +147,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_primary_key_columns,
     repair_cdc_source,
     source_requires_ssl,
+    source_syncs_once,
     source_type_supports_cdc,
     sql_schema_metadata,
     validate_and_coerce_row_filters,
@@ -755,6 +756,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         read_only=True,
         help_text="Whether this source supports per-column sync selection via `enabled_columns`.",
     )
+    syncs_once = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether this source imports once instead of on a recurring schedule (e.g. an uploaded "
+            "Excel workbook). Its sync schedule stays paused; refreshing the data is an explicit resync."
+        ),
+    )
     # Optional on both create and update. On create, missing values default to `api`
     # in the viewset to preserve backward compatibility with direct API callers that
     # predate this field; the in-app UI and MCP tool always send it explicitly.
@@ -846,6 +854,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "user_access_level",
             "supports_webhooks",
             "supports_column_selection",
+            "syncs_once",
             "api_version",
             "api_version_deprecation",
         ]
@@ -864,6 +873,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "access_method",
             "supports_webhooks",
             "supports_column_selection",
+            "syncs_once",
             "api_version",
             "api_version_deprecation",
         ]
@@ -922,6 +932,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     def get_supports_column_selection(self, instance: ExternalDataSource) -> bool:
         return source_supports_column_selection(instance.source_type)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_syncs_once(self, instance: ExternalDataSource) -> bool:
+        return source_syncs_once(instance.source_type)
 
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, instance: ExternalDataSource) -> dict[str, Any] | None:
