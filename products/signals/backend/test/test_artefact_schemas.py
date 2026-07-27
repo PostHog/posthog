@@ -189,6 +189,19 @@ class TestValidateArtefactContent(SimpleTestCase):
                 },
             ),
             ("chart", {"chart_id": "ok", "title": "t", "query": {"kind": "InsightVizNode", "bytecode": ["_H", 1]}}),
+            # The renderer posts a node's nested source to the query service, where `HogQuery` runs its
+            # `code` through `execute_hog` — so an allowed outer kind must not smuggle one underneath.
+            (
+                "chart",
+                {
+                    "chart_id": "ok",
+                    "title": "t",
+                    "query": {
+                        "kind": "DataVisualizationNode",
+                        "source": {"kind": "HogQuery", "code": "while (true) {}"},
+                    },
+                },
+            ),
             # An unknown `size` has no height behind it, so accepting it would store a layout choice
             # the renderer silently ignores rather than telling the author it didn't take.
             ("chart", {"chart_id": "ok", "title": "t", "query": {"kind": "InsightVizNode"}, "size": "huge"}),

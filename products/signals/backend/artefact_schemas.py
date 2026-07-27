@@ -438,23 +438,39 @@ CHART_SIZES: tuple[ChartSize, ...] = ("small", "medium", "large")
 _MAX_CHART_QUERY_CHARS = 20_000
 
 
-def _carries_bytecode(value: Any) -> bool:
-    """Whether a query node carries HogVM bytecode anywhere inside it.
+# Query kinds whose payload is a program rather than a description of data. The renderer hands a
+# node's nested source straight to the query service, and `HogQuery` is the branch there that runs
+# its `code` through `execute_hog`.
+_EXECUTABLE_QUERY_KINDS = frozenset({"HogQuery"})
 
-    A `DataVisualizationNode` can hold `tableSettings.conditionalFormatting[*].bytecode`, which the
-    table renderer runs through `execHog` once per rendered cell, synchronously, on the reader's main
-    thread. HogVM bounds a single call at five seconds, but the cost multiplies by cell count, so a
-    chart carrying expensive bytecode freezes the tab of whoever opens the report. A chart is a
-    picture of a query, not a program, so the whole key is refused wherever it appears rather than
-    only at the path known today.
+
+def _executable_payload(value: Any) -> str | None:
+    """What a query node carries that something downstream would *run*, or None if nothing does.
+
+    The `kind` allowlist only covers the outer node, and two shapes reach an interpreter from
+    underneath it. `bytecode`: a `DataVisualizationNode` can hold
+    `tableSettings.conditionalFormatting[*].bytecode`, which the table renderer feeds to `execHog`
+    once per rendered cell, synchronously, on the reader's main thread — HogVM bounds one call at
+    five seconds, but the cost multiplies by cell count, so a chart carrying expensive bytecode
+    freezes the tab of whoever opens the report. A nested `HogQuery`: the renderer posts a node's
+    source to the query service as its data node, where `process_query_model` runs `code` through
+    `execute_hog` (staff-only on cloud, but any reader on a self-hosted deployment).
+
+    A chart is a picture of a query, not a program, so both are refused wherever they sit rather than
+    only at the paths known today.
     """
     if isinstance(value, dict):
-        return any(key == "bytecode" and item for key, item in value.items()) or any(
-            _carries_bytecode(item) for item in value.values()
-        )
+        if any(key == "bytecode" and item for key, item in value.items()):
+            return "`bytecode`"
+        kind = value.get("kind")
+        # `kind` is caller-supplied JSON and can be unhashable; check it's a string before the
+        # membership test so a bad write stays a 400 rather than a TypeError out of the validator.
+        if isinstance(kind, str) and kind in _EXECUTABLE_QUERY_KINDS:
+            return f"a nested `{kind}`"
+        return next((found for item in value.values() if (found := _executable_payload(item))), None)
     if isinstance(value, list):
-        return any(_carries_bytecode(item) for item in value)
-    return False
+        return next((found for item in value if (found := _executable_payload(item))), None)
+    return None
 
 
 class ChartArtefact(BaseModel):
@@ -547,8 +563,9 @@ class ChartArtefact(BaseModel):
             raise ValueError(f"query.kind must be one of {allowed} (got {kind!r})")
         if len(json.dumps(v)) > _MAX_CHART_QUERY_CHARS:
             raise ValueError(f"query must not exceed {_MAX_CHART_QUERY_CHARS} characters when serialized")
-        if _carries_bytecode(v):
-            raise ValueError("query must not carry `bytecode` (conditional formatting is not supported on a chart)")
+        executable = _executable_payload(v)
+        if executable:
+            raise ValueError(f"query must not carry {executable} — a chart renders data, it does not run code")
         return v
 
 
