@@ -20,7 +20,7 @@ export function WorkflowActivityLink({ id }: { id: string }): JSX.Element {
         }
     })
 
-    const name = workflows.find((workflow) => workflow.id === id)?.name
+    const name = workflows.results.find((workflow) => workflow.id === id)?.name
 
     return (
         <strong>
