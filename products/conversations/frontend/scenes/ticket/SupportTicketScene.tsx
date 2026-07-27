@@ -37,7 +37,7 @@ import { RelatedGroupsPanel } from './RelatedGroupsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
-import { ThreadReports } from './ThreadReports'
+import { reportTimelineExtras } from './ThreadReports'
 import { TicketActivityPanel } from './TicketActivityPanel'
 
 // The list's filters / saved view ride along in the ticket page's query string
@@ -210,7 +210,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 >
                     {/* Main conversation area */}
                     <ChatView
-                        threadTrailing={<ThreadReports linkedReports={linkedReports} />}
+                        threadExtras={reportTimelineExtras(linkedReports)}
                         messages={chatMessages}
                         messagesLoading={messagesLoading}
                         messageSending={messageSending}

@@ -1,6 +1,6 @@
 import type { LemonTagType } from '@posthog/lemon-ui'
 
-import { SignalReportStatus } from '../../types'
+import { SignalReportStatus } from '~/scenes/inbox/types'
 
 /**
  * PR open/merged/closed state, mapped to muted palette tags (outlined: --success / --purple /
