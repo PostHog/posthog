@@ -30,6 +30,8 @@ T_TIE_A = "posthog/api/test/test_tie_a/TestTie::test_retry"
 T_TIE_B = "posthog/api/test/test_tie_b/TestTie::test_retry"
 T_FOREIGN = "posthog/api/test/test_foreign/TestForeign::test_other_service"
 T_OTHER_REPO = "posthog/api/test/test_other_repo/TestOtherRepo::test_flaky"
+T_JEST_RECOVERY = "products/surveys/frontend/surveyLogic.test.ts::surveyLogic saves"
+T_JEST_CROSS_LEG = "frontend/src/scenes/legacy.test.ts::legacy scene renders"
 
 
 class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
@@ -118,6 +120,54 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             cls._span(22, T_OTHER_REPO, "rerun_passed", ts=recent, run="1200", pr="1201", repo="PostHog/posthog.com"),
             # A job-root span carries no test.outcome and must never become a row.
             cls._span(23, "Backend CI / core (1)", None, ts=recent, run="1300", branch="master"),
+            # Main Jest spans share the same evidence model. Recovery only counts within the
+            # stable FOSS/EE + shard job that failed.
+            cls._span(
+                30,
+                T_JEST_RECOVERY,
+                "failed",
+                ts=earlier,
+                run="1500",
+                branch="master",
+                selector=T_JEST_RECOVERY,
+                service="ci-frontend",
+                job="frontend:EE:1",
+            ),
+            cls._span(
+                31,
+                T_JEST_RECOVERY,
+                "passed",
+                ts=recent,
+                run="1500",
+                attempt="2",
+                branch="master",
+                selector=T_JEST_RECOVERY,
+                service="ci-frontend",
+                job="frontend:EE:1",
+            ),
+            cls._span(
+                32,
+                T_JEST_CROSS_LEG,
+                "failed",
+                ts=earlier,
+                run="1600",
+                branch="master",
+                selector=T_JEST_CROSS_LEG,
+                service="ci-frontend",
+                job="frontend:EE:1",
+            ),
+            cls._span(
+                33,
+                T_JEST_CROSS_LEG,
+                "passed",
+                ts=recent,
+                run="1600",
+                attempt="2",
+                branch="master",
+                selector=T_JEST_CROSS_LEG,
+                service="ci-frontend",
+                job="frontend:FOSS:1",
+            ),
         ]
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
@@ -148,6 +198,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         selector: str = "",
         service: str = "ci-backend",
         repo: str = "PostHog/posthog",
+        job: str = "",
     ) -> str:
         # Physical attributes carry a type suffix ('test.outcome__str'); the `attributes` ALIAS
         # column strips it. Resource attributes are stored as-is; attempt="" drops the
@@ -155,6 +206,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         attr_pairs = ([f"'test.outcome__str', '{outcome}'"] if outcome else []) + (
             [f"'test.selector__str', '{selector}'"] if selector else []
         )
+        if job:
+            attr_pairs.append(f"'test.job_key__str', '{job}'")
         attrs = f"map({', '.join(attr_pairs)})" if attr_pairs else "map()"
         resource_pairs = [
             f"'{key}', '{value}'"
@@ -200,6 +253,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             T_TIE_A,
             T_TIE_B,
             T_NO_RUN_ID,
+            T_JEST_RECOVERY,
+            T_JEST_CROSS_LEG,
         }
         assert data["truncated"] is False
         assert data["limit"] == 50
@@ -216,6 +271,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             ("pass_in_another_matrix_leg", T_MATRIX_LEGS, "suspected_regression"),
             ("no_recovery_recorded", T_THREE_PRS, "suspected_regression"),
             ("failing_while_xfailed", T_QUARANTINED, "quarantined"),
+            ("jest_same_job_recovery", T_JEST_RECOVERY, "confirmed_flake"),
+            ("jest_cross_job_pass", T_JEST_CROSS_LEG, "suspected_regression"),
         ]
     )
     def test_classification_needs_proof_to_call_a_test_flaky(self, _name: str, nodeid: str, expected: str) -> None:
@@ -260,6 +317,15 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         quarantined = rows[T_QUARANTINED]
         assert quarantined["quarantined_failed_run_count"] == 1
         assert (quarantined["failed_run_count"], quarantined["master_failed_run_count"]) == (0, 0)
+
+        jest_recovered = rows[T_JEST_RECOVERY]
+        assert jest_recovered["runner"] == "jest"
+        assert jest_recovered["selector"] == T_JEST_RECOVERY
+        assert jest_recovered["same_commit_recovery_run_count"] == 1
+
+        jest_cross_leg = rows[T_JEST_CROSS_LEG]
+        assert jest_cross_leg["runner"] == "jest"
+        assert jest_cross_leg["same_commit_recovery_run_count"] == 0
 
     def test_ranking_leads_with_trunk_breakage_and_breaks_ties_on_nodeid(self) -> None:
         nodeids = [item["nodeid"] for item in self._get()["items"]]
