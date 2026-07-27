@@ -513,11 +513,14 @@ class TestPrinter(BaseTest):
     def test_union_by_name_remaps_positional_order_by(self):
         # `order by 2` on the reordered branch must still sort by the column the user meant. ClickHouse
         # binds a trailing ORDER BY to the last operand, so this needs multiple rows to be observable —
-        # a string check alone passes even when the ordinal points at the wrong column.
+        # a string check alone passes even when the ordinal points at the wrong column. The sentinel
+        # first-branch row floats freely across the UNION ALL boundary, so assert only the sorted
+        # branch: a correct remap sorts by x (8, 9, 10); a broken one sorts by y (10, 9, 8).
         sql = self._select(
             "select 0 as x, 0 as y union all by name select number as y, (10 - number) as x from numbers(3) order by 2"
         )
-        self.assertEqual(sync_execute(sql), [(0, 0), (8, 2), (9, 1), (10, 0)])
+        sorted_branch = [row for row in sync_execute(sql) if row[0] != 0]
+        self.assertEqual(sorted_branch, [(8, 2), (9, 1), (10, 0)])
 
     def test_union_by_name_kept_for_postgres_dialect(self):
         response, _ = prepare_and_print_ast(
