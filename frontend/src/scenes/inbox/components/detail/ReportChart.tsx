@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
 
 import { Query } from '~/queries/Query/Query'
-import { Node } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isSavedInsightNode } from '~/queries/utils'
+import { DataVisualizationNode, Node } from '~/queries/schema/schema-general'
+import { isDataVisualizationNode, isInsightVizNode, isSavedInsightNode } from '~/queries/utils'
+import { ChartDisplayType } from '~/types'
 
 import { ChartContent } from './artefactTypes'
 
@@ -23,6 +24,15 @@ function asEmbeddedChart(query: Record<string, any>): Node {
     return node as Node
 }
 
+/** A SQL node draws a table unless it was given a graphical display, and only a graph needs a box. */
+function isGraphicalSqlNode(query: Node): boolean {
+    if (!isDataVisualizationNode(query)) {
+        return false
+    }
+    const { display } = query as DataVisualizationNode
+    return !!display && display !== ChartDisplayType.ActionsTable
+}
+
 /**
  * One chart attached to a report, drawn from the query its author supplied.
  *
@@ -39,7 +49,7 @@ export function ReportChart({ chart }: { chart: ChartContent }): JSX.Element | n
 
     // A graph fills whatever box it's given and collapses without one. A data table sizes itself to
     // its rows, so forcing the same height on it would just pad short results with blank space.
-    const needsFixedHeight = isInsightVizNode(query) || isSavedInsightNode(query)
+    const needsFixedHeight = isInsightVizNode(query) || isSavedInsightNode(query) || isGraphicalSqlNode(query)
 
     return (
         <div
@@ -48,7 +58,15 @@ export function ReportChart({ chart }: { chart: ChartContent }): JSX.Element | n
         >
             <h4 className="m-0 text-sm font-semibold text-primary">{chart.title}</h4>
             <div className={needsFixedHeight ? 'h-[18rem] flex flex-col' : 'flex flex-col'}>
-                <Query query={query} uniqueKey={`report-chart-${chart.chart_id}`} readOnly embedded />
+                <Query
+                    // The SQLEditor prefix opts into container-governed chart sizing
+                    // (dataVisualizationLogic.presetChartHeight) — without it a graphical SQL chart
+                    // renders at 60vh and swallows the report. Same reason NotebookNodeSQLV2 does it.
+                    query={query}
+                    uniqueKey={`SQLEditor-report-chart-${chart.chart_id}`}
+                    readOnly
+                    embedded
+                />
             </div>
             {chart.caption ? <p className="m-0 text-xs text-tertiary">{chart.caption}</p> : null}
         </div>
