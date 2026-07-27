@@ -116,7 +116,7 @@ impl From<&KafkaConfig> for PrepSpec {
 /// upstream. This function only applies it: serializer choice, header stamps,
 /// counters, topic and partition key resolution. It consults no limiter and
 /// decides nothing.
-fn prepare_payload(
+pub(crate) fn prepare_payload(
     spec: &PrepSpec,
     event: ProcessedEvent,
 ) -> Result<AddressedPayload, CaptureError> {

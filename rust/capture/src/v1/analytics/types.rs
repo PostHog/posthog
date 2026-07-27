@@ -367,6 +367,98 @@ impl SinkEvent for WrappedEvent {
 }
 
 impl WrappedEvent {
+    /// Map this fully-processed event onto the shared produce interchange:
+    /// a [`ProcessedEvent`] whose `CapturedEvent` carries the same wire
+    /// fields the v1 serializer emits (the spliced-properties `data`, the
+    /// context-derived ip/now/sent_at/token, the adjusted timestamp) and
+    /// whose metadata makes `pipeline::resolve` reproduce the destination
+    /// this pipeline already decided (overflow → `force_overflow`, dlq →
+    /// `redirect_to_dlq`, custom → `redirect_to_topic`). `Destination::Drop`
+    /// events must never reach this — dropping is a processing decision,
+    /// recorded in the response, not a produce decision.
+    pub fn to_processed(
+        &self,
+        ctx: &RequestContext,
+    ) -> anyhow::Result<crate::v0_request::ProcessedEvent> {
+        use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
+
+        debug_assert!(
+            self.should_publish(),
+            "to_processed on a non-publishable event"
+        );
+
+        let spliced = self.build_spliced_properties(ctx)?;
+        let properties: &RawValue = spliced.as_deref().unwrap_or(&self.event.properties);
+        let ingestion_data = IngestionData {
+            event: &self.event.event,
+            distinct_id: Some(&self.event.distinct_id),
+            uuid: Some(self.uuid),
+            properties,
+            timestamp: Some(&self.event.timestamp),
+        };
+        let data = serde_json::to_string(&ingestion_data)
+            .map_err(|e| anyhow::anyhow!("serializing IngestionData: {e:#}"))?;
+
+        let ip = if ctx.capture_internal {
+            "127.0.0.1".to_string()
+        } else {
+            ctx.client_ip.to_string()
+        };
+        let timestamp = self.adjusted_timestamp.ok_or_else(|| {
+            anyhow::anyhow!("to_processed called on event without adjusted_timestamp")
+        })?;
+        let sent_at = time::OffsetDateTime::from_unix_timestamp_nanos(
+            ctx.client_timestamp
+                .timestamp_nanos_opt()
+                .ok_or_else(|| anyhow::anyhow!("client timestamp out of range"))?
+                as i128,
+        )
+        .map_err(|e| anyhow::anyhow!("client timestamp out of range: {e}"))?;
+
+        let event = common_types::CapturedEvent {
+            uuid: self.uuid,
+            distinct_id: self.event.distinct_id.clone(),
+            session_id: self.event.session_id.clone(),
+            ip,
+            data,
+            now: ctx
+                .server_received_at
+                .to_rfc3339_opts(SecondsFormat::AutoSi, true),
+            sent_at: Some(sent_at),
+            token: ctx.api_token.clone(),
+            event: self.event.event.clone(),
+            timestamp,
+            is_cookieless_mode: self.options.cookieless_mode.unwrap_or(false),
+            historical_migration: ctx.historical_migration,
+        };
+
+        let metadata = ProcessedEventMetadata {
+            data_type: match &self.destination {
+                Destination::AnalyticsHistorical => DataType::AnalyticsHistorical,
+                Destination::ExceptionErrorTracking => DataType::ExceptionErrorTracking,
+                Destination::HeatmapMain => DataType::HeatmapMain,
+                Destination::ClientIngestionWarning => DataType::ClientIngestionWarning,
+                // Overflow / Dlq / Custom are analytics-main intents; the
+                // flags below carry the redirect.
+                _ => DataType::AnalyticsMain,
+            },
+            session_id: self.event.session_id.clone(),
+            computed_timestamp: Some(timestamp),
+            event_name: self.event.event.clone(),
+            force_overflow: self.destination == Destination::Overflow,
+            skip_person_processing: self.force_disable_person_processing,
+            redirect_to_dlq: self.destination == Destination::Dlq,
+            redirect_to_topic: match &self.destination {
+                Destination::Custom(topic) => Some(topic.clone()),
+                _ => None,
+            },
+            skip_heatmap_processing: false,
+            overflow_reason: None,
+        };
+
+        Ok(ProcessedEvent { event, metadata })
+    }
+
     #[allow(unused_assignments)]
     fn build_property_injections(&self, ctx: &RequestContext) -> anyhow::Result<String> {
         let mut buf = String::with_capacity(256);
@@ -2073,5 +2165,160 @@ mod tests {
             format!("{}:user-42", ctx.api_token),
             "partition_key() is unconditional; sink applies null-key policy"
         );
+    }
+
+    // ============ shared-prep parity: to_processed reproduces the v1 wire ============
+    // The convergence oracle for step 20: mapping a WrappedEvent onto the
+    // shared ProcessedEvent interchange and running the outputs-layer prep
+    // must reproduce what the v1 serializer + sink produced — payload
+    // bytes, address, partition key (incl. the person-processing null
+    // rule), and headers.
+    mod shared_prep_parity {
+        use super::*;
+        use crate::config::EnvelopeCompression;
+        use crate::outputs::{prepare_payload, PrepSpec};
+
+        /// A deterministic context: whole-second client timestamp, so the
+        /// two RFC3339 serializers (chrono in v1's IngestionEvent, the time
+        /// crate in CapturedEvent) emit identical bytes. Their fractional
+        /// formatting differs — see `sent_at_fractional_formatting_delta`.
+        fn parity_context() -> RequestContext {
+            let mut ctx = test_utils::test_context();
+            ctx.client_timestamp = DateTime::parse_from_rfc3339("2026-03-19T14:29:59Z")
+                .unwrap()
+                .with_timezone(&Utc);
+            ctx.server_received_at = DateTime::parse_from_rfc3339("2026-03-19T14:30:01.250Z")
+                .unwrap()
+                .with_timezone(&Utc);
+            ctx
+        }
+
+        fn prepared_for(
+            ev: &WrappedEvent,
+            ctx: &RequestContext,
+        ) -> crate::outputs::AddressedPayload {
+            let processed = ev.to_processed(ctx).expect("mapping must succeed");
+            prepare_payload(&PrepSpec::new(EnvelopeCompression::None), processed)
+                .expect("prep must succeed")
+        }
+
+        #[rstest::rstest]
+        #[case::main(Destination::AnalyticsMain, false)]
+        #[case::main_person_disabled(Destination::AnalyticsMain, true)]
+        #[case::historical(Destination::AnalyticsHistorical, false)]
+        #[case::historical_person_disabled(Destination::AnalyticsHistorical, true)]
+        #[case::overflow(Destination::Overflow, false)]
+        #[case::overflow_person_disabled(Destination::Overflow, true)]
+        #[case::dlq(Destination::Dlq, false)]
+        #[case::custom(Destination::Custom("admin_topic".to_string()), false)]
+        #[case::error_tracking(Destination::ExceptionErrorTracking, false)]
+        #[case::heatmap(Destination::HeatmapMain, false)]
+        #[case::warning(Destination::ClientIngestionWarning, false)]
+        fn payload_address_key_and_headers_match_v1(
+            #[case] destination: Destination,
+            #[case] force_disable: bool,
+        ) {
+            let ctx = parity_context();
+            let mut ev = ok_wrapped("$pageview", "user-1");
+            ev.destination = destination.clone();
+            ev.force_disable_person_processing = force_disable;
+
+            let prepared = prepared_for(&ev, &ctx);
+
+            // Payload bytes: shared prep serializes the mapped CapturedEvent;
+            // v1 writes IngestionEvent. Must be identical on the wire.
+            let v1_payload = SinkEvent::serialize(&ev, &ctx).expect("v1 serialize");
+            assert_eq!(
+                prepared.payload,
+                v1_payload.as_ref(),
+                "payload bytes must match v1 for {destination:?}"
+            );
+
+            // Address: resolve() must land where the v1 destination bridge does.
+            assert_eq!(
+                prepared.address,
+                destination.as_address().expect("publishable destination"),
+                "address must match v1 for {destination:?}"
+            );
+
+            // Partition key: v1 keys every destination on partition_key,
+            // nulling only for person-disabled Main/Overflow.
+            let expect_null = force_disable
+                && matches!(
+                    destination,
+                    Destination::AnalyticsMain | Destination::Overflow
+                );
+            if expect_null {
+                assert_eq!(prepared.key, None, "key must be nulled for {destination:?}");
+            } else {
+                assert_eq!(
+                    prepared.key.as_deref(),
+                    Some(SinkEvent::partition_key(&ev, &ctx).as_str()),
+                    "key must match v1 for {destination:?}"
+                );
+            }
+
+            // Headers: identical modulo the dlq timestamp (both sides stamp
+            // wall-clock now).
+            let mut v1_headers = SinkEvent::headers(&ev, &ctx);
+            let mut prep_headers = prepared.headers.clone();
+            if destination == Destination::Dlq {
+                assert!(prep_headers.dlq_timestamp.is_some());
+                assert!(v1_headers.dlq_timestamp.is_some());
+                prep_headers.dlq_timestamp = None;
+                v1_headers.dlq_timestamp = None;
+            }
+            assert_eq!(
+                prep_headers, v1_headers,
+                "headers must match v1 for {destination:?}"
+            );
+        }
+
+        /// The one wire delta the convergence accepts: with fractional
+        /// client timestamps, v1's chrono serializer trims trailing zeros in
+        /// `sent_at` while CapturedEvent's time-crate serializer writes full
+        /// microsecond width. Both are valid RFC3339 and parse to the same
+        /// instant — converging means v1 adopts v0's (CapturedEvent's)
+        /// formatting. Everything else stays byte-identical.
+        #[tokio::test]
+        async fn sent_at_fractional_formatting_delta_is_parse_equal() {
+            let mut ctx = parity_context();
+            ctx.client_timestamp = DateTime::parse_from_rfc3339("2026-03-19T14:29:59.354160Z")
+                .unwrap()
+                .with_timezone(&Utc);
+            let ev = ok_wrapped("$pageview", "user-1");
+
+            let prepared = prepared_for(&ev, &ctx);
+            let v1_payload = SinkEvent::serialize(&ev, &ctx).expect("v1 serialize");
+
+            let mut ours: serde_json::Value = serde_json::from_slice(&prepared.payload).unwrap();
+            let mut theirs: serde_json::Value = serde_json::from_slice(&v1_payload).unwrap();
+            let parse = |v: &serde_json::Value| {
+                DateTime::parse_from_rfc3339(v["sent_at"].as_str().unwrap())
+                    .unwrap()
+                    .with_timezone(&Utc)
+            };
+            assert_eq!(parse(&ours), parse(&theirs), "sent_at must parse equal");
+            ours["sent_at"].take();
+            theirs["sent_at"].take();
+            assert_eq!(ours, theirs, "everything but sent_at must be identical");
+        }
+
+        #[rstest::rstest]
+        #[case::cookieless_external(false)]
+        #[case::cookieless_internal(true)]
+        fn cookieless_key_matches_v1(#[case] capture_internal: bool) {
+            let mut ctx = parity_context();
+            ctx.capture_internal = capture_internal;
+            let mut ev = ok_wrapped("$pageview", "user-1");
+            ev.options.cookieless_mode = Some(true);
+
+            let prepared = prepared_for(&ev, &ctx);
+            assert_eq!(
+                prepared.key.as_deref(),
+                Some(SinkEvent::partition_key(&ev, &ctx).as_str()),
+                "cookieless key must match v1 (internal={capture_internal})"
+            );
+        }
     }
 }
