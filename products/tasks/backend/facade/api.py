@@ -216,6 +216,7 @@ __all__ = [
     "update_task_run_state",
     "upsert_internal_sandbox_env",
     "validate_set_output",
+    "validate_task_run_sandbox_token",
     "validate_task_run_artifact_ids",
     "warm_task_sandbox",
 ]
@@ -2272,6 +2273,31 @@ def _delete_task_session_object(task_session_id: UUID, object_storage_key: str) 
                 "error": str(error),
             },
         )
+
+
+def validate_task_run_sandbox_token(
+    token: str,
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    sandbox_id: str,
+) -> bool:
+    from jwt import InvalidTokenError  # noqa: PLC0415
+
+    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415
+        validate_sandbox_event_ingest_token,
+    )
+
+    try:
+        claims = validate_sandbox_event_ingest_token(token)
+    except (InvalidTokenError, ValueError):
+        return False
+    return (
+        claims.run_id == str(run_id)
+        and claims.task_id == str(task_id)
+        and claims.team_id == team_id
+        and claims.sandbox_id == sandbox_id
+    )
 
 
 def sync_task_run_session(

@@ -19,7 +19,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, ParseError, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import BaseParser
 from rest_framework.permissions import IsAuthenticated
@@ -129,7 +129,19 @@ class OctetStreamParser(BaseParser):
     media_type = "application/octet-stream"
 
     def parse(self, stream, media_type=None, parser_context=None):
-        return stream.read()
+        request = (parser_context or {}).get("request")
+        raw_content_length = request.META.get("CONTENT_LENGTH") if request is not None else None
+        try:
+            content_length = int(raw_content_length)
+        except (TypeError, ValueError) as error:
+            raise ParseError("A valid Content-Length header is required") from error
+        if content_length < 0 or content_length > tasks_facade.TASK_SESSION_MAX_SIZE_BYTES:
+            raise ParseError("The task session content size is invalid")
+
+        content = stream.read(tasks_facade.TASK_SESSION_MAX_SIZE_BYTES + 1)
+        if len(content) > tasks_facade.TASK_SESSION_MAX_SIZE_BYTES:
+            raise ParseError("The task session content size is invalid")
+        return content
 
 
 logger = logging.getLogger(__name__)
@@ -1237,6 +1249,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         sandbox_id = request.headers.get("X-Sandbox-ID")
         if not sandbox_id:
             raise ValidationError({"X-Sandbox-ID": "This header is required."})
+        task_run_token = request.headers.get("X-Task-Run-Token")
+        if not task_run_token or not tasks_facade.validate_task_run_sandbox_token(
+            task_run_token,
+            pk,
+            task_id,
+            self.team_id,
+            sandbox_id,
+        ):
+            raise PermissionDenied("The task run token is invalid")
         if_match = request.headers.get("If-Match")
         if if_match is None:
             raise ValidationError({"If-Match": "This header is required."})

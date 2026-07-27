@@ -174,6 +174,7 @@ class _LaunchParams:
     agentsh_domains: list[str] | None
     protected_base_branch: str | None
     event_ingest_token: str | None
+    task_run_session_token: str | None
     event_ingest_url: str | None
     event_ingest_keep_stream_open: bool
 
@@ -221,15 +222,20 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
             {"task_id": ctx.task_id, "run_id": ctx.run_id},
             cause=TaskRun.DoesNotExist(f"TaskRun {ctx.run_id} not found"),
         )
-    if event_stream_ingest_enabled:
+    task_run_session_token: str | None = None
+    if event_stream_ingest_enabled or task.runtime == Task.Runtime.PI:
         try:
-            event_ingest_token = create_sandbox_event_ingest_token(task_run)
+            run_token = create_sandbox_event_ingest_token(task_run)
         except Exception as e:
             raise SandboxExecutionError(
-                "Failed to create sandbox event ingest token",
+                "Failed to create sandbox task run token",
                 {"task_id": ctx.task_id, "run_id": ctx.run_id, "error": str(e)},
                 cause=e,
             )
+        if event_stream_ingest_enabled:
+            event_ingest_token = run_token
+        if task.runtime == Task.Runtime.PI:
+            task_run_session_token = run_token
 
     mcp_configs = get_sandbox_ph_mcp_configs(
         token=access_token,
@@ -307,6 +313,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         agentsh_domains=agentsh_domains,
         protected_base_branch=protected_base_branch,
         event_ingest_token=event_ingest_token,
+        task_run_session_token=task_run_session_token,
         event_ingest_url=event_ingest_url,
         event_ingest_keep_stream_open=ctx.agent_proxy_keep_stream_open,
     )
@@ -340,6 +347,7 @@ def _invoke_start_agent_server(
             relayed_mcp_servers=params.relayed_mcp_servers or None,
             allowed_domains=params.agentsh_domains,
             event_ingest_token=params.event_ingest_token,
+            task_run_session_token=params.task_run_session_token,
             event_ingest_url=params.event_ingest_url,
             event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,

@@ -54,7 +54,7 @@ def _fake_run(state: dict | None = None) -> TaskRun:
             task_id=uuid.uuid4(),
             team_id=1,
             mode="background",
-            state=state if state is not None else {},
+            state={"sandbox_id": "sandbox-1", **(state or {})},
         ),
     )
 
@@ -111,6 +111,7 @@ class TestSandboxJwtRotation(SimpleTestCase):
         self.assertEqual(jwt.get_unverified_header(token)["kid"], KID_A)
         payload = validate_sandbox_event_ingest_token(token)
         self.assertEqual(payload.team_id, 1)
+        self.assertEqual(payload.sandbox_id, "sandbox-1")
 
     def test_ingest_token_validates_after_primary_rotation(self) -> None:
         # Ingest is rotation-safe: a token signed under the old primary keeps validating after the
@@ -180,7 +181,15 @@ _TASK_ID = "22222222-2222-2222-2222-222222222222"
 
 
 def _fake_task_run() -> TaskRun:
-    return cast(TaskRun, SimpleNamespace(id=_RUN_ID, task_id=_TASK_ID, team_id=7, state={}))
+    return cast(
+        TaskRun,
+        SimpleNamespace(
+            id=_RUN_ID,
+            task_id=_TASK_ID,
+            team_id=7,
+            state={"sandbox_id": "sandbox-1"},
+        ),
+    )
 
 
 @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY, SANDBOX_JWT_PUBLIC_KEY=None)
