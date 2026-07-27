@@ -226,7 +226,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$exception": {
             "label": "Exception",
             "description": "An unexpected error or unhandled exception in your application.",
-            "primary_property": "$exception_type",
+            "primary_property": "$exception_types",
         },
         "$web_vitals": {
             "label": "Web vitals",
@@ -1023,18 +1023,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Exception categorized by severity.",
             "examples": ["error"],
         },
-        "$exception_type": {
-            "label": "Exception type",
-            "description": "Exception categorized into types.",
-            "examples": ["Error"],
-        },
-        "$exception_message": {
-            "label": "Exception message",
-            "description": "The message detected on the error.",
-        },
         "$exception_fingerprint": {
             "label": "Exception fingerprint",
             "description": "A fingerprint used to group issues, can be set clientside.",
+        },
+        "$exception_fingerprint_version": {
+            "label": "Exception fingerprint version",
+            "description": "The version of the fingerprinting algorithm used to group the exception.",
+            "system": True,
         },
         "$exception_fingerprint_record": {
             "label": "Exception fingerprint record",
@@ -1047,11 +1043,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$exception_issue_id": {
             "label": "Exception issue ID",
             "description": "The id of the issue the fingerprint was associated with at ingest time.",
-        },
-        "$exception_source": {
-            "label": "Exception source",
-            "description": "The source of the exception.",
-            "examples": ["JS file"],
         },
         "$exception_lineno": {
             "label": "Exception source line number",
