@@ -214,11 +214,11 @@ wrappers:
         description_file: ./prompts/query-web-overview.md
         system_prompt_hint: Web analytics KPIs — visitors, sessions, bounce rate, session duration
         ui_resource_uri: ui://posthog/query-results.html
-        use_optimized_output: false
         exclude_properties:
             - response
             - modifiers
             - samplingFactor
+        use_optimized_output: false
     query-web-stats:
         schema_ref: AssistantWebStatsTableQuery
         enabled: true
@@ -232,11 +232,11 @@ wrappers:
         description_file: ./prompts/query-web-stats.md
         system_prompt_hint: Web analytics breakdowns — top pages, UTMs, devices, countries, with bounce rate
         ui_resource_uri: ui://posthog/query-results.html
-        use_optimized_output: false
         exclude_properties:
             - response
             - modifiers
             - samplingFactor
+        use_optimized_output: false
     query-web-vitals:
         schema_ref: AssistantWebVitalsPathBreakdownQuery
         enabled: true
@@ -250,8 +250,8 @@ wrappers:
         description_file: ./prompts/query-web-vitals.md
         system_prompt_hint: Core Web Vitals per page — LCP, INP, CLS, FCP bucketed into good / needs-improvement / poor
         ui_resource_uri: ui://posthog/query-results.html
-        use_optimized_output: false
         exclude_properties:
             - response
             - modifiers
             - samplingFactor
+        use_optimized_output: false
