@@ -455,6 +455,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "type: event|person|group}. "
             "function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable "
             "hog templating ({person.x}, {event.x}); flat strings won't interpolate. "
+            "function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open "
+            "pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, "
+            "so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). "
             "Dictionary input values are template strings too — write booleans/numbers as single-expression "
             "templates ('{true}', '{42}'), which evaluate to the typed value. "
             "delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; "
@@ -2238,7 +2241,9 @@ class HogFlowViewSet(
 
     def _maybe_reschedule_timing_edits(self, before: Optional[HogFlow], after: HogFlow) -> None:
         """Kick off a reschedule sweep of parked runs when a go-live config change could move
-        their wake times earlier (issue #66380): shortened delays and moved wait windows.
+        their wake times earlier or change what they resolve to (issue #66380): shortened
+        delays, moved wait windows, edited wait conditions, and deleted timing steps (whose
+        parked runs should skip forward or exit now, not at their old wake time).
 
         Called wherever the LIVE config changes - a direct save (the builder path, where save
         is go-live), the graph endpoint, or publish - and never for draft writes, which don't

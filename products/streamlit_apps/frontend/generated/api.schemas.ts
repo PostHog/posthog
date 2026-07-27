@@ -28,7 +28,7 @@ export interface StreamlitAppUserInfoApi {
     role_at_organization: string | null
 }
 
-export interface AppContractApi {
+export interface AppSummaryContractApi {
     /** User who created this app. */
     created_by?: StreamlitAppUserInfoApi | null
     id: string
@@ -42,13 +42,13 @@ export interface AppContractApi {
     updated_at: string
 }
 
-export interface PaginatedAppContractListApi {
+export interface PaginatedAppSummaryContractListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: AppContractApi[]
+    results: AppSummaryContractApi[]
 }
 
 export interface CreateAppInputApi {
@@ -60,6 +60,47 @@ export interface CreateAppInputApi {
     cpu_cores?: number
     /** Memory in GB allocated to the sandbox. */
     memory_gb?: number
+}
+
+export interface AppVersionContractApi {
+    /** User who uploaded this version. */
+    created_by?: StreamlitAppUserInfoApi | null
+    id: string
+    version_number: number
+    zip_hash: string
+    /** @nullable */
+    snapshot_id: string | null
+    created_at: string
+}
+
+export interface AppSandboxContractApi {
+    status: string
+    restart_count: number
+    last_error: string
+    /** @nullable */
+    started_at: string | null
+    /** @nullable */
+    last_activity_at: string | null
+    /** @nullable */
+    version_number: number | null
+}
+
+export interface AppContractApi {
+    /** User who created this app. */
+    created_by?: StreamlitAppUserInfoApi | null
+    /** Currently active version, or null if none uploaded yet. */
+    active_version?: AppVersionContractApi | null
+    /** Current sandbox state, or null if the app has never started. */
+    sandbox?: AppSandboxContractApi | null
+    id: string
+    short_id: string
+    name: string
+    description: string
+    cpu_cores: number
+    memory_gb: number
+    status: string
+    created_at: string
+    updated_at: string
 }
 
 export interface UpdateAppInputApi {
@@ -87,17 +128,6 @@ export interface PatchedUpdateAppInputApi {
 export interface ActivateVersionRequestApi {
     /** Version number to activate. Must reference an existing version of this app. */
     version_number: number
-}
-
-export interface AppVersionContractApi {
-    /** User who uploaded this version. */
-    created_by?: StreamlitAppUserInfoApi | null
-    id: string
-    version_number: number
-    zip_hash: string
-    /** @nullable */
-    snapshot_id: string | null
-    created_at: string
 }
 
 export interface ActivateVersionResponseApi {
