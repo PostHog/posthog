@@ -200,6 +200,8 @@ export interface llmSkillsLogicValues {
     connectModalOpen: boolean
     count: number
     filters: SkillFilters
+    githubLogin: string | null
+    githubLoginLoading: boolean
     groupedSkills: SkillGroupTree | null
     importing: boolean
     issuingCredential: boolean
@@ -207,6 +209,7 @@ export interface llmSkillsLogicValues {
     marketplaceLoading: boolean
     marketplaceState: LLMSkillMarketplaceCommandApi | null
     pagination: PaginationManual | undefined
+    publishingSkills: Record<string, boolean>
     rawFilters: Partial<SkillFilters> | null
     skillCountLabel: string
     skills: PaginatedLLMSkillListListApi
@@ -235,6 +238,21 @@ export interface llmSkillsLogicActions {
     issueMarketplaceCommand: (rotate?: boolean) => {
         rotate: boolean
     }
+    loadGithubLogin: () => any
+    loadGithubLoginFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadGithubLoginSuccess: (
+        githubLogin: string | null,
+        payload?: any
+    ) => {
+        githubLogin: string | null
+        payload?: any
+    }
     loadMarketplaceState: () => {
         value: true
     }
@@ -258,6 +276,27 @@ export interface llmSkillsLogicActions {
         payload?: {
             debounce: boolean
         }
+    }
+    publishToCommunity: (
+        skillName: string,
+        options: {
+            author_handle?: string
+            display_name?: string
+            tags?: string[]
+        }
+    ) => {
+        options: {
+            author_handle?: string | undefined
+            display_name?: string | undefined
+            tags?: string[] | undefined
+        }
+        skillName: string
+    }
+    publishToCommunityFailure: (skillName: string) => {
+        skillName: string
+    }
+    publishToCommunitySuccess: (skillName: string) => {
+        skillName: string
     }
     setActiveTab: (tabKey: string) => {
         tabKey: string
