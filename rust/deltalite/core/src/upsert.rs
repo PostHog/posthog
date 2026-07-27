@@ -862,7 +862,10 @@ fn ensure_supported_table(table: &DeltaTable) -> Result<()> {
     // CHECK constraints (`delta.constraints.<name>`) and column invariants are enforced by
     // delta-rs's merge/write path, not by the raw `RecordBatchWriter` deltalite uses, so a
     // rewrite could persist rows violating them. Refuse rather than write unchecked data.
-    if let Some(name) = config.keys().find_map(|k| k.strip_prefix("delta.constraints.")) {
+    if let Some(name) = config
+        .keys()
+        .find_map(|k| k.strip_prefix("delta.constraints."))
+    {
         return Err(Error::Unsupported(format!(
             "table declares CHECK constraint '{name}'; deltalite's writer does not enforce \
              constraints and could persist violating rows"
@@ -1906,11 +1909,20 @@ mod tests {
     #[test]
     fn batch_rows_bounds_decoded_size_by_bytes_per_row() {
         // Narrow rows: read the full cap.
-        assert_eq!(batch_rows_for_bytes_per_row(100, 4 * 1024 * 1024, 8192), 8192);
+        assert_eq!(
+            batch_rows_for_bytes_per_row(100, 4 * 1024 * 1024, 8192),
+            8192
+        );
         // Wide/compressible rows: shrink the batch so its decoded size stays near target.
-        assert_eq!(batch_rows_for_bytes_per_row(1024 * 1024, 4 * 1024 * 1024, 8192), 4);
+        assert_eq!(
+            batch_rows_for_bytes_per_row(1024 * 1024, 4 * 1024 * 1024, 8192),
+            4
+        );
         // Pathologically wide rows never drop below one row.
-        assert_eq!(batch_rows_for_bytes_per_row(64 * 1024 * 1024, 4 * 1024 * 1024, 8192), 1);
+        assert_eq!(
+            batch_rows_for_bytes_per_row(64 * 1024 * 1024, 4 * 1024 * 1024, 8192),
+            1
+        );
         // No usable metadata falls back to the cap (but at least one row).
         assert_eq!(batch_rows_for_bytes_per_row(0, 4 * 1024 * 1024, 8192), 8192);
         assert_eq!(batch_rows_for_bytes_per_row(0, 4 * 1024 * 1024, 0), 1);
