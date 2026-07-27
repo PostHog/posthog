@@ -130,10 +130,10 @@ export interface workflowsLogicActions {
         errorObject?: any
     }
     loadWorkflowsSuccess: (
-        workflows: WorkflowsResult,
+        workflows: CountedPaginatedResponse<HogFlow>,
         payload?: {}
     ) => {
-        workflows: WorkflowsResult
+        workflows: CountedPaginatedResponse<HogFlow>
         payload?: {}
     }
     restoreWorkflow: (workflow: HogFlow) => {
@@ -165,7 +165,7 @@ export interface workflowsLogicActions {
         replace?: boolean
     ) => {
         filters: Partial<WorkflowsFilters>
-        replace?: boolean
+        replace: boolean | undefined
     }
     toggleArchivedWorkflowSelection: (id: string) => {
         id: string

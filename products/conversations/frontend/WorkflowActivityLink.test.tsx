@@ -14,10 +14,13 @@ describe('WorkflowActivityLink', () => {
         logic = workflowsLogic()
         logic.mount()
         // Populate via the loader success so the on-mount effect doesn't fire a real request.
-        logic.actions.loadWorkflowsSuccess([
-            { id: 'flow-1', name: 'Escalation workflow' },
-            { id: 'flow-2', name: 'Billing workflow' },
-        ] as any)
+        logic.actions.loadWorkflowsSuccess({
+            results: [
+                { id: 'flow-1', name: 'Escalation workflow' },
+                { id: 'flow-2', name: 'Billing workflow' },
+            ],
+            count: 2,
+        } as any)
     })
 
     afterEach(() => {
