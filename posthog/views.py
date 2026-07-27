@@ -759,6 +759,11 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         if EMAIL_TRACKING_PREFERENCE_ID not in preferences_dict and EMAIL_TRACKING_PREFERENCE_ID in prior_preferences:
             preferences_dict[EMAIL_TRACKING_PREFERENCE_ID] = prior_preferences[EMAIL_TRACKING_PREFERENCE_ID]
 
+        # A tracking-only save (no category toggles rendered, e.g. a team without marketing
+        # categories) must not rebuild subscription state - it would drop a stored $all opt-out
+        if not subscription_prefs:
+            preferences_dict = {**prior_preferences, **preferences_dict}
+
         # Update all preferences with a single DB write
         recipient.preferences = preferences_dict
         recipient.save()

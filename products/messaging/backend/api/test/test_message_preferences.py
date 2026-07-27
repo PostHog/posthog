@@ -347,6 +347,27 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertNotIn(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, prefs)
 
     @patch("posthog.views.validate_messaging_preferences_token")
+    def test_tracking_only_save_preserves_stored_all_opt_out(self, mock_validate_messaging_preferences_token):
+        # A tracking-only payload (no category toggles rendered) must not rebuild
+        # subscription state and silently resubscribe a one-click-unsubscribed recipient
+        self.recipient.preferences = {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value}
+        self.recipient.save()
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+        )
+
+        response = self.client.post(
+            reverse("message_preferences_update"),
+            {"token": self.token, "preferences[]": [f"{EMAIL_TRACKING_PREFERENCE_ID}:false"]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.recipient.refresh_from_db()
+        prefs = self.recipient.get_all_preferences()
+        self.assertEqual(prefs[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT)
+        self.assertEqual(prefs[EMAIL_TRACKING_PREFERENCE_ID], PreferenceStatus.OPTED_OUT)
+
+    @patch("posthog.views.validate_messaging_preferences_token")
     def test_tracking_opt_in_does_not_block_all_unsubscribe(self, mock_validate_messaging_preferences_token):
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
