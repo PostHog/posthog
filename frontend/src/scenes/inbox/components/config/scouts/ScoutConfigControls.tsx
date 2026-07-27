@@ -209,6 +209,12 @@ function ScoutSlackDestination({
         })
     }
 
+    const disableSlack = (): void => {
+        onUpdate(config.id, { output_destinations: {} })
+    }
+
+    const hasChannel = Boolean(destination?.channel)
+
     return (
         <div className="flex flex-col gap-2 border-t border-primary pt-2">
             <div className="flex flex-col min-w-0">
@@ -237,15 +243,32 @@ function ScoutSlackDestination({
                         />
                     ) : null}
                     {selectedIntegration ? (
-                        <SlackChannelPicker
-                            integration={selectedIntegration}
-                            value={configuredIntegration ? (destination?.channel ?? undefined) : undefined}
-                            onChange={selectChannel}
-                            disabled={updating || disabledReason !== undefined}
-                        />
+                        <div className="flex items-center gap-2">
+                            <div className="flex-1 min-w-0">
+                                <SlackChannelPicker
+                                    integration={selectedIntegration}
+                                    value={configuredIntegration ? (destination?.channel ?? undefined) : undefined}
+                                    onChange={selectChannel}
+                                    disabled={updating || disabledReason !== undefined}
+                                />
+                            </div>
+                            {hasChannel ? (
+                                <LemonButton
+                                    size="small"
+                                    icon={<IconTrash />}
+                                    onClick={disableSlack}
+                                    tooltip="Turn off Slack notifications for this scout"
+                                    disabledReason={disabledReason ?? (updating ? 'Saving…' : undefined)}
+                                    aria-label="Turn off Slack notifications"
+                                />
+                            ) : null}
+                        </div>
                     ) : null}
                     <span className="text-[11.5px] text-muted">
-                        PostHog must be in the channel. Invite it with <code>/invite @PostHog</code>.
+                        {hasChannel
+                            ? 'PostHog must be in the channel. Invite it with '
+                            : 'Pick a channel to turn notifications on. PostHog must be in the channel — invite it with '}
+                        <code>/invite @PostHog</code>.
                     </span>
                 </div>
             )}
