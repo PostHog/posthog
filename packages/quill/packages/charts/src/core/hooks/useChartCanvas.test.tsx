@@ -1,7 +1,7 @@
-import { act, render } from '@testing-library/react'
+import { act } from '@testing-library/react'
 import React from 'react'
 
-import { ensureJsdom } from '../../testing'
+import { renderHogChart } from '../../testing'
 import { Chart } from '../Chart'
 import type { ChartDrawArgs, ChartScales, ChartTheme, Series } from '../types'
 
@@ -18,8 +18,7 @@ const createScales = (): ChartScales => ({
 })
 
 function renderChart(drawStatic: (args: ChartDrawArgs) => void): HTMLCanvasElement {
-    ensureJsdom()
-    const { container } = render(
+    const { chart } = renderHogChart(
         <Chart
             series={SERIES}
             labels={LABELS}
@@ -29,22 +28,27 @@ function renderChart(drawStatic: (args: ChartDrawArgs) => void): HTMLCanvasEleme
             drawHover={() => false}
         />
     )
-    return container.querySelector('canvas')!
+    return chart.canvas
 }
 
 describe('useChartCanvas', () => {
-    it('repaints after a lost 2D context is restored', () => {
+    it('repaints against a restored backing store after the 2D context is lost', () => {
         const drawStatic = jest.fn()
         const canvas = renderChart(drawStatic)
         expect(drawStatic).toHaveBeenCalled()
 
-        // A restored context comes back with a blank bitmap and nothing else changes — no resize, no
-        // new data — so without this the canvas stays empty while every DOM overlay keeps rendering.
+        // A restored context comes back with a blank bitmap and nothing else changes — no resize,
+        // no new data — so the repaint has to be driven off the event itself.
         drawStatic.mockClear()
         act(() => {
             canvas.dispatchEvent(new Event('contextrestored'))
         })
 
         expect(drawStatic).toHaveBeenCalled()
+        // Repainting is only useful if the backing store came back with it: the handler zeroes
+        // `canvas.width` to force the resize path, so a repaint that skipped restoring the size
+        // would leave the canvas just as blank.
+        expect(canvas.width).toBe(800)
+        expect(canvas.style.width).toBe('800px')
     })
 })

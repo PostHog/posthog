@@ -53,12 +53,10 @@ const series: Series[] = [
 
 Charts fill their container and need a parent with real dimensions — a `0`-height flex child renders nothing. Give the wrapper an explicit height (`h-64`, `flex-1` in a sized column). Sparkline alone takes `height`/`width` props.
 
-A container too small to hold the axis margins leaves the plot area at zero, and the draw loops skip such a frame instead of clearing the canvas and painting nothing. When the container itself doesn't resize (only `margins` shrinking the plot box) the canvas bitmap is untouched, so the chart keeps its last drawn frame rather than going blank while its DOM axis labels stay put. A container resize is different: `syncCanvasSize` reallocates and wipes the bitmap for the new rect before the draw loop's skip check ever runs, so a chart resized down to zero plot area shows an empty canvas, not its last frame, until it's resized back to something drawable.
-Growing the container back repaints normally.
-
 Overlays (axis labels, axis titles, reference/goal lines, value labels, legend, tooltip) are DOM, positioned from the scales; the grid, axis lines, tick marks, and the series themselves are canvas.
-So "labels and goal lines render but the plot is empty" means the canvas specifically failed or the container was resized below the axis margins — not that the chart is otherwise mis-sized.
-The two ways the canvas can fail while sized correctly are a bitmap discarded without a repaint (a lost-and-restored 2D context) and a draw that painted nothing; both are handled in `useChartCanvas` / `useChartDraw`.
+That split is the first thing to check when a chart looks broken: if the labels and goal lines render in the right places but the plot area is empty, the layout is fine and the canvas alone failed.
+The bitmap is only ever discarded by `syncCanvasSize` reallocating it (a real resize) or by the browser losing the 2D context, and `useChartCanvas` repaints after both — a blank plot under correct overlays means one of those two paths didn't schedule its repaint.
+Note the browser does not report a lost 2D context everywhere: Firefox 125+ and Chrome 99+ fire `contextrestored`, Safari doesn't fire it at all, so a context lost on Safari stays blank.
 
 ## Composition
 
@@ -102,7 +100,7 @@ The two ways the canvas can fail while sized correctly are a bitmap discarded wi
 
 Import test helpers from `@posthog/quill-charts/testing` (jsdom-only).
 
-- `getHogChart(scope?)` reads rendered overlays via stable `data-attr` hooks — `yTicks()`, `xTicks()`, `valueLabels()`, `referenceLines()`, axis titles, `seriesCount`, etc. Its `waitForTooltip()` returns a structured `TooltipSnapshot` but only when the chart was mounted via `renderHogChart` (it needs the captured tooltip context).
+- `getHogChart(scope?)` reads rendered overlays via stable `data-attr` hooks — `yTicks()`, `xTicks()`, `valueLabels()`, `referenceLines()`, axis titles, `seriesCount`, etc. Its `waitForTooltip()` returns a structured `TooltipSnapshot` but only when the chart was mounted via `renderHogChart` (it needs the captured tooltip context). `canvas` is the static (data) canvas, for asserting the backing store or dispatching a canvas-level event — use it instead of `container.querySelector('canvas')`.
 - For a chart rendered outside `renderHogChart` (e.g. a real product scene), read the tooltip from the DOM: `getHogChartTooltip()` / `waitForHogChartTooltip()` return the portal element; `createHogChartTooltip(el)` wraps it as `{ element, isPinned }`. If the chart renders the built-in `DefaultTooltip`, use `createDefaultTooltipAccessor(el)` for `label()`, `rows()`, `value(seriesLabel)`, `swatchColors()`, and `total()` — it reads `DefaultTooltip`'s `data-attr="hog-chart-tooltip-*"` hooks (a stable testing contract; keep the accessor and the component's attrs in sync).
 
 ## Maintenance

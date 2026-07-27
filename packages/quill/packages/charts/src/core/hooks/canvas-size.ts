@@ -69,18 +69,3 @@ export function sameDimensions(a: ChartDimensions, b: ChartDimensions): boolean 
         a.plotHeight === b.plotHeight
     )
 }
-
-/** Whether a frame drawn against these dimensions can produce a picture. Canvas silently no-ops
- *  on non-finite coordinates, and a zero-or-negative plot box clips the series away — either way
- *  the draw loop would clear the canvas and paint nothing, so callers skip the frame and leave the
- *  last good one on screen instead. */
-export function isDrawableDimensions(dimensions: ChartDimensions): boolean {
-    return (
-        Number.isFinite(dimensions.width) &&
-        Number.isFinite(dimensions.height) &&
-        Number.isFinite(dimensions.plotLeft) &&
-        Number.isFinite(dimensions.plotTop) &&
-        dimensions.plotWidth > 0 &&
-        dimensions.plotHeight > 0
-    )
-}

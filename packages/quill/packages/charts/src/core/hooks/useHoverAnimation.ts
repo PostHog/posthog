@@ -10,7 +10,6 @@ import type {
     DrawHoverResult,
     ResolvedSeries,
 } from '../types'
-import { isDrawableDimensions } from './canvas-size'
 import { clearAndPrepare } from './clearCanvas'
 import { useLatest } from './useLatest'
 
@@ -71,7 +70,7 @@ export function useHoverAnimation({
             cancelAnimationFrame(hoverRafRef.current)
             hoverRafRef.current = null
         }
-        if (!overlayCtx || !dimensions || !scales || themeRef.current.skipDraw || !isDrawableDimensions(dimensions)) {
+        if (!overlayCtx || !dimensions || !scales || themeRef.current.skipDraw) {
             return
         }
         // Restart the fade on hoverIndex change — invalidate drewVisible too so the next

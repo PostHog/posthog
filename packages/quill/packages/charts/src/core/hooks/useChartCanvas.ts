@@ -66,9 +66,11 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
             const staticWiped = syncCanvasSize(canvas, rect, dpr)
             const overlayWiped = syncCanvasSize(overlayCanvas, rect, dpr)
 
-            // Publish new state only when something the draw loops depend on moved, or when a
-            // reallocation wiped a bitmap that now has to be repainted (a device-pixel-ratio
-            // change leaves the CSS size, and therefore the dimensions, untouched).
+            // The draw loops key on `dimensions` *identity*, so publishing a fresh object is what
+            // schedules a repaint. That matters when a reallocation wiped a bitmap without moving
+            // any value (a device-pixel-ratio change, or the `contextrestored` path below): the
+            // wipe flags are the only reason a new object goes out. Reusing `prev.dimensions` when
+            // the values match would silently reinstate the blank canvas.
             const next = buildDimensions(rect, marginsRef.current)
             setCanvasState((prev) =>
                 prev &&
@@ -95,16 +97,22 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         // dimensions. Zeroing the backing size makes `updateSize` treat it as a real resize, which
         // repaints. `contextlost` is deliberately not handled: preventing its default tells the
         // browser we'll restore the context ourselves, and then it never restores.
-        const onContextRestored = (event: Event): void => {
-            ;(event.currentTarget as HTMLCanvasElement).width = 0
-            updateSize()
-        }
-        const canvases = [canvasRef.current, overlayCanvasRef.current]
-        canvases.forEach((canvas) => canvas?.addEventListener('contextrestored', onContextRestored))
+        const restoreListeners = [canvasRef.current, overlayCanvasRef.current]
+            .filter((canvas): canvas is HTMLCanvasElement => !!canvas)
+            .map((canvas) => {
+                const onContextRestored = (): void => {
+                    canvas.width = 0
+                    updateSize()
+                }
+                canvas.addEventListener('contextrestored', onContextRestored)
+                return { canvas, onContextRestored }
+            })
 
         return () => {
             observer.disconnect()
-            canvases.forEach((canvas) => canvas?.removeEventListener('contextrestored', onContextRestored))
+            restoreListeners.forEach(({ canvas, onContextRestored }) =>
+                canvas.removeEventListener('contextrestored', onContextRestored)
+            )
         }
         // Bind the observer once. `marginsRef` is a ref so `updateSize` always reads the
         // latest margins; depending on `marginsRef.current` here would disconnect and re-run
