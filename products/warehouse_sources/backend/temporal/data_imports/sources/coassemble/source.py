@@ -33,7 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CoassembleSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coassemble import (
+    CoassembleSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -103,12 +105,17 @@ You can generate an API key from your workspace API settings in [Coassemble](htt
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — see the rationale in settings.py.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: CoassembleSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CoassembleSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is workspace-wide, so a single probe validates access to every schema.
         return validate_credentials(config.workspace_id, config.api_key)

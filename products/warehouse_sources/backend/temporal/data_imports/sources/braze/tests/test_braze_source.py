@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braze.sett
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.source import BrazeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BrazeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braze import BrazeSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 BASE_URL = "https://rest.iad-01.braze.com"

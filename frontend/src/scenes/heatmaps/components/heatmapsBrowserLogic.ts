@@ -25,7 +25,9 @@ import {
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { CommonFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { PostHogAppToolbarEvent, calculateViewportRange } from 'lib/components/IframedToolbarBrowser/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -85,6 +87,7 @@ export const normalizeHeatmapDataUrl = (
 export interface heatmapsBrowserLogicValues {
     checkUrlIsAuthorized: (url: string) => boolean // authorizedUrlListLogic
     urlsKeyed: KeyedAppUrl[] // authorizedUrlListLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     commonFilters: CommonFilters // heatmapDataLogic
     heatmapColorPalette: string | null // heatmapDataLogic
     heatmapEmpty: boolean // heatmapDataLogic
@@ -254,7 +257,10 @@ export interface heatmapsBrowserLogicMeta {
                 | null,
             browserSearchTerm: string
         ) => string[] | null
-        isBrowserUrlAuthorized: (dataUrl: string | null, checkUrlIsAuthorized: (url: string) => boolean) => boolean
+        isBrowserUrlAuthorized: (
+            dataUrl: string | null,
+            checkUrlIsAuthorized: (url: string) => boolean // authorizedUrlListLogic
+        ) => boolean
         isBrowserUrlValid: (dataUrl: string | null) => boolean
         viewportRange: (
             heatmapFilters: HeatmapFilters,
@@ -305,6 +311,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 'heatmapFixedPositionMode',
                 'heatmapColorPalette',
             ],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             heatmapDataLogic({ context: 'in-app' }),
@@ -612,7 +620,11 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
         setDataUrl: ({ url }) => {
             actions.maybeLoadTopUrls()
-            if (router.values.location.pathname === '/heatmaps/new') {
+            // the creation wizard drives its own preview, so it must not push the data URL into the shared href
+            if (
+                values.featureFlags[FEATURE_FLAGS.HEATMAPS_CREATION_FLOW] &&
+                router.values.location.pathname === '/heatmaps/new'
+            ) {
                 return
             }
             const normalized = normalizeHeatmapDataUrl(url)
@@ -703,38 +715,52 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => ({
-        setDisplayUrl: ({ url }) => {
-            const searchParams = { ...router.values.searchParams, pageURL: url }
-            if (!url || url.trim() === '') {
+    actionToUrl(({ values }) => {
+        const currentUrlSearchParams = (): Record<string, any> => {
+            const searchParams = { ...router.values.searchParams }
+            if (values.displayUrl?.trim()) {
+                searchParams.pageURL = values.displayUrl
+            } else {
                 delete searchParams.pageURL
             }
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-        },
-        setDataUrl: ({ url }) => {
-            const searchParams = { ...router.values.searchParams, dataUrl: url }
-            if (!url || url.trim() === '') {
+            if (values.dataUrl?.trim()) {
+                searchParams.dataUrl = values.dataUrl
+            } else {
                 delete searchParams.dataUrl
             }
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-        },
-        patchHeatmapFilters: () => {
-            const searchParams = { ...router.values.searchParams, heatmapFilters: values.heatmapFilters }
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-        },
-        setHeatmapColorPalette: ({ palette }) => {
-            const searchParams = { ...router.values.searchParams, heatmapPalette: palette }
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-        },
-        setHeatmapFixedPositionMode: ({ mode }) => {
-            const searchParams = { ...router.values.searchParams, heatmapFixedPositionMode: mode }
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-        },
-        setCommonFilters: ({ filters }) => {
-            const searchParams = { ...router.values.searchParams, commonFilters: filters }
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-        },
-    })),
+            return searchParams
+        }
+        return {
+            setDisplayUrl: () => [
+                router.values.location.pathname,
+                currentUrlSearchParams(),
+                router.values.hashParams,
+                { replace: true },
+            ],
+            setDataUrl: () => [
+                router.values.location.pathname,
+                currentUrlSearchParams(),
+                router.values.hashParams,
+                { replace: true },
+            ],
+            patchHeatmapFilters: () => {
+                const searchParams = { ...router.values.searchParams, heatmapFilters: values.heatmapFilters }
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
+            setHeatmapColorPalette: ({ palette }) => {
+                const searchParams = { ...router.values.searchParams, heatmapPalette: palette }
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
+            setHeatmapFixedPositionMode: ({ mode }) => {
+                const searchParams = { ...router.values.searchParams, heatmapFixedPositionMode: mode }
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
+            setCommonFilters: ({ filters }) => {
+                const searchParams = { ...router.values.searchParams, commonFilters: filters }
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
+        }
+    }),
 
     beforeUnmount(() => {
         // Disposables handle cleanup automatically

@@ -496,6 +496,56 @@ class TestRunEvaluationWorkflow:
         assert "$ai_model" not in props
         assert "$ai_provider" not in props
 
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_emit_evaluation_event_activity_sentiment_skipped_omits_sentiment_props(self, setup_data):
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Sentiment Evaluation",
+            "evaluation_type": "sentiment",
+        }
+        event_data = create_mock_event_data(team.id, properties={"$ai_trace_id": "trace-1"})
+        result: EvaluationActivityResult = {
+            "result_type": "sentiment",
+            "reasoning": "No user messages found; sentiment evaluation skipped.",
+            "skipped": True,
+            "skip_reason": "no_user_messages",
+        }
+
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
+        ) as mock_team_get:
+            with patch(
+                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal"
+            ) as mock_capture:
+                mock_team_get.return_value = team
+                mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
+
+                await emit_evaluation_event_activity(
+                    EmitEvaluationEventInputs(
+                        evaluation=evaluation,
+                        event_data=event_data,
+                        result=result,
+                        start_time=datetime(2024, 1, 1, 12, 0, 0),
+                    )
+                )
+
+                props = mock_capture.call_args[1]["properties"]
+
+        assert props["$ai_evaluation_result_type"] == "sentiment"
+        assert props["$ai_evaluation_skipped"] is True
+        assert props["$ai_evaluation_skip_reason"] == "no_user_messages"
+        assert "$ai_sentiment_label" not in props
+        assert "$ai_sentiment_score" not in props
+        assert "$ai_sentiment_scores" not in props
+        assert "$ai_sentiment_messages" not in props
+        assert "$ai_sentiment_message_count" not in props
+        assert "$ai_evaluation_result" not in props
+        assert "$ai_evaluation_allows_na" not in props
+
     def test_parse_inputs(self):
         """Test that parse_inputs correctly parses workflow inputs"""
         event_data = create_mock_event_data(team_id=1)
@@ -1451,7 +1501,12 @@ class TestExecuteHogEvalActivity:
 
         from posthog.cdp.validation import compile_hog
 
-        source = "let out := output; if (out == 'test output') { return true } return false"
+        source = """
+            return output == 'test output'
+                and length(evaluation_events) == 1
+                and evaluation_events.1.output == output
+                and target.type == 'generation'
+        """
         bytecode = compile_hog(source, "destination")
 
         evaluation = {
@@ -1721,7 +1776,7 @@ class TestExecuteSentimentEvalActivity:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_sentiment_eval_defaults_to_neutral_without_user_messages(self, setup_data):
+    async def test_sentiment_eval_skips_without_user_messages(self, setup_data):
         team = setup_data["team"]
         evaluation = {
             "id": str(setup_data["evaluation"].id),
@@ -1741,9 +1796,38 @@ class TestExecuteSentimentEvalActivity:
             result = await execute_sentiment_eval_activity(evaluation, event_data)
 
         mock_classify.assert_not_called()
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "no_user_messages"
+        assert result["result_type"] == "sentiment"
         assert "verdict" not in result
-        assert result["sentiment_label"] == "neutral"
-        assert result["sentiment_message_count"] == 0
+        assert "sentiment_label" not in result
+        assert "sentiment_message_count" not in result
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_sentiment_eval_skips_when_classifier_returns_nothing(self, setup_data):
+        team = setup_data["team"]
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Sentiment Eval",
+            "evaluation_type": "sentiment",
+            "evaluation_config": {"source": "user_messages"},
+            "output_type": "sentiment",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        event_data = create_mock_event_data(
+            team.id,
+            properties={"$ai_input": [{"role": "user", "content": "hello there"}]},
+        )
+
+        with patch("posthog.temporal.ai_observability.sentiment.model.classify", return_value=[]):
+            result = await execute_sentiment_eval_activity(evaluation, event_data)
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "no_classifications"
+        assert result["result_type"] == "sentiment"
+        assert "sentiment_label" not in result
 
 
 class TestEvalResultModels:
@@ -1782,6 +1866,19 @@ class TestRunHogEvalAllowsNA:
 
     def _event_data(self) -> dict[str, Any]:
         return create_mock_event_data(team_id=1)
+
+    @patch("posthog.temporal.ai_observability.evaluation_hog.execute_hog_eval_bytecode")
+    def test_saved_generation_source_only_builds_compatibility_globals(self, mock_execute):
+        mock_execute.return_value = {"verdict": True, "reasoning": "", "error": None}
+        bytecode = self.compile_hog(
+            "return output == 'evaluation_events' or output == 'target'",
+            "destination",
+        )
+
+        run_hog_eval(bytecode, self._event_data())
+
+        globals_dict = mock_execute.call_args.args[1]
+        assert set(globals_dict) == {"input", "output", "properties", "event"}
 
     @parameterized.expand(
         [

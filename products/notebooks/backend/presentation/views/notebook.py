@@ -72,12 +72,14 @@ from products.notebooks.backend.sql_v2 import (
     is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
+from products.notebooks.backend.sql_v2_direct import enqueue_direct_run, sync_direct_run
 from products.notebooks.backend.sql_v2_references import (
     SQLV2Ref,
     SQLV2ReferenceError,
     resolve_python_node_inputs,
     resolve_sql_node_run,
 )
+from products.notebooks.backend.sql_v2_runs import finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
     NotebookSQLV2PageRequestSerializer,
     NotebookSQLV2RunRequestSerializer,
@@ -109,9 +111,9 @@ def classify_request_source(request: Request) -> tuple[str, dict[str, str | None
     """Classify a notebook request as a browser action (``ui``) vs a programmatic client (``mcp``/API).
 
     Session-cookie requests are the browser; anything else (personal API key, OAuth app) is a
-    programmatic client. The PostHog MCP server forwards the client identity so PostHog Code can be
+    programmatic client. The PostHog MCP server forwards the client identity so PostHog Desktop can be
     told apart from a customer's own MCP client: ``mcp_consumer`` is ``posthog-code``/``posthog-cli``
-    for first-party PostHog Code, and ``mcp_oauth_client`` is the OAuth app name (e.g. Claude) for
+    for first-party PostHog Desktop, and ``mcp_oauth_client`` is the OAuth app name (e.g. Claude) for
     third-party clients. Shared by the create and read events."""
     authenticator = getattr(request, "successful_authenticator", None)
     if authenticator is None or isinstance(authenticator, SessionAuthentication):
@@ -1086,23 +1088,28 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
 
         try:
-            start_sql_v2_run_workflow(
-                SQLV2RunInput(
-                    run_id=str(run.id),
-                    notebook_short_id=notebook.short_id,
-                    team_id=self.team_id,
-                    user_id=user.id if isinstance(user, User) else None,
-                    code=run_code,
-                    node_type=node_type,
-                    output_name=output_name,
-                    inputs=inputs,
+            if node_type == NotebookNodeRun.NodeType.HOGQL:
+                # Direct lane: a pure-HogQL run never touches the sandbox — it rides the
+                # async query manager, and the run-result poll advances the row.
+                enqueue_direct_run(self.team, user if isinstance(user, User) else None, run)
+            else:
+                start_sql_v2_run_workflow(
+                    SQLV2RunInput(
+                        run_id=str(run.id),
+                        notebook_short_id=notebook.short_id,
+                        team_id=self.team_id,
+                        user_id=user.id if isinstance(user, User) else None,
+                        code=run_code,
+                        node_type=node_type,
+                        output_name=output_name,
+                        inputs=inputs,
+                    )
                 )
-            )
         except Exception:
             logger.exception("notebook_sql_v2_run_start_failed", notebook_short_id=notebook.short_id)
-            run.status = NotebookNodeRun.Status.FAILED
-            run.error = "Failed to start run."
-            run.save(update_fields=["status", "error", "updated_at"])
+            # Status-guarded: a dispatch that partially started before raising could still
+            # deliver a callback, which must keep the row and stay the only reporter.
+            finish_node_run(run, NotebookNodeRun.Status.FAILED, error="Failed to start run.")
             return Response({"detail": "Failed to start run."}, status=503)
 
         return Response({"run_id": str(run.id)})
@@ -1134,16 +1141,22 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if run is None:
             raise Http404()
 
+        # Direct (hogql) runs have no callback: this poll advances the row from the async
+        # query status, and while the manager's result is alive it also returns the full
+        # capped row set for client-side paging (`rows`, absent once expired).
+        rows = sync_direct_run(run)
+
         # Interrupted runs keep their envelope too: the walkthrough (Journey 9) promises the
         # captured stdout/stderr arrive with the final envelope even when the user stopped it.
         has_result = run.status in (NotebookNodeRun.Status.DONE, NotebookNodeRun.Status.INTERRUPTED)
-        return Response(
-            {
-                "status": run.status,
-                "result": run.envelope if has_result else None,
-                "error": run.error or None,
-            }
-        )
+        payload: dict[str, Any] = {
+            "status": run.status,
+            "result": run.envelope if has_result else None,
+            "error": run.error or None,
+        }
+        if rows is not None:
+            payload["rows"] = rows
+        return Response(payload)
 
     @extend_schema(exclude=True)
     @action(
@@ -1191,17 +1204,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "stale"}, status=409)
 
         if run.node_type == NotebookNodeRun.NodeType.HOGQL:
-            # Runs recorded before the code column existed (default "") have no query to page.
-            # Send that to the kernel and it round-trips into an opaque "page fetch failed"; catch
-            # it here with guidance instead.
-            if not run.code.strip():
-                return Response(
-                    {"detail": "This result predates page support — re-run the query to page through it."},
-                    status=400,
-                )
+            # SQL results page client-side over the capped row set the run-result poll
+            # serves (the direct lane); server paging remains only for kernel frames.
+            return Response(
+                {"detail": "SQL results are paged in the browser. Re-run the query to reload its rows."},
+                status=400,
+            )
         # A kernel run (python/duckdb) pages by slicing its result frame in the sandbox, so it
         # needs the result_id its envelope advertised — no frame written means nothing to page.
-        elif not run.result_id:
+        if not run.result_id:
             return Response({"detail": "This result has no pageable frame — re-run the node."}, status=400)
 
         # An out-of-cache page holds this worker synchronously for up to the kernel timeout,
@@ -1256,6 +1267,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             # Already terminal: idempotent noop; the client just reads the outcome.
             return Response({"status": run.status})
 
+        if run.node_type == NotebookNodeRun.NodeType.HOGQL:
+            # A direct (hogql) run has no kernel to signal and no cancellation — the query
+            # runs to its bounded completion. Mark the row abandoned; the guarded update
+            # yields to a completion that already landed, and sync_direct_run's own guard
+            # can never overwrite this interrupt afterwards.
+            finish_node_run(run, NotebookNodeRun.Status.INTERRUPTED, error="Run stopped.")
+            return Response({"status": run.status})
+
         try:
             known = interrupt_sql_v2_run(notebook, user if isinstance(user, User) else None, run)
         except SQLV2KernelNotRunning:
@@ -1281,9 +1300,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             # No reachable kernel anywhere: the callback can never arrive, so this is the
             # user's escape hatch out of a stuck RUNNING row. A late callback (e.g. the
             # sandbox comes back) simply overwrites with the real outcome.
-            run.status = NotebookNodeRun.Status.INTERRUPTED
-            run.error = "Kernel is not reachable, so the run was stopped."
-            run.save(update_fields=["status", "error", "updated_at"])
+            finish_node_run(
+                run, NotebookNodeRun.Status.INTERRUPTED, error="Kernel is not reachable, so the run was stopped."
+            )
             return Response({"status": run.status})
 
         if not known:

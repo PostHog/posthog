@@ -38,8 +38,9 @@ def _clean_domain_prefix(domain_prefix: str) -> str:
     return prefix
 
 
-def _base_url(domain_prefix: str) -> str:
-    return f"https://{_clean_domain_prefix(domain_prefix)}.retail.lightspeed.app/api/2.0"
+def _base_url(domain_prefix: str, api_version: str) -> str:
+    # X-Series carries the pinned vendor version as the `/api/<version>` path segment.
+    return f"https://{_clean_domain_prefix(domain_prefix)}.retail.lightspeed.app/api/{api_version}"
 
 
 def _to_version(value: Any) -> Optional[int]:
@@ -116,6 +117,7 @@ def lightspeed_retail_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[LightspeedRetailResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
@@ -123,7 +125,7 @@ def lightspeed_retail_source(
 
     rest_config: RESTAPIConfig = {
         "client": {
-            "base_url": _base_url(domain_prefix),
+            "base_url": _base_url(domain_prefix, api_version),
             # Bearer auth via the framework so the token is redacted from logs and errors.
             "auth": {"type": "bearer", "token": api_token},
             "paginator": LightspeedRetailPaginator(),
@@ -184,10 +186,10 @@ def lightspeed_retail_source(
     )
 
 
-def validate_credentials(domain_prefix: str, api_token: str) -> bool:
+def validate_credentials(domain_prefix: str, api_token: str, api_version: str) -> bool:
     """Confirm the token and store subdomain are valid with a cheap outlets probe."""
     try:
-        url = f"{_base_url(domain_prefix)}/outlets?page_size=1"
+        url = f"{_base_url(domain_prefix, api_version)}/outlets?page_size=1"
     except ValueError:
         # A malformed domain prefix can't be validated — reject without a request.
         return False

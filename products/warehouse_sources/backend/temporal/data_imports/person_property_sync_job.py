@@ -15,7 +15,7 @@ Every terminal failure is captured to error tracking and counted in the metrics 
 import json
 import time
 import dataclasses
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -31,6 +31,8 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     PersonPropertySyncActivityInputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_sync import (
+    record_completed_runs,
+    record_failed_runs,
     run_person_property_sync,
 )
 
@@ -64,6 +66,7 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
     log = logger.bind(**inputs.properties_to_log)
     log.info(f"Starting person-property sync for {inputs.source_type}/{inputs.schema_name}")
     start = time.monotonic()
+    started_at = datetime.now(UTC).isoformat()
     try:
         async with Heartbeater():
             result = await run_person_property_sync(
@@ -75,8 +78,26 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
         PERSON_PROPERTY_SYNC_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
         log.exception("Person-property sync failed")
         capture_exception(e)
+        await record_failed_runs(
+            team_id=inputs.team_id,
+            schema_id=str(inputs.schema_id),
+            job_id=inputs.job_id,
+            trigger="scheduled",
+            started_at=started_at,
+            finished_at=datetime.now(UTC).isoformat(),
+            error=str(e),
+        )
         raise
 
+    await record_completed_runs(
+        team_id=inputs.team_id,
+        schema_id=str(inputs.schema_id),
+        job_id=inputs.job_id,
+        trigger="scheduled",
+        started_at=started_at,
+        finished_at=datetime.now(UTC).isoformat(),
+        result=result,
+    )
     PERSON_PROPERTY_SYNC_TOTAL.labels(team_id=str(inputs.team_id), outcome="completed").inc()
     PERSON_PROPERTY_SYNC_DURATION_SECONDS.observe(time.monotonic() - start)
     for stage, count in (

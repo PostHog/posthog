@@ -25,7 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SurveySparrowSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.surveysparrow import (
+    SurveySparrowSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.surveysparrow.settings import (
     DATA_CENTER_BASE_URLS,
     DEFAULT_DATA_CENTER,
@@ -122,11 +124,16 @@ Pick the data center your SurveySparrow account is hosted in — tokens are only
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: SurveySparrowSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SurveySparrowSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The access token is account-wide, so a single probe validates access for every schema.
         return validate_surveysparrow_credentials(config.access_token, _base_url_for(config))

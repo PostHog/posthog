@@ -32,7 +32,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ChartMogulSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chartmogul import (
+    ChartMogulSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -89,11 +91,16 @@ You can find your API key in your [ChartMogul admin settings](https://app.chartm
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: ChartMogulSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ChartMogulSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_chartmogul_credentials(config.api_key):
             return True, None

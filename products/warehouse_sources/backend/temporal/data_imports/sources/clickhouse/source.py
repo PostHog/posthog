@@ -1,4 +1,6 @@
-from typing import TYPE_CHECKING, Optional, cast
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from clickhouse_connect.driver.exceptions import ClickHouseError, DatabaseError, OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -23,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     ClickHouseConnectionError,
+    _get_client,
     clickhouse_source,
     filter_clickhouse_incremental_fields,
     get_clickhouse_row_count,
@@ -40,10 +43,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (
     reconcile_source_schema_metadata,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ClickHouseSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickhouse import (
+    ClickHouseSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
 
 if TYPE_CHECKING:
+    from clickhouse_connect.driver.client import Client as ClickHouseClient
+
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 # Shown when we can't map the failure to a specific cause. Names the usual
@@ -279,6 +286,39 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "returned response code 504",
         }
 
+    @contextmanager
+    def direct_query_client(
+        self,
+        config: ClickHouseSourceConfig,
+        team_id: int,
+        *,
+        query_timeout: int,
+        settings: dict[str, Any] | None = None,
+    ) -> Iterator["ClickHouseClient"]:
+        """Open a client against the source's ClickHouse for a single direct (HogQL) query.
+
+        Opens the SSH tunnel (if any) for the life of the query and yields a clickhouse-connect
+        client, closing both on exit. Client construction is an internal detail, so it stays in
+        the product — the direct-SQL adapter drives the query through this method rather than
+        importing the client factory.
+        """
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
+            client = _get_client(
+                host=host,
+                port=port,
+                database=config.database,
+                user=config.user,
+                password=config.password,
+                secure=config.secure,
+                verify=config.verify,
+                query_timeout=query_timeout,
+                settings=settings,
+            )
+            try:
+                yield client
+            finally:
+                client.close()
+
     def get_schemas(
         self,
         config: ClickHouseSourceConfig,
@@ -286,6 +326,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = []
 
@@ -360,7 +401,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         return schemas
 
     def validate_credentials(
-        self, config: ClickHouseSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ClickHouseSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
@@ -373,7 +418,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None)
+            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None, api_version=api_version)
         except BaseSSHTunnelForwarderError as e:
             return (
                 False,

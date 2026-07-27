@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WufooSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wufoo import WufooSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -80,6 +80,7 @@ class WufooSource(ResumableSource[WufooSourceConfig, WufooResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Wufoo's account-level list endpoints expose no
         # server-side timestamp filter, so there is no incremental cursor to advance (INCREMENTAL_FIELDS
@@ -87,7 +88,7 @@ class WufooSource(ResumableSource[WufooSourceConfig, WufooResumeConfig]):
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: WufooSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: WufooSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if not SUBDOMAIN_REGEX.match(config.subdomain):
             return False, "Wufoo subdomain is invalid"

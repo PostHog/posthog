@@ -43,13 +43,14 @@ impl Pipeline {
 
 impl Pipeline {
     /// Pipelines a given capture deployment produces events to. The events
-    /// deployment writes to both `analytics` (normal events) and
-    /// `errortracking` (`$exception` events split off in `process_single_event`),
-    /// so its restriction service must serve restrictions for both pipelines.
+    /// deployment writes to `analytics` (normal events), `errortracking`
+    /// (`$exception` events split off in `process_single_event`), and `ai`
+    /// (`$ai_*` events diverted by the `AiRouting` policy), so its restriction
+    /// service must serve restrictions for all three pipelines.
     /// Other deployments serve their single pipeline.
     pub fn for_capture_mode(mode: CaptureMode) -> Vec<Pipeline> {
         match mode {
-            CaptureMode::Events => vec![Self::Analytics, Self::ErrorTracking],
+            CaptureMode::Events => vec![Self::Analytics, Self::ErrorTracking, Self::Ai],
             CaptureMode::Recordings => vec![Self::SessionRecordings],
             CaptureMode::Ai => vec![Self::Ai],
         }
@@ -381,7 +382,7 @@ mod tests {
     fn test_pipeline_for_capture_mode() {
         assert_eq!(
             Pipeline::for_capture_mode(CaptureMode::Events),
-            vec![Pipeline::Analytics, Pipeline::ErrorTracking]
+            vec![Pipeline::Analytics, Pipeline::ErrorTracking, Pipeline::Ai]
         );
         assert_eq!(
             Pipeline::for_capture_mode(CaptureMode::Recordings),

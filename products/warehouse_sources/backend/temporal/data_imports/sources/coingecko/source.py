@@ -36,7 +36,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CoinGeckoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coingecko import (
+    CoinGeckoSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -112,6 +114,7 @@ CoinGecko enforces tight per-minute rate limits and monthly credit caps, especia
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every exposed endpoint is a catalog/snapshot with no server-side timestamp filter, so all
         # are full refresh only — no endpoint carries incremental fields, so build_endpoint_schemas
@@ -119,7 +122,11 @@ CoinGecko enforces tight per-minute rate limits and monthly credit caps, especia
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: CoinGeckoSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CoinGeckoSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_coingecko_credentials(config.plan, config.api_key):
             return True, None

@@ -962,6 +962,12 @@ class TestTable(BaseTest):
                 499,
                 "The provided file doesn't exist in the bucket",
             ),
+            (
+                "corrupted_parquet_thrift",
+                "DB::Exception: parquet::ParquetException: Couldn't deserialize thrift: TProtocolException: Exceeded size limit",
+                1001,
+                "corrupted or oversized metadata",
+            ),
         ]
     )
     def test_safe_expose_ch_error(self, _name, error_message, error_code, expected_message):

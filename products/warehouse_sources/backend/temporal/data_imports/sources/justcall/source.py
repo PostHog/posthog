@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import JustCallSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.justcall import (
+    JustCallSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.justcall import (
     JustCallResumeConfig,
     justcall_source,
@@ -103,11 +105,16 @@ Generate an API key and secret under **Account Settings → Developers (APIs and
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: JustCallSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: JustCallSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_justcall_credentials(config.api_key, config.api_secret):
             return True, None

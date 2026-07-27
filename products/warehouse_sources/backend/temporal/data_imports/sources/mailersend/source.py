@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MailerSendSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailersend import (
+    MailerSendSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.mailersend import (
     MailerSendResumeConfig,
     check_credentials,
@@ -94,6 +96,7 @@ Note: MailerSend retains email activity for 1-30 days depending on your plan, so
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "activity":
@@ -118,7 +121,11 @@ Note: MailerSend retains email activity for 1-30 days depending on your plan, so
         return schemas
 
     def validate_credentials(
-        self, config: MailerSendSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MailerSendSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return check_credentials(config.api_token, schema_name)
 

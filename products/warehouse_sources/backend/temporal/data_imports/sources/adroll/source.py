@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AdRollSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adroll import AdRollSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -104,13 +104,18 @@ Create a personal access token and an app in the [NextRoll developer console](ht
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Entity endpoints have no updated_at filter — full refresh. Metrics
         # are GraphQL-only and a follow-up.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: AdRollSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AdRollSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_adroll_credentials(config.client_id, config.personal_access_token):
             return True, None

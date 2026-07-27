@@ -22,7 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HiBobSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hibob import HiBobSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.hibob import (
     hibob_source,
     validate_credentials as validate_hibob_credentials,
@@ -104,12 +104,13 @@ Create a Service User in Bob under Settings > Integrations > Automation > Servic
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # HiBob has no updated-at filters; every stream is full refresh.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: HiBobSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: HiBobSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_hibob_credentials(config.service_user_id, config.service_user_token)
 

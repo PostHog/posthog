@@ -4,11 +4,15 @@ import os
 import re
 import sys
 import enum
+import json
 import time
+import fcntl
+import select
 import shutil
 import signal
 import hashlib
 import platform
+import tempfile
 import importlib
 import subprocess
 from collections.abc import Callable, Iterable, Sequence
@@ -1569,6 +1573,579 @@ def _format_rss(rss_kb: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# doctor:ports — pre-flight port collision check
+# ---------------------------------------------------------------------------
+
+# The always-on infra ports from docker-compose.dev.yml whose bind failure
+# aborts `docker compose up`. Update when those mappings change; services
+# gated by `profiles:` (in docker-compose.dev.yml or the legacy
+# docker-compose.profiles.yml overlay — e.g. temporal) are intentionally
+# excluded, since they don't start by default.
+_PREFLIGHT_PORTS: tuple[tuple[int, str], ...] = (
+    (8010, "proxy"),
+    (2181, "zookeeper"),
+    (8123, "clickhouse-http"),
+    (8443, "clickhouse-https"),
+    (9000, "clickhouse-native"),
+    (9440, "clickhouse-native-tls"),
+    (9009, "clickhouse-interserver"),
+    (9092, "kafka"),
+    (5432, "postgres"),
+    (6379, "redis"),
+    (6399, "redis-cluster"),
+    (19000, "objectstorage"),
+    (19001, "objectstorage-master"),
+)
+
+_COMPOSE_NAME_RE = re.compile(r"[^a-zA-Z0-9_.-]")
+
+
+def _sanitize_compose_name(name: str) -> str:
+    """Strip anything outside the compose project name charset.
+
+    Docker labels are attacker/environment-controllable strings headed for
+    the terminal and a `docker compose` command line.
+    """
+    return _COMPOSE_NAME_RE.sub("", name)
+
+
+def _compose_project_name() -> str:
+    """The dev stack's compose project — pinned so worktrees share one stack."""
+    return os.environ.get("COMPOSE_PROJECT_NAME") or "posthog"
+
+
+@dataclass
+class PortHolder:
+    port: int
+    name: str
+    container: str | None = None  # docker container name, if docker-held
+    project: str | None = None  # sanitized compose project name, if docker-held
+    process_holder: str | None = None  # "COMMAND (pid N)", if lsof-held
+
+
+def _scan_port_holders() -> list[PortHolder]:
+    """Attribute each always-on infra port to whatever holds it.
+
+    One `docker ps` covers every port; the Ports column looks like
+    "127.0.0.1:8010->8000/tcp, :::8123->8123/tcp", or for a published range
+    "0.0.0.0:19000-19001->19000-19001/tcp". Matching ":<port>-" covers both
+    the plain form (":19000->") and a range start (":19000-19001->").
+    """
+    containers_output = (
+        _run_output(["docker", "ps", "--format", '{{.Names}}|{{.Label "com.docker.compose.project"}}|{{.Ports}}']) or ""
+    )
+    container_lines = containers_output.splitlines()
+
+    holders: list[PortHolder] = []
+    unheld: list[tuple[int, str]] = []
+    for port, name in _PREFLIGHT_PORTS:
+        needle = f":{port}-"
+        match = next((line for line in container_lines if needle in line), None)
+        if match is None:
+            unheld.append((port, name))
+            continue
+        parts = match.split("|", 2)
+        container = parts[0]
+        project = _sanitize_compose_name(parts[1]) if len(parts) > 1 else ""
+        holders.append(PortHolder(port=port, name=name, container=container, project=project))
+
+    if unheld:
+        holders.extend(_scan_unheld_via_lsof(unheld))
+    return holders
+
+
+def _foreign_holders(holders: Sequence[PortHolder], project_name: str) -> list[PortHolder]:
+    """Docker-held ports belonging to some compose project other than ours."""
+    return [h for h in holders if h.container is not None and h.project != project_name]
+
+
+def _scan_unheld_via_lsof(unheld: Sequence[tuple[int, str]]) -> list[PortHolder]:
+    """One lsof pass for plain-process listeners on ports with no docker holder.
+
+    Report only — killing arbitrary pids from a startup check is out of
+    bounds (`doctor:zombies` already handles orphaned PostHog processes).
+    """
+    if shutil.which("lsof") is None:
+        return [PortHolder(port=p, name=n) for p, n in unheld]
+
+    portlist = ",".join(str(port) for port, _ in unheld)
+    output = _run_output(["lsof", "-nP", f"-iTCP:{portlist}", "-sTCP:LISTEN"]) or ""
+    lines = output.splitlines()
+
+    holders: list[PortHolder] = []
+    for port, name in unheld:
+        holder = None
+        needle = f":{port}"
+        for line in lines:
+            # lsof columns: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME;
+            # match NAME (e.g. "*:5432") ending in ":<port>".
+            fields = line.split()
+            if len(fields) < 9:
+                continue
+            if fields[8].endswith(needle) and fields[1].isdigit():
+                # Strip control bytes a process name could smuggle to the terminal.
+                command = re.sub(r"[\x00-\x1f\x7f]", "", fields[0])
+                holder = f"{command} (pid {fields[1]})"
+                break
+        holders.append(PortHolder(port=port, name=name, process_holder=holder))
+    return holders
+
+
+def _containers_for_service(service: str) -> list[tuple[str, str]]:
+    """(container ID, sanitized compose project) for every container in any
+    state running `service`, across all compose projects on this machine.
+    """
+    output = (
+        _run_output(
+            [
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                f"label=com.docker.compose.service={service}",
+                "--format",
+                '{{.ID}}|{{.Label "com.docker.compose.project"}}',
+            ]
+        )
+        or ""
+    )
+    pairs = []
+    for line in output.splitlines():
+        parts = line.split("|", 1)
+        if len(parts) == 2:
+            pairs.append((parts[0], _sanitize_compose_name(parts[1])))
+    return pairs
+
+
+def _posthog_shaped_projects(candidates: set[str]) -> set[str]:
+    """Of the candidate foreign projects, keep only ones that look like a
+    PostHog dev stack: a clickhouse container in any state (a partial stack
+    may hold ports while its clickhouse is stopped). An unrelated project
+    that happens to hold postgres/redis ports gets reported, not torn down.
+    """
+    clickhouse_projects = {project for _container_id, project in _containers_for_service("clickhouse")}
+    return candidates & clickhouse_projects
+
+
+def _confirm_stack_teardown(stack: str, timeout: float = 30.0) -> bool:
+    """Prompt for teardown of a foreign compose stack, with a timeout.
+
+    Runs on every `hogli start`, so a hung or piped stdin must never block;
+    timeout, EOF, or any non-"y" answer means "leave it running".
+    """
+    click.echo(f"   Remove foreign stack '{stack}' (compose down, volumes kept)? [y/N] ", nl=False)
+    ready, _, _ = select.select([sys.stdin], [], [], timeout)
+    if not ready:
+        click.echo()
+        return False
+    answer = sys.stdin.readline().strip()
+    return answer.lower() == "y"
+
+
+@click.command(
+    name="doctor:ports",
+    help="Pre-flight check for host ports the dev stack needs",
+)
+@click.option(
+    "--yes", "-y", is_flag=True, help="Auto-confirm teardown of any foreign PostHog stack found holding a port"
+)
+def doctor_ports(yes: bool) -> None:
+    """Report what's holding the dev stack's host ports, and in a TTY, offer
+    to tear down a stale foreign PostHog stack. Fail-open: never blocks
+    `bin/start`, non-interactive callers only ever see suggested commands.
+    """
+    if shutil.which("docker") is None:
+        return
+
+    project_name = _compose_project_name()
+    holders = _scan_port_holders()
+
+    foreign = _foreign_holders(holders, project_name)
+    report_lines = [
+        f"     • port {h.port} ({h.name}): container '{h.container}' from compose project '{h.project or '<none>'}'"
+        for h in foreign
+    ]
+    report_lines += [
+        f"     • port {h.port} ({h.name}): process {h.process_holder}"
+        for h in holders
+        if h.container is None and h.process_holder
+    ]
+    if not report_lines:
+        return
+
+    click.echo("⚠️  Some ports the dev stack needs are already held by something outside the")
+    click.echo(f"   '{project_name}' compose project. 'docker compose up' will abort if any")
+    click.echo("   of its containers fails to bind, and services here may be reported as 'missing':")
+    for line in report_lines:
+        click.echo(line)
+
+    foreign_candidates = {h.project for h in foreign if h.project}
+    if not foreign_candidates:
+        return
+
+    foreign_projects = _posthog_shaped_projects(foreign_candidates)
+    if not foreign_projects:
+        return
+
+    interactive = sys.stdin.isatty() and sys.stdout.isatty()
+    if not interactive:
+        click.echo("   Tear a foreign stack down with:")
+
+    for stack in sorted(foreign_projects):
+        teardown = ["docker", "compose", "-p", stack, "-f", "docker-compose.dev.yml", "down", "--remove-orphans"]
+        teardown_str = " ".join(teardown)
+        if not interactive:
+            click.echo(f"     {teardown_str}")
+            continue
+        confirmed = yes or _confirm_stack_teardown(stack)
+        if not confirmed:
+            click.echo(f"   Leaving '{stack}' running. Stop it later with:")
+            click.echo(f"     {teardown_str}")
+            continue
+        click.echo(f"   Stopping compose project '{stack}'…")
+        result = subprocess.run(teardown, check=False)
+        if result.returncode == 0:
+            click.echo(f"   Stopped '{stack}'.")
+        else:
+            click.echo(f"   ⚠️  Could not stop '{stack}' (see docker's output above) — its ports may still be held.")
+
+
+# ---------------------------------------------------------------------------
+# doctor:migrate-volumes — auto-salvage anonymous ClickHouse/ZooKeeper volumes
+# ---------------------------------------------------------------------------
+
+# (compose service, mount destination inside the container, named-volume
+# suffix, human label). Must match the volumes: blocks for clickhouse/
+# zookeeper in docker-compose.dev.yml.
+_VOLUME_MIGRATIONS: tuple[tuple[str, str, str, str], ...] = (
+    ("clickhouse", "/var/lib/clickhouse", "clickhouse-data", "ClickHouse data"),
+    ("zookeeper", "/data", "zookeeper-data", "ZooKeeper snapshots"),
+    ("zookeeper", "/datalog", "zookeeper-datalog", "ZooKeeper transaction log"),
+    ("zookeeper", "/logs", "zookeeper-logs", "ZooKeeper server logs"),
+)
+
+# A prior install always has postgres's named volume, even after `docker compose
+# down` removes every container — postgres has no `profiles:` gate either, so its
+# absence is a reliable "this really is a fresh clone" signal.
+_PRIOR_INSTALL_VOLUME_SUFFIX = "postgres-15-data"
+
+
+@dataclass(frozen=True)
+class VolumeMigrationStep:
+    """One old anonymous volume to copy into its new named-volume replacement."""
+
+    container_id: str
+    source_volume: str
+    dest_volume: str
+    volume_suffix: str
+    label: str
+
+
+def _matching_containers(project_name: str, service: str) -> list[str]:
+    """Container IDs (any state) for `service` under this compose project."""
+    return [cid for cid, project in _containers_for_service(service) if project == project_name]
+
+
+def _has_prior_install(project_name: str) -> bool:
+    """Whether this looks like an existing install rather than a fresh clone.
+
+    `docker compose down` removes containers but keeps volumes, so a developer
+    who stopped the stack before updating has no clickhouse container left to
+    check but still has this one.
+    """
+    return _run_output(["docker", "volume", "inspect", f"{project_name}_{_PRIOR_INSTALL_VOLUME_SUFFIX}"]) is not None
+
+
+def _find_service_container(project_name: str, service: str) -> str | None:
+    """Return the one container ID for `service` under this project, or None
+    if there isn't exactly one — zero (already removed) and multiple
+    (ambiguous) are both unsafe to guess from.
+    """
+    matches = _matching_containers(project_name, service)
+    return matches[0] if len(matches) == 1 else None
+
+
+def _container_mounts(container_id: str) -> list[dict[str, object]] | None:
+    """Return the container's `docker inspect` Mounts array, or None if it
+    can't be fetched or isn't the list shape `docker inspect` always gives
+    for a live container (e.g. the container vanished between listing and
+    inspecting it).
+    """
+    output = _run_output(["docker", "inspect", container_id, "--format", "{{json .Mounts}}"])
+    if output is None:
+        return None
+    try:
+        mounts = json.loads(output)
+    except json.JSONDecodeError:
+        return None
+    return mounts if isinstance(mounts, list) else None
+
+
+def _find_volume_mount(mounts: list[dict[str, object]], destination: str) -> str | None:
+    """Return the single volume name backing `destination`, or None if it's
+    missing, duplicated, or not a plain named/anonymous volume mount (e.g. a
+    bind mount) — anything but a clean 1:1 match is unsafe to copy from.
+    """
+    matches: list[str] = []
+    for m in mounts:
+        name = m.get("Name")
+        if m.get("Destination") == destination and m.get("Type") == "volume" and isinstance(name, str) and name:
+            matches.append(name)
+    return matches[0] if len(matches) == 1 else None
+
+
+def _plan_volume_migration(project_name: str) -> list[VolumeMigrationStep] | None:
+    """Resolve every old anonymous volume this migration needs, or None if
+    any single one can't be pinned down unambiguously.
+
+    ClickHouse and ZooKeeper state must move together — a replicated table
+    with only one side restored fails with "replica already exists" — so any
+    ambiguity anywhere aborts the whole plan rather than migrating one
+    service and not the other. This function is read-only (no stop, no
+    copy): the caller only commits to touching anything once the full plan
+    resolves cleanly.
+    """
+    containers: dict[str, str] = {}
+    for service, _destination, _suffix, _label in _VOLUME_MIGRATIONS:
+        if service in containers:
+            continue
+        container_id = _find_service_container(project_name, service)
+        if container_id is None:
+            return None
+        containers[service] = container_id
+
+    mounts_by_container: dict[str, list[dict[str, object]] | None] = {}
+    plan: list[VolumeMigrationStep] = []
+    for service, destination, suffix, label in _VOLUME_MIGRATIONS:
+        container_id = containers[service]
+        if container_id not in mounts_by_container:
+            mounts_by_container[container_id] = _container_mounts(container_id)
+        mounts = mounts_by_container[container_id]
+        if mounts is None:
+            return None
+        source_volume = _find_volume_mount(mounts, destination)
+        if source_volume is None:
+            return None
+        dest_volume = f"{project_name}_{suffix}"
+        if source_volume == dest_volume:
+            # Already on the named volume: a retry after a partial migration must not
+            # mount the same volume as both /from and /to, or the copy's `rm -rf /to/*`
+            # would destroy the data it's supposed to be saving.
+            return None
+        plan.append(
+            VolumeMigrationStep(
+                container_id=container_id,
+                source_volume=source_volume,
+                dest_volume=dest_volume,
+                volume_suffix=suffix,
+                label=label,
+            )
+        )
+    return plan
+
+
+def _create_dest_volume(project_name: str, step: VolumeMigrationStep) -> bool:
+    """Pre-create the destination with the labels compose stamps on its own
+    volumes. Left to `docker run -v`'s auto-create, the volume has none, so
+    compose warns it "was not created by Docker Compose" on every later `up`.
+    """
+    return _run_ok(
+        [
+            "docker",
+            "volume",
+            "create",
+            "--label",
+            f"com.docker.compose.project={project_name}",
+            "--label",
+            f"com.docker.compose.volume={step.volume_suffix}",
+            step.dest_volume,
+        ],
+        timeout=15,
+    )
+
+
+def _copy_volume(source_volume: str, dest_volume: str) -> bool:
+    """Copy `source_volume` into `dest_volume` via a throwaway alpine
+    container. The command asserts the destination ended up non-empty —
+    `cp -a` can exit 0 on a no-op copy just as easily as a real one, so a
+    clean exit code alone doesn't prove data landed.
+    """
+    container = f"hogli-migrate-volumes-{os.getpid()}"
+    ok = _run_ok(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--name",
+            container,
+            "-v",
+            f"{source_volume}:/from:ro",
+            "-v",
+            f"{dest_volume}:/to",
+            "alpine",
+            "sh",
+            "-c",
+            'rm -rf /to/* && cp -a /from/. /to/ && [ -n "$(ls -A /to)" ]',
+        ],
+        timeout=900,
+    )
+    if not ok:
+        # A subprocess timeout kills the docker client, not the container it launched —
+        # without removing it explicitly, the container keeps holding the destination
+        # volume, so a later `docker volume rm -f` fails with "volume is in use" and
+        # rollback silently leaves a torn copy behind.
+        _run_output(["docker", "rm", "-f", container], timeout=30)
+    return ok
+
+
+def _remove_volumes(volume_names: Iterable[str]) -> None:
+    names = list(volume_names)
+    if names:
+        _run_output(["docker", "volume", "rm", "-f", *names], timeout=15)
+
+
+def _restart_containers(container_ids: Iterable[str]) -> None:
+    ids = list(container_ids)
+    if ids:
+        _run_output(["docker", "start", *ids], timeout=30)
+
+
+# ClickHouse needs time to flush a multi-GB dataset on shutdown; docker's 10s
+# default SIGKILLs it mid-flush, so every developer's first start after the
+# migration pays for crash recovery. The subprocess timeout is derived from this
+# so raising the grace period can't leave the docker client killed before the
+# container it's waiting on.
+_STOP_GRACE_SECONDS = 60
+
+
+def _execute_volume_migration(plan: Sequence[VolumeMigrationStep], project_name: str) -> bool:
+    """Stop the old containers, copy every planned volume, and verify each
+    one. A live `cp -a` against an actively-written ClickHouse/ZooKeeper data
+    dir can read a torn snapshot, so the containers are stopped first — the
+    same "stop the stack, then copy" order the manual salvage doc already
+    tells developers to follow. Any failure, including an interrupt, rolls
+    back: remove whatever new named volumes were already created and restart
+    whatever was stopped, so `docker compose up` sees today's fallback
+    situation (no named volumes yet) rather than a mix of migrated and
+    un-migrated state.
+    """
+    container_ids = sorted({step.container_id for step in plan})
+    if not _run_ok(
+        ["docker", "stop", "-t", str(_STOP_GRACE_SECONDS), *container_ids],
+        timeout=_STOP_GRACE_SECONDS + 30,
+    ):
+        # `docker stop` on multiple containers can partially succeed (e.g. one
+        # already vanished) and still exit non-zero overall — restart whatever
+        # did stop rather than leaving a working dev stack unexpectedly down.
+        _restart_containers(container_ids)
+        return False
+
+    migrated: list[str] = []
+    for step in plan:
+        click.echo(f"   Migrating {step.label}…")
+        try:
+            copied = _create_dest_volume(project_name, step) and _copy_volume(step.source_volume, step.dest_volume)
+        except BaseException:
+            # Ctrl-C during a multi-GB copy must not leave a torn destination volume and
+            # a stopped stack behind for the next run to mistake for a completed migration.
+            _remove_volumes([*migrated, step.dest_volume])
+            _restart_containers(container_ids)
+            raise
+        if not copied:
+            click.echo(f"   ⚠️  {step.label} migration failed, rolling back…")
+            # `docker run -v <dest>:/to ...` auto-creates the destination volume
+            # before the container's command runs, so a failed (or partially
+            # completed, e.g. disk-full mid-copy) attempt still leaves step's own
+            # volume behind — remove it too, not just the ones that fully
+            # succeeded, or a torn copy can survive rollback and later get
+            # mistaken for a completed migration by the idempotency check.
+            _remove_volumes([*migrated, step.dest_volume])
+            _restart_containers(container_ids)
+            return False
+        migrated.append(step.dest_volume)
+    return True
+
+
+def _print_volume_reset_warning() -> None:
+    click.echo("⚠️  Switching ClickHouse/ZooKeeper to named docker volumes. This first start")
+    click.echo("   recreates them empty, so local ClickHouse data resets once (happens once")
+    click.echo("   per machine). Run 'hogli migrations:run' after, or 'hogli dev:reset' for a")
+    click.echo("   full wipe plus demo data. See 'Local ClickHouse suddenly empty' in")
+    click.echo("   docs/published/handbook/engineering/developing-locally.md to salvage old data.")
+
+
+_MIGRATION_LOCK_DIR = Path(tempfile.gettempdir())
+
+
+@click.command(
+    name="doctor:migrate-volumes",
+    help="Auto-migrate ClickHouse/ZooKeeper data to the new named docker volumes",
+)
+def doctor_migrate_volumes() -> None:
+    """One-time migration for the named-volume switch in docker-compose.dev.yml.
+
+    ClickHouse and ZooKeeper moved from anonymous to named volumes so that
+    recreating a container no longer wipes ZooKeeper's replica-registration
+    state. The very first `docker compose up` after that switch would
+    otherwise create the named volumes empty. This salvages the prior
+    anonymous volumes into them automatically whenever the old→new mapping
+    is unambiguous, and falls back to the same manual-salvage guidance as
+    before when it isn't. Must run before `docker compose up` (see
+    bin/start) — once that recreates the containers, the old anonymous
+    volumes are no longer discoverable from their mounts. Fail-open, like
+    doctor:ports: never blocks `bin/start`.
+    """
+    if shutil.which("docker") is None:
+        return
+
+    project_name = _compose_project_name()
+    # `bin/start`'s own lock file is per-worktree, but every worktree shares this
+    # compose project — without this, two worktrees starting at once could both plan
+    # a migration for the same destination volumes, and one's failure rollback would
+    # delete data the other just copied. Blocks rather than skips, so the second
+    # worktree waits out the first's migration instead of racing it; the OS releases
+    # the lock automatically if the holding process dies, so a crash can't wedge it.
+    lock_path = _MIGRATION_LOCK_DIR / f"hogli-migrate-volumes-{project_name}.lock"
+    try:
+        # The path is predictable and, on Linux, sits in world-writable /tmp. Opening it
+        # with "w" would follow a symlink planted there by another local user and truncate
+        # whatever it points at. O_NOFOLLOW refuses the symlink outright, and omitting
+        # O_TRUNC means there's nothing to destroy either way — the file is only ever a
+        # flock handle, never written to.
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "r+") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            _do_migrate_volumes(project_name)
+    except OSError:
+        return  # couldn't lock (e.g. interrupted, or a symlink squatting the path) — fail-open
+
+
+def _do_migrate_volumes(project_name: str) -> None:
+    # `docker volume inspect` exits non-zero unless *every* named volume exists, so a
+    # migration interrupted partway through is retried instead of mistaken as finished.
+    dest_volumes = [f"{project_name}_{suffix}" for _service, _dest, suffix, _label in _VOLUME_MIGRATIONS]
+    if _run_output(["docker", "volume", "inspect", *dest_volumes]) is not None:
+        return  # already migrated (or a fresh named-volume install) — nothing to do
+
+    if not _matching_containers(project_name, "clickhouse"):
+        # No clickhouse container left to salvage from — either a fresh clone, or a
+        # stack that was stopped with `docker compose down` (which keeps volumes but
+        # removes containers). Only warn in the latter case; a fresh clone has nothing
+        # to lose and shouldn't see a reset notice.
+        if _has_prior_install(project_name):
+            _print_volume_reset_warning()
+        return
+
+    plan = _plan_volume_migration(project_name)
+    if plan is not None and _execute_volume_migration(plan, project_name):
+        click.echo("✅ Migrated ClickHouse/ZooKeeper data to the new named docker volumes automatically.")
+        click.echo("   ClickHouse and ZooKeeper are stopped; run 'hogli start' to bring them back up.")
+        return
+
+    _print_volume_reset_warning()
+
+
+# ---------------------------------------------------------------------------
 # doctor — unified health check
 # ---------------------------------------------------------------------------
 
@@ -1756,6 +2333,22 @@ def _check_migrations() -> CheckResult:
         )
 
 
+def _check_ports() -> CheckResult:
+    """Quick scan for a foreign stack holding a port the dev stack needs."""
+    if shutil.which("docker") is None:
+        return CheckResult(name="Port conflicts", status=CheckStatus.OK, summary="docker not installed")
+    project_name = _compose_project_name()
+    foreign = _foreign_holders(_scan_port_holders(), project_name)
+    if foreign:
+        return CheckResult(
+            name="Port conflicts",
+            status=CheckStatus.WARNING,
+            summary=f"{len(foreign)} port(s) held by a foreign stack",
+            remediation="run `hogli doctor:ports`",
+        )
+    return CheckResult(name="Port conflicts", status=CheckStatus.OK, summary="clear")
+
+
 _STATUS_COLORS = {
     CheckStatus.OK: "green",
     CheckStatus.WARNING: "yellow",
@@ -1787,6 +2380,7 @@ def _run_checks(repo_root: Path) -> list[CheckResult]:
         lambda: _check_zombies(repo_root),
         _check_docker,
         _check_migrations,
+        _check_ports,
     ]
 
     # Each check is I/O-bound and independent, so fan them out across threads.
@@ -1850,6 +2444,26 @@ def _run_output(cmd: Sequence[str], timeout: float = 5.0) -> str | None:
     if result.returncode != 0:
         return None
     return result.stdout.strip() or None
+
+
+def _run_ok(cmd: Sequence[str], timeout: float = 5.0) -> bool:
+    """Run a command and report whether it exited zero.
+
+    Unlike `_run_output`, success doesn't depend on stdout being non-empty —
+    for commands whose exit code alone carries the result (e.g. a shell
+    script with no output on success), treating empty stdout as failure
+    would misreport a clean run. On failure, echoes captured stderr so a
+    docker-level error (permission denied, disk full, daemon hiccup) isn't
+    silently lost before the caller falls back to the generic warning.
+    """
+    try:
+        result = subprocess.run(list(cmd), capture_output=True, text=True, timeout=timeout, check=False)
+    except (FileNotFoundError, OSError, subprocess.SubprocessError) as exc:
+        click.echo(f"   ⚠️  {cmd[0]}: {exc}")
+        return False
+    if result.returncode != 0 and result.stderr.strip():
+        click.echo(f"   ⚠️  {result.stderr.strip()}")
+    return result.returncode == 0
 
 
 def _format_kv_block(pairs: Sequence[tuple[str, str]]) -> list[str]:

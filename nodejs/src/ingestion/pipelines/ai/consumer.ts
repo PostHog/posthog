@@ -1,4 +1,5 @@
 import { CommonConfig } from '~/common/config'
+import { buildIntegerMatcher } from '~/common/config/config'
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import {
@@ -28,6 +29,7 @@ import { DisabledOverflowRedirectComponent } from '~/ingestion/common/overflow-r
 import { MainLaneOverflowRedirectComponent } from '~/ingestion/common/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirectComponent } from '~/ingestion/common/overflow-redirect/overflow-lane-overflow-redirect'
 import { RedisOverflowRepositoryComponent } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
+import { eventRateStrategy } from '~/ingestion/common/overflow-redirect/overflow-strategy'
 import { Scope, extend } from '~/ingestion/common/scopes'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
@@ -35,6 +37,7 @@ import { createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { RedisPool } from '~/types'
 
+import { AiBlobStoreComponent } from './blob-offload/blob-store'
 import { createAiIngestionPipeline } from './pipeline'
 
 export type AiConsumerConfig = CommonIngestionConsumerConfig &
@@ -54,6 +57,18 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID'
         | 'INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID'
         | 'EVENT_SCHEMA_ENFORCEMENT_ENABLED'
+        | 'AI_BLOB_S3_BUCKET'
+        | 'AI_BLOB_S3_PREFIX'
+        | 'AI_BLOB_S3_ENDPOINT'
+        | 'AI_BLOB_S3_REGION'
+        | 'AI_BLOB_S3_ACCESS_KEY_ID'
+        | 'AI_BLOB_S3_SECRET_ACCESS_KEY'
+        | 'AI_BLOB_S3_TIMEOUT_MS'
+        | 'AI_BLOB_OFFLOAD_TEAMS'
+        | 'AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH'
+        | 'AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT'
+        | 'AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY'
+        | 'AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS'
     > &
     Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE'>
 
@@ -120,8 +135,13 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
                     ? new MainLaneOverflowRedirectComponent({
                           redisRepository: container.overflowRedisRepository,
                           localCacheTTLSeconds: config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-                          bucketCapacity: config.EVENT_OVERFLOW_BUCKET_CAPACITY,
-                          replenishRate: config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                          strategies: [
+                              {
+                                  ...eventRateStrategy(),
+                                  bucketCapacity: config.EVENT_OVERFLOW_BUCKET_CAPACITY,
+                                  replenishRate: config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                              },
+                          ],
                           overflowType: 'ai',
                       })
                     : new DisabledOverflowRedirectComponent()
@@ -149,7 +169,26 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
                     return Promise.resolve({ value: topHog, stop: () => topHog.stop() })
                 },
             })
+            // Owned by the scope so the store's startup healthcheck runs at
+            // scope start, before any traffic is consumed.
+            .add('aiBlobStore', new AiBlobStoreComponent(config))
     )
+
+    const uploadMaxConcurrency = config.AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY
+    if (!Number.isInteger(uploadMaxConcurrency) || uploadMaxConcurrency <= 0) {
+        // The ingestion config layer coerces env overrides by hand (no schema
+        // validation), so a bad value would otherwise surface as a nameless
+        // TypeError from p-limit at pipeline construction.
+        throw new Error(
+            `AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY must be a positive integer, got ${uploadMaxConcurrency}`
+        )
+    }
+    const aiBlobOffloadConfig = {
+        isTeamEnabled: buildIntegerMatcher(config.AI_BLOB_OFFLOAD_TEAMS, true),
+        minBase64Length: config.AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH,
+        maxBlobsPerEvent: config.AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT,
+        uploadMaxConcurrency,
+    }
 
     return new CommonIngestionConsumerScope('ai', config, scope, ({ container }) =>
         createAiIngestionPipeline({
@@ -174,6 +213,8 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             eventSchemaEnforcementEnabled: config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             eventSchemaEnforcementManager: new EventSchemaEnforcementManager(container.postgres),
             topHog: createTopHogWrapper(container.topHog),
+            aiBlobStore: container.aiBlobStore.store,
+            aiBlobOffloadConfig,
         })
     )
 }

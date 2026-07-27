@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinodeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linode import LinodeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.linode.linode import (
     LinodeResumeConfig,
     linode_source,
@@ -103,6 +103,7 @@ Create a personal access token in the [Linode Cloud Manager](https://cloud.linod
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = LINODE_ENDPOINTS[endpoint]
@@ -124,7 +125,11 @@ Create a personal access token in the [Linode Cloud Manager](https://cloud.linod
         return schemas
 
     def validate_credentials(
-        self, config: LinodeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LinodeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_linode_credentials(config.api_token)
 

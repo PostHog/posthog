@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ShopWiredSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopwired import (
+    ShopWiredSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.shopwired import ShopWiredResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.source import ShopWiredSource

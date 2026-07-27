@@ -31,7 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BrowserbaseSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browserbase import (
+    BrowserbaseSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -97,6 +99,7 @@ You can find your project API key in your [Browserbase dashboard](https://www.br
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every Browserbase list endpoint is full refresh: there is no server-side timestamp filter,
         # so nothing can be synced incrementally (see settings.py).
@@ -108,7 +111,11 @@ You can find your project API key in your [Browserbase dashboard](https://www.br
         )
 
     def validate_credentials(
-        self, config: BrowserbaseSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BrowserbaseSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_browserbase_credentials(config.api_key):
             return True, None

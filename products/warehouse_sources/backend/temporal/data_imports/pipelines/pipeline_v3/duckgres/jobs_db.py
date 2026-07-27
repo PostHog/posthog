@@ -145,9 +145,10 @@ BLOCKED_LIVE_BATCH_CONDITION = f"""(
                             )
                         )"""
 
+
 # Shared CTE prelude for eligibility queries (note the trailing comma — callers
-# append their own CTEs/SELECT). Expects a %(team_ids)s bigint[] parameter
-# (NULL = no team filter).
+# append their own CTEs/SELECT). Callers pass scoped=True when team_ids is a
+# concrete list; see _team_scope.
 #
 # - cand_runs: runs with pending duckgres work — a delta-succeeded batch that is
 #   not yet duckgres-succeeded. This is the driving set: every run the gate or
@@ -161,7 +162,25 @@ BLOCKED_LIVE_BATCH_CONDITION = f"""(
 #   Duckgres-failed (including superseded).
 # - incomplete_runs: non-failed runs that still owe unapplied data batches;
 #   these block newer runs of the same schema (cross-run head-of-line).
-ELIGIBILITY_CTES = f"""cand_runs AS MATERIALIZED (
+def _team_scope(alias: str, *, scoped: bool) -> str:
+    """Sargable per-team filter for the eligibility scans.
+
+    In prod ``team_ids`` is always the concrete enabled-team list, so emit a
+    plain ``= ANY(%(team_ids)s)``: the planner prunes to those teams via the
+    ``(team_id, ...)`` index and never reads a non-enabled team's rows. The old
+    ``%(team_ids)s IS NULL OR ...`` form existed only to also serve the
+    dev/ungated case (team_ids IS NULL), but with a bound parameter Postgres
+    builds a generic plan that cannot fold the NULL check — so it cannot use the
+    index and seq-scans the whole shared partition window. A single non-enabled
+    team with a high-volume (e.g. failing) source then dominates that scan and
+    can push the eligibility/supersede queries past their statement timeout,
+    even though none of those rows is ever sinked. Unscoped (dev) = match all.
+    """
+    return f"AND {alias}.team_id = ANY(%(team_ids)s)" if scoped else ""
+
+
+def _eligibility_ctes(scoped: bool) -> str:
+    return f"""cand_runs AS MATERIALIZED (
                     -- Runs with pending duckgres work: a delta-succeeded batch that is not yet
                     -- duckgres-succeeded. Superset of every run the gate/supersede compares;
                     -- run_starts/failed_runs scope to it so the work is bounded by the backlog.
@@ -170,14 +189,14 @@ ELIGIBILITY_CTES = f"""cand_runs AS MATERIALIZED (
                     JOIN {_latest_status_lateral(STATUS_TABLE, "cb")} cds ON cds.job_state = 'succeeded'
                     LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "cb")} cdgs ON true
                     WHERE cb.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (%(team_ids)s::bigint[] IS NULL OR cb.team_id = ANY(%(team_ids)s))
+                        {_team_scope("cb", scoped=scoped)}
                         AND (cdgs.job_state IS NULL OR cdgs.job_state <> 'succeeded')
                 ),
                 run_starts AS MATERIALIZED (
                     SELECT b_rs.run_uuid, min(b_rs.created_at) AS started_at
                     FROM {BATCH_TABLE} b_rs
                     WHERE b_rs.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (%(team_ids)s::bigint[] IS NULL OR b_rs.team_id = ANY(%(team_ids)s))
+                        {_team_scope("b_rs", scoped=scoped)}
                         AND b_rs.run_uuid IN (SELECT run_uuid FROM cand_runs)
                     GROUP BY b_rs.run_uuid
                 ),
@@ -188,7 +207,7 @@ ELIGIBILITY_CTES = f"""cand_runs AS MATERIALIZED (
                         JOIN {_latest_status_lateral(STATUS_TABLE, "fb")} fds ON true
                         WHERE fb.run_uuid = cr.run_uuid
                             AND fb.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                            AND (%(team_ids)s::bigint[] IS NULL OR fb.team_id = ANY(%(team_ids)s))
+                            {_team_scope("fb", scoped=scoped)}
                             AND fds.job_state = 'failed'
                     )
                     OR EXISTS (
@@ -196,7 +215,7 @@ ELIGIBILITY_CTES = f"""cand_runs AS MATERIALIZED (
                         JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "fb")} fdgs ON true
                         WHERE fb.run_uuid = cr.run_uuid
                             AND fb.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                            AND (%(team_ids)s::bigint[] IS NULL OR fb.team_id = ANY(%(team_ids)s))
+                            {_team_scope("fb", scoped=scoped)}
                             AND fdgs.job_state = 'failed'
                     )
                 ),
@@ -212,7 +231,7 @@ ELIGIBILITY_CTES = f"""cand_runs AS MATERIALIZED (
                         AND oa.run_uuid = old.run_uuid
                         AND oa.batch_index = old.batch_index
                     WHERE old.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (%(team_ids)s::bigint[] IS NULL OR old.team_id = ANY(%(team_ids)s))
+                        {_team_scope("old", scoped=scoped)}
                         AND old.is_final_batch = false
                         AND oa.id IS NULL
                         AND old.run_uuid NOT IN (SELECT run_uuid FROM failed_runs)
@@ -286,13 +305,14 @@ class DuckgresBatchQueue:
         is the hard backstop. Teams without a mapping row are uncapped
         (None = no caps at all, for tests/dev).
 
-        Intra-run head-of-line: LIVE batches stay strictly ordered (any
-        unapplied lower batch_index blocks). Backfill CHUNKS relax this so a
-        whole run drains in one claim: a pending predecessor blocks a chunk
-        only when it cannot be returned AHEAD of it in this same fetch (see the
-        gate's inline comments). Co-claimable predecessors sort earlier, land
-        in the same group, and the group is processed strictly in order with a
-        halt on first non-success — so chunk 0's CREATE still applies first.
+        Intra-run head-of-line: a pending predecessor blocks a batch only when
+        it cannot be returned AHEAD of it in this same fetch (see the gate's
+        inline comments) — for LIVE batches and backfill CHUNKS alike, so a
+        run's consecutive delta-succeeded prefix drains in one claim (bounded
+        by ``limit``). Co-claimable predecessors sort earlier, land in the same
+        group, and the group is processed strictly in order with a halt on
+        first non-success — so chunk 0's CREATE (and a live run's lowest
+        batch) still applies first, and nothing ever applies past a gap.
 
         Cross-run head-of-line: a batch is ineligible while an older run (by run
         start time) of the same (team_id, schema_id) still has unapplied,
@@ -302,10 +322,11 @@ class DuckgresBatchQueue:
         Liveness: older runs either complete, fail (max attempts), or are
         superseded by ``supersede_replaced_runs`` — all three unblock the gate.
         """
+        scoped = team_ids is not None
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                WITH {ELIGIBILITY_CTES}
+                WITH {_eligibility_ctes(scoped)}
                 team_org AS (
                     -- Enabled-team -> (org, budget) mapping, passed in because the
                     -- queue DB has no teams table. Empty when no caps apply.
@@ -335,7 +356,7 @@ class DuckgresBatchQueue:
                     LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "b")} dgs ON true
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (%(team_ids)s::bigint[] IS NULL OR b.team_id = ANY(%(team_ids)s))
+                        {_team_scope("b", scoped=scoped)}
                         AND (%(eligible_schema_ids)s::varchar[] IS NULL OR b.schema_id = ANY(%(eligible_schema_ids)s))
                         -- In-flight groups: re-claiming them burns the LIMIT and
                         -- max_groups budget on work this pod can't start.
@@ -420,13 +441,14 @@ class DuckgresBatchQueue:
                                 )
                                 AND a.id IS NULL
                                 AND (
-                                    -- LIVE batches: any unapplied predecessor blocks.
-                                    {LIVE_BATCH_SQL_PREDICATE}
-                                    -- Backfill chunks: block only on predecessors that
-                                    -- cannot be co-claimed AHEAD of this chunk —
-                                    -- not delta-succeeded (fail closed; enqueue_chunks
-                                    -- writes chunks pre-succeeded atomically):
-                                    OR ds_prev.job_state IS DISTINCT FROM 'succeeded'
+                                    -- Both batch kinds co-claim: a predecessor blocks
+                                    -- only when it cannot be returned AHEAD of this
+                                    -- batch in this same fetch (live batches gained
+                                    -- this in 2026-07; one-at-a-time head-of-line
+                                    -- capped a group at ~1 batch per fetch rotation
+                                    -- and could not keep up with a fast producer).
+                                    -- Not delta-succeeded (fail closed):
+                                    ds_prev.job_state IS DISTINCT FROM 'succeeded'
                                     -- sorting later in the fetch order (a reconcile
                                     -- replay re-inserts dropped chunks with a fresh
                                     -- created_at):
@@ -593,10 +615,11 @@ class DuckgresBatchQueue:
         Skips batches currently 'executing' (their attempt resolves on its own)
         and anything already terminal. Returns the number of batches superseded.
         """
+        scoped = team_ids is not None
         async with _statement_timeout(conn, ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS), conn.cursor() as cur:
             await cur.execute(
                 f"""
-                WITH {ELIGIBILITY_CTES}
+                WITH {_eligibility_ctes(scoped)}
                 replace_heads AS MATERIALIZED (
                     SELECT nb.team_id, nb.schema_id, nb.run_uuid, rs.started_at
                     FROM {BATCH_TABLE} nb
@@ -608,7 +631,7 @@ class DuckgresBatchQueue:
                         AND na.run_uuid = nb.run_uuid
                         AND na.batch_index = nb.batch_index
                     WHERE nb.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (%(team_ids)s::bigint[] IS NULL OR nb.team_id = ANY(%(team_ids)s))
+                        {_team_scope("nb", scoped=scoped)}
                         AND nds.job_state = 'succeeded'
                         AND nb.batch_index = 0
                         AND nb.is_final_batch = false
@@ -676,10 +699,11 @@ class DuckgresBatchQueue:
         the page. Durable per-schema failure tracking lives on
         DuckgresSinkSchemaState (this count ages out with queue retention).
         """
+        scoped = team_ids is not None
         async with _statement_timeout(conn, ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS), conn.cursor() as cur:
             await cur.execute(
                 f"""
-                WITH {ELIGIBILITY_CTES}
+                WITH {_eligibility_ctes(scoped)}
                 backlog AS (
                     SELECT
                         b.created_at,
@@ -696,7 +720,7 @@ class DuckgresBatchQueue:
                         AND a.run_uuid = b.run_uuid
                         AND a.batch_index = b.batch_index
                     WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (%(team_ids)s::bigint[] IS NULL OR b.team_id = ANY(%(team_ids)s))
+                        {_team_scope("b", scoped=scoped)}
                         AND (%(eligible_schema_ids)s::varchar[] IS NULL OR b.schema_id = ANY(%(eligible_schema_ids)s))
                         AND ds.job_state = 'succeeded'
                         AND b.is_final_batch = false

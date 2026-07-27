@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SonatypeNexusSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonatypenexus import (
+    SonatypeNexusSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.settings import (
     ENDPOINTS,
     SONATYPE_NEXUS_ENDPOINTS,
@@ -116,6 +118,7 @@ The tasks table additionally requires the `nx-tasks-read` privilege; deselect it
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The Nexus REST API exposes no server-side timestamp filter, so every
         # table is full refresh only.
@@ -137,7 +140,11 @@ The tasks table additionally requires the `nx-tasks-read` privilege; deselect it
         return schemas
 
     def validate_credentials(
-        self, config: SonatypeNexusSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SonatypeNexusSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             host_valid, host_error = self.is_database_host_valid(hostname_of(config.host), team_id)

@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.drip.drip 
     validate_credentials as validate_drip_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.drip.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DripSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drip import DripSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -65,6 +65,7 @@ class DripSource(ResumableSource[DripSourceConfig, DripResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every Drip endpoint is full refresh (no reliable server-side update cursor), so no endpoint
         # carries incremental fields and build_endpoint_schemas yields supports_incremental=False /
@@ -72,7 +73,7 @@ class DripSource(ResumableSource[DripSourceConfig, DripResumeConfig]):
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: DripSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: DripSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_drip_credentials(config.api_token, config.account_id)
 

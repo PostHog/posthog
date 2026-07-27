@@ -323,7 +323,7 @@ export interface _TracingLatencyHeatmapCellApi {
     time: string
     /** Lower edge of the 1-2-5 series duration bucket in nanoseconds (1ms, 2ms, 5ms, 10ms, ...). 0 on the sentinel row that enumerates a time bucket with no matching spans. */
     bucket_ns: number
-    /** Spans (or traces when rootSpans is true) in this cell. 0 only on sentinel rows. */
+    /** Traces in this cell, bucketed by root-span duration (the default, rootSpans=true). When rootSpans is false, every matching span is counted instead. 0 only on sentinel rows. */
     count: number
 }
 

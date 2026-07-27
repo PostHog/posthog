@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RechargeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recharge import (
+    RechargeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.recharge.recharge import (
     RechargeResumeConfig,
     recharge_source,
@@ -110,11 +112,16 @@ Some resources (such as Payment methods) are only available on Recharge Pro or C
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: RechargeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RechargeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_recharge_credentials(config.api_key)
 

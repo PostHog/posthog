@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
@@ -8,6 +9,16 @@ import { findContinueAction, findNextAction, isEvaluableCondition } from '../hog
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
+// Outcome of a wait_until_condition re-check that ran because a person merge re-keyed the parked job
+// onto the survivor and woke it (scheduled=now). 'advanced' = the merge made the condition match;
+// 'reparked' = it didn't, so waking was wasted churn. A high reparked:advanced ratio means the wake
+// is firing on merges that don't satisfy the wait — signal to narrow when the matcher wakes.
+export const counterHogflowRekeyWake = new Counter({
+    name: 'cdp_hogflow_matcher_rekey_wake_total',
+    help: 'wait_until_condition re-checks triggered by a merge re-key wake, by outcome.',
+    labelNames: ['outcome'],
+})
+
 export class ConditionalBranchHandler implements ActionHandler {
     async execute({
         invocation,
@@ -15,6 +26,14 @@ export class ConditionalBranchHandler implements ActionHandler {
     }: ActionHandlerOptions<
         Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
     >): Promise<ActionHandlerResult> {
+        // The subscription matcher sets rekeyWake when it re-keyed this parked wait onto a merge
+        // survivor and woke it (scheduled=now). Consume it here (one-shot) and attribute this
+        // re-check's outcome to the re-key below, so the wasted-re-park churn from waking is observable.
+        const rekeyWoken = action.type === 'wait_until_condition' && invocation.state?.currentAction?.rekeyWake === true
+        if (rekeyWoken && invocation.state.currentAction) {
+            invocation.state.currentAction.rekeyWake = false
+        }
+
         // The subscription matcher sets eventMatched when an incoming event matched this
         // step's wait condition. Honor it as a forced match and advance immediately,
         // rather than re-evaluating the stored condition against the original event.
@@ -46,8 +65,14 @@ export class ConditionalBranchHandler implements ActionHandler {
         )
 
         if (conditionResult.scheduledAt) {
+            if (rekeyWoken) {
+                counterHogflowRekeyWake.labels('reparked').inc()
+            }
             return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
         } else if (conditionResult.nextAction) {
+            if (rekeyWoken) {
+                counterHogflowRekeyWake.labels('advanced').inc()
+            }
             return { nextAction: conditionResult.nextAction, result: { conditionResult } }
         }
 

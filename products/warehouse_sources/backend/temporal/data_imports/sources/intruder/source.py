@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import IntruderSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intruder import (
+    IntruderSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.intruder import (
     IntruderResumeConfig,
     intruder_source,
@@ -97,6 +99,7 @@ Create an access token under **My account > API Access Tokens** in your [Intrude
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Intruder is full refresh only: no list endpoint exposes a verifiable server-side
         # created/updated-after cursor we can persist between runs, so nothing supports incremental
@@ -104,7 +107,11 @@ Create an access token under **My account > API Access Tokens** in your [Intrude
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: IntruderSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: IntruderSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_intruder_credentials(config.access_token):
             return True, None

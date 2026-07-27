@@ -28,7 +28,7 @@ export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
 function isAssigneeFilterEntry(value: unknown): value is AssigneeFilterEntry {
-    if (value === 'unassigned') {
+    if (value === 'unassigned' || value === 'me') {
         return true
     }
     if (typeof value !== 'object' || value === null) {
@@ -115,6 +115,7 @@ export interface SavedTicketView {
     filters: TicketViewFilters
     created_at: string
     created_by: { id: number; first_name?: string; email?: string } | null
+    is_favorited: boolean
 }
 
 export interface UserBasic {
@@ -175,6 +176,7 @@ export interface Ticket {
     github_issue_number?: number | null
     zendesk_ticket_id?: number | null
     organization_id?: string | null
+    organization_id_source?: string | null
     person?: TicketPerson | null
     tags?: string[]
     ai_triage?: AITriage

@@ -5,7 +5,7 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.source import AdRollSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AdRollSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adroll import AdRollSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

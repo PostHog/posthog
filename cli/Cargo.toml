@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "posthog-cli"
-version = "0.8.5"
+version = "0.9.1"
 authors = [
     "David <david@posthog.com>",
     "Olly <oliver@posthog.com>",
@@ -63,6 +63,9 @@ tempfile = "3"
 zstd = "0.13"
 symbolic = { version = "12.12", features = ["debuginfo"] }
 plist = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 test-log = "0.2.17"

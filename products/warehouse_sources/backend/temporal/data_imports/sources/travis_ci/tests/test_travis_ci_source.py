@@ -8,7 +8,9 @@ from parameterized import parameterized
 from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TravisCISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.travisci import (
+    TravisCISourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )

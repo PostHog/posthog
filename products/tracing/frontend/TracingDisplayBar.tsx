@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronLeft, IconChevronRight, IconList, IconListTree } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { IconChevronLeft, IconChevronRight, IconList, IconListTree, IconStack } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton, type LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -9,29 +9,56 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { CompareMenuButton } from './components/Comparison/CompareMenuButton'
 import { tracingConfigLogic } from './tracingConfigLogic'
-import { tracingFiltersLogic, type TracingViewMode } from './tracingFiltersLogic'
-import { tracingSceneLogic } from './tracingSceneLogic'
+import { tracingSceneLogic, type TracingDisplayMode } from './tracingSceneLogic'
 
 /**
- * The bar above the results, mirroring logs' LogsDisplayBar, grouped by scope:
+ * The bar above the results, mirroring logs' LogsDisplayBar:
  *
- *  - persistent-left "frame": controls that apply to the whole results region — the facet
- *    rail toggle, the Traces ⇄ Operations view switch, and the matching-count indicator.
- *  - contextual-right: traces-view-only controls (Traces ⇄ Spans granularity, Compare),
- *    hidden entirely on the Operations view where neither applies.
+ *  - left: the facet rail toggle, the row-mode selector (Traces ⇄ Spans ⇄ Operations — what
+ *    each result row represents), and the matching-count indicator.
+ *  - right: Compare, hidden on the Operations view where it doesn't apply.
  */
 export function TracingDisplayBar(): JSX.Element {
-    const { activeTracingTab, totalMatchingFilters, filters, compareActive } = useValues(tracingSceneLogic())
-    const { setActiveTracingTab } = useActions(tracingSceneLogic())
-    const { setViewMode } = useActions(tracingFiltersLogic())
+    const { totalMatchingFilters, compareActive, displayMode, operationsViewEnabled } = useValues(tracingSceneLogic())
+    const { setDisplayMode } = useActions(tracingSceneLogic())
     const { featureFlags } = useValues(featureFlagLogic)
     const { facetRailCollapsed } = useValues(tracingConfigLogic)
     const { setFacetRailCollapsed } = useActions(tracingConfigLogic)
 
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
-    const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
-    const inTracesView = !operationsViewEnabled || activeTracingTab !== 'operations'
+    const inTracesView = displayMode !== 'operations'
     const showCount = inTracesView && !compareActive && totalMatchingFilters > 0
+
+    // data-attrs keep the names from the two controls this one replaced, for analytics continuity.
+    const displayModeOptions: LemonSegmentedButtonOption<TracingDisplayMode>[] = [
+        {
+            value: 'traces',
+            label: 'Traces',
+            icon: <IconListTree />,
+            tooltip: 'Group matching spans by trace, one row per trace (its root span)',
+            'data-attr': 'tracing-view-mode-traces',
+        },
+        {
+            value: 'spans',
+            label: 'Spans',
+            icon: <IconList />,
+            tooltip: 'Show every matching span individually, including child spans',
+            // The comparison table aggregates by operation, so span granularity has no effect there.
+            disabledReason: compareActive ? 'Not available while comparing' : undefined,
+            'data-attr': 'tracing-view-mode-spans',
+        },
+        ...(operationsViewEnabled
+            ? [
+                  {
+                      value: 'operations' as const,
+                      label: 'Operations',
+                      icon: <IconStack />,
+                      tooltip: 'Aggregate matching spans by operation (service and span name)',
+                      'data-attr': 'tracing-display-tab-operations',
+                  },
+              ]
+            : []),
+    ]
 
     return (
         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -47,55 +74,23 @@ export function TracingDisplayBar(): JSX.Element {
                         {facetRailCollapsed ? 'Show filters' : 'Hide filters'}
                     </LemonButton>
                 )}
-                {operationsViewEnabled && (
-                    <LemonSegmentedButton<'traces' | 'operations'>
-                        size="small"
-                        value={activeTracingTab}
-                        onChange={setActiveTracingTab}
-                        options={[
-                            { value: 'traces', label: 'Traces', 'data-attr': 'tracing-display-tab-traces' },
-                            {
-                                value: 'operations',
-                                label: 'Operations',
-                                'data-attr': 'tracing-display-tab-operations',
-                            },
-                        ]}
-                    />
-                )}
+                <LemonSegmentedButton<TracingDisplayMode>
+                    size="small"
+                    value={displayMode}
+                    onChange={setDisplayMode}
+                    options={displayModeOptions}
+                />
                 {/* No loading guard: keep the last (view-mode-independent) count visible across reloads,
                     so a Traces/Spans switch doesn't flicker the label out and back in. */}
                 {showCount && (
                     <span className="text-muted text-xs">
-                        {humanFriendlyNumber(totalMatchingFilters)} {filters.viewMode === 'spans' ? 'spans' : 'traces'}{' '}
+                        {humanFriendlyNumber(totalMatchingFilters)} {displayMode === 'spans' ? 'spans' : 'traces'}{' '}
                         matching filters
                     </span>
                 )}
             </div>
             {inTracesView && (
                 <div className="flex items-center gap-1.5 flex-wrap">
-                    {!compareActive && (
-                        <LemonSegmentedButton<TracingViewMode>
-                            size="small"
-                            value={filters.viewMode}
-                            onChange={setViewMode}
-                            options={[
-                                {
-                                    value: 'traces',
-                                    label: 'Traces',
-                                    icon: <IconListTree />,
-                                    tooltip: 'Group matching spans by trace — one row per trace (its root span)',
-                                    'data-attr': 'tracing-view-mode-traces',
-                                },
-                                {
-                                    value: 'spans',
-                                    label: 'Spans',
-                                    icon: <IconList />,
-                                    tooltip: 'Show every matching span individually, including child spans',
-                                    'data-attr': 'tracing-view-mode-spans',
-                                },
-                            ]}
-                        />
-                    )}
                     <CompareMenuButton />
                 </div>
             )}

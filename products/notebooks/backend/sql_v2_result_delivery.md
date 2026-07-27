@@ -4,24 +4,45 @@ How a SQLV2 node learns that its run finished and gets the result envelope.
 
 ## Current approach: FE short-poll (implemented)
 
-The run result is written durably to `NotebookNodeRun` (Postgres) by the sandbox
-callback. The frontend node polls a cheap read endpoint until the run reaches a
-terminal state.
+The run result is written durably to `NotebookNodeRun` (Postgres). How it gets
+there depends on the lane:
+
+- **Kernel-lane runs (python/duckdb)**: the sandbox callback writes the envelope,
+  as before.
+- **Direct-lane runs (hogql, no sandbox — `sql_v2_direct.py`)**: the run rides the
+  async query manager (the same engine the data plane uses), which has no
+  completion callback, so the result poll itself advances the row: it reads the
+  query status by `query_id = run_id` and applies a **guarded** transition
+  (`filter(status=RUNNING).update(...)`) — idempotent under concurrent pollers,
+  and a completed query can never overwrite an interrupt. A RUNNING run whose
+  query status is gone (20-min TTL) fails after a grace window — the watchdog the
+  kernel lane never had. While the manager's result is alive, the poll response
+  also carries `rows` (the full capped set, ≤300) for client-side paging.
+
+The frontend node polls a cheap read endpoint until the run reaches a terminal
+state.
 
 - **Backend:** `GET .../sql_v2/runs/<run_id>` returns `{status, result, error}`
-  by reading the `NotebookNodeRun` row (one indexed query). No held connection,
+  (+ transient `rows` for direct runs) by reading the `NotebookNodeRun` row (one
+  indexed query, plus one Redis status read for direct runs). No held connection,
   no busy-loop.
 - **Frontend:** the node polls that endpoint (~1s) while it has a `runId` and the
   run is `running`; stops on `done`/`failed`/`interrupted`. In-progress state is
   derived from the run status, so it survives remounts and reloads. The poll timer
   lives in `cache.disposables` (auto-cleanup + pause on hidden tab).
-- **Interrupt (Journey 9):** `POST .../sql_v2/runs/<run_id>/interrupt` proxies a
-  run-scoped stop to the kernel-server; the terminal state (`interrupted`) still
-  arrives via the callback → run row → poll, keeping one source of truth. The
-  interrupted envelope carries the stdout/stderr captured before the stop, and the
-  result endpoint surfaces it like a `done` envelope. When no kernel is reachable
-  the endpoint marks the run `interrupted` itself, so a user can always break out
-  of a RUNNING-forever row (there is no backend watchdog yet).
+- **Interrupt (Journey 9):** for kernel-lane runs,
+  `POST .../sql_v2/runs/<run_id>/interrupt` proxies a run-scoped stop to the
+  kernel-server; the terminal state (`interrupted`) still arrives via the
+  callback → run row → poll, keeping one source of truth. The interrupted
+  envelope carries the stdout/stderr captured before the stop, and the result
+  endpoint surfaces it like a `done` envelope. When no kernel is reachable the
+  endpoint marks the run `interrupted` itself, so a user can always break out of
+  a RUNNING-forever row (the kernel lane has no backend watchdog). For
+  **direct (hogql) runs** there is nothing to signal and no cancellation: the
+  endpoint marks the row abandoned immediately (the query runs to its bounded
+  completion; the guarded poll transition can't overwrite the interrupt), and the
+  UI hides Stop for these runs. Real cancellation (`cancel_query`: Celery revoke
+  plus CH KILL) is a one-call upgrade if long queries warrant it.
 
 Chosen because the result is a **single terminal value**, not a live event stream.
 Polling a durable row is simpler than SSE and inherently resilient to connection
@@ -73,9 +94,9 @@ not a Redis Stream** — we deliver one terminal result, so we don't need replay
   streams.
 - **Unsubscribe/cleanup** on every exit path (result, error, timeout, disconnect).
 
-### Why not a Redis Stream (like PostHog Code)
+### Why not a Redis Stream (like PostHog Desktop)
 
-PostHog Code streams many incremental agent events and needs replay on reconnect
+PostHog Desktop streams many incremental agent events and needs replay on reconnect
 (`Last-Event-ID` cursor over a trimmed stream). SQLV2 delivers one terminal
 result, so pub/sub + a durable row is sufficient and much simpler. Revisit the
 Stream approach only if SQLV2 starts streaming incremental output (stdout,
@@ -116,12 +137,14 @@ reads stay stateless.
 
 ## Where the full result lives
 
-**Now: a capped in-memory cache in the kernel-server (hogql runs).** A run fetches up to
-`RESULT_CACHE_ROWS` (300) rows in one ClickHouse query; the kernel-server keeps
-them per run (LRU over the last 20 runs). `/page` requests within the cache are
-local slices — no ClickHouse work, no held backend workers. Paging beyond the
-cache, or after a kernel restart emptied it, falls back to a LIMIT/OFFSET
-re-query through the data plane.
+**Now: client-side for hogql runs.** A direct run fetches up to
+`RESULT_CACHE_ROWS` (300) rows in one ClickHouse query; the full capped set rides
+the result poll (`rows`) while the manager's Redis result is alive (~20 min), and
+the browser pages it locally — the server page endpoint refuses hogql runs.
+After expiry or reload only the envelope's `first_page` remains, with a re-run
+affordance — the same model the legacy SQL editor uses (one clamped fetch,
+client-side pages). The kernel-server's per-run hogql cache and `/page` re-query
+still exist but serve only pre-direct-lane runs; both are slated for removal.
 
 **Kernel runs (python/duckdb) page from the on-sandbox result store.** The kernel
 writes each produced frame to `/data/results/<result_id>.arrow`; `/page` requests
@@ -170,7 +193,7 @@ fresh `result_id`. Durable storage is what removes this later.
 ## Related model notes
 
 - **`KernelRuntime.server_url` / `server_connect_token`** are stored **plaintext**
-  (`TextField`). This matches PostHog Code, which keeps `sandbox_url` /
+  (`TextField`). This matches PostHog Desktop, which keeps `sandbox_url` /
   `sandbox_connect_token` plaintext in `TaskRun.state` (a plain JSONField). The
   connect token is an ephemeral Modal tunnel token, not a durable account secret
   (those, e.g. env vars, tasks _does_ encrypt via `EncryptedJSONStringField`). If

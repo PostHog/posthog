@@ -12,7 +12,9 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PapersignSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.papersign import (
+    PapersignSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.papersign import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.papersign.papersign import PapersignResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.papersign.settings import ENDPOINTS

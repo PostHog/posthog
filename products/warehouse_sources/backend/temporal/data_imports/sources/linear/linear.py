@@ -59,6 +59,28 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
     return _LINEAR_FALLBACK_WAIT(retry_state)
 
 
+# Linear returns `progress` as a Float in [0, 1], but whole values (0, 1) arrive over JSON
+# without a decimal point. If the batch that first creates the Delta table has only whole
+# values, the column infers as int64 and the first fractional progress (e.g. 0.539474) then
+# fails every later sync with ArrowInvalid, wedging the table. Force these columns to float
+# so the inferred type is stable regardless of which rows land first.
+_FLOAT_FIELDS: dict[str, tuple[str, ...]] = {
+    "cycles": ("progress",),
+    "projects": ("progress",),
+}
+
+
+def _coerce_float_fields(nodes: list[dict[str, Any]], endpoint_name: str) -> None:
+    field_names = _FLOAT_FIELDS.get(endpoint_name)
+    if not field_names:
+        return
+    for node in nodes:
+        for field_name in field_names:
+            value = node.get(field_name)
+            if value is not None:
+                node[field_name] = float(value)
+
+
 @dataclasses.dataclass
 class LinearResumeConfig:
     cursor: str
@@ -163,6 +185,7 @@ def _make_paginated_request(
             payload = execute(variables)
 
             data = payload["data"][graphql_query_name]["nodes"]
+            _coerce_float_fields(data, endpoint_name)
             yield data
 
             page_info = payload["data"][graphql_query_name]["pageInfo"]

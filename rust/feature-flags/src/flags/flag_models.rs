@@ -185,6 +185,8 @@ pub struct MultivariateFlagOptions {
     pub variants: Vec<MultivariateFlagVariant>,
 }
 
+// Runtime Python mirror: products/feature_flags/backend/api/filters_schema.py validates
+// filters against these shapes at write time — keep field shapes in sync (issue #50084).
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct FlagFilters {
     #[serde(default)]

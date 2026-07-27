@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.baseten.ba
 from products.warehouse_sources.backend.temporal.data_imports.sources.baseten.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.baseten.source import BasetenSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BasetenSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.baseten import (
+    BasetenSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.baseten.source"

@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import XmattersSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.xmatters import (
+    XmattersSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -110,12 +112,17 @@ Use HTTP Basic auth with a REST Web Service User (or an API key as the username 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only `events` carries incremental fields; every endpoint is merge/full-refresh (no append).
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=ENDPOINTS)
 
     def validate_credentials(
-        self, config: XmattersSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: XmattersSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not is_valid_subdomain(config.subdomain):
             return False, "xMatters subdomain is invalid"

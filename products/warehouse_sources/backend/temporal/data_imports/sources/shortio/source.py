@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ShortioSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shortio import (
+    ShortioSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -95,13 +97,18 @@ This version syncs your top-level list of **domains** only. Per-domain links and
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Full refresh only — the domain list exposes no reliably ordered server-side timestamp
         # filter, so there is no incremental cursor to advance.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: ShortioSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ShortioSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to the domain list.
         return _validate_credentials(config.api_key)

@@ -9,7 +9,7 @@ _BUCKET_EXHAUSTED_DETAIL = {
         "Top up at https://app.posthog.com/organization/billing to continue."
     ),
     CreditBucket.POSTHOG_CODE_CREDITS: (
-        "Your team has reached its PostHog Code usage limit for this billing period. "
+        "Your team has reached its PostHog Desktop usage limit for this billing period. "
         "See https://app.posthog.com/organization/billing for your usage and limits."
     ),
 }
