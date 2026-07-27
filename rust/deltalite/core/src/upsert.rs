@@ -333,8 +333,10 @@ struct PartitionOutcome {
 /// process-global budget. Both ride with a batch from decode until the writer has
 /// copied it into its buffer.
 struct BudgetPermit {
-    local: OwnedSemaphorePermit,
-    global: OwnedSemaphorePermit,
+    /// `None` only transiently inside `top_up`, while the estimate's permits have been
+    /// released and the grown permits are being re-acquired.
+    local: Option<OwnedSemaphorePermit>,
+    global: Option<OwnedSemaphorePermit>,
     /// KiB currently held against the per-call budget (capped at its capacity).
     held_local_kb: u32,
     /// KiB currently held against the process-global budget (capped at its capacity).
@@ -369,40 +371,52 @@ impl Budgets {
             .map_err(|_| Error::Generic("byte-budget semaphore closed".into()))?;
         let global = self.limits.acquire_buffer_kb(global_kb).await?;
         Ok(BudgetPermit {
-            local,
-            global,
+            local: Some(local),
+            global: Some(global),
             held_local_kb: local_kb,
             held_global_kb: global_kb,
         })
     }
 
     /// Grow `permit` so it covers `total_bytes` (used after a decode turns out larger
-    /// than the pre-decode estimate). Total held stays capped at each budget's
-    /// capacity, preserving the oversized-batch progress guarantee; a decode smaller
-    /// than the estimate keeps the estimate's permits until release, which only errs
-    /// conservative.
+    /// than the pre-decode estimate). Total held stays capped at each budget's capacity,
+    /// preserving the oversized-batch progress guarantee; a decode smaller than the
+    /// estimate keeps the estimate's permits, which only errs conservative.
+    ///
+    /// Growth *releases the estimate's permits before re-acquiring the larger amount*
+    /// rather than acquiring the extra while still holding them. Acquiring-while-holding
+    /// wedges the worker: concurrent readers that each reserved an estimate and then block
+    /// for more form a hold-and-wait cycle -- their estimates can pin the whole budget with
+    /// no holder able to release. Releasing first means a reader never waits on the budget
+    /// while holding any of it, so some waiter can always make progress. The decoded batch
+    /// stays resident during the brief re-acquire gap, but it is already allocated and the
+    /// wait is bounded by the budget draining as writers flush.
     async fn top_up(&self, permit: &mut BudgetPermit, total_bytes: usize) -> Result<()> {
         let want = Self::kb(total_bytes);
         let want_local = want.min(self.local_cap_kb as u64) as u32;
-        if want_local > permit.held_local_kb {
-            let extra = self
-                .local
-                .clone()
-                .acquire_many_owned(want_local - permit.held_local_kb)
-                .await
-                .map_err(|_| Error::Generic("byte-budget semaphore closed".into()))?;
-            permit.local.merge(extra);
-            permit.held_local_kb = want_local;
-        }
         let want_global = want.min(self.limits.buffer_cap_kb() as u64) as u32;
-        if want_global > permit.held_global_kb {
-            let extra = self
-                .limits
-                .acquire_buffer_kb(want_global - permit.held_global_kb)
-                .await?;
-            permit.global.merge(extra);
-            permit.held_global_kb = want_global;
+        if want_local <= permit.held_local_kb && want_global <= permit.held_global_kb {
+            return Ok(());
         }
+        // Release both budgets before re-acquiring either, so no growth ever waits while
+        // holding budget (holding one semaphore while waiting on the other would deadlock
+        // just as surely as holding an estimate while waiting to grow it).
+        permit.local = None;
+        permit.global = None;
+        permit.held_local_kb = 0;
+        permit.held_global_kb = 0;
+        // Local before global, the fixed order used everywhere (see `crate::limits`).
+        let local = self
+            .local
+            .clone()
+            .acquire_many_owned(want_local)
+            .await
+            .map_err(|_| Error::Generic("byte-budget semaphore closed".into()))?;
+        let global = self.limits.acquire_buffer_kb(want_global).await?;
+        permit.local = Some(local);
+        permit.global = Some(global);
+        permit.held_local_kb = want_local;
+        permit.held_global_kb = want_global;
         Ok(())
     }
 }
@@ -762,27 +776,59 @@ fn ensure_supported_table(table: &DeltaTable) -> Result<()> {
         }
     }
 
-    if snapshot
-        .metadata()
-        .configuration()
-        .get("delta.enableDeletionVectors")
-        .map(|v| v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-    {
+    let metadata = snapshot.metadata();
+    let config = metadata.configuration();
+    let is_true = |key: &str| {
+        config
+            .get(key)
+            .map(|v| v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    };
+
+    if is_true("delta.enableDeletionVectors") {
         return Err(Error::Unsupported(
             "table has delta.enableDeletionVectors=true; deltalite cannot safely rewrite it".into(),
         ));
+    }
+
+    // A full file rewrite emits no `_change_data`, so the CDF a reader replays would be
+    // wrong; deltalite must not silently corrupt it.
+    if is_true("delta.enableChangeDataFeed") {
+        return Err(Error::Unsupported(
+            "table has delta.enableChangeDataFeed=true; deltalite's blind file rewrite would \
+             not emit change-data-feed entries and would corrupt the feed"
+                .into(),
+        ));
+    }
+
+    // Upsert tombstones and rewrites files, which an append-only table forbids.
+    if is_true("delta.appendOnly") {
+        return Err(Error::Unsupported(
+            "table has delta.appendOnly=true; deltalite rewrites and removes files, which an \
+             append-only table forbids"
+                .into(),
+        ));
+    }
+
+    // CHECK constraints (`delta.constraints.<name>`) and column invariants are enforced by
+    // delta-rs's merge/write path, not by the raw `RecordBatchWriter` deltalite uses, so a
+    // rewrite could persist rows violating them. Refuse rather than write unchecked data.
+    if let Some(name) = config
+        .keys()
+        .filter_map(|k| k.strip_prefix("delta.constraints."))
+        .next()
+    {
+        return Err(Error::Unsupported(format!(
+            "table declares CHECK constraint '{name}'; deltalite's writer does not enforce \
+             constraints and could persist violating rows"
+        )));
     }
 
     // Legacy column mapping (minReaderVersion=2/minWriterVersion=5, as Spark writes it)
     // carries no reader/writer *feature* list, so the check above cannot see it. Without
     // this, such a table only fails later inside `RecordBatchWriter::for_table` with a
     // generic error -- safe, but by luck rather than by design.
-    if let Some(mode) = snapshot
-        .metadata()
-        .configuration()
-        .get("delta.columnMapping.mode")
-    {
+    if let Some(mode) = config.get("delta.columnMapping.mode") {
         if !mode.eq_ignore_ascii_case("none") {
             return Err(Error::Unsupported(format!(
                 "table has delta.columnMapping.mode={mode}; deltalite cannot safely rewrite \
@@ -1802,6 +1848,44 @@ mod tests {
         // Everything was released exactly once: the full budget is available again.
         let q = budgets.acquire_bytes(512 * 1024).await.unwrap();
         assert_eq!(q.held_local_kb, 512);
+    }
+
+    #[tokio::test]
+    async fn concurrent_top_ups_beyond_estimate_do_not_wedge() {
+        // Budget fits roughly one grown batch, far less than all readers' grown batches at
+        // once. Under the old acquire-while-holding scheme the readers would each pin their
+        // estimate and none could grow -- a permanent wedge. Release-and-reacquire makes
+        // them serialize instead, so every reader completes.
+        let limits = Arc::new(crate::limits::ProcessLimits::new(1, 1, 100 * 1024));
+        let budgets = Budgets {
+            local: Arc::new(Semaphore::new(100)), // 100 KiB per-call budget
+            local_cap_kb: 100,
+            limits,
+        };
+        let tasks: Vec<_> = (0..8)
+            .map(|_| {
+                let budgets = budgets.clone();
+                tokio::spawn(async move {
+                    // Reserve a small estimate, then "decode" a batch far larger than it.
+                    let mut p = budgets.acquire_bytes(4 * 1024).await.unwrap();
+                    budgets.top_up(&mut p, 80 * 1024).await.unwrap();
+                    // Hold the grown permit briefly, as a reader does before it sends.
+                    tokio::task::yield_now().await;
+                    drop(p);
+                })
+            })
+            .collect();
+        let run = async {
+            for t in tasks {
+                t.await.unwrap();
+            }
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(10), run)
+            .await
+            .expect("readers wedged topping up past their estimate");
+        // Budget fully released: the whole capacity is available again.
+        let all = budgets.acquire_bytes(100 * 1024).await.unwrap();
+        assert_eq!(all.held_local_kb, 100);
     }
 
     #[test]

@@ -15,12 +15,18 @@ on:
         paths:
             - rust/deltalite/**
             - .github/workflows/ci-deltalite-python.yml
+            # The parity suite runs against the repo's pinned deltalake/pyarrow/duckdb, so
+            # re-run it whenever those pins move.
+            - pyproject.toml
+            - uv.lock
     push:
         branches:
             - master
         paths:
             - rust/deltalite/**
             - .github/workflows/ci-deltalite-python.yml
+            - pyproject.toml
+            - uv.lock
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -39,6 +45,7 @@ jobs:
               with:
                   sparse-checkout: |
                       rust/
+                      pyproject.toml
                   sparse-checkout-cone-mode: false
                   clean: false
 
@@ -65,13 +72,22 @@ jobs:
                   version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Create venv with test dependencies
-              # Versions pinned to match the repo's pyproject.toml so parity is
-              # asserted against exactly what production runs.
+              # Versions are read straight from the repo's pyproject.toml so parity is
+              # asserted against exactly what production installs -- no second copy of the
+              # pins here to silently drift. pyproject.toml/uv.lock are in this workflow's
+              # path filter, so a pin bump re-runs the suite.
               run: |
                   uv venv .venv-deltalite --python 3.13
+                  pin() { grep -oE "\"${1}[^\"]*\"" pyproject.toml | tr -d '"' | head -1; }
+                  DELTALAKE=$(pin 'deltalake\[pyarrow\]==')
+                  PYARROW=$(pin 'pyarrow==')
+                  DUCKDB=$(pin 'duckdb~=')
+                  echo "Resolved pins: $DELTALAKE $PYARROW $DUCKDB"
+                  test -n "$DELTALAKE" && test -n "$PYARROW" && test -n "$DUCKDB" \
+                      || { echo "failed to resolve a pin from pyproject.toml" >&2; exit 1; }
                   VIRTUAL_ENV=$PWD/.venv-deltalite uv pip install \
                       maturin pytest \
-                      'deltalake==1.6.1' 'pyarrow==23.0.1' 'duckdb~=1.5.2'
+                      "$DELTALAKE" "$PYARROW" "$DUCKDB"
 
             - name: Build and install the extension
               run: |

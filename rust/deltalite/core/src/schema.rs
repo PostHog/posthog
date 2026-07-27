@@ -26,6 +26,16 @@ use crate::errors::{Error, Result};
 /// `ArrayData` (which carries untyped buffers) and pass through here before
 /// `make_array` builds the typed array.
 pub fn realign_array_data(data: ArrayData) -> Result<ArrayData> {
+    Ok(realign_inner(data)?.0)
+}
+
+/// Realign `data`, returning it alongside whether anything in the subtree was repaired.
+/// The `changed` flag is threaded up from the recursion rather than inferred from a
+/// buffer-pointer comparison: a Struct carries no buffers of its own and a List/Map's
+/// first buffer is its (unchanged) offsets, so a repaired decimal nested two or more
+/// levels deep (e.g. `map<string, decimal>`) would otherwise look unchanged to its
+/// parent and be silently discarded, leaving the delta-rs#3884 panic to still fire.
+fn realign_inner(data: ArrayData) -> Result<(ArrayData, bool)> {
     // arrow-rs represents Decimal256 as `i256`, a `#[repr(C)]` pair of 128-bit lanes, so
     // both decimal widths require 16-byte alignment.
     let align = match data.data_type() {
@@ -38,11 +48,8 @@ pub fn realign_array_data(data: ArrayData) -> Result<ArrayData> {
     let mut children = Vec::with_capacity(data.child_data().len());
     let mut child_changed = false;
     for c in data.child_data() {
-        let before = c.buffers().first().map(|b| b.as_ptr());
-        let fixed = realign_array_data(c.clone())?;
-        if fixed.buffers().first().map(|b| b.as_ptr()) != before {
-            child_changed = true;
-        }
+        let (fixed, changed) = realign_inner(c.clone())?;
+        child_changed |= changed;
         children.push(fixed);
     }
 
@@ -55,7 +62,7 @@ pub fn realign_array_data(data: ArrayData) -> Result<ArrayData> {
         .unwrap_or(false);
 
     if !needs_fix && !child_changed {
-        return Ok(data);
+        return Ok((data, false));
     }
 
     let buffers = if needs_fix {
@@ -70,9 +77,10 @@ pub fn realign_array_data(data: ArrayData) -> Result<ArrayData> {
     let builder = data.into_builder().buffers(buffers).child_data(children);
     // Only buffers were replaced, with byte-identical copies, so the layout the
     // original data was validated against still holds.
-    builder
+    let built = builder
         .build()
-        .map_err(|e| Error::Generic(format!("rebuilding realigned array: {e}")))
+        .map_err(|e| Error::Generic(format!("rebuilding realigned array: {e}")))?;
+    Ok((built, true))
 }
 
 /// Byte-identical copy of `buf` into a `Vec<i128>` allocation, which the allocator
@@ -194,6 +202,42 @@ mod tests {
         );
         // And the typed array constructs (this is where #3884 aborts) with equal values.
         let arr = make_array(fixed);
+        let arr = arr.as_primitive::<Decimal128Type>();
+        assert_eq!(arr.values(), &values[..]);
+    }
+
+    /// Wrap `child` in a single-field, non-nullable Struct via `build_unchecked` (a
+    /// validated `build()` would reject the deliberately misaligned decimal leaf before
+    /// the repair under test could run).
+    fn wrap_in_struct(child: ArrayData, field_name: &str) -> ArrayData {
+        let len = child.len();
+        let field = Field::new(field_name, child.data_type().clone(), true);
+        let ty = DataType::Struct(vec![field].into());
+        let builder = ArrayData::builder(ty).len(len).add_child_data(child);
+        // SAFETY: layout is valid by construction; only the leaf's 16-byte alignment is
+        // violated, which is the FFI-produced condition under repair here.
+        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
+        unsafe { builder.build_unchecked() }
+    }
+
+    #[test]
+    fn realigns_decimal_nested_two_levels_deep() {
+        // struct<struct<decimal>>: the intermediate structs carry no buffers of their
+        // own, so the old first-buffer-pointer heuristic saw "no change" at the top and
+        // discarded the repair -- reproducing delta-rs#3884 for depth >= 2 decimals.
+        let values = [1_i128, -2, 3_000_000_000];
+        let leaf = misaligned_decimal_data(&values);
+        let nested = wrap_in_struct(wrap_in_struct(leaf, "d"), "s");
+        let fixed = realign_array_data(nested).unwrap();
+
+        let leaf = &fixed.child_data()[0].child_data()[0];
+        assert_eq!(
+            (leaf.buffers()[0].as_ptr() as usize) % 16,
+            0,
+            "nested decimal buffer must be realigned"
+        );
+        // And the typed leaf array constructs (this is where #3884 aborts).
+        let arr = make_array(leaf.clone());
         let arr = arr.as_primitive::<Decimal128Type>();
         assert_eq!(arr.values(), &values[..]);
     }
