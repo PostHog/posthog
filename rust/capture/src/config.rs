@@ -3,6 +3,8 @@ use std::{net::SocketAddr, num::NonZeroU32};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
+
+use crate::pipeline::Pipeline;
 use tracing::Level;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -105,6 +107,111 @@ impl AiRouting {
             AiRouting::Primary => false,
             AiRouting::Secondary => true,
             AiRouting::SecondaryAllowlist(allowlist) => allowlist.contains(token),
+        }
+    }
+}
+
+/// Per-pipeline output overrides: point one pipeline's rows at a different
+/// cluster and/or different topic names without touching the shared defaults.
+/// Unset fields fall back to the deployment's `KAFKA_*` config. This is how a
+/// cluster migration becomes table configuration (e.g. the AI pipeline to a
+/// secondary cluster) instead of code. Only supported on plain-Kafka
+/// deployments — combining with `S3_FALLBACK_ENABLED` or `AI_SINK_MODE`
+/// secondary routing is refused at boot until those policies learn per-row
+/// composition.
+#[derive(Envconfig, Clone, Default)]
+pub struct OutputOverrides {
+    #[envconfig(from = "CAPTURE_OUTPUT_ANALYTICS_BROKERS")]
+    pub analytics_brokers: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_ANALYTICS_TOPIC_MAIN")]
+    pub analytics_topic_main: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_ANALYTICS_TOPIC_OVERFLOW")]
+    pub analytics_topic_overflow: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_ANALYTICS_TOPIC_HISTORICAL")]
+    pub analytics_topic_historical: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_ANALYTICS_TOPIC_DLQ")]
+    pub analytics_topic_dlq: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_BROKERS")]
+    pub ai_brokers: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_TOPIC_MAIN")]
+    pub ai_topic_main: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_TOPIC_OVERFLOW")]
+    pub ai_topic_overflow: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_TOPIC_HISTORICAL")]
+    pub ai_topic_historical: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_TOPIC_DLQ")]
+    pub ai_topic_dlq: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_HEATMAPS_BROKERS")]
+    pub heatmaps_brokers: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_HEATMAPS_TOPIC_MAIN")]
+    pub heatmaps_topic_main: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_HEATMAPS_TOPIC_DLQ")]
+    pub heatmaps_topic_dlq: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_WARNINGS_BROKERS")]
+    pub warnings_brokers: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_WARNINGS_TOPIC_MAIN")]
+    pub warnings_topic_main: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_WARNINGS_TOPIC_DLQ")]
+    pub warnings_topic_dlq: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_ERROR_TRACKING_BROKERS")]
+    pub error_tracking_brokers: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC_MAIN")]
+    pub error_tracking_topic_main: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC_DLQ")]
+    pub error_tracking_topic_dlq: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_REPLAY_BROKERS")]
+    pub replay_brokers: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_REPLAY_TOPIC_MAIN")]
+    pub replay_topic_main: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_REPLAY_TOPIC_OVERFLOW")]
+    pub replay_topic_overflow: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_REPLAY_TOPIC_DLQ")]
+    pub replay_topic_dlq: Option<String>,
+}
+
+impl OutputOverrides {
+    /// Whether any per-pipeline output override is set. Setup refuses to boot
+    /// when overrides are combined with policy trees that assume every row
+    /// shares one cluster (S3 fallback, AI secondary routing).
+    pub fn any_set(&self) -> bool {
+        [
+            &self.analytics_brokers,
+            &self.analytics_topic_main,
+            &self.analytics_topic_overflow,
+            &self.analytics_topic_historical,
+            &self.analytics_topic_dlq,
+            &self.ai_brokers,
+            &self.ai_topic_main,
+            &self.ai_topic_overflow,
+            &self.ai_topic_historical,
+            &self.ai_topic_dlq,
+            &self.heatmaps_brokers,
+            &self.heatmaps_topic_main,
+            &self.heatmaps_topic_dlq,
+            &self.warnings_brokers,
+            &self.warnings_topic_main,
+            &self.warnings_topic_dlq,
+            &self.error_tracking_brokers,
+            &self.error_tracking_topic_main,
+            &self.error_tracking_topic_dlq,
+            &self.replay_brokers,
+            &self.replay_topic_main,
+            &self.replay_topic_overflow,
+            &self.replay_topic_dlq,
+        ]
+        .iter()
+        .any(|o| o.is_some())
+    }
+
+    /// The broker override for `pipeline`'s output row, if set.
+    pub fn brokers_for(&self, pipeline: Pipeline) -> Option<&str> {
+        match pipeline {
+            Pipeline::Analytics => self.analytics_brokers.as_deref(),
+            Pipeline::Ai => self.ai_brokers.as_deref(),
+            Pipeline::Heatmaps => self.heatmaps_brokers.as_deref(),
+            Pipeline::Warnings => self.warnings_brokers.as_deref(),
+            Pipeline::ErrorTracking => self.error_tracking_brokers.as_deref(),
+            Pipeline::Replay => self.replay_brokers.as_deref(),
         }
     }
 }
@@ -274,6 +381,16 @@ pub struct Config {
     // today. Requires `s3_fallback_enabled` (it drives the same pair).
     #[envconfig(default = "false")]
     pub failover_enabled: bool,
+
+    #[envconfig(nested = true)]
+    pub output_overrides: OutputOverrides,
+
+    // Verify at boot that every topic this deployment can produce to exists
+    // on its cluster, refusing to start otherwise. Off by default: brokers
+    // with topic auto-creation make the check misleading, and a metadata
+    // probe for a missing topic can itself trigger creation.
+    #[envconfig(default = "false")]
+    pub verify_topics_on_boot: bool,
 
     #[envconfig(default = "false")]
     pub is_mirror_deploy: bool,

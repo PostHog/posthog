@@ -126,6 +126,16 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> RdKafkaProducer<C> {
     pub fn new(producer: FutureProducer<C>) -> Self {
         Self { producer }
     }
+
+    /// The underlying rdkafka client, for cluster metadata queries (boot-time
+    /// topic verification).
+    pub fn client(
+        &self,
+    ) -> &rdkafka::client::Client<rdkafka::producer::future_producer::FutureProducerContext<C>>
+    {
+        use rdkafka::producer::Producer;
+        self.producer.client()
+    }
 }
 
 impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafkaProducer<C> {

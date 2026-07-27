@@ -356,6 +356,29 @@ behave as the single pre-table output did. The runtime backstop for a
 pipeline without a row is an explicit fatal error, structurally dead while
 ingress mounting and table type derive from the same mode.
 
+### Per-pipeline output overrides and boot verification (Step 18)
+
+Each row of a deployment's table can be retargeted independently:
+`CAPTURE_OUTPUT_<PIPELINE>_BROKERS` points a pipeline's row at another
+cluster, `CAPTURE_OUTPUT_<PIPELINE>_TOPIC_<LANE>` renames a lane's topic in
+that row's namespace (existing `KAFKA_*` keys stay the defaults). The row
+factory builds one sink per pipeline, each with its own `TopicTable` (base
+config overlaid with that pipeline's overrides via
+`TopicTable::with_overrides`); producers are shared per distinct broker set,
+so the no-override configuration still opens exactly one connection. The
+gating liveness handle lands on the cluster carrying the deployment's
+ingress pipeline; other clusters' producers are non-gating. Overrides
+compose only with the plain per-row Kafka path — combining them with S3
+fallback or AI secondary routing is refused at boot, since those policy
+trees assume every row shares one primary cluster.
+
+`CAPTURE_VERIFY_TOPICS_ON_BOOT` (default off) probes cluster metadata for
+every topic a row can produce to — pipeline-scoped
+(`TopicTable::topics_for_pipeline`), so an overridden row probes only its
+own cluster's namespace — and refuses to start on a missing topic. Off by
+default because brokers with topic auto-creation make the check misleading
+(the metadata probe itself can create the topic).
+
 ## Closing state
 
 All steps are complete. The five strata are landed:
@@ -406,3 +429,4 @@ All steps are complete. The five strata are landed:
 | 15 · Per-mode output tables | done | `feat(capture): per-mode output tables; handlers bound by publish capabilities` |
 | 16 · AI ingress family | done | `feat(capture): ai ingress is its own router family with its own capability` |
 | 17 · Topic tables injected into sinks | done | `refactor(capture): topic tables are sink-side data, injected at construction` |
+| 18 · Per-pipeline output overrides; boot topic verification | done | `feat(capture): per-pipeline output overrides and boot topic verification` |

@@ -17,8 +17,8 @@
 //! `Custom` addresses carry an admin-supplied topic inline and bypass the
 //! table entirely.
 
-use crate::config::{CaptureMode, KafkaConfig};
-use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, ReplayLane};
+use crate::config::{CaptureMode, KafkaConfig, OutputOverrides};
+use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, Pipeline, ReplayLane};
 
 /// A named topic accessor the completeness check walks: `(label, getter)`.
 type TopicEntry = (&'static str, fn(&TopicTable) -> &str);
@@ -122,6 +122,110 @@ impl TopicTable {
             );
         }
         Ok(())
+    }
+}
+
+impl TopicTable {
+    /// Overlay `pipeline`'s per-output topic overrides
+    /// (`CAPTURE_OUTPUT_<PIPELINE>_TOPIC_<LANE>`) onto this table. Only the
+    /// fields the pipeline's addresses reach are touched, so a base table
+    /// cloned per row diverges exactly where the operator overrode it.
+    pub fn with_overrides(mut self, pipeline: Pipeline, overrides: &OutputOverrides) -> Self {
+        fn set(field: &mut String, value: &Option<String>) {
+            if let Some(value) = value {
+                *field = value.clone();
+            }
+        }
+        match pipeline {
+            Pipeline::Analytics => {
+                set(&mut self.main, &overrides.analytics_topic_main);
+                set(&mut self.overflow, &overrides.analytics_topic_overflow);
+                set(&mut self.historical, &overrides.analytics_topic_historical);
+                set(&mut self.dlq, &overrides.analytics_topic_dlq);
+            }
+            Pipeline::Ai => {
+                set(&mut self.main, &overrides.ai_topic_main);
+                set(&mut self.overflow, &overrides.ai_topic_overflow);
+                set(&mut self.historical, &overrides.ai_topic_historical);
+                set(&mut self.dlq, &overrides.ai_topic_dlq);
+            }
+            Pipeline::Heatmaps => {
+                set(&mut self.heatmaps, &overrides.heatmaps_topic_main);
+                set(&mut self.dlq, &overrides.heatmaps_topic_dlq);
+            }
+            Pipeline::Warnings => {
+                set(
+                    &mut self.client_ingestion_warning,
+                    &overrides.warnings_topic_main,
+                );
+                set(&mut self.dlq, &overrides.warnings_topic_dlq);
+            }
+            Pipeline::ErrorTracking => {
+                set(
+                    &mut self.error_tracking,
+                    &overrides.error_tracking_topic_main,
+                );
+                set(&mut self.dlq, &overrides.error_tracking_topic_dlq);
+            }
+            Pipeline::Replay => {
+                set(&mut self.main, &overrides.replay_topic_main);
+                set(&mut self.replay_overflow, &overrides.replay_topic_overflow);
+                set(&mut self.dlq, &overrides.replay_topic_dlq);
+            }
+        }
+        self
+    }
+
+    /// The topics `pipeline`'s addresses resolve to in this table — the set
+    /// boot verification probes on that row's cluster. Pipeline-scoped (not
+    /// mode-scoped) because an overridden row may point at a cluster that
+    /// carries only that pipeline's topics.
+    pub fn topics_for_pipeline(&self, pipeline: Pipeline) -> Vec<String> {
+        let addresses: Vec<Address> = match pipeline {
+            Pipeline::Analytics => vec![
+                Address::Analytics(AnalyticsLane::Main),
+                Address::Analytics(AnalyticsLane::Overflow),
+                Address::Analytics(AnalyticsLane::Historical),
+                Address::Analytics(AnalyticsLane::Dlq),
+            ],
+            Pipeline::Ai => vec![
+                Address::Ai(AiLane::Main),
+                Address::Ai(AiLane::Overflow),
+                Address::Ai(AiLane::Historical),
+                Address::Ai(AiLane::Dlq),
+            ],
+            Pipeline::Heatmaps => vec![
+                Address::Heatmaps(BasicLane::Main),
+                Address::Heatmaps(BasicLane::Dlq),
+            ],
+            Pipeline::Warnings => vec![
+                Address::Warnings(BasicLane::Main),
+                Address::Warnings(BasicLane::Dlq),
+            ],
+            Pipeline::ErrorTracking => vec![
+                Address::ErrorTracking(BasicLane::Main),
+                Address::ErrorTracking(BasicLane::Dlq),
+            ],
+            Pipeline::Replay => vec![
+                Address::Replay(ReplayLane::Main),
+                Address::Replay(ReplayLane::Overflow),
+                Address::Replay(ReplayLane::Dlq),
+            ],
+        };
+        addresses
+            .iter()
+            .map(|a| self.topic_for(a).to_string())
+            .collect()
+    }
+
+    /// Every topic a deployment in `mode` can produce to, resolved. The
+    /// mode-scoped counterpart of [`Self::topics_for_pipeline`], for sinks
+    /// that carry a whole deployment's traffic on one cluster.
+    pub fn required_topics(&self, mode: CaptureMode) -> Vec<String> {
+        Self::required_for(mode)
+            .iter()
+            .map(|(_, topic)| topic(self).to_string())
+            .collect()
     }
 }
 
@@ -256,5 +360,94 @@ mod tests {
             table.check_complete(mode).is_ok(),
             "a blank topic the mode never produces to must not fail its check"
         );
+    }
+
+    /// Per-pipeline topic overrides land on exactly the fields that
+    /// pipeline's addresses reach, leaving the rest of the row's table at the
+    /// base config — so e.g. an Ai main-topic override cannot leak into the
+    /// analytics row.
+    #[rstest]
+    #[case(Pipeline::Analytics, Address::Analytics(AnalyticsLane::Main))]
+    #[case(Pipeline::Analytics, Address::Analytics(AnalyticsLane::Overflow))]
+    #[case(Pipeline::Analytics, Address::Analytics(AnalyticsLane::Historical))]
+    #[case(Pipeline::Analytics, Address::Analytics(AnalyticsLane::Dlq))]
+    #[case(Pipeline::Ai, Address::Ai(AiLane::Main))]
+    #[case(Pipeline::Ai, Address::Ai(AiLane::Overflow))]
+    #[case(Pipeline::Ai, Address::Ai(AiLane::Historical))]
+    #[case(Pipeline::Ai, Address::Ai(AiLane::Dlq))]
+    #[case(Pipeline::Heatmaps, Address::Heatmaps(BasicLane::Main))]
+    #[case(Pipeline::Heatmaps, Address::Heatmaps(BasicLane::Dlq))]
+    #[case(Pipeline::Warnings, Address::Warnings(BasicLane::Main))]
+    #[case(Pipeline::Warnings, Address::Warnings(BasicLane::Dlq))]
+    #[case(Pipeline::ErrorTracking, Address::ErrorTracking(BasicLane::Main))]
+    #[case(Pipeline::ErrorTracking, Address::ErrorTracking(BasicLane::Dlq))]
+    #[case(Pipeline::Replay, Address::Replay(ReplayLane::Main))]
+    #[case(Pipeline::Replay, Address::Replay(ReplayLane::Overflow))]
+    #[case(Pipeline::Replay, Address::Replay(ReplayLane::Dlq))]
+    fn with_overrides_retargets_exactly_the_pipelines_addresses(
+        #[case] pipeline: Pipeline,
+        #[case] address: Address,
+    ) {
+        let overrides = full_overrides();
+        let table = test_topics().with_overrides(pipeline, &overrides);
+        assert_eq!(
+            table.topic_for(&address),
+            "overridden",
+            "the pipeline's own address must resolve to its override"
+        );
+
+        // An address on a field this pipeline never writes stays at the base
+        // topic — cross-pipeline isolation. (Only the Heatmaps pipeline
+        // writes the heatmaps field; only Warnings writes
+        // client-ingestion-warning.)
+        let isolated = match pipeline {
+            Pipeline::Heatmaps => Address::Warnings(BasicLane::Main),
+            _ => Address::Heatmaps(BasicLane::Main),
+        };
+        assert_eq!(
+            table.topic_for(&isolated),
+            test_topics().topic_for(&isolated),
+            "{isolated:?} must stay at the base topic on the {pipeline:?} row"
+        );
+    }
+
+    /// Every override field set — each pipeline's lanes all map to
+    /// "overridden" so the retargeting test can assert on any address.
+    fn full_overrides() -> OutputOverrides {
+        let over = Some("overridden".to_string());
+        OutputOverrides {
+            analytics_topic_main: over.clone(),
+            analytics_topic_overflow: over.clone(),
+            analytics_topic_historical: over.clone(),
+            analytics_topic_dlq: over.clone(),
+            ai_topic_main: over.clone(),
+            ai_topic_overflow: over.clone(),
+            ai_topic_historical: over.clone(),
+            ai_topic_dlq: over.clone(),
+            heatmaps_topic_main: over.clone(),
+            heatmaps_topic_dlq: over.clone(),
+            warnings_topic_main: over.clone(),
+            warnings_topic_dlq: over.clone(),
+            error_tracking_topic_main: over.clone(),
+            error_tracking_topic_dlq: over.clone(),
+            replay_topic_main: over.clone(),
+            replay_topic_overflow: over.clone(),
+            replay_topic_dlq: over,
+            ..Default::default()
+        }
+    }
+
+    /// The boot-verification list is pipeline-scoped: exactly the topics the
+    /// row's addresses resolve to, so an overridden row probes only its own
+    /// cluster's namespace.
+    #[rstest]
+    #[case(Pipeline::Analytics, vec!["events_plugin_ingestion", "events_plugin_ingestion_overflow", "events_plugin_ingestion_historical", "events_plugin_ingestion_dlq"])]
+    #[case(Pipeline::Heatmaps, vec!["heatmaps", "events_plugin_ingestion_dlq"])]
+    #[case(Pipeline::Replay, vec!["events_plugin_ingestion", "replay_overflow", "events_plugin_ingestion_dlq"])]
+    fn topics_for_pipeline_lists_the_rows_reachable_topics(
+        #[case] pipeline: Pipeline,
+        #[case] expected: Vec<&str>,
+    ) {
+        assert_eq!(test_topics().topics_for_pipeline(pipeline), expected);
     }
 }

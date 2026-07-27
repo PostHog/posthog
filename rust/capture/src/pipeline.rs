@@ -27,7 +27,7 @@ pub const AI_EVENT_PREFIX: &str = "$ai_";
 
 /// Which product stream an event belongs to. Decided at the edge; never
 /// changes as the event moves through its pipeline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Pipeline {
     Analytics,
     /// LLM analytics: `$ai_*` events. They ride the analytics data types and

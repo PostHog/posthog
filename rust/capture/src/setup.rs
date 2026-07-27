@@ -16,15 +16,17 @@ use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrict
 use crate::failover::FailoverController;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::outputs::{AnalyticsFamilyOutputs, DeploymentOutputs, Output, PrepSpec, ReplayOutputs};
+use crate::pipeline::Pipeline as CapturePipeline;
 use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
 };
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
 use crate::s3_client::{S3Client, S3Config};
-use crate::sinks::kafka::KafkaSink;
+use crate::sinks::kafka::{KafkaContext, KafkaSink};
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
+use crate::sinks::producer::RdKafkaProducer;
 use crate::sinks::s3::S3Sink;
 use crate::sinks::topics::TopicTable;
 use crate::sinks::Sink;
@@ -295,7 +297,7 @@ pub async fn build_components(
         .await
         .expect("failed to create sink");
 
-    let make_row: Box<dyn Fn() -> Output + Send + Sync> = if build_secondary {
+    let make_row: RowFactory = if build_secondary {
         // The secondary cluster has its own topic wiring, so it preps with its
         // own spec (checked for completeness like the primary's).
         let secondary_kafka = build_ai_secondary_kafka_config(&config);
@@ -303,12 +305,16 @@ pub async fn build_components(
         secondary_topics
             .check_complete(config.capture_mode)
             .expect("AI secondary Kafka topics incomplete");
+        let secondary_required = secondary_topics.required_topics(config.capture_mode);
         let secondary_prep = PrepSpec::new(secondary_kafka.kafka_replay_envelope_compression);
-        let secondary_sink: Arc<dyn Sink> = Arc::new(
-            KafkaSink::new(secondary_kafka, secondary_topics, secondary_handle)
-                .await
-                .expect("failed to start AI secondary Kafka sink"),
-        );
+        let secondary_sink = KafkaSink::new(secondary_kafka, secondary_topics, secondary_handle)
+            .await
+            .expect("failed to start AI secondary Kafka sink");
+        if config.verify_topics_on_boot {
+            verify_boot_topics(&secondary_sink, &secondary_required)
+                .expect("AI secondary boot topic verification failed");
+        }
+        let secondary_sink: Arc<dyn Sink> = Arc::new(secondary_sink);
         let routing = if config.ai_sink_mode == AiSinkMode::SecondaryAllowlist {
             let allowlist = config
                 .ai_secondary_allowlist_tokens
@@ -323,9 +329,9 @@ pub async fn build_components(
         // Parity with the pre-table split composite: token routing applies on
         // every row of the deployment, not only the ai row. Narrowing the
         // split to the ai row is a deliberate config change for later.
-        Box::new(move || {
+        Box::new(move |pipeline| {
             Output::split(
-                primary_row(),
+                primary_row(pipeline),
                 Output::single(secondary_sink.clone(), secondary_prep),
                 routing.clone(),
             )
@@ -445,11 +451,11 @@ pub async fn build_components(
     // sends `/i/v0/ai*` exclusively to capture-ai.
     let analytics_family_outputs = || {
         Arc::new(AnalyticsFamilyOutputs {
-            analytics: make_row(),
-            ai: make_row(),
-            heatmaps: make_row(),
-            warnings: make_row(),
-            error_tracking: make_row(),
+            analytics: make_row(CapturePipeline::Analytics),
+            ai: make_row(CapturePipeline::Ai),
+            heatmaps: make_row(CapturePipeline::Heatmaps),
+            warnings: make_row(CapturePipeline::Warnings),
+            error_tracking: make_row(CapturePipeline::ErrorTracking),
         })
     };
     let (app, outputs_for_flush): (Router, Arc<dyn DeploymentOutputs>) = match config.capture_mode {
@@ -462,7 +468,9 @@ pub async fn build_components(
             (build_app!(router::ai_router, outputs.clone()), outputs)
         }
         CaptureMode::Recordings => {
-            let outputs = Arc::new(ReplayOutputs { replay: make_row() });
+            let outputs = Arc::new(ReplayOutputs {
+                replay: make_row(CapturePipeline::Replay),
+            });
             (build_app!(router::replay_router, outputs.clone()), outputs)
         }
     };
@@ -570,11 +578,27 @@ async fn create_row_factory(
     config: &Config,
     sink_handle: Option<lifecycle::Handle>,
     advisory_handle: Option<lifecycle::Handle>,
-) -> anyhow::Result<Box<dyn Fn() -> Output + Send + Sync>> {
-    // Payload assembly is outputs-layer configuration: the registry (with its
-    // mode-scoped boot completeness check) and serializers live on the prep
-    // spec, shared by every target of the deployment. Print/noop deployments
-    // skip the completeness check (they produce to no broker).
+) -> anyhow::Result<RowFactory> {
+    // Per-pipeline output overrides retarget individual rows at other
+    // clusters/topics. They compose only with the plain per-row Kafka path:
+    // the S3-fallback and AI-secondary policy trees assume every row shares
+    // one primary cluster, so combining them is refused at boot rather than
+    // silently misrouting one side of the tree.
+    if config.output_overrides.any_set() {
+        anyhow::ensure!(
+            !config.s3_fallback_enabled,
+            "CAPTURE_OUTPUT_* overrides cannot be combined with S3 fallback"
+        );
+        anyhow::ensure!(
+            !(config.capture_mode == CaptureMode::Ai && config.ai_sink_mode != AiSinkMode::Primary),
+            "CAPTURE_OUTPUT_* overrides cannot be combined with AI secondary routing"
+        );
+    }
+
+    // Payload assembly is outputs-layer configuration: the topic table (with
+    // its mode-scoped boot completeness check) and serializers live on the
+    // prep spec, shared by every target of the deployment. Print/noop
+    // deployments skip the completeness check (they produce to no broker).
     let kafka_topics = || -> anyhow::Result<TopicTable> {
         let topics = TopicTable::from(&config.kafka);
         topics.check_complete(config.capture_mode)?;
@@ -584,26 +608,30 @@ async fn create_row_factory(
     if config.print_sink {
         let prep = PrepSpec::from(&config.kafka);
         let sink: Arc<dyn Sink> = Arc::new(PrintSink {});
-        Ok(Box::new(move || Output::single(sink.clone(), prep)))
+        Ok(Box::new(move |_pipeline| {
+            Output::single(sink.clone(), prep)
+        }))
     } else if config.noop_sink {
         info!("NoOpSink enabled, events will be silently dropped");
         let prep = PrepSpec::from(&config.kafka);
         let sink: Arc<dyn Sink> = Arc::new(NoOpSink::new());
-        Ok(Box::new(move || Output::single(sink.clone(), prep)))
+        Ok(Box::new(move |_pipeline| {
+            Output::single(sink.clone(), prep)
+        }))
     } else if config.s3_fallback_enabled {
         let s3_handle = sink_handle.expect("sink lifecycle handle required for S3 fallback");
         let kafka_handle = advisory_handle.expect("kafka advisory handle required for fallback");
 
         let prep = PrepSpec::from(&config.kafka);
-        let kafka_sink: Arc<dyn Sink> = Arc::new(
-            KafkaSink::new(
-                config.kafka.clone(),
-                kafka_topics()?,
-                Some(kafka_handle.clone()),
-            )
+        let topics = kafka_topics()?;
+        let required = topics.required_topics(config.capture_mode);
+        let kafka_sink = KafkaSink::new(config.kafka.clone(), topics, Some(kafka_handle.clone()))
             .await
-            .context("failed to start Kafka sink")?,
-        );
+            .context("failed to start Kafka sink")?;
+        if config.verify_topics_on_boot {
+            verify_boot_topics(&kafka_sink, &required).context("primary Kafka cluster")?;
+        }
+        let kafka_sink: Arc<dyn Sink> = Arc::new(kafka_sink);
 
         let s3_sink: Arc<dyn Sink> = Arc::new(
             S3Sink::new(
@@ -631,7 +659,7 @@ async fn create_row_factory(
         } else {
             None
         };
-        Ok(Box::new(move || {
+        Ok(Box::new(move |_pipeline| {
             let primary = Output::single(kafka_sink.clone(), prep);
             let secondary = Output::single(s3_sink.clone(), prep);
             match &controller {
@@ -645,17 +673,98 @@ async fn create_row_factory(
             }
         }))
     } else {
-        // `sink_handle` is `None` for a primary that must not gate the pod (a
-        // full `Secondary` cutover hands the gating handle to the secondary).
+        // One sink per pipeline row, each with its own topic table
+        // (base config overlaid with that pipeline's CAPTURE_OUTPUT_*
+        // overrides). Producers are shared per distinct broker set, so
+        // without overrides this still opens exactly one connection.
+        //
+        // The deployment's ingress pipeline connects first so the gating
+        // liveness handle lands on the cluster carrying the pod's primary
+        // traffic; producers for other clusters are non-gating, like the
+        // non-critical side of a split output. `sink_handle` is `None` for a
+        // primary that must not gate the pod (a full `Secondary` cutover
+        // hands the gating handle to the secondary).
         let prep = PrepSpec::from(&config.kafka);
-        let kafka_sink: Arc<dyn Sink> = Arc::new(
-            KafkaSink::new(config.kafka.clone(), kafka_topics()?, sink_handle)
-                .await
-                .context("failed to start Kafka sink")?,
-        );
+        let overrides = &config.output_overrides;
 
-        Ok(Box::new(move || Output::single(kafka_sink.clone(), prep)))
+        let (ingress, row_pipelines): (CapturePipeline, &[CapturePipeline]) =
+            match config.capture_mode {
+                CaptureMode::Events => (CapturePipeline::Analytics, ANALYTICS_FAMILY_ROWS),
+                CaptureMode::Ai => (CapturePipeline::Ai, ANALYTICS_FAMILY_ROWS),
+                CaptureMode::Recordings => (CapturePipeline::Replay, REPLAY_ROWS),
+            };
+        let mut ordered = row_pipelines.to_vec();
+        ordered.sort_by_key(|p| *p != ingress);
+
+        let mut sink_handle = sink_handle;
+        let mut producers: HashMap<String, Arc<RdKafkaProducer<KafkaContext>>> = HashMap::new();
+        let mut sinks: HashMap<CapturePipeline, Arc<dyn Sink>> = HashMap::new();
+        for pipeline in ordered {
+            // Completeness-check before connecting anything: a misconfigured
+            // topic must fail fast, not after a broker connection attempt.
+            let topics = TopicTable::from(&config.kafka).with_overrides(pipeline, overrides);
+            topics.check_complete(config.capture_mode)?;
+            let required = topics.topics_for_pipeline(pipeline);
+
+            let hosts = overrides
+                .brokers_for(pipeline)
+                .unwrap_or(&config.kafka.kafka_hosts)
+                .to_string();
+            let producer = match producers.get(&hosts) {
+                Some(producer) => producer.clone(),
+                None => {
+                    let mut kafka_config = config.kafka.clone();
+                    kafka_config.kafka_hosts = hosts.clone();
+                    let producer = KafkaSink::connect(&kafka_config, sink_handle.take())
+                        .await
+                        .context("failed to start Kafka sink")?;
+                    producers.insert(hosts, producer.clone());
+                    producer
+                }
+            };
+            let sink = KafkaSink::from_parts(producer, topics);
+            if config.verify_topics_on_boot {
+                verify_boot_topics(&sink, &required)
+                    .with_context(|| format!("{pipeline:?} output"))?;
+            }
+            sinks.insert(pipeline, Arc::new(sink));
+        }
+
+        Ok(Box::new(move |pipeline| {
+            let sink = sinks
+                .get(&pipeline)
+                .unwrap_or_else(|| panic!("no output row wired for pipeline {pipeline:?}"))
+                .clone();
+            Output::single(sink, prep)
+        }))
     }
+}
+
+/// One [`Output`] row of a deployment's table, minted for a specific
+/// pipeline.
+type RowFactory = Box<dyn Fn(CapturePipeline) -> Output + Send + Sync>;
+
+/// The pipeline rows an `Events`/`Ai` deployment's table holds — mirrors the
+/// fields of [`AnalyticsFamilyOutputs`].
+const ANALYTICS_FAMILY_ROWS: &[CapturePipeline] = &[
+    CapturePipeline::Analytics,
+    CapturePipeline::Ai,
+    CapturePipeline::Heatmaps,
+    CapturePipeline::Warnings,
+    CapturePipeline::ErrorTracking,
+];
+
+/// The pipeline rows a `Recordings` deployment's table holds — mirrors
+/// [`ReplayOutputs`].
+const REPLAY_ROWS: &[CapturePipeline] = &[CapturePipeline::Replay];
+
+/// Probe the sink's cluster for every listed topic, failing boot on the
+/// first one missing.
+fn verify_boot_topics(sink: &KafkaSink, topics: &[String]) -> anyhow::Result<()> {
+    let refs: Vec<&str> = topics.iter().map(String::as_str).collect();
+    sink.verify_topics(&refs)?;
+    info!(topics = ?topics, "boot topic verification passed");
+    Ok(())
 }
 
 // Fixed fire-and-forget tuning for the warnings producer. These are
@@ -994,9 +1103,10 @@ mod tests {
         assert!(super::parse_token_allowlist("  ,  , ").is_empty());
     }
 
-    /// A blank output topic makes `create_output` refuse to boot — the misconfig
-    /// fails fast at startup (via the mode-scoped `OutputRegistry` completeness
-    /// check inside `KafkaSink::new`) rather than at first produce. Each
+    /// A blank output topic makes the row factory refuse to boot — the
+    /// misconfig fails fast at startup (via the mode-scoped `TopicTable`
+    /// completeness check, run before any broker connection) rather than at
+    /// first produce. Each
     /// deployment refuses on a blank topic it actually produces to. `dlq` covers
     /// every mode; the remaining cases exercise one of each mode's own topics
     /// (heatmaps for the analytics family, replay-overflow for recordings).
@@ -1033,6 +1143,41 @@ mod tests {
         assert!(
             msg.contains(output_name),
             "error should name the missing output '{output_name}': {msg}"
+        );
+    }
+
+    /// CAPTURE_OUTPUT_* overrides compose only with the plain per-row Kafka
+    /// path — combined with a policy tree that assumes one shared cluster
+    /// (S3 fallback, AI secondary routing) they are refused at boot.
+    #[rstest::rstest]
+    #[case(&[("S3_FALLBACK_ENABLED", "true"), ("S3_FALLBACK_BUCKET", "b")], "S3 fallback")]
+    #[case(&[("CAPTURE_MODE", "ai"), ("AI_SINK_MODE", "secondary")], "AI secondary")]
+    #[tokio::test]
+    async fn create_row_factory_refuses_output_overrides_with_composite_policies(
+        #[case] extra_env: &[(&str, &str)],
+        #[case] refused_with: &str,
+    ) {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+            ("CAPTURE_OUTPUT_ANALYTICS_TOPIC_MAIN", "elsewhere"),
+        ]
+        .into_iter()
+        .chain(extra_env.iter().copied())
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        let err = create_row_factory(&config, None, None)
+            .await
+            .err()
+            .expect("boot must be refused when overrides meet a composite policy");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains(refused_with),
+            "error should name the conflicting policy '{refused_with}': {msg}"
         );
     }
 }

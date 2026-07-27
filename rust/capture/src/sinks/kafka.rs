@@ -206,6 +206,49 @@ impl KafkaSink {
         topics: TopicTable,
         liveness: Option<lifecycle::Handle>,
     ) -> anyhow::Result<KafkaSink> {
+        let producer = Self::connect(&config, liveness).await?;
+        Ok(Self::from_parts(producer, topics))
+    }
+
+    /// A sink over an already-connected producer with its own topic table —
+    /// how multiple per-pipeline rows share one cluster connection while
+    /// naming topics independently.
+    pub fn from_parts(producer: Arc<RdKafkaProducer<KafkaContext>>, topics: TopicTable) -> Self {
+        KafkaSinkBase {
+            producer,
+            topics: Arc::new(topics),
+        }
+    }
+
+    /// Verify that every listed topic exists on this sink's cluster. Used by
+    /// the opt-in boot check (`CAPTURE_VERIFY_TOPICS_ON_BOOT`); beware that
+    /// on brokers with topic auto-creation the metadata probe itself can
+    /// create the topic.
+    pub fn verify_topics(&self, topics: &[&str]) -> anyhow::Result<()> {
+        for topic in topics {
+            let metadata = self
+                .producer
+                .client()
+                .fetch_metadata(Some(topic), Timeout::After(Duration::new(10, 0)))
+                .map_err(|e| anyhow::anyhow!("metadata fetch for topic '{topic}' failed: {e}"))?;
+            let known = metadata
+                .topics()
+                .iter()
+                .any(|t| t.name() == *topic && t.error().is_none() && !t.partitions().is_empty());
+            anyhow::ensure!(
+                known,
+                "topic '{topic}' does not exist on this cluster (or has no partitions)"
+            );
+        }
+        Ok(())
+    }
+
+    /// Connect a producer to the cluster in `config`. Shared by every sink
+    /// that produces to that cluster.
+    pub async fn connect(
+        config: &KafkaConfig,
+        liveness: Option<lifecycle::Handle>,
+    ) -> anyhow::Result<Arc<RdKafkaProducer<KafkaContext>>> {
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
         let mut client_config = ClientConfig::new();
@@ -325,10 +368,7 @@ impl KafkaSink {
 
         let rd_producer = RdKafkaProducer::new(producer);
 
-        Ok(KafkaSinkBase {
-            producer: Arc::new(rd_producer),
-            topics: Arc::new(topics),
-        })
+        Ok(Arc::new(rd_producer))
     }
 }
 
