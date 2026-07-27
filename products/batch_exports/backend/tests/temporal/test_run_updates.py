@@ -10,7 +10,12 @@ from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportDestination,
+    BatchExportRun,
+)
 from products.batch_exports.backend.service import delete_batch_export, sync_batch_export
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
@@ -262,6 +267,54 @@ async def test_finish_batch_export_run_pauses_if_reaching_failure_threshold(acti
             assert batch_export.paused is True
         else:
             assert batch_export.paused is False
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_finish_batch_export_run_does_not_pause_on_backfill_failures(activity_environment, team, batch_export):
+    """Test that backfill-origin failures never pause the parent scheduled export.
+
+    Backfill runs share the parent BatchExport and its failure counter, but a failing
+    backfill must not disable the live schedule. Failures tagged with a backfill_id
+    should be excluded from the failure threshold count.
+    """
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
+
+    backfill = await sync_to_async(BatchExportBackfill.objects.create)(
+        team=team,
+        batch_export=batch_export,
+        start_at=start,
+        end_at=end,
+        status=BatchExportBackfill.Status.RUNNING,
+    )
+
+    batch_export_id = str(batch_export.id)
+    failure_threshold = 3
+
+    for _ in range(1, failure_threshold * 2):
+        inputs = StartBatchExportRunInputs(
+            team_id=team.id,
+            batch_export_id=batch_export_id,
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+            backfill_id=str(backfill.id),
+        )
+        run_id = await activity_environment.run(start_batch_export_run, inputs)
+
+        finish_inputs = FinishBatchExportRunInputs(
+            id=str(run_id),
+            batch_export_id=batch_export_id,
+            status=BatchExportRun.Status.FAILED,
+            team_id=team.id,
+            latest_error="Oh No!",
+            failure_threshold=failure_threshold,
+        )
+
+        await activity_environment.run(finish_batch_export_run, finish_inputs)
+        await sync_to_async(batch_export.refresh_from_db)()
+
+        assert batch_export.paused is False
 
 
 @pytest.mark.django_db(transaction=True)

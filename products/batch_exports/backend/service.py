@@ -1069,11 +1069,15 @@ async def aupdate_batch_export_run(
 
 
 def count_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
-    """Count failed batch export runs in the 'last_n' runs."""
+    """Count failed batch export runs in the 'last_n' runs.
+
+    Backfill-origin runs are excluded: a failing backfill has its own failure
+    handling and must never count towards pausing the parent scheduled export.
+    """
     count_of_failures = (
         # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         BatchExportRun.objects.filter(
-            id__in=BatchExportRun.objects.filter(batch_export_id=batch_export_id)
+            id__in=BatchExportRun.objects.filter(batch_export_id=batch_export_id, backfill__isnull=True)
             .order_by("-last_updated_at")
             .values("id")[:last_n]
         )
@@ -1085,11 +1089,15 @@ def count_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
 
 
 async def acount_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
-    """Count failed batch export runs in the 'last_n' runs."""
+    """Count failed batch export runs in the 'last_n' runs.
+
+    Backfill-origin runs are excluded: a failing backfill has its own failure
+    handling and must never count towards pausing the parent scheduled export.
+    """
     count_of_failures = (
         # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         await BatchExportRun.objects.filter(
-            id__in=BatchExportRun.objects.filter(batch_export_id=batch_export_id)
+            id__in=BatchExportRun.objects.filter(batch_export_id=batch_export_id, backfill__isnull=True)
             .order_by("-last_updated_at")
             .values("id")[:last_n]
         )
