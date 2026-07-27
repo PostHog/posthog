@@ -133,6 +133,19 @@ const MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3: RawAnnotationType = {
     scope: AnnotationScope.Project,
     ...BASE_MOCK_ANNOTATION,
 }
+/** ID 999 at 2022-06-15T04:00:00.000Z — stands in for an older annotation that falls beyond the
+ *  first (newest-first) page of the annotations list endpoint, so it is absent from the pre-loaded store. */
+const MOCK_ANNOTATION_PROJECT_SCOPED_BEYOND_PAGE: RawAnnotationType = {
+    id: 999,
+    content: 'MOCK_ANNOTATION_PROJECT_SCOPED_BEYOND_PAGE',
+    date_marker: '2022-06-15T04:00:00.000Z',
+    dashboard_item: null,
+    insight_short_id: null,
+    insight_name: null,
+    insight_derived_name: null,
+    scope: AnnotationScope.Project,
+    ...BASE_MOCK_ANNOTATION,
+}
 /** ID 23 at 2022-08-10T04:00:00.000Z */
 const MOCK_ANNOTATION_DASHBOARD_SCOPED: RawAnnotationType = {
     id: 23,
@@ -371,6 +384,45 @@ describe('annotationsOverlayLogic', () => {
                     MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
                 ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
+            })
+        })
+
+        it('backfills in-range annotations beyond the first store page when the store is paginated', async () => {
+            useInsightMocks()
+            // The store's initial load returns only the newest page and a `next` cursor (i.e. more exist);
+            // the range-scoped request (carrying date_from/date_to) surfaces an older annotation that the
+            // store never loaded. Without the backfill, that annotation would silently vanish from the chart.
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/annotations/': ({ request }) => {
+                        const isRangeScopedRequest = !!new URL(request.url).searchParams.get('date_from')
+                        return [
+                            200,
+                            isRangeScopedRequest
+                                ? { results: [MOCK_ANNOTATION_PROJECT_SCOPED_BEYOND_PAGE], next: null }
+                                : {
+                                      results: [MOCK_ANNOTATION_PROJECT_SCOPED],
+                                      next: 'http://localhost/api/projects/997/annotations/?limit=1000&offset=1000',
+                                  },
+                        ]
+                    },
+                },
+            })
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: 'new',
+                insightNumericId: 'new',
+                dashboardId: 0,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(logic).toDispatchActions(['setRangeScopedAnnotations'])
+            await expectLogic(logic).toMatchValues({
+                relevantAnnotations: [MOCK_ANNOTATION_PROJECT_SCOPED, MOCK_ANNOTATION_PROJECT_SCOPED_BEYOND_PAGE].map(
+                    (annotation) => deserializeAnnotation(annotation, 'UTC')
+                ),
             })
         })
 
