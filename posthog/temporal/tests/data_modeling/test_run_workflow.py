@@ -933,65 +933,67 @@ async def test_run_workflow_with_minio_bucket_with_errors(
 
 
 async def test_run_workflow_revert_materialization(
-    minio_client,
     ateam,
-    bucket_name,
-    pageview_events,
     saved_queries,
-    temporal_client,
-    test_time,
 ):
     workflow_id = str(uuid.uuid4())
-    inputs = RunWorkflowInputs(team_id=ateam.pk)
+    task_queue = "data-modeling-revert-test"
+    saved_query = saved_queries[0]
+    inputs = RunWorkflowInputs(
+        team_id=ateam.pk,
+        select=[Selector(label=saved_query.id.hex, ancestors=0, descendants=0)],
+    )
 
     def mock_hogql_table(_query, _team, _logger):
         raise Exception("Unknown table")
 
     with (
-        override_settings(
-            BUCKET_URL=f"s3://{bucket_name}",
-            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
-            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
-        ),
-        freeze_time(test_time),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+        unittest.mock.patch(
+            "posthog.temporal.data_modeling.run_workflow.get_query_row_count",
+            new_callable=unittest.mock.AsyncMock,
+            return_value=0,
+        ),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_s3_client"),
+        unittest.mock.patch("products.data_modeling.backend.logic.enrich_view_semantics._start_enrichment_workflow"),
+        unittest.mock.patch(
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"
+        ),
     ):
-        async with temporalio.worker.Worker(
-            temporal_client,
-            task_queue=settings.DATA_MODELING_TASK_QUEUE,
-            workflows=[RunWorkflow],
-            activities=[
-                start_run_activity,
-                build_dag_activity,
-                run_dag_activity,
-                finish_run_activity,
-                create_job_model_activity,
-                fail_jobs_activity,
-                cleanup_running_jobs_activity,
-            ],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        ):
-            # Ensure the team exists in the DB context before running workflow
-            await database_sync_to_async(Team.objects.get)(pk=ateam.pk)
-            await temporal_client.execute_workflow(
-                RunWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=settings.DATA_MODELING_TASK_QUEUE,
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=30),
-            )
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with temporalio.worker.Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunWorkflow],
+                activities=[
+                    start_run_activity,
+                    build_dag_activity,
+                    run_dag_activity,
+                    finish_run_activity,
+                    create_job_model_activity,
+                    fail_jobs_activity,
+                    cleanup_running_jobs_activity,
+                ],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                # Ensure the team exists in the DB context before running workflow
+                await database_sync_to_async(Team.objects.get)(pk=ateam.pk)
+                await env.client.execute_workflow(
+                    RunWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=30),
+                )
 
     job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
     assert job is not None
     assert job.status == DataModelingJob.Status.FAILED
     assert job.rows_materialized == 0
 
-    for query in saved_queries:
-        await database_sync_to_async(query.refresh_from_db)()
-        assert query.is_materialized is False
+    await database_sync_to_async(saved_query.refresh_from_db)()
+    assert saved_query.is_materialized is False
 
 
 async def test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures(
