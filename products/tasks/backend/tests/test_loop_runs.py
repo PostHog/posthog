@@ -848,9 +848,6 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         self.assertNotIn("desktop-file-system", task_run.state["pending_user_message"])
 
 
-# Terminal notifications are scheduled on commit and delivered through a celery task
-# (see handle_loop_run_terminal); eager celery + captureOnCommitCallbacks runs the full
-# path inline so the patched dispatch_loop_event still observes the final payload.
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
 class TestHandleLoopRunTerminal(LoopRunsTestCase):
     def make_terminal_task_run(self, loop: Loop, *, status: str, error_message: str | None = None) -> TaskRun:
@@ -946,8 +943,6 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
     def test_completed_run_with_final_message_dispatches_report(self, mock_dispatch):
-        # The relay persists the last agent turn to output.final_message; the deferred
-        # dispatch must pick it up so the run_completed email carries the report.
         loop = self.create_loop(consecutive_failures=0)
         task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.COMPLETED)
         task_run.output = {"final_message": "Weekly summary: all green."}

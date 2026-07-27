@@ -850,8 +850,6 @@ class TestFinalMessageTracker:
         assert tracker.end_turn() == "Weekly summary."
 
     def test_tool_only_turn_returns_none_so_prior_report_survives(self) -> None:
-        # A trailing turn with no prose (e.g. just the finish tool call) must not
-        # clobber the already-persisted report with an empty message.
         tracker = FinalMessageTracker()
         tracker.collect(_agent_chunk_event("The report."))
         assert tracker.end_turn() == "The report."
@@ -866,7 +864,6 @@ class TestFinalMessageTracker:
         assert tracker.end_turn() == "Second turn."
 
     def test_reset_drops_partial_turn(self) -> None:
-        # Reconnects replay events, so partial prose must be dropped like pending_text_parts.
         tracker = FinalMessageTracker()
         tracker.collect(_agent_chunk_event("half a mess"))
         tracker.reset()

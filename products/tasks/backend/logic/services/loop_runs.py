@@ -55,8 +55,7 @@ _STALE_RUN_REAP_MESSAGE = (
     "Run ended without a final status (sandbox no longer active), marked failed so the loop can run again"
 )
 
-# Long enough for the relay's end-of-turn write to land after the finish tool's PATCH,
-# short enough that "loop finished" notifications still feel immediate.
+# Gives the relay's end-of-turn write time to land after the finish tool marks the run terminal.
 LOOP_TERMINAL_NOTIFICATION_GRACE_SECONDS = 20
 
 # No dedicated "raise attention" tool exists: failed/cancelled runs already route to
@@ -884,9 +883,6 @@ def handle_loop_run_terminal(task_run: TaskRun) -> None:
         dispatch_loop_run_terminal_notification_task,
     )
 
-    # Deferred: the finish tool marks the run terminal from inside its final agent turn,
-    # before the relay persists that turn's prose to `output.final_message`. The grace
-    # period lets that write land so the notification can carry the run's report.
     transaction.on_commit(
         lambda: dispatch_loop_run_terminal_notification_task.apply_async(
             args=[
@@ -903,11 +899,6 @@ def handle_loop_run_terminal(task_run: TaskRun) -> None:
 
 
 def dispatch_loop_run_terminal_notification(loop_id: str, team_id: int, event: str, payload: dict) -> None:
-    """Deliver a run's terminal notification, attaching the run's report when one exists.
-
-    Celery-deferred from `handle_loop_run_terminal` (see the grace comment there); refetches
-    the run so it sees an `output.final_message` written after the terminal transition.
-    """
     loop = Loop.objects.for_team(team_id, canonical=True).filter(id=loop_id).first()
     if loop is None:
         return
