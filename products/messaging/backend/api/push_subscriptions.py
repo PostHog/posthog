@@ -46,16 +46,30 @@ MAX_BODY_BYTES = 16 * 1024
 _encrypted_fields = EncryptedFieldMixin()
 
 
-# Resolve the integration from the app_id alone, not the device platform. An app_id is either a
+# Verification-mode precedence. An app_id can match more than one integration — config identifiers
+# (project_id / bundle_id) aren't covered by a uniqueness constraint — so mode resolution must fail
+# closed: take the strictest mode across every match so a lax duplicate can't downgrade a sibling's
+# `required` policy. Unknown/garbage values sort to 0 (treated as disabled).
+_VERIFICATION_MODE_PRECEDENCE = {"disabled": 0, "optional": 1, "required": 2}
+
+
+# Resolve integrations from the app_id alone, not the device platform. An app_id is either a
 # Firebase project_id or an APNs bundle_id, so a device can register with either provider regardless
 # of its OS — e.g. an iOS device delivering through Firebase registers with the Firebase project_id.
 # (The client still sends its platform, but it's metadata, not what selects the provider.)
-def _find_integration(team_id: int, app_id: str) -> Integration | None:
-    return (
+def _find_integrations(team_id: int, app_id: str) -> list[Integration]:
+    return list(
         Integration.objects.filter(team_id=team_id)
         .filter(Q(kind="firebase", config__project_id=app_id) | Q(kind="apns", config__bundle_id=app_id))
         .only("id", "config")
-        .first()
+    )
+
+
+def _strictest_verification_mode(integrations: list[Integration]) -> str:
+    return max(
+        (integration.config.get("push_identity_verification", "disabled") for integration in integrations),
+        key=lambda mode: _VERIFICATION_MODE_PRECEDENCE.get(mode, 0),
+        default="disabled",
     )
 
 
@@ -189,8 +203,8 @@ def push_subscriptions(request: Request):
             ),
         )
 
-    integration = _find_integration(team.id, app_id)
-    if not integration:
+    integrations = _find_integrations(team.id, app_id)
+    if not integrations:
         return cors_response(
             request,
             generate_exception_response(
@@ -204,7 +218,7 @@ def push_subscriptions(request: Request):
         )
 
     operation = "register" if request.method == "POST" else "unregister"
-    verification_mode = integration.config.get("push_identity_verification", "disabled")
+    verification_mode = _strictest_verification_mode(integrations)
     if verification_mode in ("optional", "required"):
         identity_token = data.get("identity_token")
         verified = isinstance(identity_token, str) and verify_push_identity_token(

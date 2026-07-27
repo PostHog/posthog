@@ -440,3 +440,29 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         mock_capture.assert_called_once()
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_strictest_mode_wins_when_two_integrations_share_an_app_id(self, mock_capture: MagicMock):
+        # project_id/bundle_id aren't unique, so an app_id can match several integrations. Resolution
+        # must fail closed: a second integration with the same project_id and verification disabled
+        # must not let a token-less request through when a sibling requires verification.
+        self._enable_identity_verification("required")
+        Integration.objects.create(
+            team=self.team,
+            kind="firebase",
+            integration_id="my-firebase-project-duplicate",
+            config={"project_id": "my-firebase-project", "push_identity_verification": "disabled"},
+            sensitive_config={},
+        )
+
+        response = self._post(
+            {
+                "distinct_id": "user-1",
+                "device_token": "fcm-device-token-abc",
+                "platform": "android",
+                "app_id": "my-firebase-project",
+            }
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        mock_capture.assert_not_called()
