@@ -369,15 +369,14 @@ class NDJSONRenderer(renderers.BaseRenderer):
 
 
 class ScoreLabViewSet(viewsets.ViewSet):
-    renderer_classes = [renderers.JSONRenderer, NDJSONRenderer]
     """
     Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
     config versions, dry-run a draft config against recently archived orgs, save a new
     immutable version, and flip which version is active.
 
-    Supersedes the admin lab UI's read paths; run/save/activate share the same underlying
-    machinery (products.growth.backend.enrichment.lab) as the admin dry-run action so both
-    surfaces compute identical verdicts.
+    Backs the in-product score lab scene; run/save/activate share the classifier machinery
+    in products.growth.backend.enrichment.lab with the batch runner, so a dry run and a
+    shadow run compute identical verdicts.
 
     Registered on the root router so it is not team-nested - prompt configs are instance-global,
     not scoped to any team or org.
@@ -451,7 +450,7 @@ class ScoreLabViewSet(viewsets.ViewSet):
         "Persists nothing - spends real LLM money, so sample is capped at "
         f"{MAX_SAMPLE_SIZE}.",
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, renderer_classes=[renderers.JSONRenderer, NDJSONRenderer])
     def run(self, request: request.Request, **kwargs: Any) -> HttpResponseBase:
         serializer = RunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

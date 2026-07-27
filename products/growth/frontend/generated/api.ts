@@ -10,15 +10,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActivateRequestApi,
-    GrowthScoreLabActivateCreateParams,
+    ConfigListResponseApi,
+    ConfigVersionApi,
+    GatewayModelListResponseApi,
     GrowthScoreLabConfigsRetrieveParams,
-    GrowthScoreLabLabelsRetrieveParams,
-    GrowthScoreLabModelsRetrieveParams,
     GrowthScoreLabRunCreateParams,
-    GrowthScoreLabSaveCreateParams,
     IdentityMatchingLinksListParams,
     IdentityMatchingLinksResponseApi,
     IdentityMatchingRunsResponseApi,
+    LabelListResponseApi,
     ProductPushCampaignActiveRetrieveParams,
     ProductPushCampaignApi,
     RunRequestApi,
@@ -27,28 +27,27 @@ import type {
     SdkHealthReportRetrieveParams,
 } from './api.schemas'
 
-export const getGrowthScoreLabActivateCreateUrl = (params?: GrowthScoreLabActivateCreateParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/growth_score_lab/activate/?${stringifiedParams}`
-        : `/api/growth_score_lab/activate/`
+export const getGrowthScoreLabActivateCreateUrl = () => {
+    return `/api/growth_score_lab/activate/`
 }
 
+/**
+ * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
+ * config versions, dry-run a draft config against recently archived orgs, save a new
+ * immutable version, and flip which version is active.
+ *
+ * Backs the in-product score lab scene; run/save/activate share the classifier machinery
+ * in products.growth.backend.enrichment.lab with the batch runner, so a dry run and a
+ * shadow run compute identical verdicts.
+ *
+ * Registered on the root router so it is not team-nested - prompt configs are instance-global,
+ * not scoped to any team or org.
+ */
 export const growthScoreLabActivateCreate = async (
     activateRequestApi: ActivateRequestApi,
-    params?: GrowthScoreLabActivateCreateParams,
     options?: RequestInit
-): Promise<Response> => {
-    return apiMutator<Response>(getGrowthScoreLabActivateCreateUrl(params), {
+): Promise<ConfigVersionApi> => {
+    return apiMutator<ConfigVersionApi>(getGrowthScoreLabActivateCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -72,63 +71,69 @@ export const getGrowthScoreLabConfigsRetrieveUrl = (params: GrowthScoreLabConfig
         : `/api/growth_score_lab/configs/`
 }
 
+/**
+ * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
+ * config versions, dry-run a draft config against recently archived orgs, save a new
+ * immutable version, and flip which version is active.
+ *
+ * Backs the in-product score lab scene; run/save/activate share the classifier machinery
+ * in products.growth.backend.enrichment.lab with the batch runner, so a dry run and a
+ * shadow run compute identical verdicts.
+ *
+ * Registered on the root router so it is not team-nested - prompt configs are instance-global,
+ * not scoped to any team or org.
+ */
 export const growthScoreLabConfigsRetrieve = async (
     params: GrowthScoreLabConfigsRetrieveParams,
     options?: RequestInit
-): Promise<Response> => {
-    return apiMutator<Response>(getGrowthScoreLabConfigsRetrieveUrl(params), {
+): Promise<ConfigListResponseApi> => {
+    return apiMutator<ConfigListResponseApi>(getGrowthScoreLabConfigsRetrieveUrl(params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getGrowthScoreLabLabelsRetrieveUrl = (params?: GrowthScoreLabLabelsRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/growth_score_lab/labels/?${stringifiedParams}`
-        : `/api/growth_score_lab/labels/`
+export const getGrowthScoreLabLabelsRetrieveUrl = () => {
+    return `/api/growth_score_lab/labels/`
 }
 
-export const growthScoreLabLabelsRetrieve = async (
-    params?: GrowthScoreLabLabelsRetrieveParams,
-    options?: RequestInit
-): Promise<Response> => {
-    return apiMutator<Response>(getGrowthScoreLabLabelsRetrieveUrl(params), {
+/**
+ * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
+ * config versions, dry-run a draft config against recently archived orgs, save a new
+ * immutable version, and flip which version is active.
+ *
+ * Backs the in-product score lab scene; run/save/activate share the classifier machinery
+ * in products.growth.backend.enrichment.lab with the batch runner, so a dry run and a
+ * shadow run compute identical verdicts.
+ *
+ * Registered on the root router so it is not team-nested - prompt configs are instance-global,
+ * not scoped to any team or org.
+ */
+export const growthScoreLabLabelsRetrieve = async (options?: RequestInit): Promise<LabelListResponseApi> => {
+    return apiMutator<LabelListResponseApi>(getGrowthScoreLabLabelsRetrieveUrl(), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getGrowthScoreLabModelsRetrieveUrl = (params?: GrowthScoreLabModelsRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/growth_score_lab/models/?${stringifiedParams}`
-        : `/api/growth_score_lab/models/`
+export const getGrowthScoreLabModelsRetrieveUrl = () => {
+    return `/api/growth_score_lab/models/`
 }
 
-export const growthScoreLabModelsRetrieve = async (
-    params?: GrowthScoreLabModelsRetrieveParams,
-    options?: RequestInit
-): Promise<Response> => {
-    return apiMutator<Response>(getGrowthScoreLabModelsRetrieveUrl(params), {
+/**
+ * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
+ * config versions, dry-run a draft config against recently archived orgs, save a new
+ * immutable version, and flip which version is active.
+ *
+ * Backs the in-product score lab scene; run/save/activate share the classifier machinery
+ * in products.growth.backend.enrichment.lab with the batch runner, so a dry run and a
+ * shadow run compute identical verdicts.
+ *
+ * Registered on the root router so it is not team-nested - prompt configs are instance-global,
+ * not scoped to any team or org.
+ */
+export const growthScoreLabModelsRetrieve = async (options?: RequestInit): Promise<GatewayModelListResponseApi> => {
+    return apiMutator<GatewayModelListResponseApi>(getGrowthScoreLabModelsRetrieveUrl(), {
         ...options,
         method: 'GET',
     })
@@ -167,28 +172,27 @@ export const growthScoreLabRunCreate = async (
     })
 }
 
-export const getGrowthScoreLabSaveCreateUrl = (params?: GrowthScoreLabSaveCreateParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/growth_score_lab/save/?${stringifiedParams}`
-        : `/api/growth_score_lab/save/`
+export const getGrowthScoreLabSaveCreateUrl = () => {
+    return `/api/growth_score_lab/save/`
 }
 
+/**
+ * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
+ * config versions, dry-run a draft config against recently archived orgs, save a new
+ * immutable version, and flip which version is active.
+ *
+ * Backs the in-product score lab scene; run/save/activate share the classifier machinery
+ * in products.growth.backend.enrichment.lab with the batch runner, so a dry run and a
+ * shadow run compute identical verdicts.
+ *
+ * Registered on the root router so it is not team-nested - prompt configs are instance-global,
+ * not scoped to any team or org.
+ */
 export const growthScoreLabSaveCreate = async (
     saveRequestApi: SaveRequestApi,
-    params?: GrowthScoreLabSaveCreateParams,
     options?: RequestInit
-): Promise<Response> => {
-    return apiMutator<Response>(getGrowthScoreLabSaveCreateUrl(params), {
+): Promise<ConfigVersionApi> => {
+    return apiMutator<ConfigVersionApi>(getGrowthScoreLabSaveCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
