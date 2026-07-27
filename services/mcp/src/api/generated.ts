@@ -39494,6 +39494,20 @@ export namespace Schemas {
       specificity_rejection?: SpecificityMetadata | null;
     }
 
+    export interface NodeSuspension {
+      /** When the node was suspended. */
+      at: string;
+      /** Error from the materialization that tripped suspension. */
+      reason: string;
+      /** Materialization job that tripped suspension. */
+      job_id: string;
+    }
+
+    /**
+     * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
+     */
+    export type NodeSuspended = {[key: string]: NodeSuspension};
+
     /**
      * * `table` - Table
      * * `view` - View
@@ -39534,6 +39548,13 @@ export namespace Schemas {
       readonly user_tag: string | null;
       /** @nullable */
       readonly sync_interval: string | null;
+      /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
+      readonly suspended: NodeSuspended;
+    }
+
+    export interface NodeResume {
+      /** False when the node was not suspended to begin with. */
+      resumed: boolean;
     }
 
     /**
@@ -49828,6 +49849,11 @@ export namespace Schemas {
       tile?: MoveTileTile;
     }
 
+    /**
+     * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
+     */
+    export type PatchedNodeSuspended = {[key: string]: NodeSuspension};
+
     export interface PatchedNode {
       readonly id?: string;
       /** @maxLength 2048 */
@@ -49852,6 +49878,8 @@ export namespace Schemas {
       readonly user_tag?: string | null;
       /** @nullable */
       readonly sync_interval?: string | null;
+      /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
+      readonly suspended?: PatchedNodeSuspended;
     }
 
     /**
@@ -60420,6 +60448,11 @@ export namespace Schemas {
       deleted?: boolean;
       /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
       block_consent_modals?: boolean;
+    }
+
+    export interface SavedQueryResume {
+      /** False when the query's materialization was not suspended. */
+      resumed: boolean;
     }
 
     /**
