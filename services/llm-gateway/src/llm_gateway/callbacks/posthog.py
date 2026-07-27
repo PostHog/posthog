@@ -419,6 +419,8 @@ class PostHogCallback(InstrumentedCallback):
             host=host,
             sync_mode=True,
             enable_local_evaluation=False,
+            _use_ai_lane=True,
+            _enable_multimodal_capture=True,
         )
         try:
             client.capture(**capture_kwargs)
