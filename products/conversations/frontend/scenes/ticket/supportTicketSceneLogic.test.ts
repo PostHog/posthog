@@ -392,6 +392,35 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         expect(lemonToast.dismiss).toHaveBeenCalledWith(toastId)
     })
 
+    // There is no per-field saving: Retry on the failure toast must re-send every pending edit
+    // (here two edits batched into one failed PATCH), not just the field that triggered it.
+    it('retries every pending edit from the failure toast', async () => {
+        ticketUpdateMock.mockRejectedValue(new Error('boom'))
+
+        await expectLogic(logic, () => {
+            logic.actions.setAssignee({ type: 'user', id: 7 })
+            logic.actions.setStatus('pending')
+        })
+            .toDispatchActions(['updateTicket'])
+            .toFinishAllListeners()
+
+        expect(ticketUpdateMock).toHaveBeenCalledTimes(1)
+        const { button } = (lemonToast.error as jest.Mock).mock.calls[0][1]
+
+        ticketUpdateMock
+            .mockReset()
+            .mockResolvedValue({ ...loadedTicket(), status: 'pending', assignee: { type: 'user', id: 7 } })
+        await expectLogic(logic, () => button.action())
+            .toDispatchActions(['updateTicket', 'setTicket'])
+            .toFinishAllListeners()
+
+        expect(ticketUpdateMock).toHaveBeenCalledWith(
+            '42',
+            expect.objectContaining({ status: 'pending', assignee: { type: 'user', id: 7 } })
+        )
+        expect(logic.values.hasUnsavedChanges).toBe(false)
+    })
+
     it('does not update the ticket when the send fails', async () => {
         commentsCreateMock.mockRejectedValue(new Error('request failed'))
 

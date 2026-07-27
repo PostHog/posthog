@@ -1191,6 +1191,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         },
         message: 'You have unsaved changes. Are you sure you want to leave?',
         onConfirm: () => {
+            // The pinned failure toast must not outlive the edits it offers to retry.
+            lemonToast.dismiss(TICKET_UPDATE_ERROR_TOAST_ID)
             // Re-sync local form reducers to the last-known server ticket so hasUnsavedChanges
             // recomputes to false and the prompt does not re-fire on the next navigation.
             if (values.ticket) {
