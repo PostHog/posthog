@@ -5177,7 +5177,7 @@ snapshots:
     scenes-app-ai-observability-prompts--prompts-list--dark:
         hash: v1.k794b7964.d04f5f25d543c7427fbfc2678fd8ef2828cec6d8c0107162204bbae9ec6e1c14.N6Zj2RLZ108T1ZC1w2KCCoMD7oaqaWSYBi_tChhGISM
     scenes-app-ai-observability-prompts--prompts-list--light:
-        hash: v1.k794b7964.4d030b22bf0e202534eb04d4f69375d415e9ff29a4d5b8fbd0f492df9aa54a70.EVAkzk4wn53bwkqoSLMP9QjjllEkW8XnOn-6hBt5Ogg
+        hash: v1.k794b7964.ea1fb296e2c4af76ad01efe5b7586e81f952d99aa3d6b7c1ef8701fdb4df857e.R8uyP-ciWKpHZTSh-zBebLbb4LELerPi08MaAIyVuIo
     scenes-app-ai-observability-sentiment--bar-full-width--dark:
         hash: v1.k794b7964.c85f4138877bf5f706d5675ad8ebca39a87300e45359ba3f5325551815fb5885.E-9wb0W7JxbRPXtj3-swTXq2QVbMKq-BpfDn-PXxcfU
     scenes-app-ai-observability-sentiment--bar-full-width--light:
@@ -5573,7 +5573,7 @@ snapshots:
     scenes-app-dashboards--show-across-viewports--narrow--dark:
         hash: v1.k794b7964.e919c4955d7113170ab00269c5f628c318afe14f26dc8aafb046b172e17f362e.YDXD84rrb2KR1I36pHMxEsGZ0sN0os_cBBdNIf89Pu8
     scenes-app-dashboards--show-across-viewports--narrow--light:
-        hash: v1.k794b7964.8b1d5f4429205bae6f3c4e64504ccd9b955562bec56305007e6c1fb51e6ffe5b.6C7YLoVSuBpeYoz0R7duqujHCorEqBKyJTXeuFAM9EA
+        hash: v1.k794b7964.a46d840722e971910236d6fcd8a8f69e0b1db5ee9d472d62055b02d6569f7a99.kHEdVPNUm5DRKSlMFS12SLKf1TyChQJZKKuZ2PKvtfA
     scenes-app-dashboards--show-across-viewports--superwide--dark:
         hash: v1.k794b7964.9948b52cf842206c1584057a6a16b8caed7a32d95f103dbea07089a02df75a53.AuXGqOvw-P-XuzOL2Zl-BkBPb1-Q3R1949f5-IkTjZA
     scenes-app-dashboards--show-across-viewports--superwide--light:

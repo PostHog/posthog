@@ -27,7 +27,8 @@ export function ObservationStatusTag({
     errorReason,
 }: {
     status: ReplayObservationApi['status']
-    errorReason?: string | null
+    // Required, not optional: an omitted reason silently drops the tooltip that explains a failed or ineligible status.
+    errorReason: string | null
 }): JSX.Element {
     if (status === 'succeeded') {
         return <LemonTag type="success">Succeeded</LemonTag>
