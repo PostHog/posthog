@@ -148,6 +148,19 @@ function reviewCommentError(error: any, fallback: string): string {
 }
 
 /**
+ * Replace one comment in `comments`, leaving every other entry untouched. Optimistic updates and their
+ * rollbacks both run against the current list, so a slow request finishing can't undo a delete, edit or
+ * reaction that landed while it was in flight.
+ */
+function patchComment(
+    comments: readonly PullRequestCommentApi[] | null,
+    commentId: string,
+    patch: (comment: ClientPullRequestComment) => ClientPullRequestComment
+): PullRequestCommentApi[] {
+    return (comments ?? []).map((c) => (c.id === commentId ? patch(c) : c))
+}
+
+/**
  * `explanation` text from the latest judgment artefact of `type`, or null. The priority/actionability
  * judgment artefacts already carry the agent's rationale — surfaced in the detail view without any extra fetch.
  */
@@ -1049,9 +1062,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // flagged `pending: 'failed'` (kept visible so the text isn't lost) and a toast explains why.
         postReviewComment: async ({ payload }) => {
             const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
             const tempId = `optimistic-${payload.key}-${values.prComments?.length ?? 0}-${payload.body.length}`
             const login = values.currentUserGithubLogin
             const optimistic: ClientPullRequestComment = {
@@ -1096,69 +1106,70 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 actions.postReviewCommentFinished()
             }
         },
-        // Edit one of the user's own review comments. Optimistically swaps the body in, reverts the whole
-        // list on failure so nothing is half-applied.
+        // Edit one of the user's own review comments. Optimistically swaps the body in; a failure puts
+        // back only that comment's body.
         editReviewComment: async ({ commentId, body }) => {
             const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
+            const previous = (values.prComments ?? []).find((c) => c.id === commentId)
+            actions.setEditingCommentId(null)
+            if (!teamId || !previous) {
                 return
             }
-            const prev = values.prComments ?? []
-            actions.setEditingCommentId(null)
             actions.loadPrCommentsSuccess(
-                prev.map((c) =>
-                    c.id === commentId ? { ...(c as ClientPullRequestComment), body, pending: 'sending' } : c
-                )
+                patchComment(values.prComments, commentId, (c) => ({ ...c, body, pending: 'sending' }))
             )
             try {
                 const response = await signalsReportPrReviewCommentUpdate(String(teamId), props.reportId, commentId, {
                     body,
                 })
-                actions.loadPrCommentsSuccess(
-                    (values.prComments ?? []).map((c) => (c.id === commentId ? response.comment : c))
-                )
+                actions.loadPrCommentsSuccess(patchComment(values.prComments, commentId, () => response.comment))
             } catch (error: any) {
-                actions.loadPrCommentsSuccess(prev)
+                actions.loadPrCommentsSuccess(
+                    patchComment(values.prComments, commentId, (c) => ({
+                        ...c,
+                        body: previous.body,
+                        pending: undefined,
+                    }))
+                )
                 lemonToast.error(reviewCommentError(error, "Couldn't save the edit"))
             }
         },
-        // Delete one of the user's own review comments. Optimistically removes it; restores on failure.
+        // Delete one of the user's own review comments. Optimistically removes it; a failure slots it
+        // back at its old index in the list as it stands now.
         deleteReviewComment: async ({ commentId }) => {
             const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
+            const index = (values.prComments ?? []).findIndex((c) => c.id === commentId)
+            if (!teamId || index === -1) {
                 return
             }
-            const prev = values.prComments ?? []
-            actions.loadPrCommentsSuccess(prev.filter((c) => c.id !== commentId))
+            const removed = (values.prComments ?? [])[index]
+            actions.loadPrCommentsSuccess((values.prComments ?? []).filter((c) => c.id !== commentId))
             try {
                 await signalsReportPrReviewCommentDestroy(String(teamId), props.reportId, commentId)
             } catch (error: any) {
-                actions.loadPrCommentsSuccess(prev)
+                const current = (values.prComments ?? []).filter((c) => c.id !== commentId)
+                actions.loadPrCommentsSuccess([...current.slice(0, index), removed, ...current.slice(index)])
                 lemonToast.error(reviewCommentError(error, "Couldn't delete the comment"))
             }
         },
         // Toggle the user's own reaction of `content` on a comment. Optimistically adds/removes the
-        // reaction, then confirms with the server (add returns the real reaction id); reverts on failure.
+        // reaction, then confirms with the server (add returns the real reaction id). A failure puts back
+        // only that one reaction, so a reaction toggled concurrently on the same comment isn't clobbered.
         toggleReviewCommentReaction: async ({ commentId, content }) => {
             const teamId = teamLogic.values.currentTeamId
             const login = values.currentUserGithubLogin
             if (!teamId || !login) {
                 return
             }
-            const prev = values.prComments ?? []
-            const comment = prev.find((c) => c.id === commentId)
+            const comment = (values.prComments ?? []).find((c) => c.id === commentId)
             const mine = comment?.reactions?.find((r) => r.content === content && r.user_login === login)
-            const setReactions = (
-                list: readonly PullRequestCommentApi[],
-                reactions: PullRequestCommentReactionApi[]
-            ): PullRequestCommentApi[] => list.map((c) => (c.id === commentId ? { ...c, reactions } : c))
 
             if (mine) {
                 actions.loadPrCommentsSuccess(
-                    setReactions(
-                        prev,
-                        (comment?.reactions ?? []).filter((r) => r.id !== mine.id)
-                    )
+                    patchComment(values.prComments, commentId, (c) => ({
+                        ...c,
+                        reactions: (c.reactions ?? []).filter((r) => r.id !== mine.id),
+                    }))
                 )
                 try {
                     await signalsReportPrReviewCommentReactionDestroy(
@@ -1168,7 +1179,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                         mine.id
                     )
                 } catch (error: any) {
-                    actions.loadPrCommentsSuccess(prev)
+                    actions.loadPrCommentsSuccess(
+                        patchComment(values.prComments, commentId, (c) => ({
+                            ...c,
+                            reactions: [...(c.reactions ?? []).filter((r) => r.id !== mine.id), mine],
+                        }))
+                    )
                     lemonToast.error(reviewCommentError(error, "Couldn't remove the reaction"))
                 }
                 return
@@ -1176,7 +1192,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
 
             const tempId = `optimistic-rx-${commentId}-${content}`
             const optimisticReaction: PullRequestCommentReactionApi = { id: tempId, content, user_login: login }
-            actions.loadPrCommentsSuccess(setReactions(prev, [...(comment?.reactions ?? []), optimisticReaction]))
+            actions.loadPrCommentsSuccess(
+                patchComment(values.prComments, commentId, (c) => ({
+                    ...c,
+                    reactions: [...(c.reactions ?? []), optimisticReaction],
+                }))
+            )
             try {
                 const response = await signalsReportPrReviewCommentReactionsCreate(
                     String(teamId),
@@ -1185,17 +1206,18 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     { content: content as any }
                 )
                 actions.loadPrCommentsSuccess(
-                    (values.prComments ?? []).map((c) =>
-                        c.id === commentId
-                            ? {
-                                  ...c,
-                                  reactions: (c.reactions ?? []).map((r) => (r.id === tempId ? response.reaction : r)),
-                              }
-                            : c
-                    )
+                    patchComment(values.prComments, commentId, (c) => ({
+                        ...c,
+                        reactions: (c.reactions ?? []).map((r) => (r.id === tempId ? response.reaction : r)),
+                    }))
                 )
             } catch (error: any) {
-                actions.loadPrCommentsSuccess(prev)
+                actions.loadPrCommentsSuccess(
+                    patchComment(values.prComments, commentId, (c) => ({
+                        ...c,
+                        reactions: (c.reactions ?? []).filter((r) => r.id !== tempId),
+                    }))
+                )
                 lemonToast.error(reviewCommentError(error, "Couldn't add the reaction"))
             }
         },

@@ -357,7 +357,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         source: str,
         json: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Shared transport for user-authored edits to a review comment (edit/delete/react).
+        """Shared transport for user-authored reads and edits of a review comment (fetch/edit/delete/react).
 
         ``path_suffix`` is appended to ``/repos/{repo}/pulls/comments`` — e.g. ``/{id}`` for a
         comment or ``/{id}/reactions`` for its reactions. Returns ``{"success", ...}``; raises
@@ -378,7 +378,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         raise_if_github_rate_limited(response)
         if response.status_code not in (200, 201, 204):
             logger.warning(
-                "UserGitHubIntegration: review comment edit failed",
+                "UserGitHubIntegration: review comment request failed",
                 method=method,
                 status_code=response.status_code,
                 repository=repo_path,
@@ -390,6 +390,20 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             }
         body = response.json() if response.status_code != 204 and response.content else None
         return {"success": True, "result": body}
+
+    def get_pull_request_review_comment(self, repository: str, comment_id: str) -> dict[str, Any]:
+        """Fetch a single review comment as the user, so callers can check what it hangs off before
+        writing to it. ``comment`` is None when GitHub says there is no such comment this user can
+        see, which callers should treat the same as a comment that isn't theirs to touch.
+        """
+        result = self._user_review_comment_request(
+            "GET", repository, f"/{comment_id}", source="signals_pr_review_comment_fetch"
+        )
+        if result.get("success"):
+            return {"success": True, "comment": result.get("result")}
+        if result.get("status_code") == 404:
+            return {"success": True, "comment": None}
+        return result
 
     def update_pull_request_review_comment(self, repository: str, comment_id: str, body: str) -> dict[str, Any]:
         """Edit an existing review comment's body as the user."""

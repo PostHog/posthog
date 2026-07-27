@@ -21,6 +21,7 @@ from social_django.models import UserSocialAuth
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models.team.team import Team
+from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
@@ -2343,6 +2344,42 @@ class TestSignalReportPrEndpoints(APIBaseTest):
 
     def _comments_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/pr_comments/"
+
+    def _review_comment_url(self, report_id: str, comment_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/pr_review_comments/{comment_id}/"
+
+    @parameterized.expand(
+        [
+            ("edit_other_pr", "patch", "", {"body": "edited"}, "8", status.HTTP_404_NOT_FOUND),
+            ("delete_other_pr", "delete", "", None, "8", status.HTTP_404_NOT_FOUND),
+            ("react_other_pr", "post", "reactions/", {"content": "+1"}, "8", status.HTTP_404_NOT_FOUND),
+            ("unreact_other_pr", "delete", "reactions/5/", None, "8", status.HTTP_404_NOT_FOUND),
+            ("delete_own_pr", "delete", "", None, "7", status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_review_comment_writes_are_scoped_to_the_reports_pr(
+        self, _name, method, suffix, payload, comment_pr, expected_status
+    ):
+        report = self._create_report()
+        UserIntegration.objects.create(user=self.user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="42")
+        user_github = patch("products.signals.backend.views.UserGitHubIntegration").start()
+        self.addCleanup(patch.stopall)
+        user_github.return_value.get_pull_request_review_comment.return_value = {
+            "success": True,
+            "comment": {
+                "id": 99,
+                "pull_request_url": f"https://api.github.com/repos/PostHog/posthog/pulls/{comment_pr}",
+            },
+        }
+        user_github.return_value.delete_pull_request_review_comment.return_value = {"success": True}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = getattr(self.client, method)(
+                self._review_comment_url(str(report.id), "99") + suffix, data=payload, format="json"
+            )
+        assert response.status_code == expected_status
 
     def test_pr_checks_404_when_report_has_no_implementation_pr(self):
         report = self._create_report()

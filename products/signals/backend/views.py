@@ -56,7 +56,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
-from posthog.models.github_integration_base import GitHubIntegrationBase, NormalizedPRComment
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
@@ -2268,9 +2268,7 @@ class SignalReportViewSet(
             return result
 
         self._bust_pr_comments_cache(repository, pr_number)
-        return Response(
-            {"comment": self._normalize_pr_review_comment(result["comment"])}, status=status.HTTP_201_CREATED
-        )
+        return self._pr_review_comment_response(result["comment"], status_code=status.HTTP_201_CREATED)
 
     @extend_schema(
         methods=["PATCH"],
@@ -2282,8 +2280,9 @@ class SignalReportViewSet(
                 description="The edited review comment, in the normalized PR-comment shape.",
             ),
             403: OpenApiResponse(description="No usable personal GitHub connection, or not the comment's author."),
-            404: OpenApiResponse(description="Report has no implementation PR."),
+            404: OpenApiResponse(description="Report has no implementation PR, or the comment isn't on it."),
             502: OpenApiResponse(description="GitHub rejected the edit."),
+            503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
         },
         summary="Edit one of the requesting user's own review comments",
         operation_id="signals_report_pr_review_comment_update",
@@ -2294,8 +2293,9 @@ class SignalReportViewSet(
         responses={
             204: OpenApiResponse(description="Comment deleted."),
             403: OpenApiResponse(description="No usable personal GitHub connection, or not the comment's author."),
-            404: OpenApiResponse(description="Report has no implementation PR."),
+            404: OpenApiResponse(description="Report has no implementation PR, or the comment isn't on it."),
             502: OpenApiResponse(description="GitHub rejected the delete."),
+            503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
         },
         summary="Delete one of the requesting user's own review comments",
         operation_id="signals_report_pr_review_comment_destroy",
@@ -2309,7 +2309,7 @@ class SignalReportViewSet(
     def pr_review_comment(self, request: Request, *args, **kwargs) -> Response:
         report = cast(SignalReport, self.get_object())
         comment_id = str(kwargs["comment_id"])
-        resolved = self._resolve_user_github_and_pr(report, cast(User, request.user))
+        resolved = self._resolve_user_github_and_pr(report, cast(User, request.user), comment_id=comment_id)
         if isinstance(resolved, Response):
             return resolved
         user_github, repository, pr_number = resolved
@@ -2330,7 +2330,7 @@ class SignalReportViewSet(
         self._bust_pr_comments_cache(repository, pr_number)
         if request.method == "DELETE":
             return Response(status=status.HTTP_204_NO_CONTENT)
-        return Response({"comment": self._normalize_pr_review_comment(result["comment"])})
+        return self._pr_review_comment_response(result["comment"], status_code=status.HTTP_200_OK)
 
     @extend_schema(
         request=PullRequestReviewCommentReactionCreateSerializer,
@@ -2340,8 +2340,9 @@ class SignalReportViewSet(
                 description="The created reaction.",
             ),
             403: OpenApiResponse(description="No usable personal GitHub connection."),
-            404: OpenApiResponse(description="Report has no implementation PR."),
+            404: OpenApiResponse(description="Report has no implementation PR, or the comment isn't on it."),
             502: OpenApiResponse(description="GitHub rejected the reaction."),
+            503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
         },
         summary="React to a review comment as the requesting user",
         operation_id="signals_report_pr_review_comment_reactions_create",
@@ -2358,7 +2359,7 @@ class SignalReportViewSet(
         comment_id = str(kwargs["comment_id"])
         serializer = PullRequestReviewCommentReactionCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        resolved = self._resolve_user_github_and_pr(report, cast(User, request.user))
+        resolved = self._resolve_user_github_and_pr(report, cast(User, request.user), comment_id=comment_id)
         if isinstance(resolved, Response):
             return resolved
         user_github, repository, pr_number = resolved
@@ -2387,8 +2388,9 @@ class SignalReportViewSet(
         responses={
             204: OpenApiResponse(description="Reaction removed."),
             403: OpenApiResponse(description="No usable personal GitHub connection."),
-            404: OpenApiResponse(description="Report has no implementation PR."),
+            404: OpenApiResponse(description="Report has no implementation PR, or the comment isn't on it."),
             502: OpenApiResponse(description="GitHub rejected the removal."),
+            503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
         },
         summary="Remove one of the requesting user's own reactions from a review comment",
         operation_id="signals_report_pr_review_comment_reaction_destroy",
@@ -2407,7 +2409,7 @@ class SignalReportViewSet(
         report = cast(SignalReport, self.get_object())
         comment_id = str(kwargs["comment_id"])
         reaction_id = str(kwargs["reaction_id"])
-        resolved = self._resolve_user_github_and_pr(report, cast(User, request.user))
+        resolved = self._resolve_user_github_and_pr(report, cast(User, request.user), comment_id=comment_id)
         if isinstance(resolved, Response):
             return resolved
         user_github, repository, pr_number = resolved
@@ -2428,18 +2430,28 @@ class SignalReportViewSet(
         cache.delete(f"signals:pr-github:{self.team.id}:{repository}:{pr_number}:get_pull_request_comments")
 
     @staticmethod
-    def _normalize_pr_review_comment(raw: dict[str, Any]) -> NormalizedPRComment:
+    def _pr_review_comment_response(raw: object, *, status_code: int) -> Response:
         """Shape a raw GitHub review comment via the shared read-path normalizer (a fresh write never
-        carries reactions)."""
+        carries reactions). The shared transport treats a body-less success as valid, so a write result
+        we can't normalize is an upstream failure rather than anything the caller did wrong."""
         normalized = GitHubIntegrationBase.normalize_pr_comment(raw, "review")
-        assert normalized is not None  # a write result always carries a dict comment
-        return normalized
+        if normalized is None:
+            return Response(
+                {"error": "GitHub returned the comment in an unexpected format. Reload to see the latest."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"comment": normalized}, status=status_code)
 
     def _resolve_user_github_and_pr(
-        self, report: SignalReport, user: User
+        self, report: SignalReport, user: User, *, comment_id: str | None = None
     ) -> tuple[UserGitHubIntegration, str, int] | Response:
         """Resolve the requesting user's personal GitHub integration and the report's PR, or a Response
-        error (404 no PR, 403 no personal GitHub connection) to return as-is."""
+        error (404 no PR, 403 no personal GitHub connection) to return as-is.
+
+        ``comment_id``, when given, is resolved and required to sit on the report's own PR. GitHub's
+        review-comment edit, delete, and reaction endpoints are repository-wide, so this is the only
+        thing keeping a report from reaching comments on every other PR in its repository.
+        """
         reference = self._resolve_report_pr_reference(report)
         if reference is None:
             return Response(
@@ -2456,7 +2468,25 @@ class SignalReportViewSet(
                 status=status.HTTP_403_FORBIDDEN,
             )
         repository, pr_number = reference
-        return UserGitHubIntegration(user_integration), repository, pr_number
+        user_github = UserGitHubIntegration(user_integration)
+        if comment_id is not None:
+            lookup = self._run_user_github_write(
+                lambda: user_github.get_pull_request_review_comment(repository, comment_id),
+                repository,
+                pr_number,
+                noun="comment",
+            )
+            if isinstance(lookup, Response):
+                return lookup
+            # Matched on the suffix, not the whole URL: the repository is already pinned by the path we
+            # just fetched, while the report's stored PR URL can differ from GitHub's canonical casing.
+            pull_request_url = (lookup.get("comment") or {}).get("pull_request_url")
+            if not isinstance(pull_request_url, str) or not pull_request_url.endswith(f"/pulls/{pr_number}"):
+                return Response(
+                    {"error": "This comment isn't on this report's pull request. Refresh the page and try again."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        return user_github, repository, pr_number
 
     def _run_user_github_write(
         self, fn: Callable[[], dict[str, Any]], repository: str, pr_number: int, *, noun: str

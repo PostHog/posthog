@@ -47,6 +47,11 @@ GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
 INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
 
+# Reactions cost one extra round trip per reacted comment, and GitHub offers no way to fetch them in
+# bulk, so bound the fan-out. Set high enough that a real pull request never reaches it: past this
+# point a comment renders without its pills, which is worse than the extra requests.
+MAX_REACTION_HYDRATIONS = 100
+
 
 class NormalizedPRComment(TypedDict):
     """Wire shape for a PR comment shared by the read path and the review-comment write endpoints."""
@@ -1115,6 +1120,7 @@ class GitHubIntegrationBase:
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
         comments: list[NormalizedPRComment] = []
+        hydrated_reactions = 0
         for path, comment_type, endpoint in (
             (f"issues/{pr_number}/comments", "conversation", "/repos/{owner}/{repo}/issues/{issue_number}/comments"),
             (f"pulls/{pr_number}/comments", "review", "/repos/{owner}/{repo}/pulls/{pull_number}/comments"),
@@ -1140,10 +1146,11 @@ class GitHubIntegrationBase:
                     normalized = self.normalize_pr_comment(raw, comment_type)
                     if normalized is None:
                         continue
-                    if comment_type == "review":
+                    if comment_type == "review" and hydrated_reactions < MAX_REACTION_HYDRATIONS:
                         reaction_summary = raw.get("reactions") or {}
                         if isinstance(reaction_summary, dict) and reaction_summary.get("total_count"):
                             normalized["reactions"] = self._get_review_comment_reactions(repo_path, str(raw["id"]))
+                            hydrated_reactions += 1
                     comments.append(normalized)
 
         # Merge both streams into a single chronological thread; entries without a timestamp sort last.
@@ -1157,7 +1164,8 @@ class GitHubIntegrationBase:
         own, and delete them by id. Best-effort: returns [] on any non-200 / parse failure.
         """
         try:
-            responses, _complete = self._installation_authenticated_get_pages(
+            # One page only: a comment past 100 reactions isn't worth extra round trips here.
+            response = self._installation_authenticated_get(
                 f"https://api.github.com/repos/{repo_path}/pulls/comments/{comment_id}/reactions",
                 endpoint="/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions",
                 params={"per_page": 100},
@@ -1165,25 +1173,24 @@ class GitHubIntegrationBase:
         except Exception:
             logger.warning("GitHubIntegration: reactions fetch failed", repository=repo_path, comment_id=comment_id)
             return []
+        if response is None or response.status_code != 200:
+            return []
+        try:
+            body = response.json()
+        except Exception:
+            return []
+        if not isinstance(body, list):
+            return []
         out: list[dict[str, Any]] = []
-        for response in responses:
-            if response.status_code != 200:
-                continue
-            try:
-                body = response.json()
-            except Exception:
-                continue
-            if not isinstance(body, list):
-                continue
-            for reaction in body:
-                if isinstance(reaction, dict) and reaction.get("content") and reaction.get("id") is not None:
-                    out.append(
-                        {
-                            "id": str(reaction["id"]),
-                            "content": reaction["content"],
-                            "user_login": (reaction.get("user") or {}).get("login"),
-                        }
-                    )
+        for reaction in body:
+            if isinstance(reaction, dict) and reaction.get("content") and reaction.get("id") is not None:
+                out.append(
+                    {
+                        "id": str(reaction["id"]),
+                        "content": reaction["content"],
+                        "user_login": (reaction.get("user") or {}).get("login"),
+                    }
+                )
         return out
 
     def find_pull_request_urls_for_branch(self, repository: str, branch: str) -> list[str]:
