@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PermanentBatchApplyError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer import (
+    ENABLEMENT_REFRESH_SECONDS,
     DuckgresBatchConsumer,
     DuckgresBatchConsumerAdapter,
     DuckgresConsumerConfig,
@@ -453,6 +454,29 @@ class TestDuckgresEnablementGating:
         assert batches == []
         mock_planner.assert_not_called()
         mock_fetch.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_enablement_refresh_failure_after_success_waits_full_interval_before_retrying(self):
+        # A control-plane outage that starts after a prior successful resolution must
+        # back off for the full refresh interval, same as a fresh outage would — a
+        # stuck fetched_at previously made every ~2s poll tick retry immediately.
+        adapter = DuckgresBatchConsumerAdapter()
+        adapter._team_ids = [1, 2]
+        adapter._team_ids_fetched_at = time.monotonic() - ENABLEMENT_REFRESH_SECONDS - 1
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.database_sync_to_async_pool",
+        ) as mock_wrapper:
+            mock_wrapper.return_value = AsyncMock(side_effect=RuntimeError("duckgres control plane unreachable"))
+
+            team_ids = await adapter._enabled_team_ids()
+            assert team_ids == [1, 2]
+            assert mock_wrapper.call_count == 1
+
+            # Polling again right away must not re-attempt the refresh.
+            team_ids_again = await adapter._enabled_team_ids()
+            assert team_ids_again == [1, 2]
+            assert mock_wrapper.call_count == 1
 
 
 class TestMidClaimRetire:

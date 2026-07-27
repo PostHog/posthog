@@ -182,7 +182,11 @@ class DuckgresBatchConsumerAdapter:
             if self._team_ids_fetched_at is None:
                 # Never had a set: claim nothing rather than everything.
                 self._team_ids = []
-                self._team_ids_fetched_at = now
+            # Always advance the timestamp, even on failure: otherwise a control-plane
+            # outage that starts after a successful resolution leaves it stuck in the
+            # past, and every poll tick (~2s) re-triggers this branch instead of the
+            # intended ENABLEMENT_REFRESH_SECONDS backoff.
+            self._team_ids_fetched_at = now
         return self._team_ids
 
     async def _run_maintenance(self, conn: psycopg.AsyncConnection[Any], team_ids: list[int] | None) -> None:
