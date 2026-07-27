@@ -97,14 +97,17 @@ export interface annotationsOverlayLogicValues {
     }>
     annotationsOverlayProps: AnnotationsOverlayLogicProps
     dateRange: [Dayjs, Dayjs] | null
-    dateRangeParams: { date_from: string; date_to: string } | null
+    dateRangeParams: {
+        date_from: string
+        date_to: string
+    } | null
     groupedAnnotations: Record<number | string, DatedAnnotationType[]>
     groupingUnit: IntervalType
     intervalUnit: IntervalType
     isDateLocked: boolean
     isPopoverShown: boolean
-    rangeScopedRawAnnotations: RawAnnotationType[]
     rangeScopedAnnotations: AnnotationType[]
+    rangeScopedRawAnnotations: RawAnnotationType[]
     relevantAnnotations: DatedAnnotationType[]
     tickDates: Dayjs[]
     tickPositions: number[]
@@ -135,17 +138,17 @@ export interface annotationsOverlayLogicActions {
     deactivateDate: () => {
         value: true
     }
-    lockDate: () => {
-        value: true
-    }
-    unlockDate: () => {
-        value: true
-    }
     loadRangeScopedAnnotations: () => {
+        value: true
+    }
+    lockDate: () => {
         value: true
     }
     setRangeScopedAnnotations: (rawAnnotations: RawAnnotationType[]) => {
         rawAnnotations: RawAnnotationType[]
+    }
+    unlockDate: () => {
+        value: true
     }
 }
 
@@ -163,7 +166,10 @@ export interface annotationsOverlayLogicMeta {
         ) => number[]
         tickDates: (timezone: string, arg: string[], tickPositions: number[]) => Dayjs[]
         dateRange: (timezone: string, arg: string[], intervalUnit: IntervalType) => [Dayjs, Dayjs] | null
-        dateRangeParams: (dateRange: [Dayjs, Dayjs] | null) => { date_from: string; date_to: string } | null
+        dateRangeParams: (dateRange: [Dayjs, Dayjs] | null) => {
+            date_from: string
+            date_to: string
+        } | null
         rangeScopedAnnotations: (rangeScopedRawAnnotations: RawAnnotationType[], timezone: string) => AnnotationType[]
         relevantAnnotations: (
             annotations: AnnotationType[],
