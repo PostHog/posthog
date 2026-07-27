@@ -608,7 +608,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         "type": "events",
                         "order": series.series_order,
                         "name": series_label or "All events",
-                        "custom_name": series.series.custom_name,
+                        "custom_name": self.series_custom_name(series.series, series_label),
                         "math": series.series.math,
                         "math_property": series.series.math_property,
                         "math_hogql": series.series.math_hogql,
@@ -645,7 +645,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         "type": "events",
                         "order": series.series_order,
                         "name": series_label or "All events",
-                        "custom_name": series.series.custom_name,
+                        "custom_name": self.series_custom_name(series.series, series_label),
                         "math": series.series.math,
                         "math_property": series.series.math_property,
                         "math_hogql": series.series.math_hogql,
@@ -841,6 +841,20 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             now=datetime.now(),
             exact_timerange=self.exact_timerange,
         )
+
+    def series_custom_name(
+        self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode], series_label: str | None
+    ) -> str | None:
+        # A series' display override. `custom_name` is set by the in-app "Rename graph series" modal;
+        # a `name` that differs from the event/action label is a rename applied via the query editor or
+        # API. Either should win over the raw event name in legends and tooltips.
+        custom_name = getattr(series, "custom_name", None)
+        if custom_name:
+            return custom_name
+        name = getattr(series, "name", None)
+        if name and name != series_label:
+            return name
+        return None
 
     def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]) -> str | None:
         if isinstance(series, EventsNode):
