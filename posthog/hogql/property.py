@@ -1,5 +1,6 @@
 import re
 from collections.abc import Callable
+from datetime import date, timedelta
 from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
@@ -408,6 +409,22 @@ def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
     return value
 
 
+def _is_date_only(value: ValueT) -> bool:
+    """True when ``value`` is a bare ``YYYY-MM-DD`` with no time-of-day component.
+
+    The date picker sends this shape when "Include time?" is off. Relative dates
+    have already been expanded to full ``YYYY-MM-DD HH:MM:SS`` wall-clock strings by
+    ``_resolve_date_value``, and ISO 8601 values carry a ``T``, so only true
+    date-only picker values match here.
+    """
+    return isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) is not None
+
+
+def _next_day(value: str) -> str:
+    """Return the day after a ``YYYY-MM-DD`` value, as ``YYYY-MM-DD``."""
+    return (date.fromisoformat(value) + timedelta(days=1)).isoformat()
+
+
 def _force_datetime(expr: ast.Expr) -> ast.Expr:
     """Coerce ``expr`` to DateTime for chronological IS_DATE_* comparison.
 
@@ -569,6 +586,24 @@ def _expr_to_compare_op(
         )
     elif operator == PropertyOperator.IS_DATE_EXACT:
         assert isinstance(value, str)
+        if _is_date_only(value):
+            # A date-only value means the whole day, not midnight exactly. Match the
+            # half-open interval [day, next day) so timestamps with a time-of-day
+            # component are included.
+            return ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=_force_datetime(expr),
+                        right=_force_datetime(ast.Constant(value=value)),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Lt,
+                        left=_force_datetime(expr),
+                        right=_force_datetime(ast.Constant(value=_next_day(value))),
+                    ),
+                ]
+            )
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=_force_datetime(expr),
@@ -593,6 +628,15 @@ def _expr_to_compare_op(
         return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.IS_DATE_AFTER:
         assert isinstance(value, str)
+        if _is_date_only(value):
+            # "After" a date-only value means after the whole day, so a timestamp on
+            # that day itself is not "after" it. Compare against the start of the next
+            # day rather than midnight of the given day (which would include it).
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=_force_datetime(expr),
+                right=_force_datetime(ast.Constant(value=_next_day(value))),
+            )
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Gt,
             left=_force_datetime(expr),

@@ -319,15 +319,6 @@ class TestProperty(BaseTest):
                 "2026-03-19T14:00:00Z",
             ),
             (
-                "is_date_exact_date_only",
-                "event",
-                "a",
-                "2026-03-19",
-                "is_date_exact",
-                ast.CompareOperationOp.Eq,
-                "2026-03-19",
-            ),
-            (
                 "person_is_date_before_iso",
                 "person",
                 "inserted_at",
@@ -349,6 +340,45 @@ class TestProperty(BaseTest):
                     args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])],
                 ),
                 right=ast.Call(name="toDateTime", args=[ast.Constant(value=expected_rhs)]),
+            ),
+        )
+
+    def test_property_to_expr_is_date_exact_date_only_expands_to_day_range(self):
+        # A date-only value ("Include time?" off) must match the whole day, not
+        # midnight exactly — otherwise any real timestamp with a time-of-day
+        # component silently matches nothing.
+        left = ast.Call(
+            name="toDateTime", args=[ast.Call(name="toString", args=[ast.Field(chain=["properties", "a"])])]
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": "2026-03-19", "operator": "is_date_exact"}),
+            ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=left,
+                        right=ast.Call(name="toDateTime", args=[ast.Constant(value="2026-03-19")]),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Lt,
+                        left=left,
+                        right=ast.Call(name="toDateTime", args=[ast.Constant(value="2026-03-20")]),
+                    ),
+                ]
+            ),
+        )
+
+    def test_property_to_expr_is_date_after_date_only_uses_next_day(self):
+        # "After" a whole day excludes timestamps on that day itself, so the RHS is
+        # the start of the next day rather than midnight of the given day.
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": "2026-03-19", "operator": "is_date_after"}),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Call(
+                    name="toDateTime", args=[ast.Call(name="toString", args=[ast.Field(chain=["properties", "a"])])]
+                ),
+                right=ast.Call(name="toDateTime", args=[ast.Constant(value="2026-03-20")]),
             ),
         )
 
@@ -2100,6 +2130,13 @@ class TestPropertyDateOperatorsWithData(APIBaseTest):
             ("is_date_after_mysql", "2026-03-19 14:00:00", "is_date_after", 1),
             ("is_date_before_date_only", "2026-03-20", "is_date_before", 2),
             ("is_date_after_date_only", "2026-03-18", "is_date_after", 2),
+            # A date-only "exact" filter must match the whole day, not midnight — both
+            # events land on 2026-03-19 despite their time-of-day component. This is the
+            # customer-reported regression (previously returned 0).
+            ("is_date_exact_date_only_match", "2026-03-19", "is_date_exact", 2),
+            ("is_date_exact_date_only_other_day", "2026-03-18", "is_date_exact", 0),
+            # "After" the events' own day excludes timestamps on that day.
+            ("is_date_after_date_only_same_day", "2026-03-19", "is_date_after", 0),
         ]
     )
     def test_is_date_operator_on_datetime_event_property(
