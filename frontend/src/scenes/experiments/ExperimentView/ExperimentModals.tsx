@@ -220,7 +220,7 @@ export function FinishExperimentModal(): JSX.Element {
     const [releaseToEveryone, setReleaseToEveryone] = useState<boolean>(false)
     const [openCleanupPr, setOpenCleanupPr] = useState<boolean>(false)
 
-    // The cleanup PR runs as a PostHog Code task, so the user needs Code access on top of the rollout flag.
+    // The cleanup PR runs as a PostHog Desktop task, so the user needs Code access on top of the rollout flag.
     const cleanupPrAvailable =
         !!featureFlags[FEATURE_FLAGS.EXPERIMENT_FLAG_CLEANUP_PR] && !!featureFlags[FEATURE_FLAGS.TASKS]
 

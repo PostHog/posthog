@@ -1,24 +1,20 @@
 from unittest.mock import patch
 
-from django.test import override_settings
-
 from parameterized import parameterized
 
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, TEST_STRIPE_OAUTH_CLIENT_ID, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
 from ee.api.agentic_provisioning.views import _maybe_create_provisioned_pat
 
 
-@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestProvisioningResources(ProvisioningTestBase):
     def test_create_resource_returns_complete(self):
         token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics"},
             token=token,
         )
         assert res.status_code == 200
@@ -31,9 +27,8 @@ class TestProvisioningResources(ProvisioningTestBase):
     @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
     def test_create_resource_capture_attributes_client(self, mock_capture_event):
         token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics"},
             token=token,
         )
         assert res.status_code == 200
@@ -44,11 +39,11 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert len(success_calls) == 1
         partner = success_calls[0].kwargs["partner"]
         assert partner is not None
-        assert partner.name == "PostHog Stripe App"
+        assert partner.name == "Test Provisioning Partner"
 
     def test_get_resource_returns_complete(self):
         token = self._get_bearer_token()
-        res = self._get_signed_with_bearer(
+        res = self._get_with_bearer(
             f"/api/agentic/provisioning/resources/{self.team.id}",
             token=token,
         )
@@ -59,7 +54,7 @@ class TestProvisioningResources(ProvisioningTestBase):
 
     def test_get_resource_wrong_team_returns_403(self):
         token = self._get_bearer_token()
-        res = self._get_signed_with_bearer(
+        res = self._get_with_bearer(
             "/api/agentic/provisioning/resources/99999",
             token=token,
         )
@@ -67,64 +62,31 @@ class TestProvisioningResources(ProvisioningTestBase):
 
     def test_get_resource_invalid_id_returns_400(self):
         token = self._get_bearer_token()
-        res = self._get_signed_with_bearer(
+        res = self._get_with_bearer(
             "/api/agentic/provisioning/resources/not-a-number",
             token=token,
         )
         assert res.status_code == 400
 
     def test_create_resource_missing_bearer_returns_401(self):
-        res = self._post_signed("/api/agentic/provisioning/resources", data={"service_id": "analytics"})
+        res = self._post_api("/api/agentic/provisioning/resources")
         assert res.status_code == 401
 
     def test_create_resource_invalid_bearer_returns_401(self):
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics"},
             token="pha_invalid_token",
         )
         assert res.status_code == 401
 
     def test_get_resource_missing_bearer_returns_401(self):
-        res = self._get_signed(f"/api/agentic/provisioning/resources/{self.team.id}")
+        res = self._get_api(f"/api/agentic/provisioning/resources/{self.team.id}")
         assert res.status_code == 401
-
-    def test_get_resource_returns_service_id_from_create(self):
-        token = self._get_bearer_token()
-        self._post_signed_with_bearer(
-            "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics"},
-            token=token,
-        )
-        res = self._get_signed_with_bearer(
-            f"/api/agentic/provisioning/resources/{self.team.id}",
-            token=token,
-        )
-        assert res.json()["service_id"] == "analytics"
-
-    def test_get_resource_defaults_service_id_without_create(self):
-        token = self._get_bearer_token()
-        res = self._get_signed_with_bearer(
-            f"/api/agentic/provisioning/resources/{self.team.id}",
-            token=token,
-        )
-        assert res.json()["service_id"] == "analytics"
-
-    def test_create_resource_defaults_service_id_to_analytics(self):
-        token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
-            "/api/agentic/provisioning/resources",
-            data={},
-            token=token,
-        )
-        assert res.status_code == 200
-        assert res.json()["service_id"] == "analytics"
 
     def test_create_resource_includes_personal_api_key(self):
         token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics"},
             token=token,
         )
         assert res.status_code == 200
@@ -134,18 +96,16 @@ class TestProvisioningResources(ProvisioningTestBase):
     def test_create_resource_creates_pat_for_user(self):
         initial_count = PersonalAPIKey.objects.filter(user=self.user).count()
         token = self._get_bearer_token()
-        self._post_signed_with_bearer(
+        self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics"},
             token=token,
         )
         assert PersonalAPIKey.objects.filter(user=self.user).count() == initial_count + 1
 
     def test_create_resource_pat_label_defaults_to_team_name(self):
         token = self._get_bearer_token()
-        self._post_signed_with_bearer(
+        self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics"},
             token=token,
         )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
@@ -156,12 +116,11 @@ class TestProvisioningResources(ProvisioningTestBase):
         # The test bearer is granted only query:read; the PAT must not widen to the
         # full ceiling even when the app's grantable set is broader.
         token = self._get_bearer_token()
-        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app = self.partner
         app.scopes = ["insight:read", "query:read"]
         app.save(update_fields=["scopes"])
-        self._post_signed_with_bearer(
+        self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics"},
             token=token,
         )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
@@ -172,13 +131,12 @@ class TestProvisioningResources(ProvisioningTestBase):
 
     def test_create_resource_pat_excludes_optional_scopes_outside_grant(self):
         token = self._get_bearer_token()
-        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app = self.partner
         app.scopes = ["query:read"]
         app.optional_scopes = ["insight:read"]
         app.save(update_fields=["scopes", "optional_scopes"])
-        self._post_signed_with_bearer(
+        self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics"},
             token=token,
         )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
@@ -187,13 +145,12 @@ class TestProvisioningResources(ProvisioningTestBase):
 
     def test_create_resource_omits_pat_when_app_gate_off(self):
         token = self._get_bearer_token()
-        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app = self.partner
         app.provisioning_issues_personal_api_key = False
         app.save(update_fields=["provisioning_issues_personal_api_key"])
         before = PersonalAPIKey.objects.filter(user=self.user).count()
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics"},
             token=token,
         )
         assert res.status_code == 200
@@ -225,17 +182,15 @@ class TestProvisioningResources(ProvisioningTestBase):
 
     def test_create_resource_does_not_delete_existing_pats(self):
         token = self._get_bearer_token()
-        self._post_signed_with_bearer(
+        self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics"},
             token=token,
         )
         first_pat = PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40]).first()
         assert first_pat is not None
 
-        self._post_signed_with_bearer(
+        self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics"},
             token=token,
         )
         provisioning_pats = PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40])
@@ -251,9 +206,9 @@ class TestProvisioningResources(ProvisioningTestBase):
     )
     def test_create_resource_label_prefix_accepted(self, _name, label_prefix, expected_label_start_template):
         token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics", "label_prefix": label_prefix},
+            data={"label_prefix": label_prefix},
             token=token,
         )
         assert res.status_code == 200
@@ -274,9 +229,9 @@ class TestProvisioningResources(ProvisioningTestBase):
     )
     def test_create_resource_label_prefix_rejected(self, _name, label_prefix):
         token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics", "label_prefix": label_prefix},
+            data={"label_prefix": label_prefix},
             token=token,
         )
         assert res.status_code == 400
@@ -288,9 +243,9 @@ class TestProvisioningResources(ProvisioningTestBase):
         self.team.name = long_team_name
         self.team.save()
 
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics", "label_prefix": "PartnerX"},
+            data={"label_prefix": "PartnerX"},
             token=token,
         )
         assert res.status_code == 200
@@ -301,9 +256,9 @@ class TestProvisioningResources(ProvisioningTestBase):
 
     def test_create_resource_with_project_id_creates_new_team(self):
         token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics", "project_id": "proj_123"},
+            data={"project_id": "proj_123"},
             token=token,
         )
         assert res.status_code == 200
@@ -315,37 +270,37 @@ class TestProvisioningResources(ProvisioningTestBase):
 
     def test_create_resource_same_project_id_returns_same_team(self):
         token = self._get_bearer_token()
-        res1 = self._post_signed_with_bearer(
+        res1 = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics", "project_id": "proj_456"},
+            data={"project_id": "proj_456"},
             token=token,
         )
-        res2 = self._post_signed_with_bearer(
+        res2 = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics", "project_id": "proj_456"},
+            data={"project_id": "proj_456"},
             token=token,
         )
         assert res1.json()["id"] == res2.json()["id"]
 
     def test_create_resource_different_project_ids_create_different_teams(self):
         token = self._get_bearer_token()
-        res1 = self._post_signed_with_bearer(
+        res1 = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics", "project_id": "proj_a"},
+            data={"project_id": "proj_a"},
             token=token,
         )
-        res2 = self._post_signed_with_bearer(
+        res2 = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics", "project_id": "proj_b"},
+            data={"project_id": "proj_b"},
             token=token,
         )
         assert res1.json()["id"] != res2.json()["id"]
 
     def test_create_resource_with_project_id_adds_to_scoped_teams(self):
         token = self._get_bearer_token()
-        self._post_signed_with_bearer(
+        self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics", "project_id": "proj_scope"},
+            data={"project_id": "proj_scope"},
             token=token,
         )
         access_token = OAuthAccessToken.objects.get(token=token)
@@ -381,9 +336,9 @@ class TestProvisioningResources(ProvisioningTestBase):
 
         token = self._get_bearer_token()
         with patch.object(TeamProvisioningConfig.objects, "update_or_create", side_effect=raise_once_then_passthrough):
-            res = self._post_signed_with_bearer(
+            res = self._post_with_bearer(
                 "/api/agentic/provisioning/resources",
-                data={"service_id": "analytics", "project_id": "proj_shared"},
+                data={"project_id": "proj_shared"},
                 token=token,
             )
 
@@ -424,9 +379,9 @@ class TestProvisioningResources(ProvisioningTestBase):
             return original_update_or_create(*args, **kwargs)
 
         with patch.object(TeamProvisioningConfig.objects, "update_or_create", side_effect=race_then_raise):
-            res = self._post_signed_with_bearer(
+            res = self._post_with_bearer(
                 "/api/agentic/provisioning/resources",
-                data={"service_id": "analytics", "project_id": project_id},
+                data={"project_id": project_id},
                 token=token,
             )
 
@@ -454,9 +409,9 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         assert access_token.scoped_teams == [self.team.id]
 
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics", "project_id": "proj_existing"},
+            data={"project_id": "proj_existing"},
             token=token,
         )
         assert res.status_code == 200
@@ -499,9 +454,9 @@ class TestProvisioningResources(ProvisioningTestBase):
             resource_id=str(restricted_team.id),
         )
 
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics", "project_id": "proj_restricted"},
+            data={"project_id": "proj_restricted"},
             token=token,
         )
         assert res.status_code == 404
@@ -541,9 +496,9 @@ class TestProvisioningResources(ProvisioningTestBase):
         access_token = OAuthAccessToken.objects.get(token=token)
         assert access_token.application_id != other_partner.id
 
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics", "project_id": "proj_shared_id"},
+            data={"project_id": "proj_shared_id"},
             token=token,
         )
         # stripe_project_id is unique across all TPCs, so the create branch hits
@@ -602,9 +557,9 @@ class TestProvisioningResources(ProvisioningTestBase):
             return original_update_or_create(*args, **kwargs)
 
         with patch.object(TeamProvisioningConfig.objects, "update_or_create", side_effect=race_then_raise):
-            res = self._post_signed_with_bearer(
+            res = self._post_with_bearer(
                 "/api/agentic/provisioning/resources",
-                data={"service_id": "analytics", "project_id": project_id},
+                data={"project_id": project_id},
                 token=token,
             )
 
@@ -616,19 +571,17 @@ class TestProvisioningResources(ProvisioningTestBase):
 
     def test_create_resource_without_project_id_returns_existing_team(self):
         token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics"},
             token=token,
         )
         assert res.json()["id"] == str(self.team.id)
 
     def test_create_resource_with_project_id_and_name(self):
         token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
             data={
-                "service_id": "analytics",
                 "project_id": "proj_named",
                 "configuration": {"project_name": "My App"},
             },
@@ -640,9 +593,9 @@ class TestProvisioningResources(ProvisioningTestBase):
 
     def test_create_resource_new_team_belongs_to_same_org(self):
         token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics", "project_id": "proj_org"},
+            data={"project_id": "proj_org"},
             token=token,
         )
         new_team = Team.objects.get(id=int(res.json()["id"]))
@@ -650,7 +603,7 @@ class TestProvisioningResources(ProvisioningTestBase):
 
     def test_get_resource_does_not_include_personal_api_key(self):
         token = self._get_bearer_token()
-        res = self._get_signed_with_bearer(
+        res = self._get_with_bearer(
             f"/api/agentic/provisioning/resources/{self.team.id}",
             token=token,
         )
@@ -658,7 +611,6 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert "personal_api_key" not in res.json()["complete"]["access_configuration"]
 
 
-@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestProvisioningResourceRemove(ProvisioningTestBase):
     def test_remove_strips_team_from_sibling_tokens(self):
         # Removing a resource has to revoke the team from every live token
@@ -692,7 +644,7 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
             scoped_teams=[self.team.id, 99999],
         )
 
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             f"/api/agentic/provisioning/resources/{self.team.id}/remove",
             token=token,
         )
@@ -726,7 +678,7 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
         )
 
         token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
+        res = self._post_with_bearer(
             f"/api/agentic/provisioning/resources/{self.team.id}/remove",
             token=token,
         )
@@ -739,10 +691,9 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
         assert not OAuthAccessToken.objects.filter(token=token).exists()
 
 
-@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestCreateProvisionedPat(ProvisioningTestBase):
     def _minting_app(self) -> OAuthApplication:
-        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app = self.partner
         app.scopes = ["query:read"]
         app.save(update_fields=["scopes"])
         return app
@@ -777,8 +728,9 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
     def test_no_pat_when_ceiling_unseeded(self):
         # A flag-on app without a scope ceiling must not fall back to ["*"] or
         # mint an empty-scope key — skip the mint entirely.
-        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
-        assert app.scopes == []
+        app = self.partner
+        app.scopes = []
+        app.save(update_fields=["scopes"])
         initial_count = PersonalAPIKey.objects.filter(user=self.user).count()
         assert _maybe_create_provisioned_pat(self.user, self.team, app, "query:read") is None
         assert PersonalAPIKey.objects.filter(user=self.user).count() == initial_count

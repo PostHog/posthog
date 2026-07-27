@@ -290,6 +290,14 @@ export function CodeEditor({
     const disposeEditor = (): void => {
         try {
             if (diffEditorRef.current) {
+                // Detach the models from the DiffEditorWidget before disposing it, so Monaco's
+                // internal onWillDispose listeners don't fire against models that are torn down
+                // right after ("TextModel got disposed before DiffEditorWidget model got reset").
+                try {
+                    diffEditorRef.current.setModel(null)
+                } catch {
+                    // already detached or disposed
+                }
                 diffEditorRef.current.dispose()
             } else {
                 editorRef.current?.dispose()
@@ -312,12 +320,14 @@ export function CodeEditor({
             disposeMonacoDisposables()
             disconnectMutationObserver()
 
-            // Dispose the editor BEFORE @monaco-editor/react's own cleanup
-            // runs: Monaco's services (HoverService, ContextView,
-            // DomListener) keep refs to the editor's container DOM that
-            // survive the library's dispose. Disposing while we still hold
-            // a strong reference lets Monaco tear down its services in an
-            // order that releases those DOM refs.
+            // Dispose the editor while we still hold a strong reference: Monaco's
+            // services (HoverService, ContextView, DomListener) keep refs to the
+            // editor's container DOM that survive the library's dispose, so tearing
+            // it down here lets Monaco release those DOM refs in the right order.
+            // For the diff editor the library's own child cleanup has usually already
+            // disposed the widget by now, so this is mostly a no-op guarded by the
+            // try/catch in `disposeEditor`; model disposal is owned by
+            // `disposeTrackedModels` below (see the `keepCurrent*` props on the widget).
             disposeEditor()
 
             // Now that our editor is disposed, dispose every model this
@@ -612,6 +622,13 @@ export function CodeEditor({
                     }}
                     onMount={diffEditorOnMount}
                     {...editorProps}
+                    // Own model disposal ourselves via `disposeTrackedModels`. Left to the library,
+                    // its unmount disposes the models before resetting the widget's own reference to
+                    // them ("TextModel got disposed before DiffEditorWidget model got reset"), and it
+                    // fires on teardown paths that don't unmount CodeEditor (diff dismissed, `key`
+                    // change), where our `disposeEditor` cleanup never runs.
+                    keepCurrentOriginalModel
+                    keepCurrentModifiedModel
                 />
             </div>
         )

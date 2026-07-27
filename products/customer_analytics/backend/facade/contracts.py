@@ -26,6 +26,10 @@ class InvalidCustomPropertyOptions(ValueError):
     """Raised when a select property's options fail validation; the viewset maps it to a 400."""
 
 
+class EventStreamTestMessageError(Exception):
+    """The test message could not be sent — unconfigured stream or a Slack API failure."""
+
+
 @dataclass(frozen=True)
 class AccountAssignment:
     """A user assigned to an account role (CSM, account executive, account owner)."""
@@ -377,6 +381,7 @@ class CustomPropertySourceView:
     source_column: str | None = ""
     key_column: str = ""
     column_property_map: dict | None = None
+    column_descriptions: dict | None = None
     is_enabled: bool = True
     consecutive_failures: int = 0
     last_synced_at: datetime | None = None
@@ -535,6 +540,29 @@ class ExternalAccountCustomPropertiesResult:
     values: list[CustomPropertyValue] | None = None
     error: ExternalAccountCustomPropertiesError | None = None
     error_field: str | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class EventStreamView:
+    """A user's event stream as returned by the event-stream endpoints.
+
+    One stream per user per team (``created_by`` is the owner): the events to watch
+    (``event_names``), the owner's Slack delivery target, and the member accounts
+    (``account_ids``) whose users' events are streamed.
+    Defaults exist so the wrapping serializer can parse partial request bodies (see
+    :class:`AccountView`).
+    """
+
+    id: UUID | None = None
+    enabled: bool = False
+    event_names: list[str] = field(default_factory=list)
+    slack_integration: int | None = None
+    slack_channel_id: str = ""
+    slack_channel_name: str = ""
+    account_ids: list[UUID] = field(default_factory=list)
+    created_at: datetime | None = None
+    created_by: int | None = None
+    updated_at: datetime | None = None
 
 
 class AnnouncementValidationError(ValueError):

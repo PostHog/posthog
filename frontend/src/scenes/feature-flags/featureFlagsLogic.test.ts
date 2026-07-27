@@ -1,7 +1,11 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import {
@@ -23,6 +27,11 @@ import { FeatureFlagType } from '~/types'
 jest.mock('scenes/approvals/ApprovalRequiredBanner', () => ({
     showApprovalRequiredToast: jest.fn(),
 }))
+jest.mock('posthog-js')
+
+function capturesOf(event: string): any[][] {
+    return (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === event)
+}
 
 describe('flagMatchesSearch', () => {
     const flag = { ...NEW_FLAG, id: 1, key: 'my-feature', name: 'My Feature Flag' } as FeatureFlagType
@@ -358,5 +367,97 @@ describe('updateFeatureFlag 409 handling', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(showApprovalRequiredToast).not.toHaveBeenCalled()
+    })
+})
+
+describe('updateFeatureFlagArchived', () => {
+    let logic: ReturnType<typeof featureFlagsLogic.build>
+
+    // One test here rejects the archive request on purpose; kea-loaders would log the failure
+    beforeEach(silenceKeaLoadersErrors)
+    afterEach(resumeKeaLoadersErrors)
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:projectId/feature_flags/': () => [
+                    200,
+                    {
+                        results: [{ id: 1, key: 'test-flag', active: true }],
+                        count: 1,
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        logic = featureFlagsLogic()
+        logic.mount()
+        ;(posthog.capture as jest.Mock).mockClear()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it('captures "feature flag archived" only after the archive succeeds', async () => {
+        jest.spyOn(api, 'update').mockResolvedValueOnce({ id: 1, key: 'test-flag', archived: true, active: false })
+
+        logic.actions.updateFeatureFlagArchived({ id: 1, archived: true, via: 'archive-dialog' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(capturesOf('feature flag archived')).toEqual([['feature flag archived', { via: 'archive-dialog' }]])
+    })
+
+    it('does not capture "feature flag archived" when the archive request fails', async () => {
+        jest.spyOn(api, 'update').mockRejectedValueOnce({ status: 409, data: { detail: 'Conflict' } })
+
+        logic.actions.updateFeatureFlagArchived({ id: 1, archived: true, via: 'archive-dialog' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(capturesOf('feature flag archived')).toHaveLength(0)
+    })
+
+    it('marks the row as updating until the archive resolves', async () => {
+        jest.spyOn(api, 'update').mockResolvedValueOnce({ id: 1, key: 'test-flag', archived: true, active: false })
+
+        logic.actions.updateFeatureFlagArchived({ id: 1, archived: true, via: 'archive-dialog' })
+        expect(logic.values.featureFlagsUpdating[1]).toBe(true)
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
+    })
+
+    // The list arm of the disable-and-archive experiment: the row toggle has to reach
+    // updateFeatureFlagArchived with the list's own via, not the archive dialog's.
+    it('archives via the disable confirmation when the test variant picks it', async () => {
+        const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        jest.spyOn(api, 'update').mockResolvedValueOnce({ id: 1, key: 'test-flag', archived: true, active: false })
+        const flagsLogic = enabledFeaturesLogic()
+        flagsLogic.mount()
+        flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT], {
+            [FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT]: 'test',
+        })
+
+        logic.actions.toggleFeatureFlagActive(1, false)
+        expect(openDialog.mock.calls[0][0].primaryButton?.children).toBe('Disable and archive')
+
+        openDialog.mock.calls[0][0].primaryButton?.onClick?.(undefined as any)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(capturesOf('feature flag archived')).toEqual([
+            ['feature flag archived', { via: 'disable-confirmation' }],
+        ])
+    })
+
+    it('leaves other rows spinning when one archive fails', async () => {
+        jest.spyOn(api, 'update').mockRejectedValueOnce({ status: 409, data: { detail: 'Conflict' } })
+        logic.actions.setFeatureFlagUpdating(2, true)
+
+        logic.actions.updateFeatureFlagArchived({ id: 1, archived: true, via: 'archive-dialog' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
+        expect(logic.values.featureFlagsUpdating[2]).toBe(true)
     })
 })
