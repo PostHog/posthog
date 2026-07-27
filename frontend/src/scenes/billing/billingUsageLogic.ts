@@ -76,7 +76,7 @@ export interface BillingUsageLogicProps {
 export interface billingUsageLogicValues {
     billing: BillingType | null // billingLogic
     billingPeriodUTC: BillingPeriod // billingLogic
-    canViewBillingUsage: boolean // billingLogic
+    canReadBillingUsageSpend: boolean // billingLogic
     currentOrganization: OrganizationType | null // billingLogic
     isHobby: boolean // preflightLogic
     billingPeriodMarkers: BillingPeriodMarker[]
@@ -248,7 +248,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     connect(() => ({
         values: [
             billingLogic,
-            ['billing', 'billingPeriodUTC', 'canViewBillingUsage', 'currentOrganization'],
+            ['billing', 'billingPeriodUTC', 'canReadBillingUsageSpend', 'currentOrganization'],
             preflightLogic,
             ['isHobby'],
         ],
@@ -275,7 +275,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             null as BillingUsageResponse | null,
             {
                 loadBillingUsage: async () => {
-                    if (!values.canViewBillingUsage || values.isHobby) {
+                    if (!values.canReadBillingUsageSpend || values.isHobby) {
                         return null
                     }
                     const { usage_types, team_ids, breakdowns, interval } = values.filters

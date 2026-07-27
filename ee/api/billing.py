@@ -34,7 +34,7 @@ logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
 
-MEMBER_BILLING_USAGE_ACCESS_FLAG = "member-billing-usage-access"
+MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG = "member-billing-usage-spend-read-access"
 OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
 
 
@@ -64,14 +64,15 @@ def _org_flag_enabled(flag_key: str, organization: Organization) -> bool:
     )
 
 
-class CanViewBillingUsage(permissions.BasePermission):
+class CanReadBillingUsageSpend(permissions.BasePermission):
     """
-    Permission for the read-only billing usage/spend endpoints. Org admins (level >= ADMIN) are
-    always allowed. Plain members are allowed only when the `member-billing-usage-access` flag is
-    enabled for the organization and `owner-only-billing` is not (evaluation fails closed).
+    Permission for the read-only billing usage/spend endpoints. The required membership level is
+    computed to mirror the frontend's getMinimumBillingUsageSpendReadAccessLevel: owner-only-billing
+    requires Owner, otherwise the member-billing-usage-spend-read-access flag lowers the bar to
+    Member, otherwise Admin is required. Flag evaluation fails closed.
     """
 
-    message = "You need to be an organization administrator to view billing usage data."
+    message = "You don't have access to billing usage data for this organization."
 
     def has_permission(self, request: Request, view: Any) -> bool:
         try:
@@ -81,11 +82,17 @@ class CanViewBillingUsage(permissions.BasePermission):
         membership = OrganizationMembership.objects.filter(user=cast(User, request.user), organization=org).first()
         if membership is None:
             return False
-        if membership.level >= OrganizationMembership.Level.ADMIN:
-            return True
-        return _org_flag_enabled(MEMBER_BILLING_USAGE_ACCESS_FLAG, org) and not _org_flag_enabled(
-            OWNER_ONLY_BILLING_FLAG, org
-        )
+        return membership.level >= self._minimum_level(org)
+
+    def _minimum_level(self, organization: Organization) -> int:
+        # owner-only-billing is evaluated before any admin short-circuit: when it is on, even admins
+        # are rejected here instead of relying on the billing service/cache to reject them later. This
+        # keeps the PostHog API, the frontend, and the billing service in agreement on precedence.
+        if _org_flag_enabled(OWNER_ONLY_BILLING_FLAG, organization):
+            return OrganizationMembership.Level.OWNER
+        if _org_flag_enabled(MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG, organization):
+            return OrganizationMembership.Level.MEMBER
+        return OrganizationMembership.Level.ADMIN
 
 
 class BillingSerializer(serializers.Serializer):
@@ -587,7 +594,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["GET"],
         detail=False,
         url_path="usage",
-        permission_classes=[permissions.IsAuthenticated, CanViewBillingUsage],
+        permission_classes=[permissions.IsAuthenticated, CanReadBillingUsageSpend],
     )
     def usage(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         return self._usage_or_spend_response(request, self.get_billing_manager().get_usage_data)
@@ -596,7 +603,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["GET"],
         detail=False,
         url_path="spend",
-        permission_classes=[permissions.IsAuthenticated, CanViewBillingUsage],
+        permission_classes=[permissions.IsAuthenticated, CanReadBillingUsageSpend],
     )
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""
@@ -615,8 +622,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # projects never reach the billing service (which cannot enforce per-team access itself).
         accessible_team_ids: Optional[list[int]] = None
         if not self._is_org_admin(request, organization):
-            user = cast(User, request.user)
-            accessible_team_ids = list(user.teams.filter(organization=organization).values_list("id", flat=True))
+            accessible_team_ids = self._member_accessible_team_ids(organization)
             accessible_set = set(accessible_team_ids)
             raw_team_ids = params_to_pass.get("team_ids")
             if raw_team_ids:
@@ -664,6 +670,27 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return OrganizationMembership.objects.filter(
             user=cast(User, request.user), organization=organization, level__gte=OrganizationMembership.Level.ADMIN
         ).exists()
+
+    def _member_accessible_team_ids(self, organization: Organization) -> list[int]:
+        """
+        Team ids in this organization the current user can access, mirroring the visibility rules in
+        OrganizationSerializer._fetch_visible_teams (new RBAC access levels + legacy project
+        membership) but scoped to the passed organization.
+
+        We deliberately avoid User.teams here: that property decides whether to apply private-project
+        filtering from the user's *first* organization, so a member of multiple orgs could otherwise
+        leak a private project from this org when their first org lacks the access-control feature.
+        This list is the security boundary — billing only receives an org id plus these team ids.
+        """
+        user_access_control = self.user_access_control
+        if user_access_control is not None:
+            teams = user_access_control.filter_queryset_by_access_level(
+                organization.teams.all(), include_all_if_admin=True
+            )
+        else:
+            teams = organization.teams.none()
+        teams = teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
+        return list(teams.values_list("id", flat=True))
 
     def _get_teams_map(self, organization: Organization, team_ids: Optional[Sequence[int]] = None) -> dict[int, str]:
         """

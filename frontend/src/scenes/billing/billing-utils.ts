@@ -445,9 +445,9 @@ export function canAccessBilling(membershipLevel: number | null | undefined, own
 
 /**
  * Returns the minimum membership level required for read-only access to the billing usage/spend tabs.
- * The member-billing-usage-access feature flag lowers it to Member, but owner-only-billing takes precedence.
+ * The member-billing-usage-spend-read-access feature flag lowers it to Member, but owner-only-billing takes precedence.
  */
-export function getMinimumBillingUsageAccessLevel(
+export function getMinimumBillingUsageSpendReadAccessLevel(
     memberBillingUsageAccess: boolean,
     ownerOnlyBilling: boolean
 ): OrganizationMembershipLevel {
@@ -460,7 +460,7 @@ export function getMinimumBillingUsageAccessLevel(
 /**
  * Determines if the user can view the read-only billing usage/spend tabs based on their org membership level.
  */
-export function canViewBillingUsage(
+export function canReadBillingUsageSpend(
     membershipLevel: number | null | undefined,
     memberBillingUsageAccess: boolean,
     ownerOnlyBilling: boolean
@@ -468,7 +468,7 @@ export function canViewBillingUsage(
     if (!membershipLevel) {
         return false
     }
-    return membershipLevel >= getMinimumBillingUsageAccessLevel(memberBillingUsageAccess, ownerOnlyBilling)
+    return membershipLevel >= getMinimumBillingUsageSpendReadAccessLevel(memberBillingUsageAccess, ownerOnlyBilling)
 }
 
 /**
