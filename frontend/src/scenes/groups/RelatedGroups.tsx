@@ -23,6 +23,8 @@ export interface RelatedGroupsProps {
     highlightGroupKey?: string | null
     /** Label for the tag on the highlighted row. Required for the tag to render. */
     highlightLabel?: string
+    /** Tooltip shown on the highlight label tag (caller supplies the context-specific wording). */
+    highlightLabelTooltip?: string
     /** Also show a "Stale" tag on the highlighted row. */
     highlightStale?: boolean
     /** Tooltip shown on the "Stale" tag (caller supplies the context-specific wording). */
@@ -39,6 +41,7 @@ export function RelatedGroups({
     embedded = false,
     highlightGroupKey,
     highlightLabel,
+    highlightLabelTooltip,
     highlightStale = false,
     highlightStaleTooltip,
     extraActors,
@@ -80,9 +83,11 @@ export function RelatedGroups({
                             <div className="flex items-center gap-2">
                                 <GroupActorDisplay actor={actor} />
                                 {isHighlighted && highlightLabel && (
-                                    <LemonTag type="muted" size="small">
-                                        {highlightLabel}
-                                    </LemonTag>
+                                    <Tooltip title={highlightLabelTooltip}>
+                                        <LemonTag type="muted" size="small">
+                                            {highlightLabel}
+                                        </LemonTag>
+                                    </Tooltip>
                                 )}
                                 {isHighlighted && highlightStale && (
                                     <Tooltip title={highlightStaleTooltip}>
@@ -98,7 +103,14 @@ export function RelatedGroups({
                 },
             },
         ],
-        [aggregationLabel, highlightGroupKey, highlightLabel, highlightStale, highlightStaleTooltip]
+        [
+            aggregationLabel,
+            highlightGroupKey,
+            highlightLabel,
+            highlightLabelTooltip,
+            highlightStale,
+            highlightStaleTooltip,
+        ]
     )
 
     const nouns: [string, string] =

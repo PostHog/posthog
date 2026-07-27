@@ -18,6 +18,16 @@ first facade serves the read consumers and the framework-free helpers.
 
 from uuid import UUID
 
+# Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
+from products.warehouse_sources.backend.file_uploads import (
+    FILE_FORMAT_TO_TABLE_FORMAT,
+    MAX_UPLOAD_SIZE_BYTES as MAX_FILE_UPLOAD_SIZE_BYTES,
+    SUPPORTED_FILE_FORMATS,
+    build_file_upload_s3_key,
+    build_file_upload_s3_path,
+    build_file_upload_url_pattern,
+    hosted_upload_s3_path,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob as _ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
@@ -53,7 +63,33 @@ __all__ = [
     "snowflake_columns_to_dwh_columns",
     "validate_source_prefix",
     "validate_warehouse_table_url_pattern",
+    # file-upload storage contract
+    "FILE_FORMAT_TO_TABLE_FORMAT",
+    "MAX_FILE_UPLOAD_SIZE_BYTES",
+    "SUPPORTED_FILE_FORMATS",
+    "build_file_upload_s3_key",
+    "build_file_upload_s3_path",
+    "build_file_upload_url_pattern",
+    "hosted_upload_s3_path",
 ]
+
+# GitHub multi-repo source helpers live in ``github_warehouse_repos`` and pull the source
+# registry (dlt drivers) in via ``facade.source_management``, so resolve them lazily to keep that
+# weight off the ``django.setup()`` import path — only the namespaced-resource registry loads them.
+_LAZY = {
+    "github_repositories_for_job_inputs": "github_warehouse_repos",
+    "reconcile_github_repositories": "github_warehouse_repos",
+}
+
+
+def __getattr__(name: str):
+    module = _LAZY.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+
+    return getattr(importlib.import_module(f"products.warehouse_sources.backend.{module}"), name)
+
 
 # --- Mappers (ORM -> contract) ---
 

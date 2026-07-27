@@ -3,8 +3,10 @@ from datetime import datetime
 import pytest
 
 from products.signals.backend.report_generation.research import (
+    SignalFinding,
     _render_signal_for_research,
     build_initial_research_prompt,
+    build_signal_investigation_prompt,
 )
 from products.signals.backend.temporal.types import SignalData
 
@@ -102,3 +104,28 @@ class TestBuildInitialResearchPrompt:
         signal = _make_signal({})
         prompt = build_initial_research_prompt(signal, 1)
         assert "## Previously resolved report" not in prompt
+
+    @pytest.mark.parametrize("has_previous_finding", [False, True])
+    def test_uses_stable_finding_response_envelope(self, has_previous_finding):
+        signal = _make_signal({})
+        previous_finding = (
+            SignalFinding(
+                signal_id=signal.signal_id,
+                relevant_code_paths=["example.py"],
+                data_queried="Queried the relevant events.",
+                verified=True,
+            )
+            if has_previous_finding
+            else None
+        )
+
+        initial_prompt = build_initial_research_prompt(signal, 2, previous_finding=previous_finding)
+        followup_prompt = build_signal_investigation_prompt(signal, 2, 2, previous_finding=previous_finding)
+
+        for prompt in (initial_prompt, followup_prompt):
+            assert '"previous_finding_correct"' in prompt
+            assert '"finding"' in prompt
+            assert "respond with a `SignalFinding` JSON object" not in prompt
+        if not has_previous_finding:
+            assert "There is no previous finding for this signal" in initial_prompt
+            assert "There is no previous finding for this signal" in followup_prompt

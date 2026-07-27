@@ -29,6 +29,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 health = { path = "../common/health" }
+personhog-common = { path = "../personhog-common" }
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

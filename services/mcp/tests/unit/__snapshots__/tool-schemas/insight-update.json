@@ -17,7 +17,8 @@
                 {
                     "type": "null"
                 }
-            ]
+            ],
+            "description": "Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected)."
         },
         "favorited": {
             "type": "boolean"

@@ -330,8 +330,23 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
 
         up_cmd = build_docker_compose_command(profiles, "up --pull always -d")
         logs_cmd = build_docker_compose_command(profiles, "logs --tail=100 -f")
+        # Keep the sandbox guard and failure message in sync with the
+        # docker-compose proc's shell in bin/mprocs.yaml (the static fallback
+        # used when hogli is unavailable).
+        fail_cmd = (
+            'echo "docker compose up failed (see the error above). A common cause: another stack or process '
+            'holding a required port (see the pre-flight output from bin/start). Inspect with: docker ps --all"; '
+            "exit 1"
+        )
+        sandbox_cmd = (
+            'echo "Sandbox: infra managed by docker compose externally" '
+            '&& echo "docker-compose ready" && sleep infinity'
+        )
+        dev_cmd = f"{up_cmd} || {{ {fail_cmd}; }} && echo 'docker-compose ready' && {logs_cmd}"
 
-        proc_config["shell"] = f"{message}{up_cmd} && echo 'docker-compose ready' && {logs_cmd}"
+        # Sandboxes have no docker CLI; without this guard the generated shell
+        # would fail there and misreport the cause as a port collision.
+        proc_config["shell"] = f'{message}if [ "${{POSTHOG_SANDBOX:-}}" = "1" ]; then {sandbox_cmd}; else {dev_cmd}; fi'
         proc_config["ready_pattern"] = "docker-compose ready"
         return proc_config
 
@@ -411,7 +426,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
     _SANDBOX_UNSANDBOXED_PREFIXES = ("bin/dev-open-when-ready",)
 
     # Procs excluded from the sandbox by default: they need the docker socket the
-    # profile denies (e.g. temporal-worker running PostHog Code tasks with
+    # profile denies (e.g. temporal-worker running PostHog Desktop tasks with
     # SANDBOX_PROVIDER=docker). POSTHOG_DEV_SANDBOX_EXCLUDE adds more on top.
     _SANDBOX_DEFAULT_EXCLUDES = frozenset({"temporal-worker"})
 
@@ -429,7 +444,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
 
         Some procs are excluded by default (``_SANDBOX_DEFAULT_EXCLUDES``) because
         they need the docker socket the profile denies, e.g. temporal-worker running
-        PostHog Code tasks with SANDBOX_PROVIDER=docker. POSTHOG_DEV_SANDBOX_EXCLUDE
+        PostHog Desktop tasks with SANDBOX_PROVIDER=docker. POSTHOG_DEV_SANDBOX_EXCLUDE
         (comma-separated proc names) opts additional procs back out. Excluded procs
         run fully unsandboxed, so the dependency-isolation guarantee no longer covers
         them.

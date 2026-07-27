@@ -818,9 +818,21 @@ describe('Tool Filtering - Feature Flags', () => {
                 'engineering-analytics',
                 'stamphog',
                 'product-data-catalog',
+                'loops',
+                'warehouse-person-properties',
             ])
         )
-        expect(flags).toHaveLength(22)
+        expect(flags).toHaveLength(24)
+    })
+
+    it('every loops tool is gated on the loops flag', () => {
+        // Guards against a loops tool (hand-written like loops-review, or generated)
+        // shipping without the gate and leaking the unreleased surface pre-rollout.
+        const loopsTools = Object.entries(getToolDefinitions()).filter(([name]) => name.startsWith('loops-'))
+        expect(loopsTools.length).toBeGreaterThan(0)
+        for (const [name, definition] of loopsTools) {
+            expect({ name, feature_flag: definition.feature_flag }).toEqual({ name, feature_flag: 'loops' })
+        }
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries

@@ -99,6 +99,7 @@ Set **Host** to the domain shown in your browser when you're logged into Wrike (
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Wrike's API has no reliably-verifiable server-side timestamp filter, so every endpoint
         # ships as full refresh (see settings.py for the rationale).
@@ -117,7 +118,7 @@ Set **Host** to the domain shown in your browser when you're logged into Wrike (
         return schemas
 
     def validate_credentials(
-        self, config: WrikeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: WrikeSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_wrike_credentials(config.access_token, config.host)
 

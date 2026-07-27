@@ -36,7 +36,10 @@ class MonitorProposer:
         return _SYSTEM_PROMPT
 
     def grounding(self, scanner: "ReplayScanner") -> str:
-        return ""
+        # The schema requires echoing allow_inconclusive, so the briefing must state the current value.
+        # Without it the model guesses and writes rationales claiming flag changes that are no-ops.
+        allow = bool((scanner.scanner_config or {}).get("allow_inconclusive", False))
+        return f"Current allow_inconclusive: {str(allow).lower()}."
 
     def to_config_patch(self, llm_output: dict[str, Any], base_config: dict[str, Any]) -> dict[str, Any]:
         config = dict(base_config)

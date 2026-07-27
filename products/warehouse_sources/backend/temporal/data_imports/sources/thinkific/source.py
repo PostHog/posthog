@@ -106,11 +106,16 @@ You can create an API key under **Settings → Code & analytics → API** in you
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: ThinkificSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ThinkificSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not is_valid_subdomain(config.subdomain):
             return False, "Thinkific subdomain is invalid"

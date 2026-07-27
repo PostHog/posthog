@@ -322,6 +322,53 @@ class TestSharedUserIntegrationRefresh:
             apply.assert_called_once_with(sandbox, "explore-science/paper-wizard-frontend", "ghu_caller")
 
 
+class TestLoopOwnerRefreshGate:
+    def _as_user_integration_run(self, stack):
+        from products.tasks.backend.temporal.process_task.utils import PrAuthorshipMode
+
+        stack.enter_context(patch(f"{MODULE}.get_pr_authorship_mode", return_value=PrAuthorshipMode.USER))
+        stack.enter_context(patch(f"{MODULE}.is_caller_token_run", return_value=False))
+
+    def test_user_token_refresh_is_withheld_when_the_loop_owner_lost_access(self):
+        import contextlib
+
+        with contextlib.ExitStack() as stack:
+            self._as_user_integration_run(stack)
+            stack.enter_context(patch(f"{MODULE}.resolve_user_github_integration_for_task", return_value=MagicMock()))
+            stack.enter_context(patch(f"{MODULE}.resolve_coordinated_user_token", return_value="ghu_fresh"))
+            stack.enter_context(patch(f"{MODULE}.transaction"))
+            stack.enter_context(patch(f"{MODULE}.loop_owner_eligible_for_credentials", return_value=False))
+            apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox"))
+
+            outcome = GitHubSandboxCredential().refresh(MagicMock(), _context(state={"loop_id": "loop-1"}), MagicMock())
+
+            assert outcome.refreshed is False
+            apply.assert_not_called()
+
+    def test_installation_fallback_is_withheld_when_the_loop_owner_lost_access(self):
+        import contextlib
+
+        from posthog.models.user_integration import ReauthorizationRequired
+
+        with contextlib.ExitStack() as stack:
+            self._as_user_integration_run(stack)
+            stack.enter_context(patch(f"{MODULE}.resolve_user_github_integration_for_task", return_value=MagicMock()))
+            stack.enter_context(
+                patch(f"{MODULE}.resolve_coordinated_user_token", side_effect=ReauthorizationRequired("expired"))
+            )
+            stack.enter_context(patch(f"{MODULE}.get_github_token", return_value="ghs_team"))
+            stack.enter_context(patch(f"{MODULE}.transaction"))
+            stack.enter_context(patch(f"{MODULE}.loop_owner_eligible_for_credentials", return_value=False))
+            apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox"))
+            task = MagicMock()
+            task.github_integration_id = 456
+
+            outcome = GitHubSandboxCredential().refresh(MagicMock(), _context(state={"loop_id": "loop-1"}), task)
+
+            assert outcome.refreshed is False
+            apply.assert_not_called()
+
+
 class TestResolveCoordinatedUserToken:
     def _patch_lock(self, stack, *, acquired: bool):
         lock = MagicMock()
@@ -467,6 +514,34 @@ class TestLiveSandboxRegistry:
             state={"sandbox_id": "sb-caller", "pr_authorship_mode": "user", "github_credential_source": "caller_token"},
         )
 
+        # Loop runs pass the owner-eligibility gate per row: an eligible member's loop sandbox
+        # still receives the sibling token, a deactivated owner's must not.
+        member = User.objects.create(email="member@test.com")
+        org.members.add(member)
+        eligible_loop = Task.objects.create(
+            team=team, created_by=member, repository="org/loop", github_user_integration=integration
+        )
+        eligible_loop_run = TaskRun.objects.create(
+            task=eligible_loop,
+            team=team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_id": "sb-loop", "pr_authorship_mode": "user", "loop_id": "loop-1"},
+        )
+        deactivated = User.objects.create(email="gone@test.com", is_active=False)
+        org.members.add(deactivated)
+        revoked_loop = Task.objects.create(
+            team=team, created_by=deactivated, repository="org/revoked", github_user_integration=integration
+        )
+        TaskRun.objects.create(
+            task=revoked_loop,
+            team=team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_id": "sb-revoked", "pr_authorship_mode": "user", "loop_id": "loop-2"},
+        )
+
         result = _live_sandboxes_for_user_integration(integration.id)
 
-        assert result == [(str(live_run.id), "sb-live", "org/live")]
+        assert set(result) == {
+            (str(live_run.id), "sb-live", "org/live"),
+            (str(eligible_loop_run.id), "sb-loop", "org/loop"),
+        }

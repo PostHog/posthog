@@ -89,6 +89,7 @@ Create an API key in the [Groq console](https://console.groq.com/keys). Groq exp
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Groq exposes no server-side timestamp filter on any list endpoint, so every table is full
         # refresh only.
@@ -112,7 +113,7 @@ Create an API key in the [Groq console](https://console.groq.com/keys). Groq exp
         return schemas
 
     def validate_credentials(
-        self, config: GroqSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: GroqSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         ok, status_code = validate_groq_credentials(config.api_key)
         if ok:

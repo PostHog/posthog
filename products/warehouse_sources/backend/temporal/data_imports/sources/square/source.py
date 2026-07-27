@@ -121,6 +121,7 @@ Grant these read permissions to the token for the data you want to sync:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -139,7 +140,11 @@ Grant these read permissions to the token for the data you want to sync:
         return schemas
 
     def validate_credentials(
-        self, config: SquareSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SquareSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_valid, is_forbidden = validate_square_credentials(config.access_token, config.environment, schema_name)
         if is_valid:

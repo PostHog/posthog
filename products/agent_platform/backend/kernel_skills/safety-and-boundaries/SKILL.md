@@ -120,7 +120,7 @@ You **never** add public auth without:
      agent — those verify shared secrets / signing headers
      independently of the per-trigger `auth.modes` and **do not
      need public auth** to work.
-   - The user wants PostHog Code + MCP access — that's
+   - The user wants PostHog Desktop + MCP access — that's
      `posthog_internal` + `posthog`, not public.
    - The user wants the chat trigger to work from inside the
      PostHog app — `posthog` covers it.
@@ -166,7 +166,7 @@ injection could have steered it). You then pick **who** decides via
 
 - **`principal`** (the default) — the person who drove the session decides,
   in-place: a Slack **Approve / Reject** button in the thread, or the
-  approval card in PostHog Code. This is a _generic identity match_ (the
+  approval card in PostHog Desktop. This is a _generic identity match_ (the
   decider must be the session's own principal) — it works for a Slack or
   embedded-app user with no PostHog account. Use it for the common case:
   an in-the-loop confirmation of a reversible-ish, driver-authoritative

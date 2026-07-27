@@ -92,7 +92,9 @@ class TestRefreshSandboxMcp:
         mock_ph_configs.assert_called_once_with(
             token="fresh-token", project_id=7, scopes="read_only", interaction_origin=None, task_id="task-1"
         )
-        mock_user_configs.assert_called_once_with(token="fresh-token", team_id=7, user_id=42, interaction_origin=None)
+        mock_user_configs.assert_called_once_with(
+            token="fresh-token", team_id=7, user_id=42, interaction_origin=None, allowed_installation_ids=None
+        )
         mock_send_refresh.assert_called_once()
         _, kwargs = mock_send_refresh.call_args
         assert kwargs["auth_token"] == "jwt"

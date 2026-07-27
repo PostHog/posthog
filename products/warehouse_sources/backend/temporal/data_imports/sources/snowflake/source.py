@@ -318,7 +318,11 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
         return get_connection_metadata_snowflake(config)
 
     def validate_credentials(
-        self, config: SnowflakeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SnowflakeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if config.auth_type.selection == "password" and (not config.auth_type.user or not config.auth_type.password):
             return False, "Missing required parameters: username, password"
@@ -328,7 +332,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             return False, "Missing required parameters: username, private key"
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, api_version=api_version)
         except (ProgrammingError, DatabaseError, ForbiddenError, HttpError) as e:
             error_msg = e.msg or e.raw_msg or ""
             for key, value in SnowflakeErrors.items():

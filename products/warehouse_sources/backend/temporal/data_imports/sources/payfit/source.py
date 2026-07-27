@@ -89,6 +89,7 @@ You can create an API key from the **API access** tab on the [integrations page]
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — PayFit exposes no server-side updated_after/since
         # filter on any list endpoint, so there is no incremental cursor to advance.
@@ -107,7 +108,11 @@ You can create an API key from the **API access** tab on the [integrations page]
         return schemas
 
     def validate_credentials(
-        self, config: PayFitSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PayFitSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # PayFit API keys carry per-endpoint scopes, so probe the specific endpoint when asked for
         # one schema; at source-create only the token itself is validated (via introspection).

@@ -715,38 +715,52 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => ({
-        setDisplayUrl: ({ url }) => {
-            const searchParams = { ...router.values.searchParams, pageURL: url }
-            if (!url || url.trim() === '') {
+    actionToUrl(({ values }) => {
+        const currentUrlSearchParams = (): Record<string, any> => {
+            const searchParams = { ...router.values.searchParams }
+            if (values.displayUrl?.trim()) {
+                searchParams.pageURL = values.displayUrl
+            } else {
                 delete searchParams.pageURL
             }
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-        },
-        setDataUrl: ({ url }) => {
-            const searchParams = { ...router.values.searchParams, dataUrl: url }
-            if (!url || url.trim() === '') {
+            if (values.dataUrl?.trim()) {
+                searchParams.dataUrl = values.dataUrl
+            } else {
                 delete searchParams.dataUrl
             }
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-        },
-        patchHeatmapFilters: () => {
-            const searchParams = { ...router.values.searchParams, heatmapFilters: values.heatmapFilters }
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-        },
-        setHeatmapColorPalette: ({ palette }) => {
-            const searchParams = { ...router.values.searchParams, heatmapPalette: palette }
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-        },
-        setHeatmapFixedPositionMode: ({ mode }) => {
-            const searchParams = { ...router.values.searchParams, heatmapFixedPositionMode: mode }
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-        },
-        setCommonFilters: ({ filters }) => {
-            const searchParams = { ...router.values.searchParams, commonFilters: filters }
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-        },
-    })),
+            return searchParams
+        }
+        return {
+            setDisplayUrl: () => [
+                router.values.location.pathname,
+                currentUrlSearchParams(),
+                router.values.hashParams,
+                { replace: true },
+            ],
+            setDataUrl: () => [
+                router.values.location.pathname,
+                currentUrlSearchParams(),
+                router.values.hashParams,
+                { replace: true },
+            ],
+            patchHeatmapFilters: () => {
+                const searchParams = { ...router.values.searchParams, heatmapFilters: values.heatmapFilters }
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
+            setHeatmapColorPalette: ({ palette }) => {
+                const searchParams = { ...router.values.searchParams, heatmapPalette: palette }
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
+            setHeatmapFixedPositionMode: ({ mode }) => {
+                const searchParams = { ...router.values.searchParams, heatmapFixedPositionMode: mode }
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
+            setCommonFilters: ({ filters }) => {
+                const searchParams = { ...router.values.searchParams, commonFilters: filters }
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
+        }
+    }),
 
     beforeUnmount(() => {
         // Disposables handle cleanup automatically

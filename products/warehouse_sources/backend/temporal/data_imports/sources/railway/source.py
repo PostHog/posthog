@@ -93,6 +93,7 @@ Note that Railway rate limits API requests per plan (as low as 100 requests/hour
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             has_incremental = bool(INCREMENTAL_FIELDS.get(endpoint))
@@ -122,7 +123,11 @@ Note that Railway rate limits API requests per plan (as low as 100 requests/hour
         return schemas
 
     def validate_credentials(
-        self, config: RailwaySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RailwaySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_railway_credentials(config.api_token)
 

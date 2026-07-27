@@ -248,7 +248,7 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
             patch.object(MarketingSourceFactory, "create_adapters", lambda self: [good, bad]),
             patch.object(MarketingSourceFactory, "get_valid_adapters", lambda self, adapters: adapters),
             patch(
-                "products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner.ensure_precomputed",
+                "products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner.marketing_ensure_precomputed",
                 return_value=ready,
             ),
         ):

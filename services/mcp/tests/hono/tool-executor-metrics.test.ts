@@ -42,7 +42,13 @@ import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
-import { PostHogRateLimitError, wrapError } from '@/lib/errors'
+import {
+    PostHogApiError,
+    PostHogRateLimitError,
+    PostHogValidationError,
+    ToolInputValidationError,
+    wrapError,
+} from '@/lib/errors'
 
 const mockTrackToolCall = vi.mocked(trackToolCall)
 
@@ -173,6 +179,105 @@ describe('ToolExecutor metrics', () => {
             expect(trackToolCallExtras('fail-tool')).toMatchObject({ $mcp_error_type: 'internal' })
         })
 
+        // $mcp_error_message is readable by every analytics viewer in the project, not just
+        // the caller that received the tool result — so only messages whose shape WE control
+        // are captured. Arbitrary thrown values echo caller input (document previews, SQL
+        // fragments, upstream response bodies) and must never reach analytics.
+        it.each([
+            ['a generic Error', new Error('preview of caller document: SECRET=abc123')],
+            ['a thrown string', 'raw string echoing tool input'],
+            ['a non-Error object', { secret_payload: 'do not capture' }],
+        ])('omits $mcp_error_message when the tool throws %s', async (_label, thrown) => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw thrown
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+
+            const extras = trackToolCallExtras('fail-tool')
+            expect(extras).toMatchObject({ $mcp_error_type: 'internal' })
+            expect(extras).not.toHaveProperty('$mcp_error_message')
+        })
+
+        it.each([
+            [
+                'a ToolInputValidationError (value-free field descriptors)',
+                new ToolInputValidationError('Invalid input for tool: date_from (invalid_type)', {
+                    fields: ['date_from'],
+                }),
+                'Invalid input for tool: date_from (invalid_type)',
+            ],
+            [
+                'a PostHogValidationError (controlled code + field only, never the detail body)',
+                new PostHogValidationError({
+                    // detail echoes the caller's offending expression; a query tool caller can
+                    // hide a secret here, so it must never reach analytics.
+                    detail: 'Unable to resolve field: SECRET=sk_live_abc123',
+                    attr: 'query',
+                    code: 'invalid_input',
+                    extra: undefined,
+                    url: 'https://us.posthog.com/api/environments/2/query/',
+                    method: 'POST',
+                }),
+                'Validation error: invalid_input (field: query)',
+            ],
+            [
+                'a TimeoutError',
+                Object.assign(new Error('deadline of 30000ms exceeded while calling https://internal.example'), {
+                    name: 'TimeoutError',
+                }),
+                'Tool call timed out',
+            ],
+        ])('stamps $mcp_error_message for %s', async (_label, thrown, expected) => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw thrown
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+
+            expect(trackToolCallExtras('fail-tool')).toMatchObject({ $mcp_error_message: expected })
+        })
+
+        it('rebuilds PostHogApiError messages from status + path, never the response body or query string', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new PostHogApiError({
+                        status: 502,
+                        statusText: 'Bad Gateway',
+                        body: '{"secret": "upstream response body must not leak"}',
+                        url: 'https://us.posthog.com/api/environments/2/insights/?token=sk_live_secret',
+                        method: 'GET',
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+
+            expect(trackToolCallExtras('fail-tool')).toMatchObject({
+                $mcp_error_message: 'HTTP 502 Bad Gateway on GET /api/environments/2/insights/',
+            })
+        })
+
+        it('truncates $mcp_error_message and strips control characters, keeping newlines', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    // ToolInputValidationError.message is passed through verbatim, so it exercises
+                    // the sanitizer/truncation path in extractErrorMessage.
+                    throw new ToolInputValidationError(`line2\x00\x08${'x'.repeat(3000)}`, { fields: ['date_from'] })
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+
+            const message = trackToolCallExtras('fail-tool')?.$mcp_error_message as string
+            expect(message.startsWith('line2xxx')).toBe(true)
+            expect(message).toHaveLength(2048)
+        })
+
         it('carries the upstream status alongside the error type for API failures', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue(
                 makeFakeTool('execute-sql', async () => {
@@ -190,6 +295,8 @@ describe('ToolExecutor metrics', () => {
             expect(trackToolCallExtras('execute-sql')).toMatchObject({
                 $mcp_error_type: 'rate_limited',
                 $mcp_error_status: 429,
+                // Subclasses of PostHogApiError get the same rebuilt-safe message shape.
+                $mcp_error_message: 'HTTP 429 Too Many Requests on POST /api/environments/2/mcp_tools/execute_sql/',
             })
         })
 

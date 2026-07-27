@@ -241,6 +241,136 @@ export interface PatchedSignalReportContentUpdateApi {
     summary?: string
 }
 
+/**
+ * One CI check on a pull request's head commit — a GitHub Actions check run or a legacy commit
+ * status, normalized to a common shape.
+ */
+export interface PullRequestCheckApi {
+    /** Check run name or status context. */
+    readonly name: string
+    /**
+     * Lifecycle state: 'queued', 'in_progress', or 'completed'.
+     * @nullable
+     */
+    readonly status: string | null
+    /**
+     * Outcome once completed: 'success', 'failure', 'neutral', 'cancelled', 'skipped', 'timed_out', or 'action_required'. Null while still running.
+     * @nullable
+     */
+    readonly conclusion: string | null
+    /**
+     * Link to the check run / status detail on GitHub.
+     * @nullable
+     */
+    readonly url: string | null
+}
+
+/**
+ * Response for the PR checks endpoint — the CI status of a report's implementation PR.
+ */
+export interface PullRequestChecksResponseApi {
+    readonly checks: readonly PullRequestCheckApi[]
+}
+
+/**
+ * * `conversation` - conversation
+ * * `review` - review
+ */
+export type CommentTypeEnumApi = (typeof CommentTypeEnumApi)[keyof typeof CommentTypeEnumApi]
+
+export const CommentTypeEnumApi = {
+    Conversation: 'conversation',
+    Review: 'review',
+} as const
+
+/**
+ * * `LEFT` - LEFT
+ * * `RIGHT` - RIGHT
+ */
+export type SideEnumApi = (typeof SideEnumApi)[keyof typeof SideEnumApi]
+
+export const SideEnumApi = {
+    Left: 'LEFT',
+    Right: 'RIGHT',
+} as const
+
+/**
+ * One comment on a pull request — a conversation comment or an inline review comment.
+ */
+export interface PullRequestCommentApi {
+    /** GitHub comment id. */
+    readonly id: string
+    /**
+     * Comment author's GitHub login.
+     * @nullable
+     */
+    readonly author: string | null
+    /**
+     * Author's GitHub avatar URL.
+     * @nullable
+     */
+    readonly author_avatar_url: string | null
+    /** Comment body (GitHub-flavored markdown). */
+    readonly body: string
+    /**
+     * ISO 8601 creation timestamp.
+     * @nullable
+     */
+    readonly created_at: string | null
+    /**
+     * Link to the comment on GitHub.
+     * @nullable
+     */
+    readonly url: string | null
+    /** 'conversation' for a PR discussion comment, 'review' for an inline code-review comment.
+     *
+     * * `conversation` - conversation
+     * * `review` - review */
+    readonly comment_type: CommentTypeEnumApi
+    /**
+     * File path the review comment is anchored to (review comments only).
+     * @nullable
+     */
+    readonly path: string | null
+    /**
+     * Line in the diff the review comment is anchored to — the end line for multi-line comments (review comments only; null when the comment is outdated relative to the PR head).
+     * @nullable
+     */
+    readonly line: number | null
+    /**
+     * First line of a multi-line review comment's range (review comments only).
+     * @nullable
+     */
+    readonly start_line: number | null
+    /** Diff side the review comment is anchored to: 'LEFT' = deletions, 'RIGHT' = additions (review comments only).
+     *
+     * * `LEFT` - LEFT
+     * * `RIGHT` - RIGHT */
+    readonly side: SideEnumApi | null
+    /**
+     * Diff hunk excerpt the review comment applies to (review comments only).
+     * @nullable
+     */
+    readonly diff_hunk: string | null
+    /**
+     * Id of the thread root comment this one replies to; null for thread roots and conversation comments.
+     * @nullable
+     */
+    readonly in_reply_to_id: string | null
+    /**
+     * SHA of the commit the review comment was made against (review comments only).
+     * @nullable
+     */
+    readonly commit_id: string | null
+}
+
+/**
+ * Response for the PR comments endpoint — conversation and review comments merged chronologically.
+ */
+export interface PullRequestCommentsResponseApi {
+    readonly comments: readonly PullRequestCommentApi[]
+}
+
 export interface SignalReportRefundRequestApi {
     /** Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.
      *
@@ -338,6 +468,9 @@ export interface SignalReportRefundResponseApi {
  * * `appfigures` - appfigures
  * * `appfollow` - appfollow
  * * `judgeme_reviews` - judgeme_reviews
+ * * `intercom` - intercom
+ * * `hubspot` - hubspot
+ * * `engineering_analytics` - engineering_analytics
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -387,6 +520,9 @@ export const SignalSourceProductApi = {
     Appfigures: 'appfigures',
     Appfollow: 'appfollow',
     JudgemeReviews: 'judgeme_reviews',
+    Intercom: 'intercom',
+    Hubspot: 'hubspot',
+    EngineeringAnalytics: 'engineering_analytics',
 } as const
 
 /**
@@ -408,6 +544,9 @@ export const SignalSourceProductApi = {
  * * `anomaly_investigation` - anomaly_investigation
  * * `feedback` - feedback
  * * `review` - review
+ * * `ci_flaky_check` - ci_flaky_check
+ * * `ci_broken_default_branch` - ci_broken_default_branch
+ * * `ci_duration_regression` - ci_duration_regression
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -430,6 +569,9 @@ export const SignalSourceTypeApi = {
     AnomalyInvestigation: 'anomaly_investigation',
     Feedback: 'feedback',
     Review: 'review',
+    CiFlakyCheck: 'ci_flaky_check',
+    CiBrokenDefaultBranch: 'ci_broken_default_branch',
+    CiDurationRegression: 'ci_duration_regression',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -528,6 +670,11 @@ export interface JiraIssueSignalExtraApi {
     updated: string | null
 }
 
+export interface ConversationsTicketImageApi {
+    url: string
+    author: string
+}
+
 export interface ConversationsTicketSignalExtraApi {
     ticket_number: number
     channel_source: string
@@ -536,6 +683,7 @@ export interface ConversationsTicketSignalExtraApi {
     priority: string | null
     created_at: string
     email_subject: string | null
+    images?: ConversationsTicketImageApi[] | null
 }
 
 export interface ErrorTrackingSignalExtraApi {
@@ -707,6 +855,46 @@ export interface HealthCheckSignalExtraApi {
     link: string
     url: string
     payload: HealthCheckSignalExtraApiPayload
+}
+
+/**
+ * One immutable flaky observation: failed then passed on a later attempt of the same run,
+ * so only non-determinism can explain the flip.
+ */
+export interface EngineeringAnalyticsCIFlakyCheckSignalExtraApi {
+    repo_owner: string
+    repo_name: string
+    workflow_name: string
+    job_name: string
+    run_id: number
+    head_sha: string
+    failed_attempt: number
+    passed_attempt: number
+    flaky_count: number
+    window_days: number
+}
+
+export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi {
+    repo_owner: string
+    repo_name: string
+    workflow_name: string
+    branch: string
+    conclusive_success_rate: number
+    conclusive_run_count: number
+    latest_conclusion: string
+    window_hours: number
+}
+
+export interface EngineeringAnalyticsCIDurationRegressionSignalExtraApi {
+    repo_owner: string
+    repo_name: string
+    workflow_name: string
+    current_p95_seconds: number
+    baseline_p95_seconds: number
+    pct_increase: number
+    current_p50_seconds: number
+    baseline_p50_seconds: number
+    window_days: number
 }
 
 export interface FreshdeskTicketSignalExtraApi {
@@ -937,6 +1125,20 @@ export interface JudgemeReviewsReviewSignalExtraApi {
     created_at: string | null
 }
 
+export interface IntercomTicketSignalExtraApi {
+    state: string | null
+    priority: string | null
+    admin_assignee_id: string | null
+    created_at: string | null
+}
+
+export interface HubspotTicketSignalExtraApi {
+    hs_ticket_priority: string | null
+    hs_pipeline_stage: string | null
+    hs_ticket_category: string | null
+    createdate: string | null
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -955,6 +1157,9 @@ export type SignalExtraApi =
     | ReplayVisionScannerFindingSignalExtraApi
     | AnalyticsAnomalyInvestigationSignalExtraApi
     | HealthCheckSignalExtraApi
+    | EngineeringAnalyticsCIFlakyCheckSignalExtraApi
+    | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi
+    | EngineeringAnalyticsCIDurationRegressionSignalExtraApi
     | FreshdeskTicketSignalExtraApi
     | FreshserviceTicketSignalExtraApi
     | FrontConversationSignalExtraApi
@@ -985,6 +1190,8 @@ export type SignalExtraApi =
     | AppfiguresReviewSignalExtraApi
     | AppfollowReviewSignalExtraApi
     | JudgemeReviewsReviewSignalExtraApi
+    | IntercomTicketSignalExtraApi
+    | HubspotTicketSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -1068,7 +1275,10 @@ export interface SignalNodeApi {
      * * `retently` - retently
      * * `appfigures` - appfigures
      * * `appfollow` - appfollow
-     * * `judgeme_reviews` - judgeme_reviews */
+     * * `judgeme_reviews` - judgeme_reviews
+     * * `intercom` - intercom
+     * * `hubspot` - hubspot
+     * * `engineering_analytics` - engineering_analytics */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -1089,7 +1299,10 @@ export interface SignalNodeApi {
      * * `scanner_finding` - scanner_finding
      * * `anomaly_investigation` - anomaly_investigation
      * * `feedback` - feedback
-     * * `review` - review */
+     * * `review` - review
+     * * `ci_flaky_check` - ci_flaky_check
+     * * `ci_broken_default_branch` - ci_broken_default_branch
+     * * `ci_duration_regression` - ci_duration_regression */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -1383,6 +1596,95 @@ export interface SignalReportRefundSummaryResponseApi {
     period_billable_credits: number
 }
 
+export interface LLMSkillFileInputApi {
+    /**
+     * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+     * @maxLength 500
+     */
+    path: string
+    /** Text content of the file. */
+    content: string
+    /**
+     * MIME type of the file content.
+     * @maxLength 100
+     */
+    content_type?: string
+}
+
+export interface SignalScoutSlackDestinationApi {
+    /**
+     * ID of the Slack integration whose bot posts this scout's findings and reports.
+     * @minimum 1
+     */
+    integration_id: number
+    /**
+     * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set.
+     * @maxLength 255
+     * @nullable
+     */
+    channel?: string | null
+}
+
+export interface SignalScoutOutputDestinationsApi {
+    /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+    slack?: SignalScoutSlackDestinationApi | null
+}
+
+/**
+ * Schedule, enablement, and delivery options accepted while creating a scout.
+ */
+export interface SignalScoutConfigOptionsApi {
+    /** Whether this scout runs on its schedule. Defaults to true. */
+    enabled?: boolean
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
+    emit?: boolean
+    /**
+     * Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).
+     * @minimum 30
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+    /** Destinations that receive each finding or report this scout emits. Empty by default. */
+    output_destinations?: SignalScoutOutputDestinationsApi
+    /**
+     * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+     * @maxLength 100
+     * @nullable
+     */
+    run_cron_schedule?: string | null
+}
+
+/**
+ * Create a runnable custom scout and its config in one atomic request.
+ */
+export interface SignalScoutCreateApi {
+    /**
+     * Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.
+     * @maxLength 64
+     */
+    name: string
+    /**
+     * Short description of the signal or behavior this scout investigates.
+     * @maxLength 4096
+     */
+    description: string
+    /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
+    body: string
+    /** Optional reference files bundled with the scout prompt. */
+    files?: LLMSkillFileInputApi[]
+    /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
+    config?: SignalScoutConfigOptionsApi
+}
+
+export interface SignalScoutSkillSummaryApi {
+    readonly id: string
+    readonly name: string
+    readonly description: string
+    readonly version: number
+    /** Server-managed report tools granted to this scout. */
+    readonly allowed_tools: readonly string[]
+}
+
 export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
 
 export const ScoutOriginEnumApi = {
@@ -1391,7 +1693,7 @@ export const ScoutOriginEnumApi = {
 } as const
 
 /**
- * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+ * Read shape for a per-(team, skill) scout config.
  *
  * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
  * when it discovers a scout skill; this serializer lets agents tune the row.
@@ -1405,21 +1707,35 @@ export interface SignalScoutConfigApi {
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
-    enabled?: boolean
+    readonly enabled: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
-    emit?: boolean
+    readonly emit: boolean
     /**
      * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
      * @minimum 30
      * @maximum 43200
      */
-    run_interval_minutes?: number
+    readonly run_interval_minutes: number
+    /**
+     * Optional five-field cron expression evaluated in the project timezone, e.g. '30 9 * * *'. Takes precedence over `run_interval_minutes` when set. Null means the rolling interval schedule.
+     * @nullable
+     */
+    readonly run_cron_schedule: string | null
+    /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
+    readonly output_destinations: SignalScoutOutputDestinationsApi
     /**
      * When the coordinator last dispatched this scout. Null if it has never run.
      * @nullable
      */
     readonly last_run_at: string | null
     readonly created_at: string
+}
+
+export interface SignalScoutCreateResponseApi {
+    /** True when this request created the missing scout skill or config; false when both already existed. */
+    created: boolean
+    skill: SignalScoutSkillSummaryApi
+    config: SignalScoutConfigApi
 }
 
 /**
@@ -1429,11 +1745,6 @@ export interface SignalScoutConfigApi {
  * registered the row, the provided tunables are applied to it instead.
  */
 export interface SignalScoutConfigCreateApi {
-    /**
-     * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
-     * @maxLength 200
-     */
-    skill_name: string
     /** Whether this scout runs on its schedule. Defaults to true. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -1444,38 +1755,43 @@ export interface SignalScoutConfigCreateApi {
      * @maximum 43200
      */
     run_interval_minutes?: number
+    /** Destinations that receive each finding or report this scout emits. Empty by default. */
+    output_destinations?: SignalScoutOutputDestinationsApi
+    /**
+     * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+     * @maxLength 100
+     * @nullable
+     */
+    run_cron_schedule?: string | null
+    /**
+     * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
+     * @maxLength 200
+     */
+    skill_name: string
 }
 
 /**
- * Per-(team, skill) scout config: schedule, enablement, and emit posture.
- *
- * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
- * when it discovers a scout skill; this serializer lets agents tune the row.
+ * Editable schedule, enablement, and emit posture for one scout config.
  */
-export interface PatchedSignalScoutConfigApi {
-    readonly id?: string
-    /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
-    readonly skill_name?: string
-    /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
-    readonly description?: string
-    /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
-    readonly scout_origin?: ScoutOriginEnumApi
+export interface PatchedSignalScoutConfigUpdateApi {
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     emit?: boolean
     /**
-     * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+     * Minutes between runs (30–43200). Use 1440 for a daily schedule.
      * @minimum 30
      * @maximum 43200
      */
     run_interval_minutes?: number
     /**
-     * When the coordinator last dispatched this scout. Null if it has never run.
+     * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart. Set null to return to the rolling interval schedule.
+     * @maxLength 100
      * @nullable
      */
-    readonly last_run_at?: string | null
-    readonly created_at?: string
+    run_cron_schedule?: string | null
+    /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
+    output_destinations?: SignalScoutOutputDestinationsApi
 }
 
 /**
@@ -1552,6 +1868,56 @@ export interface ScoutMetadataApi {
     banner_message: string | null
     /** The team's enforced scout run caps and current usage. */
     limits: ScoutLimitsApi
+}
+
+/**
+ * `SignalScoutNote` projection used by `notes-list` and `notes-create`.
+ */
+export interface ScoutNoteApi {
+    /** Note UUID. Pass to `scout-notes-delete` to retire the note. */
+    id: string
+    /** Target scout skill (`signals-scout-*`), or blank for a general note addressed to every scout on the fleet. */
+    skill_name: string
+    /** The note's prose, read verbatim by scout runs. */
+    content: string
+    /**
+     * ISO-8601 creation timestamp.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * ISO-8601 expiry, or null for a note that stays active until deleted.
+     * @nullable
+     */
+    expires_at: string | null
+    /**
+     * Display name of the user who left the note, or null when unavailable.
+     * @nullable
+     */
+    created_by_name: string | null
+    /** Where the note came from: `human` for one left directly through this API, or `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports. A `report_dismissal` note is one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. */
+    origin: string
+}
+
+/**
+ * Request body for `notes-create`.
+ */
+export interface ScoutNoteCreateRequestApi {
+    /**
+     * The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim.
+     * @maxLength 10000
+     */
+    content: string
+    /**
+     * Address the note to one scout by its skill name (`signals-scout-*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster). Omit or leave blank for a general note every scout sees.
+     * @maxLength 200
+     */
+    skill_name?: string
+    /**
+     * Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted.
+     * @nullable
+     */
+    expires_at?: string | null
 }
 
 /**
@@ -1660,6 +2026,50 @@ export interface EmitEligibilityApi {
      * @nullable
      */
     remediation: string | null
+}
+
+/**
+ * One scout in either bucket of `inventory.scout_fleet`.
+ */
+export interface ScoutFleetEntryApi {
+    /** The `signals-scout-*` skill this config schedules. */
+    skill_name: string
+    /** Minutes between runs when no cron schedule is set (default 1440, every 24 hours). */
+    run_interval_minutes: number
+    /**
+     * Optional cron expression, evaluated in the project timezone. Takes precedence over the interval.
+     * @nullable
+     */
+    run_cron_schedule: string | null
+    /** Whether this scout's findings actually reach the inbox. False means dry-run: it runs and logs but emits nothing, so its silence says nothing about the surface it watches. */
+    emit: boolean
+    /**
+     * ISO-8601 timestamp the coordinator last dispatched this scout, or null if it has never run.
+     * @nullable
+     */
+    last_run_at: string | null
+    /**
+     * ISO-8601 timestamp this scout last produced output on either channel (a finding, or an authored/edited report), within `emitted_lookback_days`. Null means quiet for at least that window, not never.
+     * @nullable
+     */
+    last_emitted_at: string | null
+    /**
+     * Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.
+     * @nullable
+     */
+    not_running_reason: string | null
+}
+
+/**
+ * `inventory.scout_fleet` — the other scouts running on this project, split by enablement.
+ */
+export interface ScoutFleetApi {
+    /** Scouts that actually run on this team: enabled, with a live skill the coordinator dispatches. */
+    enabled: ScoutFleetEntryApi[]
+    /** Scouts that do not run, each carrying a `not_running_reason` — turned off, or left on with a skill that can't dispatch. Different from a surface no scout ever covered. */
+    disabled: ScoutFleetEntryApi[]
+    /** The window `last_emitted_at` was resolved over, so a null reads as 'quiet', not 'never'. */
+    emitted_lookback_days: number
 }
 
 /**
@@ -2103,6 +2513,8 @@ export interface ProjectProfileInventoryApi {
     signal_source_configs: SignalSourceConfigsBucketsApi
     /** Whether scout findings can actually reach the inbox for this team — the org-level AI data-processing consent gate and the `signals_scout` source toggle, plus a one-line remediation pointer. Read at cold start to quick-close before doing throwaway work. */
     emit_eligibility: EmitEligibilityApi
+    /** The other scouts configured on this project, split into enabled / disabled, each with its cadence, dry-run posture, last run, and last emit. Read it to see who else is watching this project before investigating a surface a sibling already covers. */
+    scout_fleet: ScoutFleetApi
     /** Counts of reports already in the inbox, grouped by status. */
     existing_inbox_reports: ExistingInboxReportsApi
     /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`. */
@@ -2169,6 +2581,30 @@ export interface ProjectProfileApi {
 }
 
 /**
+ * Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field.
+ */
+export type SignalScoutRunSummaryApiMetadata = { [key: string]: string }
+
+/**
+ * * `not_started` - not_started
+ * * `queued` - queued
+ * * `in_progress` - in_progress
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `cancelled` - cancelled
+ */
+export type RunStatusEnumApi = (typeof RunStatusEnumApi)[keyof typeof RunStatusEnumApi]
+
+export const RunStatusEnumApi = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
  * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
  *
  * Status and timestamps flow from the linked `tasks.TaskRun`.
@@ -2180,8 +2616,15 @@ export interface SignalScoutRunSummaryApi {
     skill_name: string
     /** Skill version snapshotted at run start. */
     skill_version: number
-    /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-    status: string
+    /** Status from the linked TaskRun.
+     *
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled */
+    status: RunStatusEnumApi
     /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
     created_at: string
     /** ISO-8601 timestamp the TaskRun was created. */
@@ -2226,7 +2669,14 @@ export interface SignalScoutRunSummaryApi {
     emitted_report_ids: string[]
     /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
     edited_report_ids: string[]
+    /** Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field. */
+    metadata: SignalScoutRunSummaryApiMetadata
 }
+
+/**
+ * Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field.
+ */
+export type SignalScoutRunDetailApiMetadata = { [key: string]: string }
 
 /**
  * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
@@ -2240,8 +2690,15 @@ export interface SignalScoutRunDetailApi {
     skill_name: string
     /** Skill version snapshotted at run start. */
     skill_version: number
-    /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-    status: string
+    /** Status from the linked TaskRun.
+     *
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled */
+    status: RunStatusEnumApi
     /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
     created_at: string
     /** ISO-8601 timestamp the TaskRun was created. */
@@ -2286,6 +2743,8 @@ export interface SignalScoutRunDetailApi {
     emitted_report_ids: string[]
     /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
     edited_report_ids: string[]
+    /** Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field. */
+    metadata: SignalScoutRunDetailApiMetadata
 }
 
 /**
@@ -2799,6 +3258,9 @@ export interface ForgetResponseApi {
  * * `appfigures` - Appfigures
  * * `appfollow` - AppFollow
  * * `judgeme_reviews` - Judge.me
+ * * `intercom` - Intercom
+ * * `hubspot` - HubSpot
+ * * `engineering_analytics` - Engineering analytics
  */
 export type SignalSourceConfigSourceProductEnumApi =
     (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
@@ -2849,6 +3311,9 @@ export const SignalSourceConfigSourceProductEnumApi = {
     Appfigures: 'appfigures',
     Appfollow: 'appfollow',
     JudgemeReviews: 'judgeme_reviews',
+    Intercom: 'intercom',
+    Hubspot: 'hubspot',
+    EngineeringAnalytics: 'engineering_analytics',
 } as const
 
 /**
@@ -2867,6 +3332,9 @@ export const SignalSourceConfigSourceProductEnumApi = {
  * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
  * * `scanner_finding` - Scanner finding
  * * `anomaly_investigation` - Anomaly investigation
+ * * `ci_flaky_check` - CI flaky check
+ * * `ci_broken_default_branch` - CI broken default branch
+ * * `ci_duration_regression` - CI duration regression
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -2887,6 +3355,9 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
     ScannerFinding: 'scanner_finding',
     AnomalyInvestigation: 'anomaly_investigation',
+    CiFlakyCheck: 'ci_flaky_check',
+    CiBrokenDefaultBranch: 'ci_broken_default_branch',
+    CiDurationRegression: 'ci_duration_regression',
 } as const
 
 export interface SignalSourceConfigApi {
@@ -2992,6 +3463,10 @@ export type SignalsReportsListParams = {
      */
     priority?: string
     /**
+     * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
+     */
+    scout?: string
+    /**
      * Case-insensitive substring match against report title and summary.
      */
     search?: string
@@ -3030,6 +3505,41 @@ export type SignalsScoutMembersListParams = {
      * @minLength 1
      */
     search?: string
+}
+
+export type SignalsScoutNotesListParams = {
+    /**
+     * Truncate each note's `content` to the first N characters (a preview). Omit for the full body — use this on wide scans so stacked notes can't dominate your context.
+     * @minimum 0
+     */
+    content_max_chars?: number
+    /**
+     * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
+     */
+    date_from?: string
+    /**
+     * ISO-8601 exclusive upper bound on `created_at`. Pass the `created_at` of the oldest note from the prior page to walk back past the result cap.
+     */
+    date_to?: string
+    /**
+     * Include notes whose `expires_at` has passed. Off by default so time-boxed steering retires itself.
+     */
+    include_expired?: boolean
+    /**
+     * Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the skill's own notes only.
+     */
+    include_general?: boolean
+    /**
+     * Max rows to return (default 20, hard cap 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Return the notes addressed to this scout (`signals-scout-*`) plus the general (blank-target) notes for the whole fleet. Omit to browse every note on the project.
+     * @minLength 1
+     */
+    skill_name?: string
 }
 
 export type SignalsScoutProjectProfileGetParams = {
@@ -3122,13 +3632,18 @@ export type SignalsScoutScratchpadSearchParams = {
      */
     date_to?: string
     /**
+     * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.
+     * @minLength 1
+     */
+    key?: string
+    /**
      * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
      */
     keys_only?: boolean
     /**
-     * Max rows to return (default 20, hard cap 500).
+     * Max rows to return (default 20, hard cap 1000).
      * @minimum 1
-     * @maximum 500
+     * @maximum 1000
      */
     limit?: number
     /**

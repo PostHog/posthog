@@ -467,6 +467,26 @@ describe('TrendsBarChart (ActionsUnstackedBar)', () => {
     })
 })
 
+describe('TrendsBarChart (ActionsStackedBar)', () => {
+    // Regression for #66497: ActionsStackedBar is a deprecated alias of ActionsBar on trends
+    // queries — never emitted by the UI, but accepted from the API/MCP. It used to fall through
+    // the trends render dispatch and produce a blank tile; getDisplay() now normalizes it.
+    it('renders the stacked bar chart instead of a blank tile', async () => {
+        renderInsight({
+            query: buildTrendsQuery({
+                trendsFilter: { display: ChartDisplayType.ActionsStackedBar },
+            }),
+        })
+
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('trend-bar-graph')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+    })
+})
+
 describe('TrendsBarChart overlays', () => {
     it('renders value labels when showValuesOnSeries is enabled', async () => {
         renderInsight({

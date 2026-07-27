@@ -180,7 +180,9 @@ const GroupByDimensionPickers = (): JSX.Element => {
                     />
                 </Fragment>
             ))}
-            {groupBys.length > 0 && groupBys.length < MAX_GROUP_BY_DIMENSIONS && (
+            {/* First pick and "+ and" are the same add picker: with no dimension chosen yet it
+                must render (labelled "Group by") or the empty Group view has no picker at all. */}
+            {groupBys.length < MAX_GROUP_BY_DIMENSIONS && (
                 <TaxonomicStringPopover
                     {...pickerProps}
                     type="tertiary"
@@ -189,7 +191,7 @@ const GroupByDimensionPickers = (): JSX.Element => {
                     onChange={(value, groupType) =>
                         value && addGroupBy({ key: value, source: resolveGroupBySource(value, groupType) })
                     }
-                    placeholder="+ and"
+                    placeholder={groupBys.length === 0 ? 'Group by' : '+ and'}
                     data-attr="logs-group-by-add-dimension"
                 />
             )}

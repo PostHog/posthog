@@ -131,6 +131,14 @@ describe('subscriptionLogic', () => {
         })
     })
 
+    it('preselects an AI prompt report from the new-subscription URL', async () => {
+        router.actions.push('/insights/123/subscriptions/new?resource_type=ai_prompt')
+
+        await expectLogic(newLogic).toFinishListeners()
+
+        expect(newLogic.values.subscription.resource_type).toBe('ai_prompt')
+    })
+
     it('sets the type from query params', async () => {
         router.actions.push('/insights/123/subscriptions/new?target_type=slack')
         await expectLogic(newLogic).toFinishListeners()

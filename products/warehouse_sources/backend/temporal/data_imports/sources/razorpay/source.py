@@ -68,11 +68,16 @@ class RazorpaySource(ResumableSource[RazorpaySourceConfig, RazorpayResumeConfig]
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: RazorpaySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RazorpaySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_razorpay_credentials(config.key_id, config.key_secret):
             return True, None

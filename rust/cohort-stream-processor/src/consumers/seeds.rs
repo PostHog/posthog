@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use cohort_core::seed::{decode_seed, DecodedSeed, SChunkMs, SeedTile};
+use cohort_core::seed::{decode_seed, DecodedSeed, ReconcileTile, SChunkMs, SeedTile};
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
@@ -41,7 +41,7 @@ const PROBE_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 /// Why a consumed seed payload is skipped rather than applied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeedSkipReason {
-    /// A kind this consumer does not handle (e.g. a `reconcile` control tile).
+    /// A kind the current worker path does not handle.
     UnknownKind,
     /// A newer schema version. The skip commits and never replays, so this consumer must be
     /// upgraded before any seeder emits a new schema.
@@ -64,6 +64,7 @@ impl SeedSkipReason {
 #[derive(Debug)]
 pub enum SeedWork {
     Tile(SeedTile),
+    Reconcile(ReconcileTile),
     Skip(SeedSkipReason),
 }
 
@@ -95,11 +96,11 @@ impl ConsumedSeed {
         }
     }
 
-    /// The fence input; `None` for skips.
+    /// The fence input; control messages and skips are fence-open.
     fn s_chunk_ms(&self) -> Option<SChunkMs> {
         match &self.work {
             SeedWork::Tile(tile) => Some(tile.s_chunk_ms()),
-            SeedWork::Skip(_) => None,
+            SeedWork::Reconcile(_) | SeedWork::Skip(_) => None,
         }
     }
 }
@@ -423,8 +424,7 @@ impl SeedFollowerConsumer {
     }
 }
 
-/// Decode one payload; every non-tile outcome is a channel-riding skip so its offset marks in
-/// order.
+/// Decode one payload into channel-riding work so every outcome retains its in-order offset.
 fn decode_payload(payload: Option<&[u8]>, partition: i32, offset: i64) -> SeedWork {
     let Some(payload) = payload else {
         debug!(
@@ -435,6 +435,7 @@ fn decode_payload(payload: Option<&[u8]>, partition: i32, offset: i64) -> SeedWo
     };
     match decode_seed(payload) {
         Ok(DecodedSeed::Tile(tile)) => SeedWork::Tile(tile),
+        Ok(DecodedSeed::Reconcile(tile)) => SeedWork::Reconcile(tile),
         Ok(DecodedSeed::UnknownKind { kind, .. }) => {
             debug!(partition, offset, kind, "skipping seed of unknown kind");
             SeedWork::Skip(SeedSkipReason::UnknownKind)
@@ -603,10 +604,12 @@ fn frontier_is_caught_up(frontier: Option<i64>, low: i64, high: i64) -> bool {
 mod tests {
     use std::num::NonZeroU32;
 
-    use cohort_core::seed::{ClaimEpoch, ConditionHash, RunId, SChunkMs};
+    use cohort_core::seed::{
+        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileTile, RunId, SChunkMs,
+    };
     use uuid::Uuid;
 
-    use crate::filters::TeamId;
+    use crate::filters::{CohortId, TeamId};
     use crate::partitions::watermarks::LiveWatermarks;
 
     use super::*;
@@ -781,12 +784,19 @@ mod tests {
             SeedWork::Tile(decoded) if decoded == tile,
         ));
 
-        let mut reconcile = serde_json::to_value(&tile).unwrap();
-        reconcile["kind"] = serde_json::json!("reconcile");
+        let reconcile = ReconcileTile::new(
+            TeamId(2),
+            CohortId(42),
+            BehavioralShapeHash::parse(
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            )
+            .unwrap(),
+            RunId(Uuid::nil()),
+        );
         let bytes = serde_json::to_vec(&reconcile).unwrap();
         assert!(matches!(
             decode_payload(Some(&bytes), 0, 0),
-            SeedWork::Skip(SeedSkipReason::UnknownKind),
+            SeedWork::Reconcile(decoded) if decoded == reconcile,
         ));
 
         let mut newer = serde_json::to_value(&tile).unwrap();
@@ -817,8 +827,56 @@ mod tests {
         assert_eq!(back.offset, 42);
         assert!(matches!(back.work, SeedWork::Tile(tile) if tile.s_chunk_ms() == SChunkMs(123)));
 
+        let reconcile = ReconcileTile::new(
+            TeamId(2),
+            CohortId(42),
+            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            RunId(Uuid::nil()),
+        );
+        let consumed = ConsumedSeed {
+            work: SeedWork::Reconcile(reconcile.clone()),
+            partition: 9,
+            offset: 43,
+        };
+        let back = ConsumedSeed::from_message(9, consumed.into_message()).unwrap();
+        assert_eq!(back.offset, 43);
+        assert!(matches!(back.work, SeedWork::Reconcile(tile) if tile == reconcile));
+
         let not_seed = ShuffleMessage::RedrivePendingTransfers;
         assert!(ConsumedSeed::from_message(9, not_seed).is_none());
+    }
+
+    #[test]
+    fn reconcile_is_fence_open_but_never_leapfrogs_a_closed_tile() {
+        let reconcile = ReconcileTile::new(
+            TeamId(2),
+            CohortId(42),
+            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            RunId(Uuid::nil()),
+        );
+        let reconcile_seed = |offset| ConsumedSeed {
+            work: SeedWork::Reconcile(reconcile.clone()),
+            partition: 3,
+            offset,
+        };
+
+        let open_prefix = split_at_fence(
+            vec![reconcile_seed(1), seed(3, 2, 0)],
+            &HashSet::new(),
+            MARGIN_MS,
+            |_| None,
+        );
+        assert_eq!(offsets(&open_prefix.admitted), vec![1]);
+        assert_eq!(offsets(&open_prefix.held[&3]), vec![2]);
+
+        let closed_prefix = split_at_fence(
+            vec![seed(3, 3, 0), reconcile_seed(4)],
+            &HashSet::new(),
+            MARGIN_MS,
+            |_| None,
+        );
+        assert!(closed_prefix.admitted.is_empty());
+        assert_eq!(offsets(&closed_prefix.held[&3]), vec![3, 4]);
     }
 
     /// A wrong `true` declares a partition with unfolded live events idle — the fence's

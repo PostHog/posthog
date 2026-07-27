@@ -95,6 +95,7 @@ Find your API key under **Settings → Company** in your [Frill dashboard](https
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # No Frill list endpoint exposes a server-side updated-since filter, so every stream is
         # full refresh only — neither incremental nor append is offered.
@@ -115,7 +116,7 @@ Find your API key under **Settings → Company** in your [Frill dashboard](https
         return schemas
 
     def validate_credentials(
-        self, config: FrillSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: FrillSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_frill_credentials(config.api_key):
             return True, None

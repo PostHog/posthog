@@ -700,6 +700,15 @@ export interface PatchedEvaluationApi {
 
 export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
 
+export interface TestHogTargetConfigApi {
+    /**
+     * Aggregation window for trace samples, in seconds.
+     * @minimum 10
+     * @maximum 7200
+     */
+    window_seconds?: number
+}
+
 export interface TestHogRequestApi {
     /**
      * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
@@ -716,19 +725,36 @@ export interface TestHogRequestApi {
     allows_na?: boolean
     /** Optional trigger conditions to filter which events are sampled. */
     conditions?: TestHogRequestApiConditionsItem[]
+    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace */
+    target?: EvaluationTargetEnumApi
+    /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
+    target_config?: TestHogTargetConfigApi
 }
 
 export interface TestHogResultItemApi {
-    /** UUID of the $ai_generation event. */
-    event_uuid: string
+    /** Stable identifier for the sampled generation or trace. */
+    sample_id: string
+    /** Type of sampled unit: generation or trace.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace */
+    sample_type: EvaluationTargetEnumApi
+    /**
+     * UUID of the sampled $ai_generation event, or null for a trace sample.
+     * @nullable
+     */
+    event_uuid: string | null
     /**
      * Trace ID if available.
      * @nullable
      */
-    trace_id?: string | null
-    /** First 200 chars of the generation input. */
+    trace_id: string | null
+    /** First 200 characters of input from the sampled unit. */
     input_preview: string
-    /** First 200 chars of the generation output. */
+    /** First 200 characters of output from the sampled unit. */
     output_preview: string
     /**
      * True = pass, False = fail, null = N/A or error.
@@ -2127,6 +2153,13 @@ export interface LLMPromptOutlineEntryApi {
     text: string
 }
 
+export interface LLMPromptLabelSummaryApi {
+    /** Label name, e.g. 'production'. */
+    name: string
+    /** Prompt version this label currently points to. */
+    version: number
+}
+
 export interface LLMPromptListApi {
     readonly id: string
     /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
@@ -2150,8 +2183,11 @@ export interface LLMPromptListApi {
     readonly outline: readonly LLMPromptOutlineEntryApi[]
     /** Names of the labels currently pointing at this version. */
     readonly labels: readonly string[]
+    /** Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters. */
+    readonly activity_item_id: string
     readonly prompt_preview: string
     readonly prompt_size_bytes: number
+    readonly all_labels: readonly LLMPromptLabelSummaryApi[]
 }
 
 export interface PaginatedLLMPromptListListApi {
@@ -2190,6 +2226,8 @@ export interface LLMPromptApi {
     readonly outline: readonly LLMPromptOutlineEntryApi[]
     /** Names of the labels currently pointing at this version. */
     readonly labels: readonly string[]
+    /** Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters. */
+    readonly activity_item_id: string
 }
 
 export interface LLMPromptPublicApi {
@@ -2281,6 +2319,8 @@ export interface LLMPromptResolveResponseApi {
     prompt: LLMPromptApi
     versions: LLMPromptVersionSummaryApi[]
     has_more: boolean
+    /** All labels on this prompt with the version each one currently points to, across all versions (not just the returned page). */
+    labels: LLMPromptLabelApi[]
 }
 
 /**

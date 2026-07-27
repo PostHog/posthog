@@ -19,8 +19,12 @@ def _enabled_destructive_tools() -> list[str]:
         for name, tool in entries:
             if not isinstance(tool, dict) or not isinstance(name, str) or not tool.get("enabled"):
                 continue
-            if (tool.get("annotations") or {}).get("destructive"):
-                tools.append(name)
+            if not (tool.get("annotations") or {}).get("destructive"):
+                continue
+            # confirmed_action tools register no bare `<name>`; codegen emits `<name>-prepare`
+            # (non-destructive) and `<name>-execute` (the destructive action that actually runs).
+            # Gate the generated execute name, since that is what the client relays for approval.
+            tools.append(f"{name}-execute" if tool.get("confirmed_action") else name)
     return tools
 
 
