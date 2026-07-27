@@ -240,6 +240,11 @@ class TaskProcessingContext:
             "model": self.model,
             "reasoning_effort": self.reasoning_effort,
             "initial_permission_mode": self.initial_permission_mode,
+            # Cloud setup-wizard runs are created with `origin_product=ONBOARDING`, which
+            # callers can set themselves — so it can't identify them. `wizard_config` is a
+            # protected state key only `create_wizard_cloud_run` writes, which is why the
+            # facade's own wizard-run lookups key off it too.
+            "is_wizard_run": self.wizard_config is not None,
         }
 
 
