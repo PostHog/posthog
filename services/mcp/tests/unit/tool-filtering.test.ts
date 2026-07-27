@@ -792,6 +792,24 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).not.toContain('notebooks-partial-update')
     })
 
+    it('revamped-py-notebooks flag swaps the notebook create surface', () => {
+        // Flag ON: the cell tools plus their markdown create tool, legacy create hidden —
+        // the model never sees two create tools at once. Flag OFF: only the legacy surface.
+        const off = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': false } })
+        expect(off).toContain('notebooks-create')
+        expect(off).not.toContain('notebooks-create-markdown')
+        expect(off).not.toContain('notebooks-add-cell')
+
+        const on = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': true } })
+        expect(on).toContain('notebooks-create-markdown')
+        expect(on).toContain('notebooks-add-cell')
+        expect(on).toContain('notebooks-update-cell')
+        expect(on).toContain('notebooks-delete-cell')
+        expect(on).toContain('notebooks-run-cell-result')
+        expect(on).not.toContain('notebooks-create')
+        expect(on).not.toContain('notebooks-run-cell')
+    })
+
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const flags = getRequiredFeatureFlags()
         expect(flags).toEqual(

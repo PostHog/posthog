@@ -41,6 +41,10 @@ tools:
             idempotent: false
         enrich_url: '{short_id}'
         title: Create notebook
+        # Hidden when revamped-py-notebooks is on: notebooks-create-markdown takes over as
+        # the create surface so agents never see two create tools.
+        feature_flag: revamped-py-notebooks
+        feature_flag_behavior: disable
         description: >
             Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's
             rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.

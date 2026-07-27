@@ -6835,7 +6835,9 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "revamped-py-notebooks",
+        "feature_flag_behavior": "disable"
     },
     "notebooks-destroy": {
         "description": "Delete a notebook by short_id. The notebook will be soft-deleted and no longer appear in lists.",

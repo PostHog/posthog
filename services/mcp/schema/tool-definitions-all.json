@@ -7329,7 +7329,9 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "revamped-py-notebooks",
+        "feature_flag_behavior": "disable"
     },
     "notebooks-create-markdown": {
         "description": "Create a markdown notebook — the flavor that holds executable SQL and Python cells. Provide a title (it becomes the document's leading heading) and optionally an initial markdown body. Returns the notebook_id to use with notebooks-add-cell. Use this instead of notebooks-create when the notebook will contain executable cells or data analysis.",
