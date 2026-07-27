@@ -1212,8 +1212,20 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(self._run(person_id), [])
 
-    def test_person_id_respects_configured_attribute_key(self):
-        TeamLogsConfig.objects.update_or_create(team=self.team, defaults={"logs_distinct_id_attribute_key": "user.id"})
+    @parameterized.expand(
+        [
+            ("single_key", ["user.id"], {"user.id"}),
+            ("multiple_keys", ["user.id", "posthogDistinctId"], {"user.id", "posthogDistinctId"}),
+        ]
+    )
+    def test_person_id_respects_configured_attribute_keys(
+        self, _name: str, configured_keys: list[str], matching_keys: set[str]
+    ):
+        # Matching only the first configured key (or the legacy singular column) would
+        # silently drop logs linked via the other keys.
+        TeamLogsConfig.objects.update_or_create(
+            team=self.team, defaults={"logs_distinct_id_attribute_keys": configured_keys}
+        )
         person = create_person(team=self.team, distinct_ids=["person-id-test-cfg"])
         self._insert_logs(
             [
@@ -1224,7 +1236,8 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run(str(person.uuid))
 
-        self.assertEqual([r["attributes"]["user.id"] for r in results], ["person-id-test-cfg"])
+        self.assertEqual({key for r in results for key in r["attributes"]}, matching_keys)
+        self.assertEqual(len(results), len(matching_keys))
 
     def test_person_id_filter_targets_string_attribute_map_for_numeric_ids(self):
         # All-numeric distinct ids must not route to the float attribute map — only the

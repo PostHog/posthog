@@ -33,9 +33,8 @@ from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_id
 from posthog.models.person.util import get_person_by_pk_or_uuid
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 
-from products.logs.backend.models import DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY, TeamLogsConfig
-
 from products.logs.backend.column_expressions import canonical_key, column_to_expr
+from products.logs.backend.models import DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS, TeamLogsConfig
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -487,19 +486,27 @@ class LogsFilterBuilder:
             # treats an empty value list as always-true, which would return every log.
             return ast.Constant(value=False)
         config = TeamLogsConfig.objects.filter(team=self.team).first()
-        attribute_key = config.logs_distinct_id_attribute_key if config else DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY
+        attribute_keys = (
+            config.logs_distinct_id_attribute_keys if config else None
+        ) or DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS
         # Force the __str map: attributes_map_str holds every attribute value (stringified),
         # while attributes_map_float only exists for numeric values — all-numeric distinct ids
         # must not route there via the usual value-type detection.
-        return property_to_expr(
-            LogPropertyFilter(
-                key=f"{attribute_key}__str",
-                operator=PropertyOperator.EXACT,
-                type=LogPropertyFilterType.LOG_ATTRIBUTE,
-                value=list(distinct_ids),
-            ),
-            team=self.team,
-        )
+        key_exprs = [
+            property_to_expr(
+                LogPropertyFilter(
+                    key=f"{attribute_key}__str",
+                    operator=PropertyOperator.EXACT,
+                    type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                    value=list(distinct_ids),
+                ),
+                team=self.team,
+            )
+            for attribute_key in attribute_keys
+        ]
+        # A log links to the person when any configured attribute key holds one of their
+        # distinct ids — mirrors the OR the person tab previously pinned client-side.
+        return key_exprs[0] if len(key_exprs) == 1 else ast.Or(exprs=key_exprs)
 
     def resource_filter(self, *, existing_filters):
         negative_resource_filter = ast.Constant(value=True)
