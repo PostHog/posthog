@@ -141,6 +141,15 @@ class TestIsHostSafe(SimpleTestCase):
             assert "resolve" in error
 
     @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_malformed_host_label_blocked(self):
+        # A single DNS label over 63 bytes makes getaddrinfo's IDNA encoding raise UnicodeError,
+        # not gaierror — this must be handled gracefully instead of crashing.
+        valid, error = _is_host_safe("a" * 92, team_id=999)
+        assert not valid
+        assert error is not None
+        assert "resolve" in error
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_blocked_host_logs_warning(self):
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.logger"
