@@ -179,6 +179,9 @@ class TestBackfillReadiness(BaseTest):
         participation.refresh_from_db()
         self.assertIsNone(cohort.last_backfill_events_at)
         self.assertIsNone(participation.stamped_at)
+        # The rollback must leave the participation terminal — the finalizer reads superseded_at to
+        # decide the run's outcome, so clearing it here would make the run reconcile forever.
+        self.assertIsNotNone(participation.superseded_at)
 
     def test_ensure_shape_hash_only_fills_null_column(self) -> None:
         cohort, _ = self._cohort_and_run()

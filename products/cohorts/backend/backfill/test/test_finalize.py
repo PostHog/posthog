@@ -89,6 +89,11 @@ class TestBackfillFinalizer(BaseTest):
             rows.update(superseded_at=now, error="missing partitions [3, 9]")
         elif outcome == "superseded_and_completed":
             rows.update(superseded_at=now, reconcile_completed_at=now, error="missing partitions [3, 9]")
+        elif outcome == "completed_then_diverged":
+            # Reconcile completed, then the cohort's behavioral definition changed: the stamp CAS
+            # must refuse and supersede instead of opening readiness on a stale backfill.
+            rows.update(reconcile_completed_at=now)
+            Cohort.objects.filter(id=cohort.id).update(behavioral_filters_shape_hash="diverged-after-reconcile")
         elif outcome == "shortfall":
             rows.update(error="markers short, retryable")
         elif outcome == "missing_outcome":
@@ -97,17 +102,25 @@ class TestBackfillFinalizer(BaseTest):
             raise ValueError(outcome)
         return cohort, participation
 
-    def _make_run(self, outcomes: list[str], *, observed: bool = True) -> tuple[CohortBackfillRun, list[Cohort]]:
+    def _make_run(
+        self, outcomes: list[str], *, observed: bool = True, scope: str = CohortBackfillScope.TEAM
+    ) -> tuple[CohortBackfillRun, list[Cohort]]:
+        cohort_scoped = scope == CohortBackfillScope.COHORT
         run = CohortBackfillRun.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             backfill_kind=CohortBackfillKind.BEHAVIORAL,
-            trigger_kind=CohortBackfillTrigger.TEAM_ENABLEMENT,
-            scope=CohortBackfillScope.TEAM,
+            trigger_kind=(
+                CohortBackfillTrigger.COHORT_CREATED if cohort_scoped else CohortBackfillTrigger.TEAM_ENABLEMENT
+            ),
+            scope=scope,
             status=CohortBackfillRunStatus.RECONCILING,
             reconcile_observed_at=timezone.now() if observed else None,
             timezone="UTC",
         )
         cohorts = [self._make_participation(run, outcome)[0] for outcome in outcomes]
+        if cohort_scoped:
+            run.cohort = cohorts[0]
+            run.save(update_fields=["cohort"])
         return run, cohorts
 
     @parameterized.expand(
@@ -203,44 +216,43 @@ class TestBackfillFinalizer(BaseTest):
         # The cohort's definition diverged after reconcile completed: the stamp CAS must refuse,
         # supersede the participation and (cohort scope) the run itself, and the finalizer must
         # count the run superseded despite its own terminal CAS missing.
-        cohort = Cohort.objects.create(
-            team=self.team, cohort_type=CohortType.REALTIME, filters=self._behavioral_filters()
-        )
-        ensure_filters_shape_hash(cohort)
-        cohort.refresh_from_db()
-        run = CohortBackfillRun.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            backfill_kind=CohortBackfillKind.BEHAVIORAL,
-            trigger_kind=CohortBackfillTrigger.COHORT_CREATED,
-            scope=CohortBackfillScope.COHORT,
-            cohort=cohort,
-            status=CohortBackfillRunStatus.RECONCILING,
-            reconcile_observed_at=timezone.now(),
-            timezone="UTC",
-        )
-        CohortBackfillRunCohort.objects.for_team(self.team.id).create(
-            run=run,
-            team_id=self.team.id,
-            cohort=cohort,
-            filters_shape_hash=cohort.filters_shape_hash or "",
-            behavioral_filters_shape_hash=cohort.behavioral_filters_shape_hash or "",
-            pinned_filters=cohort.filters,
-        )
-        CohortBackfillRunCohort.objects.for_team(self.team.id).filter(run=run).update(
-            reconcile_completed_at=timezone.now()
-        )
-        Cohort.objects.filter(id=cohort.id).update(behavioral_filters_shape_hash="diverged-after-reconcile")
+        run, cohorts = self._make_run(["completed_then_diverged"], scope=CohortBackfillScope.COHORT)
 
         result = finalize_backfill_runs()
 
         run.refresh_from_db()
-        cohort.refresh_from_db()
+        cohorts[0].refresh_from_db()
         participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run)
         self.assertEqual(run.status, CohortBackfillRunStatus.SUPERSEDED)
         self.assertIsNotNone(run.finished_at)
         self.assertIsNotNone(participation.superseded_at)
         self.assertIsNone(participation.stamped_at)
-        self.assertIsNone(cohort.last_backfill_events_at)
+        self.assertIsNone(cohorts[0].last_backfill_events_at)
         self.assertEqual(result.superseded, 1)
         self.assertEqual(result.completed, 0)
         self.mock_celery_app.send_task.assert_not_called()
+
+    def test_cohort_scoped_run_with_a_second_participation_keeps_the_stamp(self) -> None:
+        # Only creation-time code gives a cohort-scoped run exactly one participation, and the
+        # terminal CAS reads that invariant. With two, the diverged one supersedes the run row
+        # mid-transaction so the CAS misses — the stamp that already landed must survive with its
+        # cache invalidation, and the violation must be logged rather than silently miscounted.
+        with mock.patch("products.cohorts.backend.backfill.finalize.logger") as mock_logger:
+            run, cohorts = self._make_run(["completed", "completed_then_diverged"], scope=CohortBackfillScope.COHORT)
+
+            result = finalize_backfill_runs()
+
+        run.refresh_from_db()
+        cohorts[0].refresh_from_db()
+        cohorts[1].refresh_from_db()
+        self.assertEqual(run.status, CohortBackfillRunStatus.SUPERSEDED)
+        self.assertIsNotNone(cohorts[0].last_backfill_events_at)
+        self.assertIsNone(cohorts[1].last_backfill_events_at)
+        self.assertEqual(result.superseded, 1)
+        self.assertEqual(result.stamped_participations, 1)
+        self.mock_celery_app.send_task.assert_called_once_with(
+            FLAGS_CACHE_TASK, args=(self.team.id,), queue="feature_flags"
+        )
+        self.assertEqual(
+            mock_logger.error.call_args[0][0], "cohort_backfill_finalizer_cohort_scoped_run_participation_count"
+        )
