@@ -39,9 +39,8 @@ use super::producer::RdKafkaProducer;
 
 pub struct KafkaContext {
     /// Lifecycle handle this producer reports liveness to. `None` for a producer
-    /// whose health must not gate the pod (e.g. the non-critical side of a
-    /// `SplitKafkaSink`) — it still produces and emits metrics, it just doesn't
-    /// drive a manager component.
+    /// whose health must not gate the pod — it still produces and emits
+    /// metrics, it just doesn't drive a manager component.
     liveness: Option<lifecycle::Handle>,
 }
 

@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::{net::SocketAddr, num::NonZeroU32};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
@@ -93,57 +92,6 @@ impl std::str::FromStr for EnvelopeCompression {
             "none" => Ok(EnvelopeCompression::None),
             "lz4" => Ok(EnvelopeCompression::Lz4),
             _ => Err(format!("Unknown EnvelopeCompression: {s}")),
-        }
-    }
-}
-
-/// Routing mode for AI capture events between the primary cluster and a
-/// secondary (e.g. WarpStream) cluster. Only consulted in `CaptureMode::Ai`.
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
-pub enum AiSinkMode {
-    /// All AI events stay on the primary sink (current behavior).
-    #[default]
-    Primary,
-    /// Only tokens listed in `ai_secondary_allowlist_tokens` go to the
-    /// secondary sink; everything else stays on the primary.
-    SecondaryAllowlist,
-    /// All AI events go to the secondary sink.
-    Secondary,
-}
-
-impl std::str::FromStr for AiSinkMode {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_lowercase().as_ref() {
-            "primary" => Ok(AiSinkMode::Primary),
-            "secondary_allowlist" | "secondary-allowlist" => Ok(AiSinkMode::SecondaryAllowlist),
-            "secondary" => Ok(AiSinkMode::Secondary),
-            _ => Err(format!("Unknown AiSinkMode: {s}")),
-        }
-    }
-}
-
-/// Resolved AI routing policy: the configured `AiSinkMode` with the token
-/// allowlist it needs attached to the variant that uses it. Built from the raw
-/// `ai_sink_mode` + companion config in `setup` and carried by
-/// `SplitKafkaSink`, so routing needs nothing but the event's token.
-#[derive(Debug, Clone)]
-pub enum AiRouting {
-    Primary,
-    SecondaryAllowlist(HashSet<String>),
-    Secondary,
-}
-
-impl AiRouting {
-    /// Whether an AI event for `token` should be routed to the secondary sink.
-    /// `Primary` never does; `Secondary` always does; `SecondaryAllowlist` routes
-    /// only allowlisted tokens.
-    pub fn routes_to_secondary(&self, token: &str) -> bool {
-        match self {
-            AiRouting::Primary => false,
-            AiRouting::Secondary => true,
-            AiRouting::SecondaryAllowlist(allowlist) => allowlist.contains(token),
         }
     }
 }
@@ -337,27 +285,6 @@ pub struct Config {
     // (all $ai_gateway* props are stripped as untrusted).
     pub ai_gateway_signing_secret: Option<String>,
 
-    // --- AI secondary sink (e.g. WarpStream cluster) routing ---
-    /// `primary` keeps all AI events on the primary sink; `secondary_allowlist`
-    /// sends only `ai_secondary_allowlist_tokens` to the secondary; `secondary`
-    /// sends every AI event to the secondary. Only consulted in `CaptureMode::Ai`.
-    #[envconfig(default = "primary")]
-    pub ai_sink_mode: AiSinkMode,
-
-    /// Comma-separated tokens routed to the secondary AI sink when
-    /// `ai_sink_mode = secondary_allowlist`.
-    pub ai_secondary_allowlist_tokens: Option<String>,
-
-    /// Secondary AI Kafka cluster connection. When `ai_sink_mode` is not
-    /// `primary`, `ai_secondary_kafka_hosts` and `ai_secondary_kafka_topic` are
-    /// required; the secondary producer inherits all other tuning from `kafka`.
-    pub ai_secondary_kafka_hosts: Option<String>,
-    pub ai_secondary_kafka_topic: Option<String>,
-    #[envconfig(default = "false")]
-    pub ai_secondary_kafka_tls: bool,
-    #[envconfig(default = "")]
-    pub ai_secondary_kafka_client_id: String,
-
     // HTTP/1 header read timeout in milliseconds - closes connections that don't
     // send complete headers within this duration (slow loris protection).
     // Set env var to enable; unset to disable.
@@ -491,9 +418,7 @@ pub struct KafkaConfig {
     #[envconfig(default = "events_plugin_ingestion_dlq")]
     pub kafka_dlq_topic: String,
     /// Dedicated Kafka topic for `$ai_*` events (env: `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`).
-    /// Unlike the `ai_secondary_*` family on `Config` (which picks a secondary
-    /// CLUSTER on `CaptureMode::Ai` deployments), this picks a TOPIC on the
-    /// same sink: on deployments whose capture mode routes AI events
+    /// On deployments whose capture mode routes AI events
     /// (`CaptureMode::routes_ai_events`), both the v0 pipeline (via
     /// `DataType::AiEvents`) and the v1 pipeline (via `Destination::AiEvents`)
     /// divert `$ai_*` events here instead of the analytics main topic. Setup
@@ -580,7 +505,7 @@ pub struct KafkaConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{AiRouting, AiSinkMode, CaptureMode, Config};
+    use super::{CaptureMode, Config};
     use std::collections::HashMap;
     use std::str::FromStr;
 
@@ -663,77 +588,6 @@ mod tests {
             assert!(
                 !mode.requires_historical_migration(),
                 "{mode:?} should not require historical_migration"
-            );
-        }
-    }
-
-    #[test]
-    fn ai_sink_mode_from_str() {
-        // Locks the AI_SINK_MODE env contract: accepted spellings (incl. the
-        // dash/underscore allowlist alias), case-insensitivity, and rejection
-        // of anything else.
-        let ok = [
-            ("primary", AiSinkMode::Primary),
-            ("PRIMARY", AiSinkMode::Primary),
-            ("secondary", AiSinkMode::Secondary),
-            (" Secondary ", AiSinkMode::Secondary),
-            ("secondary_allowlist", AiSinkMode::SecondaryAllowlist),
-            ("secondary-allowlist", AiSinkMode::SecondaryAllowlist),
-            ("Secondary_Allowlist", AiSinkMode::SecondaryAllowlist),
-        ];
-        for (input, expected) in ok {
-            assert_eq!(
-                AiSinkMode::from_str(input).unwrap(),
-                expected,
-                "input={input}"
-            );
-        }
-
-        for bad in [
-            "",
-            "secondaryallowlist",
-            "secondary_percentage",
-            "percentage",
-            "warpstream",
-            "allowlist",
-        ] {
-            assert!(
-                AiSinkMode::from_str(bad).is_err(),
-                "expected err for {bad:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn ai_routing_routes_to_secondary() {
-        // Locks the routing decision: a flipped arm or the allowlist being
-        // consulted in the wrong variant would send AI traffic to the wrong
-        // cluster mid-cutover.
-        use std::collections::HashSet;
-        let allowlist: HashSet<String> = ["tok_a".to_string()].into_iter().collect();
-
-        // (routing, token, expected_secondary)
-        let cases = [
-            (AiRouting::Primary, "tok_a", false),
-            (AiRouting::Secondary, "tok_a", true),
-            (AiRouting::Secondary, "unlisted", true),
-            (
-                AiRouting::SecondaryAllowlist(allowlist.clone()),
-                "tok_a",
-                true,
-            ),
-            (AiRouting::SecondaryAllowlist(allowlist), "unlisted", false),
-            (
-                AiRouting::SecondaryAllowlist(HashSet::new()),
-                "tok_a",
-                false,
-            ),
-        ];
-        for (routing, token, expected) in cases {
-            assert_eq!(
-                routing.routes_to_secondary(token),
-                expected,
-                "routing={routing:?} token={token}"
             );
         }
     }
