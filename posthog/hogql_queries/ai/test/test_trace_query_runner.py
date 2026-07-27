@@ -888,12 +888,12 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             "$ai_input_cost_usd": 0.4,
             "$ai_output_cost_usd": 0.6,
             "$ai_total_cost_usd": 1.0,
+            "$ai_input": [{"role": "user", "content": "Foo"}],
         }
 
         # At-least-once delivery lands one logical generation twice. The events table absorbs
         # this (uuid is in its sorting key), but ai_events is a plain MergeTree that never
-        # dedupes, and the deliveries differ in the heavy columns — so arrayDistinct cannot
-        # collapse them either.
+        # dedupes, so scalar totals must be deduplicated before aggregation.
         bulk_create_ai_events(
             [
                 {
@@ -909,7 +909,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
                     "distinct_id": "person1",
                     "timestamp": timestamp,
                     "event_uuid": generation_uuid,
-                    "properties": {**generation_properties, "$ai_input": [{"role": "user", "content": "Foo"}]},
+                    "properties": generation_properties,
                 },
                 {
                     "event": "$ai_generation",

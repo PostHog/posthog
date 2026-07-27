@@ -116,8 +116,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         # ai_events is a plain MergeTree fed by at-least-once ingestion, so one logical event
         # can land as several rows (the shared events table absorbs this via ReplacingMergeTree,
         # this table cannot). Collapse to one row per uuid before aggregating: otherwise sumIf
-        # double-counts tokens/cost and the tree renders a node per duplicate row. Deliveries can
-        # differ in the heavy columns, so keep the most complete one.
+        # double-counts tokens/cost and the tree renders a node per duplicate row.
         query = parse_select(
             """
             SELECT
@@ -205,9 +204,6 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                     '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
                 )
                   AND {filter_conditions}
-                ORDER BY
-                    uuid,
-                    length(ifNull(input, '')) + length(ifNull(output, '')) + length(ifNull(output_choices, '')) DESC
                 LIMIT 1 BY uuid
             ) AS deduped
             GROUP BY deduped.trace_id
