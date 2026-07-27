@@ -53,6 +53,9 @@ const series: Series[] = [
 
 Charts fill their container and need a parent with real dimensions — a `0`-height flex child renders nothing. Give the wrapper an explicit height (`h-64`, `flex-1` in a sized column). Sparkline alone takes `height`/`width` props.
 
+A container too small to hold the axis margins leaves the plot area at zero, and the draw loops skip such a frame instead of clearing the canvas and painting nothing — so a chart squeezed to nothing keeps its last drawn frame until the container is usable again, rather than going blank while its DOM axis labels stay put.
+Growing the container back repaints normally.
+
 ## Composition
 
 ```tsx

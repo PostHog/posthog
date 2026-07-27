@@ -922,9 +922,18 @@ export function withVerticalClip(
     // Matches drawAxes' snapping: the axis line's 1px column starts at round(plotLeft), so trimming
     // there leaves the stroke flush against the axis line.
     const left = clipLeft ? Math.round(dimensions.plotLeft) : 0
+    const clipWidth = dimensions.width - left
+    // A left margin wider than the container (very narrow charts, where the reserved y-tick column
+    // outgrows the available width) makes the rect negative. Canvas reads that as a reversed
+    // rectangle sitting entirely off-canvas, so clipping to it would discard the whole plot — draw
+    // unclipped rather than invisibly. Phrased as `!(> 0)` so a non-finite width bails too.
+    if (!(clipWidth > 0)) {
+        draw()
+        return
+    }
     ctx.save()
     ctx.beginPath()
-    ctx.rect(left, dimensions.plotTop - pad, dimensions.width - left, dimensions.plotHeight + pad * 2)
+    ctx.rect(left, dimensions.plotTop - pad, clipWidth, dimensions.plotHeight + pad * 2)
     ctx.clip()
     try {
         draw()

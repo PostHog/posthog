@@ -9,6 +9,7 @@ import type {
     DrawHoverResult,
     ResolvedSeries,
 } from '../types'
+import { isDrawableDimensions } from './canvas-size'
 import { clearAndPrepare } from './clearCanvas'
 import { useHoverAnimation } from './useHoverAnimation'
 
@@ -56,25 +57,31 @@ export function useChartDraw({
             cancelAnimationFrame(staticRafRef.current)
             staticRafRef.current = null
         }
-        if (!ctx || !dimensions || !scales || theme.skipDraw) {
+        // A frame that can't produce a picture is skipped rather than drawn: clearing first and
+        // painting nothing replaces the last good frame with a blank canvas, while the DOM axis
+        // overlays keep rendering — the chart then reads as "chrome but no data".
+        if (!ctx || !dimensions || !scales || theme.skipDraw || !isDrawableDimensions(dimensions)) {
             return
         }
         staticRafRef.current = requestAnimationFrame(() => {
             staticRafRef.current = null
             clearAndPrepare(ctx, dimensions)
-            drawStatic({
-                ctx,
-                dimensions,
-                scales,
-                series,
-                labels,
-                hoverIndex: -1,
-                hoverPosition: null,
-                theme,
-                hoverProgress: 1,
-                resetHoverFade: () => 1,
-            })
-            ctx.restore()
+            try {
+                drawStatic({
+                    ctx,
+                    dimensions,
+                    scales,
+                    series,
+                    labels,
+                    hoverIndex: -1,
+                    hoverPosition: null,
+                    theme,
+                    hoverProgress: 1,
+                    resetHoverFade: () => 1,
+                })
+            } finally {
+                ctx.restore()
+            }
         })
         return () => {
             if (staticRafRef.current != null) {

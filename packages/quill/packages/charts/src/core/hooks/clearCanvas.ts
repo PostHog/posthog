@@ -9,7 +9,10 @@ import type { ChartDimensions } from '../types'
  *  headless export that resizes the viewport under device_scale_factor=2); reading it again here
  *  would scale the transform inconsistently with the canvas and magnify/clip the drawing. */
 export function clearAndPrepare(ctx: CanvasRenderingContext2D, dimensions: ChartDimensions): void {
-    const dpr = dimensions.width > 0 ? ctx.canvas.width / dimensions.width : window.devicePixelRatio || 1
+    // A sub-pixel wrapper rounds the backing store down to 0, which would derive a zero scale and
+    // collapse every coordinate onto a point (and stop `clearRect` from clearing anything).
+    const backingRatio = ctx.canvas.width / dimensions.width
+    const dpr = backingRatio > 0 && Number.isFinite(backingRatio) ? backingRatio : window.devicePixelRatio || 1
     ctx.save()
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, dimensions.width, dimensions.height)

@@ -10,6 +10,7 @@ import type {
     DrawHoverResult,
     ResolvedSeries,
 } from '../types'
+import { isDrawableDimensions } from './canvas-size'
 import { clearAndPrepare } from './clearCanvas'
 import { useLatest } from './useLatest'
 
@@ -70,7 +71,7 @@ export function useHoverAnimation({
             cancelAnimationFrame(hoverRafRef.current)
             hoverRafRef.current = null
         }
-        if (!overlayCtx || !dimensions || !scales || themeRef.current.skipDraw) {
+        if (!overlayCtx || !dimensions || !scales || themeRef.current.skipDraw || !isDrawableDimensions(dimensions)) {
             return
         }
         // Restart the fade on hoverIndex change — invalidate drewVisible too so the next
@@ -92,20 +93,24 @@ export function useHoverAnimation({
             const elapsed = monotonicNow() - hoverAnimRef.current.startTime
             const hoverProgress = hoverAnimationMs > 0 ? Math.min(1, elapsed / hoverAnimationMs) : 1
             clearAndPrepare(overlayCtx, dimensions)
-            const drewVisible = drawHoverRef.current({
-                ctx: overlayCtx,
-                dimensions,
-                scales,
-                series: seriesRef.current,
-                labels: labelsRef.current,
-                hoverIndex,
-                hoverPosition: hoverPositionRef.current,
-                theme: themeRef.current,
-                hoverProgress,
-                resetHoverFade,
-                dragRect: dragRectRef.current,
-            })
-            overlayCtx.restore()
+            let drewVisible: DrawHoverResult
+            try {
+                drewVisible = drawHoverRef.current({
+                    ctx: overlayCtx,
+                    dimensions,
+                    scales,
+                    series: seriesRef.current,
+                    labels: labelsRef.current,
+                    hoverIndex,
+                    hoverPosition: hoverPositionRef.current,
+                    theme: themeRef.current,
+                    hoverProgress,
+                    resetHoverFade,
+                    dragRect: dragRectRef.current,
+                })
+            } finally {
+                overlayCtx.restore()
+            }
             drewVisibleRef.current = drewVisible
             // Recompute after the draw — the chart type may have called resetHoverFade
             // mid-draw, which would leave the cached hoverProgress stale.

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import type { ChartDimensions, ChartMargins } from '../types'
+import { buildDimensions, sameDimensions, syncCanvasSize, type SizeRect } from './canvas-size'
 import { useLatest } from './useLatest'
 
 interface UseChartCanvasOptions {
@@ -22,24 +23,6 @@ interface UseChartCanvasResult {
     overlayCtx: CanvasRenderingContext2D | null
 }
 
-function sizeCanvas(canvas: HTMLCanvasElement, rect: DOMRect, dpr: number): void {
-    canvas.width = rect.width * dpr
-    canvas.height = rect.height * dpr
-    canvas.style.width = `${rect.width}px`
-    canvas.style.height = `${rect.height}px`
-}
-
-function buildDimensions(rect: DOMRect, margins: ChartMargins): ChartDimensions {
-    return {
-        width: rect.width,
-        height: rect.height,
-        plotLeft: margins.left,
-        plotTop: margins.top,
-        plotWidth: Math.max(0, rect.width - margins.left - margins.right),
-        plotHeight: Math.max(0, rect.height - margins.top - margins.bottom),
-    }
-}
-
 export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasResult {
     const { margins } = options
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -51,7 +34,7 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
     // without re-binding when only margins change — re-binding risks a feedback loop with
     // y-tick-width measurement.
     const marginsRef = useLatest(margins)
-    const rectRef = useRef<DOMRect | null>(null)
+    const rectRef = useRef<SizeRect | null>(null)
 
     // Attach the ResizeObserver once. updateSize reads margins from the ref; when margins
     // change, the secondary effect below recomputes dimensions from the cached rect.
@@ -68,24 +51,35 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
                 return
             }
 
-            const rect = wrapper.getBoundingClientRect()
-            rectRef.current = rect
-            const dpr = window.devicePixelRatio || 1
-
-            sizeCanvas(canvas, rect, dpr)
-            sizeCanvas(overlayCanvas, rect, dpr)
-
+            // Resolve the contexts *before* touching the canvas size. Bailing out afterwards
+            // would leave both bitmaps wiped with no state change to schedule a repaint.
             const context = canvas.getContext('2d')
             const overlayContext = overlayCanvas.getContext('2d')
             if (!context || !overlayContext) {
                 return
             }
 
-            setCanvasState({
-                ctx: context,
-                overlayCtx: overlayContext,
-                dimensions: buildDimensions(rect, marginsRef.current),
-            })
+            const rect = wrapper.getBoundingClientRect()
+            rectRef.current = rect
+            const dpr = window.devicePixelRatio || 1
+
+            const staticWiped = syncCanvasSize(canvas, rect, dpr)
+            const overlayWiped = syncCanvasSize(overlayCanvas, rect, dpr)
+
+            // Publish new state only when something the draw loops depend on moved, or when a
+            // reallocation wiped a bitmap that now has to be repainted (a device-pixel-ratio
+            // change leaves the CSS size, and therefore the dimensions, untouched).
+            const next = buildDimensions(rect, marginsRef.current)
+            setCanvasState((prev) =>
+                prev &&
+                !staticWiped &&
+                !overlayWiped &&
+                prev.ctx === context &&
+                prev.overlayCtx === overlayContext &&
+                sameDimensions(prev.dimensions, next)
+                    ? prev
+                    : { ctx: context, overlayCtx: overlayContext, dimensions: next }
+            )
         }
 
         updateSize()
@@ -100,8 +94,7 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         }
         // Bind the observer once. `marginsRef` is a ref so `updateSize` always reads the
         // latest margins; depending on `marginsRef.current` here would disconnect and re-run
-        // `updateSize` on every margins change, synchronously clearing the canvas bitmap
-        // (a visible blank flash). The effect below handles margins-only updates instead.
+        // `updateSize` on every margins change. The effect below handles margins-only updates.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
@@ -111,7 +104,13 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         if (!rect) {
             return
         }
-        setCanvasState((prev) => (prev ? { ...prev, dimensions: buildDimensions(rect, margins) } : prev))
+        setCanvasState((prev) => {
+            if (!prev) {
+                return prev
+            }
+            const next = buildDimensions(rect, margins)
+            return sameDimensions(prev.dimensions, next) ? prev : { ...prev, dimensions: next }
+        })
     }, [margins.left, margins.right, margins.top, margins.bottom, margins])
 
     return {
