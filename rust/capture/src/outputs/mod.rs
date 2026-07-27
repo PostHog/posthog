@@ -22,6 +22,8 @@
 //! publish to an outputs surface; producer selection, topic resolution, and
 //! multi-target routing are its business, configured at boot.
 
+#[cfg(test)]
+mod dynamic;
 pub mod kafka;
 pub mod policies;
 pub mod s3;

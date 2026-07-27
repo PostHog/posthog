@@ -67,7 +67,7 @@ impl Pipeline {
 }
 
 /// The analytics pipeline's lanes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AnalyticsLane {
     Main,
     Overflow,
@@ -79,7 +79,7 @@ pub enum AnalyticsLane {
 /// ride the analytics data types (and, today, the analytics topics) —
 /// including historical batch migrations. Distinct type so the streams stay
 /// independently addressable as their routing diverges.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AiLane {
     Main,
     Overflow,
@@ -88,7 +88,7 @@ pub enum AiLane {
 }
 
 /// The replay pipeline's lanes: main, its own overflow, and dlq.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SessionReplayLane {
     Main,
     Overflow,
@@ -98,7 +98,7 @@ pub enum SessionReplayLane {
 /// Lanes of the main-only pipelines (heatmaps, warnings, error tracking).
 /// Shared because their lane sets are identical today; split the moment one
 /// diverges.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BasicLane {
     Main,
     Dlq,
@@ -108,7 +108,7 @@ pub enum BasicLane {
 /// admin-configured custom redirect. Lanes are typed per pipeline, so only
 /// valid pairs exist; [`resolve`] is the sole constructor on the produce
 /// path.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Address {
     Analytics(AnalyticsLane),
     Ai(AiLane),
