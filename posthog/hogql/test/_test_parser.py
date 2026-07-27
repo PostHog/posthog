@@ -329,6 +329,18 @@ def parser_test_factory(backend: HogQLParserBackend):
 
         @parameterized.expand(
             [
+                ("latin_small_e_acute", "let x := a<é", "U+00E9"),
+                ("cjk_unified", "let x := a<中", "U+4E2D"),
+                ("supplementary_plane_emoji", "let x := a<\U0001f600", "U+1F600"),
+            ]
+        )
+        def test_non_ascii_after_lt_rejected(self, _name: str, program: str, code_point: str):
+            with self.assertRaises((ExposedHogQLError, SyntaxError)) as caught:
+                self._program(program)
+            self.assertIn(code_point, str(caught.exception))
+
+        @parameterized.expand(
+            [
                 ("not_equals", "a != b"),
                 ("not_regex", "a !~ b"),
                 ("concat", "a || b"),
