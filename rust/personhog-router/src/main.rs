@@ -363,6 +363,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     election_retry_interval: config.coordinator_election_retry_interval(),
                     rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
                     reconcile_interval: config.coordinator_reconcile_interval(),
+                    handoff_deadline: config.coordinator_handoff_deadline(),
                 },
                 Arc::new(StickyBalancedStrategy),
                 k8s_awareness,

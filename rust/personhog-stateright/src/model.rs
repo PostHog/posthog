@@ -48,6 +48,16 @@ fn production_handoff(p: Partition, h: &Handoff) -> HandoffState {
         phase: h.phase,
         started_at: 0,
         handoff_id: h.id.to_string(),
+        // Router membership is fixed for a model run — there is no
+        // register/deregister action — so a snapshot taken at creation
+        // and the live registry are the same set, and leaving this empty
+        // selects production's identical fallback. Verifying the case
+        // the snapshot exists for, a router registering *after* a
+        // handoff was created, needs dynamic router membership in the
+        // model's action space; that is a scoped follow-up, and it is a
+        // liveness question rather than one of the safety properties
+        // checked here.
+        freeze_quorum: Vec::new(),
     }
 }
 

@@ -122,6 +122,40 @@ pub struct HandoffState {
     /// past a drain or warm that never happened.
     #[serde(default)]
     pub handoff_id: String,
+    /// The routers that must ack this handoff's freeze, snapshotted when
+    /// the coordinator created it.
+    ///
+    /// Evaluating the quorum against the *live* router set instead lets
+    /// the requirement grow: a router registering mid-freeze becomes a
+    /// required acker for a handoff whose `Freezing` event it can never
+    /// receive, since its watch is anchored at its own bootstrap
+    /// revision. Its only path to acking is the bootstrap catch-up, and
+    /// if that misses, the quorum is unsatisfiable for as long as that
+    /// router lives — and nothing removes the handoff, because cleanup
+    /// only deletes handoffs whose *new owner* is gone. A rolling deploy
+    /// makes this likely rather than exotic: it introduces routers
+    /// precisely while handoffs are in flight.
+    ///
+    /// Excluding a late joiner is safe because the freeze quorum is an
+    /// availability mechanism, not the safety boundary. A late joiner
+    /// that bootstraps correctly opens the stashes for in-flight
+    /// handoffs before its routing table loads, so it never forwards to
+    /// the old owner at all. And even one that missed the handoff
+    /// entirely cannot lose an acked write: anything it forwards before
+    /// the new owner's warm fences the old owner's producer lands in
+    /// the changelog ahead of the warm HWM and is included in the warm,
+    /// and anything after the fence is rejected by the broker and never
+    /// acked. The exposure of that failure mode is bounded failed
+    /// writes from one router until its live watch delivers the
+    /// assignment update — an availability cost, which is exactly the
+    /// currency this quorum trades in.
+    ///
+    /// Empty means the record predates this field; the quorum then falls
+    /// back to every live router, which is the old behavior and the only
+    /// safe reading — an empty snapshot must never be taken to mean
+    /// "nobody needs to ack".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub freeze_quorum: Vec<String>,
 }
 
 /// State machine for partition handoffs:
@@ -290,6 +324,7 @@ mod tests {
             phase: HandoffPhase::Freezing,
             started_at: 1700000000,
             handoff_id: "1700000000000-0".to_string(),
+            freeze_quorum: Vec::new(),
             new_owner_address: None,
         };
         let json = serde_json::to_string(&handoff).unwrap();
@@ -306,6 +341,7 @@ mod tests {
             phase: HandoffPhase::Freezing,
             started_at: 1700000000,
             handoff_id: "1700000000000-0".to_string(),
+            freeze_quorum: Vec::new(),
             new_owner_address: None,
         };
         let json = serde_json::to_string(&handoff).unwrap();

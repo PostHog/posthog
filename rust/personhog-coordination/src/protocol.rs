@@ -114,7 +114,7 @@ pub fn plan_partial_rebalance<S: AssignmentStrategy + ?Sized>(
 
 /// Whether the freeze quorum for `handoff` is met.
 ///
-/// Identity-based: every currently registered router must have acked
+/// Identity-based: every router this handoff requires must have acked
 /// this partition's freeze. A count comparison would let a stale ack
 /// from a departed router (acks are not lease-bound) stand in for a live
 /// router that hasn't stashed yet — advancing to Draining while that
@@ -122,7 +122,11 @@ pub fn plan_partial_rebalance<S: AssignmentStrategy + ?Sized>(
 /// handoff's id count: an ack left over from a previous handoff of the
 /// same partition proves nothing about this one.
 ///
-/// With zero routers there is no traffic to stash, so the freeze quorum
+/// The required set is the handoff's creation-time snapshot intersected
+/// with the live registry, so it only ever shrinks; see
+/// [`required_freeze_ackers`].
+///
+/// With no required routers there is no traffic to stash, so the quorum
 /// is vacuously met. This keeps bootstrap and router-less configurations
 /// (e.g. tests exercising only the coordinator+pod) unblocked.
 pub fn freeze_quorum_met(
@@ -135,9 +139,33 @@ pub fn freeze_quorum_met(
         .filter(|a| a.handoff_id == handoff.handoff_id)
         .map(|a| a.router_name.as_str())
         .collect();
+    required_freeze_ackers(routers, handoff).all(|name| acked.contains(name))
+}
+
+/// The routers whose freeze ack this handoff needs: those it was created
+/// with that are still registered.
+///
+/// Intersecting the snapshot with the live set makes the requirement
+/// monotonic — it can only shrink. A router that dies drops out (it is no
+/// longer routing, so it cannot reach the old owner), and one that joins
+/// later is never added (safe to exclude — see
+/// [`HandoffState::freeze_quorum`] for why). Without that, the
+/// requirement grows mid-flight and a handoff can become permanently
+/// unsatisfiable.
+pub fn required_freeze_ackers<'a>(
+    routers: &'a [RegisteredRouter],
+    handoff: &'a HandoffState,
+) -> impl Iterator<Item = &'a str> + 'a {
     routers
         .iter()
-        .all(|r| acked.contains(r.router_name.as_str()))
+        .map(|r| r.router_name.as_str())
+        // An absent snapshot is a pre-upgrade record: fall back to
+        // requiring every live router, which is what it was written
+        // under.
+        .filter(move |name| {
+            handoff.freeze_quorum.is_empty()
+                || handoff.freeze_quorum.iter().any(|member| member == name)
+        })
 }
 
 /// Whether the drain requirement for `handoff` is satisfied.
@@ -191,8 +219,79 @@ mod tests {
             phase: crate::types::HandoffPhase::Warming,
             started_at: 0,
             handoff_id: String::new(),
+            freeze_quorum: Vec::new(),
             new_owner_address: None,
         }
+    }
+
+    fn router(name: &str) -> RegisteredRouter {
+        RegisteredRouter {
+            router_name: name.to_string(),
+            registered_at: 0,
+            last_heartbeat: 0,
+        }
+    }
+
+    fn freeze_ack(router: &str, handoff: &HandoffState) -> RouterFreezeAck {
+        RouterFreezeAck {
+            router_name: router.to_string(),
+            partition: handoff.partition,
+            acked_at: 0,
+            handoff_id: handoff.handoff_id.clone(),
+        }
+    }
+
+    /// The wedge this snapshot exists to prevent: a router that
+    /// registers after the handoff was created never receives its
+    /// `Freezing` event, so requiring its ack leaves a quorum that
+    /// nothing can satisfy and no cleanup path removes.
+    #[test]
+    fn a_router_that_joined_after_creation_is_not_required() {
+        let mut h = handoff(0, Some("pod-a"), "pod-b");
+        h.freeze_quorum = vec!["router-0".to_string()];
+        let acks = [freeze_ack("router-0", &h)];
+
+        assert!(
+            freeze_quorum_met(&[router("router-0"), router("late-joiner")], &acks, &h),
+            "a router registered after creation must not block the quorum"
+        );
+    }
+
+    /// The other direction is what keeps it safe: a router that was
+    /// present at creation may hold a routing table pointing at the old
+    /// owner, so its ack stays mandatory.
+    #[test]
+    fn a_router_present_at_creation_is_still_required() {
+        let mut h = handoff(0, Some("pod-a"), "pod-b");
+        h.freeze_quorum = vec!["router-0".to_string(), "router-1".to_string()];
+        let acks = [freeze_ack("router-0", &h)];
+
+        assert!(
+            !freeze_quorum_met(&[router("router-0"), router("router-1")], &acks, &h),
+            "a snapshot member that has not acked must block the quorum"
+        );
+        // ...until it departs: a router that is gone cannot route.
+        assert!(
+            freeze_quorum_met(&[router("router-0")], &acks, &h),
+            "a departed snapshot member must drop out of the requirement"
+        );
+    }
+
+    /// Records written before the snapshot existed must keep their old
+    /// meaning. Reading an empty snapshot as "nobody needs to ack" would
+    /// advance a handoff while routers still forward to the old owner —
+    /// the one interpretation that is unsafe rather than merely stuck.
+    #[test]
+    fn an_absent_snapshot_requires_every_live_router() {
+        let h = handoff(0, Some("pod-a"), "pod-b");
+        assert!(h.freeze_quorum.is_empty());
+        let acks = [freeze_ack("router-0", &h)];
+
+        assert!(
+            !freeze_quorum_met(&[router("router-0"), router("router-1")], &acks, &h),
+            "without a snapshot every live router must still be required"
+        );
+        assert!(freeze_quorum_met(&[router("router-0")], &acks, &h));
     }
 
     #[test]
