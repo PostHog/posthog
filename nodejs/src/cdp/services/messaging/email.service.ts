@@ -131,6 +131,7 @@ export class EmailService {
     sesV2Client: SESv2Client | null
 
     private recipientTokensService: RecipientTokensService
+    private untrackedConfigSetWarningLogged = false
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -217,7 +218,7 @@ export class EmailService {
 
             // Like suppression, the tracking decision lives at this choke point so every send path
             // (workflow action or email destination hog function) resolves it the same way.
-            trackingEnabled = await this.resolveTrackingEnabled(result.invocation, params.to.email)
+            trackingEnabled = await this.resolveTrackingEnabled(result.invocation, params)
 
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
@@ -365,7 +366,7 @@ export class EmailService {
     // consent is a compliance risk, while an untracked send only costs metrics.
     private async resolveTrackingEnabled(
         invocation: CyclotronJobInvocationHogFunction,
-        recipientEmail: string
+        params: CyclotronInvocationQueueParametersEmailType
     ): Promise<boolean> {
         if (invocation.hogFunction?.metadata?.tracking_enabled === false) {
             return false
@@ -374,18 +375,33 @@ export class EmailService {
             return true
         }
 
-        const consentMode = await this.teamWorkflowsConfigService.getEmailTrackingConsentMode(invocation.teamId)
-        if (consentMode === 'off') {
-            return true
-        }
-
         try {
-            const recipient = await this.recipientsManager.get({
-                teamId: invocation.teamId,
-                identifier: recipientEmail,
-            })
-            const consent = recipient ? this.recipientsManager.getEmailTrackingPreference(recipient) : 'NO_PREFERENCE'
-            return consentMode === 'opt_in' ? consent === 'OPTED_IN' : consent !== 'OPTED_OUT'
+            const consentMode = await this.teamWorkflowsConfigService.getEmailTrackingConsentMode(invocation.teamId)
+            if (consentMode === 'off') {
+                return true
+            }
+
+            // The pixel and rewritten links are whole-message artifacts delivered to every list,
+            // so consent must hold for every recipient (same reasoning as the suppression check).
+            const recipients: string[] = []
+            if (params.to?.email && params.to.email.trim()) {
+                recipients.push(params.to.email.trim())
+            }
+            recipients.push(...extractEmailsFromAddressList(params.cc))
+            recipients.push(...extractEmailsFromAddressList(params.bcc))
+
+            const consents = await Promise.all(
+                recipients.map(async (email) => {
+                    const recipient = await this.recipientsManager.get({
+                        teamId: invocation.teamId,
+                        identifier: email,
+                    })
+                    return recipient ? this.recipientsManager.getEmailTrackingPreference(recipient) : 'NO_PREFERENCE'
+                })
+            )
+            return consents.every((consent) =>
+                consentMode === 'opt_in' ? consent === 'OPTED_IN' : consent !== 'OPTED_OUT'
+            )
         } catch (error) {
             logger.warn('Email tracking consent lookup failed - sending untracked', {
                 teamId: invocation.teamId,
@@ -409,10 +425,14 @@ export class EmailService {
         if (this.sesConfig.sesUntrackedConfigurationSet) {
             return this.sesConfig.sesUntrackedConfigurationSet
         }
-        logger.warn(
-            'Email tracking disabled for send but no untracked SES configuration set is configured - falling back to the tracked set, ESP-level open/click tracking may still apply',
-            { teamId: invocation.teamId, functionId: invocation.functionId }
-        )
+        // The missing set is static per process - one warning is signal, one per send is noise.
+        if (!this.untrackedConfigSetWarningLogged) {
+            this.untrackedConfigSetWarningLogged = true
+            logger.warn(
+                'Email tracking disabled for send but no untracked SES configuration set is configured - falling back to the tracked set, ESP-level open/click tracking may still apply',
+                { teamId: invocation.teamId, functionId: invocation.functionId }
+            )
+        }
         return this.sesConfig.sesTrackedConfigurationSet
     }
 

@@ -809,6 +809,50 @@ describe('EmailService', () => {
                 const sentHtml = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html.Data
                 expect(sentHtml).toEqual(trackableHtml)
             })
+
+            it('sends untracked when the consent-mode lookup fails (fail closed)', async () => {
+                jest.spyOn(
+                    (service as any).teamWorkflowsConfigService,
+                    'getEmailTrackingConsentMode'
+                ).mockRejectedValue(new Error('db down'))
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentHtml = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html.Data
+                expect(sentHtml).toEqual(trackableHtml)
+            })
+
+            it('honors a cc recipient tracking opt-out for the whole send', async () => {
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    html: trackableHtml,
+                    cc: 'cc@example.com',
+                })
+                jest.spyOn(
+                    (service as any).teamWorkflowsConfigService,
+                    'getEmailTrackingConsentMode'
+                ).mockResolvedValue('opt_out')
+                jest.spyOn((service as any).recipientsManager, 'get').mockImplementation(
+                    (options: unknown): Promise<any> => {
+                        const { identifier } = options as { identifier: string }
+                        return Promise.resolve(
+                            identifier === 'cc@example.com'
+                                ? {
+                                      id: 'pref-1',
+                                      team_id: team.id,
+                                      identifier,
+                                      preferences: { $email_tracking: 'OPTED_OUT' },
+                                      created_at: '',
+                                      updated_at: '',
+                                  }
+                                : null
+                        )
+                    }
+                )
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentHtml = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html.Data
+                expect(sentHtml).toEqual(trackableHtml)
+            })
         })
 
         it('should report a missing message id', async () => {

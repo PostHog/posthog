@@ -129,6 +129,12 @@
                     const formData = new FormData()
                     formData.append('token', document.querySelector('input[name="token"]').value)
                     toggles.forEach((toggle) => {
+                        // Only submit the tracking answer when that toggle is the one that changed:
+                        // its rendered default must never be persisted as an explicit consent choice.
+                        // The backend preserves a stored answer when the key is absent.
+                        if (toggle.name === '$email_tracking' && toggle !== changedToggle) {
+                            return
+                        }
                         formData.append('preferences[]', `${toggle.name}:${toggle.checked}`)
                     })
 

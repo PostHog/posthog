@@ -89,10 +89,10 @@ export function WorkflowMetricsSummary({
                 render: (_, row) => (
                     <span>
                         {row.opened.toLocaleString()}
-                        {row.untracked > 0 && (
+                        {row.untracked > 0 && row.delivered - row.untracked > 0 && (
                             <span className="text-muted">
                                 {' '}
-                                of {Math.max(0, row.delivered - row.untracked).toLocaleString()} tracked
+                                of {(row.delivered - row.untracked).toLocaleString()} tracked
                             </span>
                         )}
                     </span>
@@ -105,10 +105,10 @@ export function WorkflowMetricsSummary({
                 render: (_, row) => (
                     <span>
                         {row.linkClicked.toLocaleString()}
-                        {row.untracked > 0 && (
+                        {row.untracked > 0 && row.delivered - row.untracked > 0 && (
                             <span className="text-muted">
                                 {' '}
-                                of {Math.max(0, row.delivered - row.untracked).toLocaleString()} tracked
+                                of {(row.delivered - row.untracked).toLocaleString()} tracked
                             </span>
                         )}
                     </span>
