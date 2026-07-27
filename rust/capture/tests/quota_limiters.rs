@@ -2,10 +2,9 @@
 mod integration_utils;
 use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG};
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
-use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
@@ -15,36 +14,24 @@ use limiters::token_dropper::TokenDropper;
 use serde_json::Value;
 
 use capture::config::CaptureMode;
-use capture::outputs::PrepSpec;
+use capture::outputs::testing::MockOutputs;
+use capture::outputs::AddressedPayload;
 use capture::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
 };
 use capture::router::router;
-use capture::sinks::sink::{AddressedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
 use chrono::{DateTime, Utc};
 
+/// Capturing produce surface: the crate's public [`MockOutputs`] runs the
+/// real prep path, so assertions see the wire outcome.
 #[derive(Default, Clone)]
 struct MemorySink {
-    events: Arc<Mutex<Vec<AddressedPayload>>>,
-}
-
-#[async_trait]
-impl Sink for MemorySink {
-    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
-        let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
-        self.events.lock().unwrap().extend(prepared);
-        results
-    }
+    outputs: MockOutputs,
 }
 
 fn test_outputs(sink: &MemorySink) -> Arc<capture::outputs::AnalyticsFamilyOutputs> {
-    let row = || {
-        capture::outputs::Output::single(
-            Arc::new(sink.clone()),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        )
-    };
+    let row = || Arc::new(sink.outputs.clone());
     Arc::new(capture::outputs::AnalyticsFamilyOutputs {
         analytics: row(),
         ai: row(),
@@ -56,7 +43,7 @@ fn test_outputs(sink: &MemorySink) -> Arc<capture::outputs::AnalyticsFamilyOutpu
 
 impl MemorySink {
     fn events(&self) -> Vec<AddressedPayload> {
-        self.events.lock().unwrap().clone()
+        self.outputs.get_payloads()
     }
 
     /// Deserialize a captured payload back into the event it carries.

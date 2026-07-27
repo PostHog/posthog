@@ -1,6 +1,5 @@
 #[cfg(test)]
 use crate::v0_request::ProcessedEvent;
-use async_trait::async_trait;
 use aws_sdk_s3::config::Builder;
 use aws_sdk_s3::Client as S3Client;
 use chrono::{DateTime, Datelike, Utc};
@@ -18,7 +17,8 @@ use tracing::instrument;
 use tracing::log::{debug, error, info};
 
 use crate::api::CaptureError;
-use crate::sinks::sink::{AddressedPayload, Sink, SinkResult};
+use crate::sinks::sink::SinkResult;
+use uuid::Uuid;
 
 const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 const HEALTH_INTERVAL: Duration = Duration::from_secs(10);
@@ -266,20 +266,19 @@ impl Inner {
     }
 }
 
-#[async_trait]
-impl Sink for S3Sink {
+impl S3Sink {
     /// Append each payload to the shared buffer and await the flush outcome the
-    /// buffer broadcasts — the same wait `Event::send_batch` performs. Results
-    /// are batch-uniform: one flush covers the whole batch.
+    /// buffer broadcasts. Results are batch-uniform: one flush covers the whole
+    /// batch. Pure transport: takes serialized payload bytes keyed by the
+    /// originating event UUID — namespace realization (which S3 path a batch
+    /// lands on) is buffer configuration, owned by the outputs layer's wiring.
     #[instrument(skip_all)]
-    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
-        use SinkResult;
-
-        let uuids: Vec<uuid::Uuid> = prepared.iter().map(|p| p.uuid).collect();
+    pub async fn publish(&self, payloads: Vec<(Uuid, Vec<u8>)>) -> Vec<SinkResult> {
+        let uuids: Vec<Uuid> = payloads.iter().map(|(uuid, _)| *uuid).collect();
 
         let mut buffer = self.inner.buffer.lock().await;
-        for payload in prepared {
-            buffer.event_bytes.extend_from_slice(&payload.payload);
+        for (_, payload) in payloads {
+            buffer.event_bytes.extend_from_slice(&payload);
             buffer.event_bytes.push(b'\n');
             buffer.event_count += 1;
         }
@@ -375,23 +374,14 @@ mod tests {
         }
 
         async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-            use crate::pipeline::{Address, AnalyticsLane};
             use crate::serialization::Serializer;
             use crate::sinks::sink::fold_results;
             let serializer = Serializer::json();
-            let prepared = events
+            let payloads = events
                 .iter()
-                .map(|event| {
-                    Ok(AddressedPayload {
-                        uuid: event.event.uuid,
-                        address: Address::Analytics(AnalyticsLane::Main),
-                        payload: serializer.serialize(&event.event)?,
-                        headers: event.event.to_headers(),
-                        key: None,
-                    })
-                })
+                .map(|event| Ok((event.event.uuid, serializer.serialize(&event.event)?)))
                 .collect::<Result<Vec<_>, CaptureError>>()?;
-            fold_results(self.publish(prepared).await)
+            fold_results(self.publish(payloads).await)
         }
     }
 

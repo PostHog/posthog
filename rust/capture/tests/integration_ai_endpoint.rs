@@ -1,17 +1,16 @@
 #[path = "common/integration_utils.rs"]
 mod integration_utils;
 
-use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
 use capture::ai_s3::{BlobStorage, MockBlobStorage};
 use capture::config::CaptureMode;
-use capture::outputs::PrepSpec;
+use capture::outputs::testing::MockOutputs;
+use capture::outputs::AddressedPayload;
 use capture::pipeline::{Address, AiLane};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::ai_router as build_ai_router;
-use capture::sinks::sink::{AddressedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
 use chrono::{DateTime, TimeZone, Utc};
 use common_redis::MockRedisClient;
@@ -48,61 +47,31 @@ impl TimeSource for FixedTime {
     }
 }
 
-// Simple memory sink for tests
-#[derive(Clone, Default)]
-struct TestSink;
-
 /// Deserialize a captured payload back into the event it carries.
 fn captured(p: &AddressedPayload) -> common_types::CapturedEvent {
     serde_json::from_slice(&p.payload).expect("payload must deserialize")
 }
 
-#[async_trait]
-impl Sink for TestSink {
-    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
-        prepared
-            .into_iter()
-            .map(|p| SinkResult::ok(p.uuid))
-            .collect()
-    }
-}
-
-// Capturing sink for Kafka tests - stores events in memory
-#[derive(Clone)]
+/// Capturing produce surface: the crate's public [`MockOutputs`] runs the
+/// real prep path (lane resolution, serialization, headers), so assertions
+/// see the wire outcome. This wrapper keeps the old capturing-sink API.
+#[derive(Clone, Default)]
 struct CapturingSink {
-    events: Arc<tokio::sync::Mutex<Vec<AddressedPayload>>>,
+    outputs: MockOutputs,
 }
 
 impl CapturingSink {
     fn new() -> Self {
-        Self {
-            events: Arc::new(tokio::sync::Mutex::new(Vec::new())),
-        }
+        Self::default()
     }
 
     async fn get_events(&self) -> Vec<AddressedPayload> {
-        self.events.lock().await.clone()
+        self.outputs.get_payloads()
     }
 }
 
-#[async_trait]
-impl Sink for CapturingSink {
-    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
-        let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
-        self.events.lock().await.extend(prepared);
-        results
-    }
-}
-
-fn test_outputs<S: Sink + Clone + 'static>(
-    sink: &S,
-) -> Arc<capture::outputs::AnalyticsFamilyOutputs> {
-    let row = || {
-        capture::outputs::Output::single(
-            Arc::new(sink.clone()),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        )
-    };
+fn test_outputs(sink: &CapturingSink) -> Arc<capture::outputs::AnalyticsFamilyOutputs> {
+    let row = || Arc::new(sink.outputs.clone());
     Arc::new(capture::outputs::AnalyticsFamilyOutputs {
         analytics: row(),
         ai: row(),
@@ -171,7 +140,7 @@ fn create_ai_event_form(event_name: &str, distinct_id: &str, properties: Value) 
 fn setup_ai_test_router() -> Router {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
-    let sink = TestSink;
+    let sink = CapturingSink::new();
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
             .expect("Invalid fixed time format")

@@ -1,7 +1,6 @@
 #[path = "common/integration_utils.rs"]
 mod integration_utils;
 
-use async_trait::async_trait;
 use axum_test_helper::TestClient;
 use capture::ai_s3::MockBlobStorage;
 use capture::config::CaptureMode;
@@ -9,11 +8,11 @@ use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
     RestrictionScope, RestrictionType,
 };
-use capture::outputs::PrepSpec;
+use capture::outputs::testing::MockOutputs;
+use capture::outputs::AddressedPayload;
 use capture::pipeline::{Address, AiLane};
 use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
 use capture::router::ai_router;
-use capture::sinks::sink::{AddressedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
@@ -44,39 +43,26 @@ impl TimeSource for FixedTime {
     }
 }
 
-#[derive(Clone)]
+/// Capturing produce surface: the crate's public [`MockOutputs`] runs the
+/// real prep path (lane resolution, serialization, headers), so assertions
+/// see the wire outcome. This wrapper keeps the old capturing-sink API.
+#[derive(Clone, Default)]
 struct CapturingSink {
-    events: Arc<tokio::sync::Mutex<Vec<AddressedPayload>>>,
+    outputs: MockOutputs,
 }
 
 impl CapturingSink {
     fn new() -> Self {
-        Self {
-            events: Arc::new(tokio::sync::Mutex::new(Vec::new())),
-        }
+        Self::default()
     }
 
     async fn get_events(&self) -> Vec<AddressedPayload> {
-        self.events.lock().await.clone()
-    }
-}
-
-#[async_trait]
-impl Sink for CapturingSink {
-    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
-        let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
-        self.events.lock().await.extend(prepared);
-        results
+        self.outputs.get_payloads()
     }
 }
 
 fn test_outputs(sink: &CapturingSink) -> Arc<capture::outputs::AnalyticsFamilyOutputs> {
-    let row = || {
-        capture::outputs::Output::single(
-            Arc::new(sink.clone()),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        )
-    };
+    let row = || Arc::new(sink.outputs.clone());
     Arc::new(capture::outputs::AnalyticsFamilyOutputs {
         analytics: row(),
         ai: row(),

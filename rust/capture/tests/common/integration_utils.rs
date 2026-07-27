@@ -2,17 +2,16 @@
 use std::fs::read;
 use std::io::Write;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use capture::{
     api::{CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
-    outputs::PrepSpec,
-    outputs::{AnalyticsFamilyOutputs, Output, SessionReplayOutputs},
+    outputs::testing::MockOutputs,
+    outputs::{AddressedPayload, AnalyticsFamilyOutputs, SessionReplayOutputs},
     pipeline::{Address, AnalyticsLane, BasicLane, SessionReplayLane},
     quota_limiters::CaptureQuotaLimiter,
-    sinks::sink::{AddressedPayload, Sink, SinkResult},
     time::TimeSource,
 };
 use chrono::{DateTime, Utc};
@@ -21,7 +20,6 @@ use chrono::{DateTime, Utc};
 mod test_utils;
 pub use test_utils::DEFAULT_CONFIG;
 
-use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::{TestClient, TestResponse};
@@ -1023,23 +1021,17 @@ fn captured_event(p: &AddressedPayload, title: &str) -> common_types::CapturedEv
         .unwrap_or_else(|_| panic!("payload must deserialize in case: {title}"))
 }
 
+/// Capturing produce surface shared by the endpoint tests: the crate's
+/// public [`MockOutputs`] runs the real prep path, so assertions see the
+/// wire outcome (address, key, headers, payload bytes).
 #[derive(Clone, Default)]
 struct MemorySink {
-    events: Arc<Mutex<Vec<AddressedPayload>>>,
+    outputs: MockOutputs,
 }
 
 impl MemorySink {
     pub fn events(&self) -> Vec<AddressedPayload> {
-        self.events.lock().unwrap().clone()
-    }
-}
-
-#[async_trait]
-impl Sink for MemorySink {
-    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
-        let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
-        self.events.lock().unwrap().extend_from_slice(&prepared);
-        results
+        self.outputs.get_payloads()
     }
 }
 
@@ -1080,12 +1072,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     let is_mirror_deploy = false; // TODO: remove after migration to 100% capture-rs backend
     let verbose_sample_percent = 0.0_f32;
 
-    let row = || {
-        Output::single(
-            Arc::new(sink.clone()),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        )
-    };
+    let row = || Arc::new(sink.outputs.clone());
 
     macro_rules! build_app {
         ($router_fn:path, $outputs:expr) => {

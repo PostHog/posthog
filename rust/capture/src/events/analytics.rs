@@ -655,17 +655,15 @@ mod tests {
         EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
         RestrictionScope, RestrictionType,
     };
-    use crate::outputs::{AnalyticsFamilyOutputs, Output, PrepSpec};
-    use crate::sinks::test_sink::MockSink;
-    use crate::sinks::topics::test_topics;
-    use crate::sinks::Sink;
+    use crate::outputs::testing::MockOutputs;
+    use crate::outputs::topics::test_topics;
+    use crate::outputs::{AnalyticsFamilyOutputs, Outputs};
 
-    /// Wrap a test sink in the outputs surface `process_events` publishes
-    /// through: an analytics-family table whose rows all share the sink, so
-    /// captures land in one place regardless of pipeline.
-    fn table<S: Sink + 'static>(sink: &Arc<S>) -> Arc<AnalyticsFamilyOutputs> {
-        let spec = PrepSpec::new(crate::config::EnvelopeCompression::None);
-        let row = || Output::single(sink.clone(), spec);
+    /// Wrap a test surface in the outputs table `process_events` publishes
+    /// through: an analytics-family table whose rows all share the surface,
+    /// so captures land in one place regardless of pipeline.
+    fn table<T: Outputs + 'static>(sink: &Arc<T>) -> Arc<AnalyticsFamilyOutputs> {
+        let row = || -> Arc<dyn Outputs> { sink.clone() };
         Arc::new(AnalyticsFamilyOutputs {
             analytics: row(),
             ai: row(),
@@ -675,8 +673,8 @@ mod tests {
         })
     }
 
+    use crate::outputs::AddressedPayload;
     use crate::pipeline::{Address, AnalyticsLane, BasicLane, Pipeline as CapturePipeline};
-    use crate::sinks::AddressedPayload;
 
     /// Deserialize a captured payload back into the event it carries.
     fn event_of(p: &AddressedPayload) -> common_types::CapturedEvent {
@@ -697,7 +695,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -745,7 +743,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -797,7 +795,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -850,7 +848,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -899,7 +897,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -963,7 +961,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -1000,7 +998,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -1051,7 +1049,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -1112,7 +1110,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -1173,7 +1171,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -1248,7 +1246,7 @@ mod tests {
             ),
         ];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -1317,7 +1315,7 @@ mod tests {
             ),
         ];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -1375,7 +1373,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -1442,7 +1440,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -1476,7 +1474,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
         // test_token is in the reroute list -> ForceLimited
@@ -1515,7 +1513,7 @@ mod tests {
             create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
         ];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
         // burst of 1 -> first event passes, second event rate-limited
@@ -1555,7 +1553,7 @@ mod tests {
             create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
         ];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
         let limiter = build_limiter(1, 1, None, false);
@@ -1596,7 +1594,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
         // Even with a limiter that would flag this token, force_overflow wins.
@@ -1652,7 +1650,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
@@ -1696,7 +1694,7 @@ mod tests {
             create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
         ];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -1767,7 +1765,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
@@ -1814,7 +1812,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
@@ -1851,7 +1849,7 @@ mod tests {
     // tests alone cover: stamp metadata in pipeline, ensure the real sink
     // reads the metadata and produces the expected topic, key, and headers.
 
-    use crate::sinks::kafka::KafkaSinkBase;
+    use crate::outputs::kafka::KafkaOutputsBase;
     use crate::sinks::producer::MockKafkaProducer;
 
     #[tokio::test]
@@ -1867,7 +1865,7 @@ mod tests {
         )];
 
         let producer = MockKafkaProducer::new();
-        let sink = Arc::new(KafkaSinkBase::with_producer(
+        let sink = Arc::new(KafkaOutputsBase::with_producer(
             producer.clone(),
             test_topics(),
         ));
@@ -1918,7 +1916,7 @@ mod tests {
         ];
 
         let producer = MockKafkaProducer::new();
-        let sink = Arc::new(KafkaSinkBase::with_producer(
+        let sink = Arc::new(KafkaOutputsBase::with_producer(
             producer.clone(),
             test_topics(),
         ));
@@ -1972,7 +1970,7 @@ mod tests {
         ];
 
         let producer = MockKafkaProducer::new();
-        let sink = Arc::new(KafkaSinkBase::with_producer(
+        let sink = Arc::new(KafkaOutputsBase::with_producer(
             producer.clone(),
             test_topics(),
         ));
@@ -2222,7 +2220,7 @@ mod tests {
         let context = create_test_context(now, None);
         let events = vec![build_heatmap_carrier_event(shape)];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -2270,7 +2268,7 @@ mod tests {
         event.event = "$$heatmap".to_string();
         let events = vec![event];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -2307,7 +2305,7 @@ mod tests {
             None,
         )];
 
-        let sink = Arc::new(MockSink::new());
+        let sink = Arc::new(MockOutputs::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
@@ -2349,7 +2347,7 @@ mod tests {
         let events = vec![event];
 
         let producer = MockKafkaProducer::new();
-        let sink = Arc::new(KafkaSinkBase::with_producer(
+        let sink = Arc::new(KafkaOutputsBase::with_producer(
             producer.clone(),
             test_topics(),
         ));

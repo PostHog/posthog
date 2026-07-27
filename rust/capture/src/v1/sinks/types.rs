@@ -33,7 +33,7 @@ impl Destination {
 
     /// Map this v1 destination onto the shared [`Address`] so topic
     /// resolution goes through the one
-    /// [`TopicTable`](crate::sinks::topics::TopicTable) instead of a parallel
+    /// [`TopicTable`](crate::outputs::topics::TopicTable) instead of a parallel
     /// `topic_for` match. `Drop` has no address and returns `None`. v1 is
     /// analytics-only, so it never produces a replay address.
     pub fn as_address(&self) -> Option<Address> {

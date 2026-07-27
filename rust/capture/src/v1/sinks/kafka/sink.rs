@@ -13,7 +13,7 @@ use tracing::Level;
 use uuid::Uuid;
 
 use crate::config::CaptureMode;
-use crate::sinks::topics::TopicTable;
+use crate::outputs::topics::TopicTable;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::sink::Sink;
 use crate::v1::sinks::types::{BatchSummary, Destination, Outcome, PreparedEvent, SinkResult};

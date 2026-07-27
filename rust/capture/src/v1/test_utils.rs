@@ -651,10 +651,10 @@ use limiters::token_dropper::TokenDropper;
 use crate::config::CaptureMode;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
-use crate::outputs::{AnalyticsFamilyOutputs, Output, PrepSpec};
+use crate::outputs::simple::NoopOutputs;
+use crate::outputs::{AnalyticsFamilyOutputs, Outputs, PrepSpec};
 use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::router::{self, HistoricalConfig};
-use crate::sinks::noop::NoOpSink;
 use crate::time::TimeSource;
 use crate::v1::sinks::kafka::mock::MockProducer;
 use crate::v1::sinks::kafka::sink::KafkaSink;
@@ -832,11 +832,10 @@ impl TestStateBuilder {
         let v1_router = v1_sinks::Router::new(SinkName::Msk, sinks_map);
 
         // Legacy outputs — no-op since V1 tests go through v1_sink_router
-        let noop_row = || {
-            Output::single(
-                Arc::new(NoOpSink::new()),
-                PrepSpec::new(crate::config::EnvelopeCompression::None),
-            )
+        let noop_row = || -> Arc<dyn Outputs> {
+            Arc::new(NoopOutputs::new(PrepSpec::new(
+                crate::config::EnvelopeCompression::None,
+            )))
         };
         let legacy_outputs = Arc::new(AnalyticsFamilyOutputs {
             analytics: noop_row(),
