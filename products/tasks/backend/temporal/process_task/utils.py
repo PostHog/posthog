@@ -82,7 +82,6 @@ class ReasoningEffort(StrEnum):
     XHIGH = "xhigh"
     MAX = "max"
     ULTRACODE = "ultracode"
-    ULTRATHINK = "ultrathink"
 
 
 PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
@@ -92,7 +91,6 @@ PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     ReasoningEffort.XHIGH,
     ReasoningEffort.MAX,
     ReasoningEffort.ULTRACODE,
-    ReasoningEffort.ULTRATHINK,
 )
 
 
@@ -124,8 +122,6 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-        ReasoningEffort.ULTRATHINK,
     ),
     "claude-opus-4-7": (
         ReasoningEffort.LOW,
@@ -134,7 +130,6 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
         ReasoningEffort.ULTRACODE,
-        ReasoningEffort.ULTRATHINK,
     ),
     "claude-opus-4-8": (
         ReasoningEffort.LOW,
@@ -143,7 +138,6 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
         ReasoningEffort.ULTRACODE,
-        ReasoningEffort.ULTRATHINK,
     ),
     "claude-opus-5": (
         ReasoningEffort.LOW,
@@ -152,7 +146,6 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
         ReasoningEffort.ULTRACODE,
-        ReasoningEffort.ULTRATHINK,
     ),
     "claude-fable-5": (
         ReasoningEffort.LOW,
@@ -161,7 +154,6 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
         ReasoningEffort.ULTRACODE,
-        ReasoningEffort.ULTRATHINK,
     ),
     "claude-sonnet-5": (
         ReasoningEffort.LOW,
@@ -170,7 +162,6 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
         ReasoningEffort.ULTRACODE,
-        ReasoningEffort.ULTRATHINK,
     ),
     "claude-sonnet-4-6": (
         ReasoningEffort.LOW,
