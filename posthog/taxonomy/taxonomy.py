@@ -1013,6 +1013,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$exception_values": {"label": "Exception message", "description": "The description of the exception."},
         "$exception_sources": {"label": "Exception source", "description": "A source file included in the exception."},
+        "$exception_steps": {
+            "label": "Exception steps",
+            "description": "Application-defined steps captured before the exception to provide context about the actions leading up to it.",
+            "system": True,
+        },
         "$exception_list": {
             "label": "Exception list",
             "description": "List of one or more associated exceptions.",
@@ -1036,52 +1041,23 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Exception fingerprint record",
             "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
         },
-        "$exception_proposed_fingerprint": {
-            "label": "Exception proposed fingerprint",
-            "description": "The fingerprint used to group issues. Auto generated unless provided clientside.",
-        },
         "$exception_issue_id": {
             "label": "Exception issue ID",
             "description": "The id of the issue the fingerprint was associated with at ingest time.",
         },
-        "$exception_lineno": {
-            "label": "Exception source line number",
-            "description": "Which line in the exception source that caused the exception.",
-        },
-        "$exception_colno": {
-            "label": "Exception source column number",
-            "description": "Which column of the line in the exception source that caused the exception.",
-        },
-        "$exception_DOMException_code": {
-            "label": "DOMException code",
-            "description": "If a DOMException was thrown, it also has a DOMException code.",
-        },
-        "$exception_is_synthetic": {
-            "label": "Exception is synthetic",
-            "description": "Whether this was detected as a synthetic exception.",
+        "$exception_source": {
+            "label": "Exception capture source",
+            "description": "The SDK integration or runtime hook that captured the exception.",
+            "examples": ["panic", "rails", "php_exception_handler"],
         },
         "$exception_handled": {
             "label": "Exception was handled",
             "description": "Whether this was a handled or unhandled exception.",
         },
-        "$exception_personURL": {
-            "label": "Exception person URL",
-            "description": "The PostHog person that experienced the exception.",
-        },
         "$cymbal_errors": {
             "label": "Exception processing errors",
             "description": "Errors encountered while trying to process exceptions.",
             "system": True,
-        },
-        "$exception_capture_endpoint": {
-            "label": "Exception capture endpoint",
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": ["/e/"],
-        },
-        "$exception_capture_endpoint_suffix": {
-            "label": "Exception capture endpoint suffix",
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": ["/e/"],
         },
         "$exception_capture_enabled_server_side": {
             "label": "Exception capture enabled server side",
