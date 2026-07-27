@@ -291,6 +291,15 @@ export interface RevenueAnalyticsPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface AccountCustomPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Customer analytics account custom property — the key is the property definition id */
+    type?: 'account_custom_property'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export interface WorkflowVariablePropertyFilterApi {
     key: string
     label?: string | null
@@ -324,6 +333,7 @@ export interface PropertyGroupFilterValueApi {
         | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
+        | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
     )[]
 }
@@ -484,9 +494,13 @@ export interface PaginatedErrorTrackingExternalReferenceResultListApi {
 }
 
 export interface ErrorTrackingFingerprintApi {
+    /** Unique ID of the fingerprint record. */
     readonly id: string
+    /** The fingerprint value. */
     readonly fingerprint: string
+    /** ID of the issue this fingerprint currently belongs to. */
     readonly issue_id: string
+    /** When the fingerprint record was created. */
     readonly created_at: string
 }
 
@@ -970,6 +984,7 @@ export const BlankEnumApi = {
  * * `span_attribute` - span_attribute
  * * `span_resource_attribute` - span_resource_attribute
  * * `revenue_analytics` - revenue_analytics
+ * * `account_custom_property` - account_custom_property
  * * `flag` - flag
  * * `workflow_variable` - workflow_variable
  */
@@ -1003,6 +1018,7 @@ export const PropertyFilterTypeEnumApi = {
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
     RevenueAnalytics: 'revenue_analytics',
+    AccountCustomProperty: 'account_custom_property',
     Flag: 'flag',
     WorkflowVariable: 'workflow_variable',
 } as const
@@ -1785,6 +1801,13 @@ export type ErrorTrackingFingerprintsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ErrorTrackingFingerprintsResolveRetrieveParams = {
+    /**
+     * Fingerprint value to resolve to the issue it currently belongs to.
+     */
+    fingerprint: string
 }
 
 export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {

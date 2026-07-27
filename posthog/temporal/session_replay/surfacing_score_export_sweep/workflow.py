@@ -29,6 +29,7 @@ with workflow.unsafe.imports_passed_through():
         export_scores_partition_activity,
         list_export_partitions_activity,
     )
+    from posthog.temporal.session_replay.surfacing_score_export_sweep.metrics import record_tick_summary
 
 
 _PATCH_BOUNDED_PARTITION_FANOUT = "surfacing-score-export-bounded-partition-fanout"
@@ -106,6 +107,11 @@ def _summarize(
         summary.total_rows += r.rows
     workflow.logger.info(
         "surfacing_score_export_sweep.tick_done",
+        partitions_dispatched=summary.partitions_dispatched,
+        partitions_failed=summary.partitions_failed,
+        total_rows=summary.total_rows,
+    )
+    record_tick_summary(
         partitions_dispatched=summary.partitions_dispatched,
         partitions_failed=summary.partitions_failed,
         total_rows=summary.total_rows,

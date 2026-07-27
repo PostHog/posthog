@@ -9,7 +9,9 @@ from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType, S
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MixpanelSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixpanel import (
+    MixpanelSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.mixpanel import MixpanelResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.source import MixpanelSource
@@ -136,6 +138,25 @@ class TestResumableManager:
         manager = MixpanelSource().get_resumable_source_manager(_inputs())
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is MixpanelResumeConfig
+
+
+class TestApiVersions:
+    def test_new_sources_default_to_2_0(self) -> None:
+        # New sources are stamped with `default_version`; existing pins are unaffected.
+        assert MixpanelSource().default_version == "2.0"
+        assert set(MixpanelSource().supported_versions) == {"v1", "2.0"}
+
+    @parameterized.expand(
+        [
+            ("no_pin_uses_default", None, "2.0"),
+            ("v1_pin_honored", "v1", "v1"),
+            ("2_0_pin_honored", "2.0", "2.0"),
+        ]
+    )
+    def test_source_for_pipeline_threads_resolved_version(self, _name: str, pin: Optional[str], expected: str) -> None:
+        with patch.object(source_module, "mixpanel_source") as mock_source:
+            MixpanelSource().source_for_pipeline(_config(), MagicMock(), _inputs(api_version=pin))
+        assert mock_source.call_args.kwargs["api_version"] == expected
 
 
 class TestSourceForPipeline:

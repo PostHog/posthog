@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 
+from django.core.cache import cache
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -232,46 +233,51 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         assert metadata_dict["3"] is not None
 
     def test_sessions_found_with_timestamps(self) -> None:
-        sessions, min_ts, max_ts = SessionReplayEvents().sessions_found_with_timestamps(
+        result = SessionReplayEvents().sessions_found_with_timestamps(
             session_ids=["1", "2", "3"],
             team=self.team,
         )
+        sessions, min_ts, max_ts = result.session_ids, result.min_timestamp, result.max_timestamp
         assert sessions == {"1", "2", "3"}
         assert min_ts == self.base_time
         assert max_ts == self.base_time + relativedelta(seconds=3)
 
     def test_sessions_found_with_timestamps_partial_match(self) -> None:
-        sessions, min_ts, max_ts = SessionReplayEvents().sessions_found_with_timestamps(
+        result = SessionReplayEvents().sessions_found_with_timestamps(
             session_ids=["1", "nonexistent", "3"],
             team=self.team,
         )
+        sessions, min_ts, max_ts = result.session_ids, result.min_timestamp, result.max_timestamp
         assert sessions == {"1", "3"}
         assert min_ts == self.base_time
         assert max_ts == self.base_time + relativedelta(seconds=3)
 
     def test_sessions_found_with_timestamps_empty_list(self) -> None:
-        sessions, min_ts, max_ts = SessionReplayEvents().sessions_found_with_timestamps(
+        result = SessionReplayEvents().sessions_found_with_timestamps(
             session_ids=[],
             team=self.team,
         )
+        sessions, min_ts, max_ts = result.session_ids, result.min_timestamp, result.max_timestamp
         assert sessions == set()
         assert min_ts is None
         assert max_ts is None
 
     def test_sessions_found_with_timestamps_no_matches(self) -> None:
-        sessions, min_ts, max_ts = SessionReplayEvents().sessions_found_with_timestamps(
+        result = SessionReplayEvents().sessions_found_with_timestamps(
             session_ids=["nonexistent1", "nonexistent2"],
             team=self.team,
         )
+        sessions, min_ts, max_ts = result.session_ids, result.min_timestamp, result.max_timestamp
         assert sessions == set()
         assert min_ts is None
         assert max_ts is None
 
     def test_sessions_found_with_timestamps_single_session(self) -> None:
-        sessions, min_ts, max_ts = SessionReplayEvents().sessions_found_with_timestamps(
+        result = SessionReplayEvents().sessions_found_with_timestamps(
             session_ids=["2"],
             team=self.team,
         )
+        sessions, min_ts, max_ts = result.session_ids, result.min_timestamp, result.max_timestamp
         assert sessions == {"2"}
         assert min_ts == self.base_time
         assert max_ts == self.base_time + relativedelta(seconds=2)
@@ -289,10 +295,11 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             ensure_analytics_event_in_session=False,
         )
         # Should not include the session without events
-        sessions, min_ts, max_ts = SessionReplayEvents().sessions_found_with_timestamps(
+        result = SessionReplayEvents().sessions_found_with_timestamps(
             session_ids=["1", "no_events_session"],
             team=self.team,
         )
+        sessions, min_ts, max_ts = result.session_ids, result.min_timestamp, result.max_timestamp
         assert sessions == {"1"}
         assert min_ts == self.base_time
         assert max_ts == self.base_time
@@ -320,10 +327,11 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             ensure_analytics_event_in_session=False,
         )
         # Should return empty when all sessions lack events
-        sessions, min_ts, max_ts = SessionReplayEvents().sessions_found_with_timestamps(
+        result = SessionReplayEvents().sessions_found_with_timestamps(
             session_ids=["no_events_1", "no_events_2"],
             team=self.team,
         )
+        sessions, min_ts, max_ts = result.session_ids, result.min_timestamp, result.max_timestamp
         assert sessions == set()
         assert min_ts is None
         assert max_ts is None
@@ -405,7 +413,29 @@ class TestSessionLookupUsesUuidv7Bound(ClickhouseTestMixin, APIBaseTest):
 
         found = SessionReplayEvents()._find_with_timestamps([uuid_id, custom_id], self.team)
 
-        assert {session_id for session_id, _, _, _ in found} == {uuid_id, custom_id}
+        assert {entry.session_id for entry in found} == {uuid_id, custom_id}
+
+
+class TestBatchExists(ClickhouseTestMixin, APIBaseTest):
+    def test_maps_each_session_to_existence_and_caches_positives(self) -> None:
+        session_start = (now() - relativedelta(days=1)).replace(microsecond=0)
+        found_id = _uuidv7_session_id_for(session_start)
+        produce_replay_summary(
+            session_id=found_id,
+            team_id=self.team.pk,
+            first_timestamp=session_start,
+            last_timestamp=session_start,
+            distinct_id="u1",
+            retention_period_days=30,
+        )
+
+        results = SessionReplayEvents().batch_exists([found_id, "missing-session"], self.team)
+
+        assert results == {found_id: True, "missing-session": False}
+        # Found sessions are cached with an expiry-derived (future, positive) TTL, so the entry must exist.
+        # Non-existence is never cached, so a recording arriving late is still discoverable.
+        assert cache.get(f"session_recording_existence_team_{self.team.pk}_id_{found_id}") is True
+        assert cache.get(f"session_recording_existence_team_{self.team.pk}_id_missing-session") is None
 
 
 class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):

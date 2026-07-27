@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NewYorkTimesSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newyorktimes import (
+    NewYorkTimesSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.new_york_times import (
     NewYorkTimesResumeConfig,
     new_york_times_source,
@@ -108,6 +110,7 @@ class NewYorkTimesSource(ResumableSource[NewYorkTimesSourceConfig, NewYorkTimesR
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = NEW_YORK_TIMES_ENDPOINTS[endpoint]
@@ -127,7 +130,11 @@ class NewYorkTimesSource(ResumableSource[NewYorkTimesSourceConfig, NewYorkTimesR
         return schemas
 
     def validate_credentials(
-        self, config: NewYorkTimesSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: NewYorkTimesSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_nyt_credentials(config.api_key):
             return True, None

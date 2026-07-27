@@ -83,6 +83,7 @@ export const workflowSwitcherLogic = kea<workflowSwitcherLogicType>([
                         date_to: values.dateTo ?? undefined,
                         branch: values.appliedBranch || undefined,
                         source_id: props.sourceId ?? undefined,
+                        repo: `${props.repoOwner}/${props.repoName}`,
                     })
                     // Server order (top workflows by run count) — the most active ones surface first.
                     return items

@@ -128,7 +128,7 @@ export interface ToolContext {
      * Wired from spec.identity_providers; absent when none are configured.
      */
     identity?: {
-        resolve(provider: string, scopes?: string[]): Promise<IdentityResolution>
+        resolve(provider: string, scopes?: string[], options?: { initiate?: boolean }): Promise<IdentityResolution>
         /** Force a fresh authorize link for an already-linked provider (reconnect)
          *  — used when a resolved credential is rejected downstream (revoked, or
          *  missing a scope the resource server now requires). Null when no link is

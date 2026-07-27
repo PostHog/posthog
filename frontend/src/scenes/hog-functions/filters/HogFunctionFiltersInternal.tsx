@@ -33,6 +33,10 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     label: 'Error tracking issue reopened',
                     value: '$error_tracking_issue_reopened',
                 },
+                {
+                    label: 'Error tracking issue spiking',
+                    value: '$error_tracking_issue_spiking',
+                },
             ]
         case 'insight-alerts':
             return [

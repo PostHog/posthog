@@ -331,8 +331,7 @@ class ExperimentSummaryTool(MaxTool):
     ) -> tuple[str, dict[str, Any]]:
         """Build the final result tuple with artifact metadata."""
         stats_method = get_experiment_stats_method(experiment)
-        multivariate = experiment.feature_flag.filters.get("multivariate", {})
-        variants = [v.get("key") for v in multivariate.get("variants", []) if v.get("key")]
+        variants = [v.get("key") for v in experiment.feature_flag.variants if v.get("key")]
 
         return formatted_data, {
             "experiment_id": experiment.id,
@@ -438,10 +437,7 @@ class SessionReplaySummaryTool(MaxTool):
                 return "❌ Experiment has not started yet. No session replays available.", output.model_dump()
 
             # Get variants from feature flag
-            feature_flag = experiment.feature_flag
-            multivariate = feature_flag.filters.get("multivariate", {})
-            variants = multivariate.get("variants", [])
-            variant_keys = [v["key"] for v in variants]
+            variant_keys = [v["key"] for v in experiment.feature_flag.variants]
 
             if not variant_keys:
                 output = SessionReplaySummaryOutput(

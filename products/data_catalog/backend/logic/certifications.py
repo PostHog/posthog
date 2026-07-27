@@ -60,7 +60,7 @@ def _capture(user: Optional[User], team: Team, event: str, cert: TableCertificat
 
 
 def _duplicate_target_conflict(certification: TableCertification) -> CatalogConflict:
-    return CatalogConflict(detail={"error": f"This target is already marked '{certification.status}'."})
+    return CatalogConflict(detail=f"This target is already marked '{certification.status}'.")
 
 
 def _resolve_table(team: Team, table_id: str | UUID | None, table_name: str | None) -> DataWarehouseTable:
@@ -76,10 +76,8 @@ def _resolve_table(team: Team, table_id: str | UUID | None, table_name: str | No
         raise ValidationError({"table_name": f"No table named '{table_name}'."})
     if len(matches) > 1:
         raise CatalogConflict(
-            detail={
-                "error": f"Multiple tables named '{table_name}'. Pass table_id to disambiguate.",
-                "candidates": [{"id": str(t.id), "created_at": t.created_at.isoformat()} for t in matches],
-            }
+            detail=f"Multiple tables named '{table_name}'. Pass table_id to disambiguate.",
+            extra={"candidates": [{"id": str(t.id), "created_at": t.created_at.isoformat()} for t in matches]},
         )
     return matches[0]
 
@@ -98,10 +96,8 @@ def _resolve_saved_query(
         raise ValidationError({"view_name": f"No view named '{view_name}'."})
     if len(matches) > 1:
         raise CatalogConflict(
-            detail={
-                "error": f"Multiple views named '{view_name}'. Pass saved_query_id to disambiguate.",
-                "candidates": [{"id": str(v.id), "created_at": v.created_at.isoformat()} for v in matches],
-            }
+            detail=f"Multiple views named '{view_name}'. Pass saved_query_id to disambiguate.",
+            extra={"candidates": [{"id": str(v.id), "created_at": v.created_at.isoformat()} for v in matches]},
         )
     return matches[0]
 

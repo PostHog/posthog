@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import Mem0SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mem0 import Mem0SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.mem0 import Mem0ResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.settings import (
     ENDPOINTS,

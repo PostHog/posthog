@@ -56,7 +56,11 @@ def supporthog_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if team_exists_for_slack_workspace(slack_team_id) and not (settings.DEBUG and is_primary_region(request)):
         cast(Any, process_supporthog_interactivity).delay(payload=payload, slack_team_id=slack_team_id)
     elif is_primary_region(request):
-        proxy_to_secondary_region(request, log_prefix="supporthog_interactivity")
+        # Acking a failed proxy with 200 makes the click silently vanish — Slack shows the
+        # clicker nothing and never resends. Surface the failure so Slack displays a
+        # delivery error and the user knows to click again.
+        if not proxy_to_secondary_region(request, log_prefix="supporthog_interactivity"):
+            return HttpResponse("Failed to reach owning region", status=502)
     else:
         logger.warning("supporthog_interactivity_no_team_any_region", slack_team_id=slack_team_id)
 

@@ -230,7 +230,7 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
     // claim must resolve a verified identity before we run. Unauthenticated →
     // deliver an auth link and enqueue nothing.
     let canonicalAgentUserId: string | undefined
-    const admission = buildAdmission(deps, resolved.revision)
+    const admission = buildAdmission(deps, resolved.revision, resolved.application.slug)
     if (admission) {
         const result = await admission.resolve(
             {

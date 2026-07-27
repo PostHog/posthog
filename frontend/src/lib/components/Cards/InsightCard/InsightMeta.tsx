@@ -111,7 +111,13 @@ export function getEffectiveDateOverride(
     filtersOverride: DashboardFilter | undefined,
     tileFiltersOverride: TileFilters | undefined
 ): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
-    const dashboardFilters = filterOverrideContext ? filterOverrideContext.dashboard : filtersOverride
+    // The backend context already resolves the ignore flag into an empty dashboard layer; the raw-props
+    // fallback has to apply it itself.
+    const dashboardFilters = filterOverrideContext
+        ? filterOverrideContext.dashboard
+        : tileFiltersOverride?.ignoreDashboardFilters
+          ? undefined
+          : filtersOverride
     const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
     const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
     const source = tileHasDate ? tileFilters : dashboardFilters
@@ -198,12 +204,15 @@ export function InsightMeta({
     const isSqlInsight = isDataVisualizationNode(insight.query)
     const showCompactHeading = !showCompactTile || !isSqlInsight
 
-    const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).length > 0
+    const ignoresDashboardFilters = !!tileFiltersOverride?.ignoreDashboardFilters
+    // The ignore flag is surfaced by its own notice, so it alone shouldn't trigger the overrides warning.
+    const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).some((key) => key !== 'ignoreDashboardFilters')
     const dateOverride = getEffectiveDateOverride(insight.filter_override_context, filtersOverride, tileFiltersOverride)
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
         hasTileOverrides,
+        ignoresDashboardFilters,
         resolvedDateRange: insightData?.resolved_date_range,
         ...dateOverride,
     }
@@ -224,13 +233,9 @@ export function InsightMeta({
 
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
-        hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
-        funnelAlertsEnabled: !!featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS],
         metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
     })
-    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query, {
-        hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
-    })
+    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
     // Hoist the hook out of the More overlay so kea logics it mounts don't do so lazily inside a

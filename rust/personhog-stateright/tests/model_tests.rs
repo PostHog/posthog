@@ -257,16 +257,15 @@ fn probe_concurrent_handoffs_are_reachable() {
 }
 
 /// Reachability probe: a pod simultaneously drain-side of one handoff
-/// and warm-side of another is UNREACHABLE under the shipped protocol,
-/// even with churn (crash + rejoin) at the smallest scale where the
-/// strategy has real choices. The checker proves what the code only
-/// implies: within one plan the sticky strategy never takes from and
-/// gives to the same pod, and the rebalance deferral gate keeps handoffs
-/// from different plans from coexisting. If a strategy or gate change
-/// ever makes this reachable, this test fails and the dual-role case
-/// needs explicit safety analysis.
+/// and warm-side of another. Unreachable under the old global rebalance
+/// gate; partial rebalancing (in-flight partitions pinned, everything
+/// else planned) deliberately lets handoffs from different plans
+/// coexist, so the state is now reachable — and must be safe, since
+/// every mechanism the two roles touch is partition-scoped. The same
+/// run asserts the safety properties hold across those interleavings
+/// and that pinning never plans a mid-move partition a second time.
 #[test]
-fn probe_dual_role_pod_is_unreachable() {
+fn probe_dual_role_pod_is_reachable_and_safe() {
     let checker = HandoffModel {
         pods: 3,
         partitions: 3,
@@ -281,8 +280,16 @@ fn probe_dual_role_pod_is_unreachable() {
     .spawn_bfs()
     .join();
     assert!(
-        checker.discovery("pod_holds_both_roles").is_none(),
-        "the sticky strategy + rebalance deferral gate should make dual-role pods unreachable"
+        checker.discovery("pod_holds_both_roles").is_some(),
+        "partial rebalancing must reach the dual-role state the checker judges"
+    );
+    assert!(
+        checker.discovery("no_double_planned_handoff").is_none(),
+        "pinning must keep concurrent rebalances from replanning a mid-move partition"
+    );
+    assert!(
+        checker.discovery("no_lost_acked_write").is_none(),
+        "dual-role concurrency must not lose acked writes"
     );
 }
 

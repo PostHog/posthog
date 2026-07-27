@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.dbt import DbtResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.source import DbtSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DbtSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dbt import DbtSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

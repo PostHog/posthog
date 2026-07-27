@@ -11,7 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.source import FreshsalesSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshsalesSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshsales import (
+    FreshsalesSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

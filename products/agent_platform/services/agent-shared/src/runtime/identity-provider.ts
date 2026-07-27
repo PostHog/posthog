@@ -75,6 +75,24 @@ export interface BearerVerification {
     scopes: string[]
 }
 
+/**
+ * Thrown by `verifyBearer` when the provider could not JUDGE the token —
+ * userinfo unreachable, timed out, or answering 5xx — as opposed to judging it
+ * invalid (`null`). Admission maps this to a retryable failure instead of
+ * `auth_required`: conflating the two would misread an IdP brownout as mass
+ * token revocation, sending every holder of a valid bearer to re-auth while
+ * hammering the degraded endpoint.
+ */
+export class IdentityProviderUnavailableError extends Error {
+    constructor(
+        readonly provider: string,
+        detail: string
+    ) {
+        super(`identity_provider_unavailable: ${provider}: ${detail}`)
+        this.name = 'IdentityProviderUnavailableError'
+    }
+}
+
 export interface IdentityProvider {
     readonly id: string
     /** Broker key tools/MCPs resolve ('posthog_api', 'github', 'dogs', …). Also

@@ -150,14 +150,15 @@ import type { AnyPropertyFilter, GroupTypeIndex, PropertyGroupFilter } from '../
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
-// Trends/stickiness displays whose chart renders the in-chart quill legend (line/area/cumulative
-// and bar layouts). Lifecycle always renders it regardless of display.
-const DISPLAYS_WITH_IN_CHART_LEGEND = [
+// Trends/stickiness displays whose chart renders the in-chart quill legend (line/area/cumulative,
+// bar layouts, and pie). Lifecycle always renders it regardless of display.
+export const DISPLAYS_WITH_IN_CHART_LEGEND = [
     ChartDisplayType.ActionsLineGraph,
     ChartDisplayType.ActionsLineGraphCumulative,
     ChartDisplayType.ActionsAreaGraph,
     ChartDisplayType.ActionsBar,
     ChartDisplayType.ActionsUnstackedBar,
+    ChartDisplayType.ActionsPie,
 ]
 
 export type QuerySourceUpdate = Omit<Partial<InsightQueryNode>, 'kind'>
@@ -1085,7 +1086,6 @@ export interface insightVizDataLogicMeta {
             display: ChartDisplayType | null | undefined
         ) => boolean
         usesInChartLegend: (
-            featureFlags: FeatureFlagsSet,
             isTrends: boolean,
             isStickiness: boolean,
             isLifecycle: boolean,
@@ -2223,20 +2223,16 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         // side legend) instead of the legacy show/hide checkbox. Single source of truth shared by
         // InsightDisplayConfig (which control to show) and InsightVizDisplay (suppress side legend).
         usesInChartLegend: [
-            (s) => [s.featureFlags, s.isTrends, s.isStickiness, s.isLifecycle, s.display],
+            (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
             (
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 isTrends: boolean,
                 isStickiness: boolean,
                 isLifecycle: boolean,
                 display: ChartDisplayType | null | undefined
             ): boolean => {
-                // Lifecycle always uses config.legend inside TimeSeriesBarChart — no flag gate needed.
+                // Lifecycle always uses config.legend inside TimeSeriesBarChart.
                 if (isLifecycle) {
                     return true
-                }
-                if (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]) {
-                    return false
                 }
                 return (isTrends || isStickiness) && (!display || DISPLAYS_WITH_IN_CHART_LEGEND.includes(display))
             },

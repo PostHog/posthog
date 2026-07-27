@@ -128,14 +128,13 @@ def _load_trigger_required_secrets() -> dict[str, list[str]]:
     }
 
 
-TRIGGER_REQUIRED_SECRETS: dict[str, list[str]] = _load_trigger_required_secrets()
-
 # Opt-in: set obviously-fake placeholder values for any secret an agent requires
 # (declared `spec.secrets[]` + per-trigger required keys) that isn't already
 # set, so secret-gated agents (slack, …) can promote in local dev. The agents
 # won't actually function — Slack signature checks etc. will fail — but they go
 # live + visible in the console. Never overwrites an existing value.
 SEED_DUMMY_SECRETS = os.environ.get("SEED_DUMMY_SECRETS") == "1"
+TRIGGER_REQUIRED_SECRETS: dict[str, list[str]] = _load_trigger_required_secrets() if SEED_DUMMY_SECRETS else {}
 
 
 # ---------------------------------------------------------------------------

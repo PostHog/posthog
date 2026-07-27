@@ -52,6 +52,37 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
             ("no_access_controlled_table", "select 1", set()),
             ("events_table", "select * from events", set()),
+            # Catalog-enriched information_schema tables partition the cache by data_catalog access AND
+            # by warehouse object access (their rows are hidden per-object via _catalog_table_visible),
+            # so an allowed user's cached certification/confidence/reasoning/evidence rows can't leak to
+            # a user with less data_catalog OR warehouse access on a cache hit.
+            (
+                "information_schema_tables",
+                "select certification from system.information_schema.tables",
+                {"data_catalog", "warehouse_table", "warehouse_view"},
+            ),
+            (
+                "information_schema_relationships",
+                "select reasoning from system.information_schema.relationships",
+                {"data_catalog", "warehouse_table", "warehouse_view"},
+            ),
+            (
+                "information_schema_metrics",
+                "select name from system.information_schema.metrics",
+                {"data_catalog", "warehouse_table", "warehouse_view"},
+            ),
+            (
+                "information_schema_certifications",
+                "select notes from system.information_schema.certifications",
+                {"data_catalog", "warehouse_table", "warehouse_view"},
+            ),
+            (
+                "information_schema_relationship_proposals",
+                "select reasoning from system.information_schema.relationship_proposals",
+                {"data_catalog", "warehouse_table", "warehouse_view"},
+            ),
+            # The plain schema tables expose no catalog-gated data, so they don't partition on it.
+            ("information_schema_columns", "select * from system.information_schema.columns", set()),
         ]
     )
     def test_hogql_query_system_scopes(self, _name, sql, expected):

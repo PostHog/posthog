@@ -4,7 +4,6 @@ on:
     push:
         branches: [master, main]
     pull_request:
-    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -102,7 +101,7 @@ jobs:
               uses: ./.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
-                  pr-base-sha: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+                  pr-base-sha: ${{ github.event.pull_request.base.sha }}
                   push-before-sha: ${{ github.event.before }}
                   rebuild-all: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
 
@@ -134,6 +133,8 @@ jobs:
                       "common-metrics": 6,
                       "common-profiler": 51,
                       "common-s3": 31,
+                      "cohort-core": 45,
+                      "cohort-seeder": 60,
                       "cyclotron-core": 17,
                       "cyclotron-janitor": 139,
                       "cyclotron-node": 31,
@@ -149,12 +150,15 @@ jobs:
                       "lifecycle": 17,
                       "limiters": 25,
                       "personhog-coordination": 24,
+                      "personhog-identity": 40,
                       "personhog-leader": 115,
                       "personhog-replica": 140,
                       "personhog-router": 38,
+                      "personhog-stateright": 700,
                       "posthog-symbol-data": 19,
                       "property-defs-rs": 136,
-                      "replay-anonymizer-node": 20,
+                      "posthog-replay-anonymizer": 20,
+                      "replay-anonymizer-node": 10,
                       "property-vals-rs": 5,
                       "serve-metrics": 14,
                   }
@@ -289,7 +293,8 @@ jobs:
         needs: [changes, affected]
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-24.04-4
-        timeout-minutes: 20
+        # stateright model checks need more headroom than the other shards
+        timeout-minutes: ${{ contains(matrix.packages, 'personhog-stateright') && 40 || 20 }}
         permissions:
             contents: read
         env:
@@ -443,7 +448,11 @@ jobs:
                       if [ "$pkg" = "property-defs-rs" ]; then
                           extra_args="--test-threads=4"
                       fi
-                      run_nextest "$pkg" -p "$pkg" $extra_args
+                      if [ "$pkg" = "cohort-seeder" ] && [ -f cohort-seeder/Cargo.toml ] && grep -q '^pg-test-support[[:space:]]*=' cohort-seeder/Cargo.toml; then
+                          DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog' run_nextest "$pkg" -p "$pkg" --features pg-test-support $extra_args
+                      else
+                          run_nextest "$pkg" -p "$pkg" $extra_args
+                      fi
                       # nextest skips doctests; run them only for packages with a lib target
                       # (`cargo test --doc` errors on bin-only packages).
                       if cargo metadata --no-deps --format-version 1 | jq -e --arg p "$pkg" '[.packages[] | select(.name == $p) | .targets[] | select(.kind | index("lib"))] | length > 0' >/dev/null; then
@@ -461,10 +470,12 @@ jobs:
                   done
 
             # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
-            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
-            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
+            # so a Trunk outage never fails the job. Runs the token only on internal PRs
+            # and master, never on fork PRs or Dependabot, which have no secret.
+            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
+            # this upload skips.
             - name: Upload test results to Trunk
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               continue-on-error: true
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
@@ -549,7 +560,7 @@ jobs:
                   sqlx migrate run --source persons_migrations/
 
             - name: Build the personhog stack and harness
-              run: cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-test-harness
+              run: cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity -p personhog-test-harness
 
             # Unit tests for the harness's own verification logic — a
             # false-negative verifier would pass gates that lost data.
@@ -560,6 +571,33 @@ jobs:
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 2 --partitions 4 --persons 100 --concurrency 10 --duration 10s
+
+            # The identity-service create path: persons are created through
+            # GetOrCreatePersonsByDistinctIds (stub insert on the primary,
+            # then initial properties through the router to the owning
+            # leader) and then updated through the router. Create acks are
+            # journaled and held to the same visibility invariant as update
+            # acks, through a leader kill and a scale-up. The identity
+            # service writes the real posthog_person table (its distinct id
+            # FKs require it), so the whole stack targets it here instead of
+            # the default personhog_person_tmp.
+            - name: Run the e2e gate creating persons via the identity service
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --create-via-identity --pg-target-table posthog_person \
+                    --leaders 3 --partitions 8 --persons 100 \
+                    --concurrency 10 --duration 15s --kill-after 5s --scale-up-after 8s
+
+            # Regression gate for eviction under writer lag: the cache is
+            # sized far below the person count so dirty entries evict while
+            # the paused writer guarantees their PG rows are stale. Before
+            # the dirty-index recovery this run lost thousands of acked
+            # writes.
+            - name: Run the e2e gate under cache eviction pressure + writer lag
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 50 --concurrency 10 --duration 15s \
+                    --cache-capacity 10 --writer-pause-after 3s --writer-pause-duration 8s
 
             - name: Run the e2e gate under chaos (kill + scale-up)
               run: |
@@ -584,8 +622,23 @@ jobs:
             - name: Run the e2e gate under chaos (coordinator failover + mid-handoff kill)
               run: |
                   ./target/debug/personhog-test-harness gate \
-                    --routers 2 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
+                    --routers 3 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
                     --duration 18s --router-kill-after 4s --shutdown-after 8s --kill-handoff-target
+
+            - name: Run the e2e gate under chaos (graceful coordinator handover + drain)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --routers 3 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
+                    --duration 15s --router-shutdown-after 4s --shutdown-after 8s
+
+            # A true coordinator crash: no lease is revoked, so the survivor
+            # is blind until the election and registration TTLs expire, and
+            # the drain issued inside that window must complete once they do.
+            - name: Run the e2e gate under chaos (coordinator crash, slow failover + drain)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --routers 3 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
+                    --duration 18s --router-kill-after 4s --router-kill-fast false --shutdown-after 8s
 
             - name: Dump service logs on failure
               if: failure()

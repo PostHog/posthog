@@ -11,7 +11,8 @@
 import type { AgentUser, IdentityStore } from '../persistence/identity-store'
 import type { AgentApplication, AgentRevision } from '../spec/spec'
 import type { IdentityCredentialStore } from './identity-credential-store'
-import type { IdentityProviderRegistry } from './identity-provider'
+import { IdentityProviderUnavailableError } from './identity-provider'
+import type { BearerVerification, IdentityProviderRegistry } from './identity-provider'
 import type { AdmissionResult, TransportClaim, VerifiedIdentity } from './transport'
 import type { TransportBindingStore } from './transport-binding-store'
 
@@ -75,8 +76,31 @@ export class AdmissionService {
         //    bearer goes straight to re-auth and is NOT rescued by step 2's
         //    binding. (No bearer / no `verifyBearer` → fall to the binding path.)
         if (claim.bearer && provider.verifyBearer) {
-            const verified = await provider.verifyBearer(claim.bearer.token)
+            let verified: BearerVerification | null
+            try {
+                verified = await provider.verifyBearer(claim.bearer.token)
+            } catch (err) {
+                if (err instanceof IdentityProviderUnavailableError) {
+                    // The provider couldn't JUDGE the token (userinfo down /
+                    // timed out) — fail closed but retryable. Falling through
+                    // to auth_required here would misread an IdP brownout as
+                    // mass token revocation.
+                    this.deps.log?.('error', 'admission.provider_unavailable', {
+                        provider: authoritativeId,
+                        detail: err.message,
+                    })
+                    return { kind: 'error', reason: 'authoritative_provider_unavailable' }
+                }
+                throw err
+            }
             if (verified) {
+                // Invariant: a provider that exposes `verifyBearer` is
+                // userinfo-backed and can prove a subject, so minting a
+                // canonical identity from it is safe — regardless of its
+                // `establishesIdentity` flag, which gates link-time secondary-
+                // credential stamping, not bearer proof. A future provider
+                // with a bearer check that does NOT prove a subject must not
+                // define `verifyBearer`.
                 const canonical = await this.upsertCanonical(applicationId, teamId, authoritativeId, verified.subject)
                 await this.deps.credentials.put({
                     teamId,

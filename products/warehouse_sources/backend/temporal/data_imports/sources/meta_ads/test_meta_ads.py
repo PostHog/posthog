@@ -8,26 +8,41 @@ from unittest import mock
 
 from django.db import OperationalError
 
-from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
+from requests.exceptions import (
+    ChunkedEncodingError,
+    JSONDecodeError as RequestsJSONDecodeError,
+)
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
+    MetaAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads import meta_ads as meta_ads_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
+    AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
     MALFORMED_JSON_MAX_ATTEMPTS,
+    MAX_AD_ACCOUNT_PAGES,
     META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
+    META_TRANSIENT_ERROR_MAX_ATTEMPTS,
     PAGE_LIMIT_FALLBACK_SIZES,
+    MetaAdsAuthError,
     MetaAdsResumeConfig,
     _earliest_supported_since,
     _fetch_integration_row,
     _is_permanent_auth_error,
+    _is_transient_error,
     _iter_simple_pagination,
     _iter_time_range_pagination,
     _next_smaller_limit,
     _override_limit,
+    _raise_meta_api_error,
     _strip_access_token,
     get_integration,
+    list_ad_accounts,
     meta_ads_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
@@ -302,8 +317,9 @@ class TestSimplePaginationLimitFallback:
 
     def test_non_timeout_error_does_not_retry(self) -> None:
         manager = _build_manager()
-        # Transient service error (code 2) — not a too-much-data error, so no limit fallback.
-        responses = [_mock_response(500, {"error": {"message": "Service temporarily unavailable", "code": 2}})]
+        # A generic application error outside Meta's documented transient codes (1, 2) — not a
+        # too-much-data error either, so neither the limit fallback nor the transient retry apply.
+        responses = [_mock_response(500, {"error": {"message": "Something else went wrong", "code": 100}})]
 
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
@@ -375,6 +391,140 @@ class TestSimplePaginationMalformedJson:
 
         # Bounded: one attempt per allowed try, then it gives up (stays retryable upstream).
         assert mock_get.return_value.get.call_count == MALFORMED_JSON_MAX_ATTEMPTS
+
+
+class TestIsTransientError:
+    @pytest.mark.parametrize(
+        "body,expected",
+        [
+            ({"error": {"is_transient": True, "code": 2}}, True),
+            # Meta doesn't always set `is_transient` for code 2 ("API Service") or code 1 ("API
+            # Unknown") — both are documented as momentary backend blips regardless of the flag,
+            # so the code alone must classify these as transient.
+            ({"error": {"code": 2}}, True),
+            ({"error": {"code": 1}}, True),
+            ({"error": {"is_transient": False, "code": 2}}, True),
+            ({"error": {"code": 190}}, False),
+            ({"data": []}, False),
+        ],
+    )
+    def test_reads_transient_flag_or_code(self, body: dict, expected: bool) -> None:
+        assert _is_transient_error(_mock_response(500, body)) is expected
+
+    def test_non_json_body_is_not_transient(self) -> None:
+        # A proxy/gateway can return a non-JSON error page; the flag check must not crash on it.
+        response = mock.MagicMock()
+        response.status_code = 500
+        response.json.side_effect = RequestsJSONDecodeError("Expecting value", "<html>", 0)
+        assert _is_transient_error(response) is False
+
+
+class TestTransientErrorRetry:
+    INITIAL_URL = "https://graph.facebook.com/v20/act_123/campaigns"
+    PARAMS: dict[str, Any] = {"fields": "id,name", "limit": 500, "access_token": "tok"}
+    # Meta's own body for a self-recovering server hiccup: 500, code 2, is_transient true.
+    TRANSIENT_BODY: dict[str, Any] = {
+        "error": {
+            "message": "An unexpected error has occurred. Please retry your request later.",
+            "type": "OAuthException",
+            "is_transient": True,
+            "code": 2,
+        }
+    }
+
+    def test_transient_error_reissues_same_request_then_succeeds(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        responses = [
+            _mock_response(500, self.TRANSIENT_BODY),
+            _mock_response(200, {"data": [{"id": "1"}], "paging": {}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}]]
+        assert mock_get.return_value.get.call_count == 2
+        # Retry re-issues the SAME request at the SAME limit — a transient blip is not a
+        # too-much-data timeout, so the page limit is left untouched.
+        assert mock_get.return_value.get.call_args_list[1].args[0] == self.INITIAL_URL
+        assert mock_get.return_value.get.call_args_list[1].kwargs["params"]["limit"] == 500
+
+    def test_persistent_transient_error_raises_after_bounded_attempts(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        responses = [_mock_response(500, self.TRANSIENT_BODY) for _ in range(META_TRANSIENT_ERROR_MAX_ATTEMPTS)]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            # Still surfaces the raw failure, tagged retryable, so it stays retryable at the
+            # Temporal layer without also re-tracking as a bug (see MetaAdsSource.get_retryable_errors).
+            with pytest.raises(Exception, match=r"Meta API request failed \(retryable\): 500"):
+                list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert mock_get.return_value.get.call_count == META_TRANSIENT_ERROR_MAX_ATTEMPTS
+
+    def test_transient_error_without_is_transient_flag_still_retries(self, monkeypatch) -> None:
+        # Real-world Meta responses have been observed sending code 2 "Service temporarily
+        # unavailable" without `is_transient` set true — the documented code alone must still
+        # trigger the in-process retry, not just the flag.
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        responses = [
+            _mock_response(500, {"error": {"message": "Service temporarily unavailable", "code": 2}}),
+            _mock_response(200, {"data": [{"id": "1"}], "paging": {}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}]]
+        assert mock_get.return_value.get.call_count == 2
+
+
+class TestNetworkTransientRetry:
+    INITIAL_URL = "https://graph.facebook.com/v20/act_123/campaigns"
+    PARAMS: dict[str, Any] = {"fields": "id,name", "limit": 500, "access_token": "tok"}
+
+    def test_connection_reset_reissues_same_request_then_succeeds(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        responses = [
+            ChunkedEncodingError("Connection broken: ConnectionResetError(104, 'Connection reset by peer')"),
+            _mock_response(200, {"data": [{"id": "1"}], "paging": {}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}]]
+        assert mock_get.return_value.get.call_count == 2
+
+    def test_persistent_connection_reset_raises_after_bounded_attempts(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        responses = [ChunkedEncodingError("Connection broken") for _ in range(META_TRANSIENT_ERROR_MAX_ATTEMPTS)]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            # Still surfaces the raw failure so it stays retryable at the Temporal layer.
+            with pytest.raises(ChunkedEncodingError):
+                list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert mock_get.return_value.get.call_count == META_TRANSIENT_ERROR_MAX_ATTEMPTS
 
 
 class TestTimeRangePagination:
@@ -838,9 +988,10 @@ class TestMidChunkLimitFallback:
                     "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
                 },
             ),
-            # Transient service error (code 2) — not a timeout and not an auth error, so it
-            # neither retries-with-smaller-limit nor gets reclassified as permanent.
-            _mock_response(500, {"error": {"message": "Service temporarily unavailable", "code": 2}}),
+            # A generic application error outside Meta's documented transient codes (1, 2) — not a
+            # timeout and not an auth error, so it neither retries-with-smaller-limit, retries
+            # transiently, nor gets reclassified as permanent.
+            _mock_response(500, {"error": {"message": "Something else went wrong", "code": 100}}),
         ]
 
         with mock.patch(
@@ -1072,6 +1223,38 @@ class TestNonRetryableErrors:
         assert _is_permanent_auth_error(_mock_response(400, body)) is expected
 
 
+class TestRetryableErrors:
+    @pytest.mark.parametrize(
+        "body",
+        [
+            # Real-world Meta responses: code 2 "Service temporarily unavailable" with an
+            # explicit is_transient: false, and a generic code 1 "unknown error" with no flag.
+            {"error": {"message": "Service temporarily unavailable", "code": 2, "is_transient": False}},
+            {"error": {"message": "An unknown error has occurred.", "code": 1}},
+        ],
+    )
+    def test_transient_error_message_matches_retryable_pattern(self, body: dict) -> None:
+        patterns = MetaAdsSource().get_retryable_errors()
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(_mock_response(500, body))
+        assert any(pattern in str(exc_info.value) for pattern in patterns)
+
+    def test_too_much_data_timeout_does_not_match_retryable_pattern(self) -> None:
+        # The too-much-data timeout keeps its own non-retryable classification (adaptive chunking
+        # already exhausted) — plain retries never resolve it, so it must not also be tagged
+        # retryable, which would contradict `get_non_retryable_errors`.
+        body = {
+            "error": {
+                "code": 1,
+                "message": "Please reduce the amount of data you're asking for, then retry your request",
+            }
+        }
+        patterns = MetaAdsSource().get_retryable_errors()
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(_mock_response(500, body))
+        assert not any(pattern in str(exc_info.value) for pattern in patterns)
+
+
 @freeze_time("2026-06-16")
 class TestTimeRangeClamping:
     """Meta rejects insights time ranges starting beyond ~37 months (error 3018).
@@ -1244,3 +1427,110 @@ class TestFetchIntegrationRowDbResilience:
 
         # A deleted integration row is non-retryable — don't mask it as a transient drop.
         assert get.call_count == 1
+
+
+class TestListAdAccounts:
+    @staticmethod
+    def _integration() -> Any:
+        integration = mock.MagicMock()
+        integration.sensitive_config = {"access_token": "token"}
+        return integration
+
+    def test_follows_paging_next_to_the_end(self, monkeypatch) -> None:
+        session = mock.MagicMock()
+        session.get.side_effect = [
+            _mock_response(
+                200,
+                {
+                    "data": [{"account_id": "1"}],
+                    "paging": {"next": "https://graph.facebook.com/v25.0/me/adaccounts?access_token=stale&after=abc"},
+                },
+            ),
+            _mock_response(200, {"data": [{"account_id": "2"}]}),
+        ]
+        monkeypatch.setattr(meta_ads_module, "make_tracked_session", lambda *args, **kwargs: session)
+
+        accounts = list_ad_accounts(self._integration())
+
+        assert [account["account_id"] for account in accounts] == ["1", "2"]
+        cursor_url, cursor_kwargs = session.get.call_args_list[1][0][0], session.get.call_args_list[1][1]
+        # The echoed-back token is stripped and a fresh one injected at request time.
+        assert "access_token" not in cursor_url
+        assert cursor_kwargs["params"] == {"access_token": "token"}
+
+    def test_stops_when_a_trailing_cursor_returns_no_data(self, monkeypatch) -> None:
+        next_page = {"next": "https://graph.facebook.com/v25.0/me/adaccounts?after=abc"}
+        session = mock.MagicMock()
+        session.get.side_effect = [
+            _mock_response(200, {"data": [{"account_id": "1"}], "paging": next_page}),
+            _mock_response(200, {"data": [], "paging": next_page}),
+        ]
+        monkeypatch.setattr(meta_ads_module, "make_tracked_session", lambda *args, **kwargs: session)
+
+        accounts = list_ad_accounts(self._integration())
+
+        assert [account["account_id"] for account in accounts] == ["1"]
+        assert session.get.call_count == 2
+
+    def test_permanent_auth_failure_raises_meta_ads_auth_error(self, monkeypatch) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = _mock_response(400, {"error": {"code": 190, "message": "Invalid OAuth token"}})
+        monkeypatch.setattr(meta_ads_module, "make_tracked_session", lambda *args, **kwargs: session)
+
+        with pytest.raises(MetaAdsAuthError):
+            list_ad_accounts(self._integration())
+
+    def test_page_limit_exceeded_fails_closed_instead_of_returning_partial(self, monkeypatch) -> None:
+        # Meta keeps handing back a fresh, non-empty `next` cursor past the cap. Returning the
+        # accumulated (truncated) accounts would present them to the picker as the complete set.
+        session = mock.MagicMock()
+        session.get.return_value = _mock_response(
+            200,
+            {"data": [{"account_id": "1"}], "paging": {"next": "https://graph.facebook.com/v25.0/next?after=loop"}},
+        )
+        monkeypatch.setattr(meta_ads_module, "make_tracked_session", lambda *args, **kwargs: session)
+
+        with pytest.raises(IntegrationAccountListingError):
+            list_ad_accounts(self._integration())
+        # Initial request plus one per bounded page: it exhausts the cap rather than raising early.
+        assert session.get.call_count == MAX_AD_ACCOUNT_PAGES + 1
+
+    def test_error_on_final_page_before_cap_surfaces_real_error_not_too_many_pages(self, monkeypatch) -> None:
+        # The response fetched on the last loop iteration isn't re-checked by the loop. If it carries an
+        # auth failure, it must surface as MetaAdsAuthError, not be masked by the "too many pages" error.
+        ok_page = _mock_response(
+            200,
+            {"data": [{"account_id": "1"}], "paging": {"next": "https://graph.facebook.com/v25.0/next?after=loop"}},
+        )
+        auth_error = _mock_response(400, {"error": {"code": 190, "message": "Invalid OAuth token"}})
+        session = mock.MagicMock()
+        session.get.side_effect = [ok_page] * MAX_AD_ACCOUNT_PAGES + [auth_error]
+        monkeypatch.setattr(meta_ads_module, "make_tracked_session", lambda *args, **kwargs: session)
+
+        with pytest.raises(MetaAdsAuthError):
+            list_ad_accounts(self._integration())
+
+    def test_masks_token_and_sets_timeout_on_every_request(self, monkeypatch) -> None:
+        session = mock.MagicMock()
+        session.get.side_effect = [
+            _mock_response(
+                200,
+                {
+                    "data": [{"account_id": "1"}],
+                    "paging": {"next": "https://graph.facebook.com/v25.0/me/adaccounts?access_token=stale&after=abc"},
+                },
+            ),
+            _mock_response(200, {"data": [{"account_id": "2"}]}),
+        ]
+        factory = mock.MagicMock(return_value=session)
+        monkeypatch.setattr(meta_ads_module, "make_tracked_session", factory)
+
+        list_ad_accounts(self._integration())
+
+        # The access token is registered for redaction so it can't be recorded in logged request URLs.
+        factory.assert_called_once_with(redact_values=("token",))
+        # Neither the initial request nor the pagination follow-up may run without a timeout, or a hung
+        # Meta connection would pin the web worker (this runs inline in the request path).
+        assert session.get.call_count == 2
+        for call in session.get.call_args_list:
+            assert call.kwargs["timeout"] == AD_ACCOUNT_LISTING_TIMEOUT_SECONDS

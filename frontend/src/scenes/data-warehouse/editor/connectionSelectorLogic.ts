@@ -111,9 +111,11 @@ export interface connectionSelectorLogicActions {
                   previous: null
                   results: never[]
               },
-        payload?: {
-            value: true
-        }
+        payload?:
+            | {
+                  value: true
+              }
+            | undefined
     ) => {
         dataWarehouseSources:
             | PaginatedResponse<ExternalDataSource>

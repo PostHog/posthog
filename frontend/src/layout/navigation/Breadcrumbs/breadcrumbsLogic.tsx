@@ -13,7 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
-import type { SceneConfig, SceneParams } from '../../../scenes/sceneTypes'
+import type { SceneConfig } from '../../../scenes/sceneTypes'
 import type { OrganizationBasicType, OrganizationType, PreflightStatus, ProjectType, UserType } from '../../../types'
 import type { TeamPublicType, TeamType } from '../../../types'
 
@@ -81,22 +81,6 @@ export interface breadcrumbsLogicMeta {
         tailBreadcrumbs: (breadcrumbs: Breadcrumb[]) => Breadcrumb[]
         sceneBreadcrumbsDisplayString: (sceneBreadcrumbs: Breadcrumb[]) => string
         documentTitle: (sceneBreadcrumbs: Breadcrumb[], preflight: PreflightStatus | null) => string
-    }
-    __keaTypeGenInternalReducerActions: {
-        'load scene (scenes.sceneLogic)': (
-            sceneId: string,
-            sceneKey: string | undefined,
-            params: SceneParams,
-            method: string
-        ) => {
-            payload: {
-                method: string
-                params: SceneParams
-                sceneId: string
-                sceneKey: string | undefined
-            }
-            type: 'load scene (scenes.sceneLogic)'
-        }
     }
 }
 

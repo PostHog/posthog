@@ -18,6 +18,10 @@ describe('warehouseProvisioningLogic', () => {
             name: '',
             available: true,
         } as any)
+        jest.spyOn(dwApi, 'dataWarehouseCheckSchemaNameRetrieve').mockResolvedValue({
+            name: '',
+            available: true,
+        } as any)
     })
 
     afterEach(() => {
@@ -155,10 +159,77 @@ describe('warehouseProvisioningLogic', () => {
         logic.mount()
 
         await expectLogic(logic, () => {
-            logic.actions.provisionWarehouse({ databaseName: 'shared-warehouse', tableName: 'shared' })
+            logic.actions.provisionWarehouse({ databaseName: 'shared-warehouse', schemaName: 'shared' })
         }).toDispatchActions(['provisionWarehouse', 'loadWarehouseStatus', 'provisionWarehouseComplete'])
 
         expect(infoToast).toHaveBeenCalledTimes(1)
         expect(errorToast).not.toHaveBeenCalled()
+    })
+
+    it('flags a ready warehouse without team onboarding as needing onboarding', async () => {
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue({
+            state: 'ready',
+            team_onboarded: false,
+            schema_name: null,
+        } as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess'])
+        expect(logic.values.needsTeamOnboarding).toBe(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusSuccess({
+                state: 'ready',
+                team_onboarded: true,
+                schema_name: 'mine',
+            } as any)
+        }).toMatchValues({ needsTeamOnboarding: false, teamOnboarded: true, teamSchemaName: 'mine' })
+    })
+
+    it('onboards the project and refreshes status', async () => {
+        const onboard = jest.spyOn(dwApi, 'dataWarehouseOnboardTeamCreate').mockResolvedValue({
+            onboarded: true,
+            schema_name: 'my_schema',
+        } as any)
+        // After onboarding, the refreshed status reports the project as onboarded.
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue({
+            state: 'ready',
+            team_onboarded: true,
+            schema_name: 'my_schema',
+        } as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.onboardTeam({ schemaName: 'my_schema' })
+        }).toDispatchActions([
+            'onboardTeam',
+            'onboardTeamComplete',
+            'loadWarehouseStatus',
+            'loadWarehouseStatusSuccess',
+        ])
+
+        expect(onboard).toHaveBeenCalledWith(expect.any(String), { schema_name: 'my_schema' })
+        expect(logic.values.teamOnboarded).toBe(true)
+        expect(logic.values.teamSchemaName).toBe('my_schema')
+    })
+
+    it('marks the schema name unavailable when onboarding hits a schema conflict (409)', async () => {
+        jest.spyOn(dwApi, 'dataWarehouseOnboardTeamCreate').mockRejectedValueOnce({ status: 409 })
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.onboardTeam({ schemaName: 'taken' })
+        }).toDispatchActions(['onboardTeam', 'onboardTeamComplete'])
+
+        expect(errorToast).toHaveBeenCalledTimes(1)
+        expect(logic.values.teamOnboarded).toBe(false)
+        expect(logic.values.schemaNameAvailable).toBe(false)
     })
 })

@@ -21,14 +21,24 @@
  * build time (see `buildCluster` in agent-tests).
  */
 
-import type { Pool } from 'pg'
+import type { Pool, PoolClient } from 'pg'
 
-import { Credential, CredentialBroker, CredentialMap, DEFAULT_CREDENTIAL_TTL_MS } from './credential-broker'
+import {
+    Credential,
+    CredentialBroker,
+    CredentialMap,
+    CredentialWriteReceipt,
+    DEFAULT_CREDENTIAL_TTL_MS,
+} from './credential-broker'
 import { EncryptedFields } from './encryption'
 
 interface EncryptedRow {
     encrypted_credentials: string
     expires_at: Date
+}
+
+async function lockSession(client: PoolClient, sessionId: string): Promise<void> {
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [sessionId])
 }
 
 export class PgCredentialBroker implements CredentialBroker {
@@ -47,18 +57,64 @@ export class PgCredentialBroker implements CredentialBroker {
     }
 
     async write(sessionId: string, credentials: CredentialMap, opts: { ttlMs?: number } = {}): Promise<void> {
+        await this.writeWithRollback(sessionId, credentials, opts)
+    }
+
+    async writeWithRollback(
+        sessionId: string,
+        credentials: CredentialMap,
+        opts: { ttlMs?: number } = {}
+    ): Promise<CredentialWriteReceipt> {
+        const client = await this.pool.connect()
         const ttlMs = opts.ttlMs ?? DEFAULT_CREDENTIAL_TTL_MS
         const expiresAt = new Date(Date.now() + ttlMs)
         const ciphertext = this.fields.encrypt(JSON.stringify(credentials))
-        await this.pool.query(
-            `INSERT INTO agent_session_credential (session_id, encrypted_credentials, expires_at)
-             VALUES ($1, $2, $3)
-             ON CONFLICT (session_id) DO UPDATE SET
-                encrypted_credentials = EXCLUDED.encrypted_credentials,
-                expires_at = EXCLUDED.expires_at,
-                updated_at = NOW()`,
-            [sessionId, ciphertext, expiresAt]
-        )
+        let previous: EncryptedRow | null = null
+        try {
+            await client.query('BEGIN')
+            await lockSession(client, sessionId)
+            const existing = await client.query<EncryptedRow>(
+                `SELECT encrypted_credentials, expires_at
+                   FROM agent_session_credential
+                  WHERE session_id = $1`,
+                [sessionId]
+            )
+            previous = existing.rows[0] ?? null
+            await client.query(
+                `INSERT INTO agent_session_credential (session_id, encrypted_credentials, expires_at)
+                 VALUES ($1, $2, $3)
+                 ON CONFLICT (session_id) DO UPDATE SET
+                    encrypted_credentials = EXCLUDED.encrypted_credentials,
+                    expires_at = EXCLUDED.expires_at,
+                    updated_at = NOW()`,
+                [sessionId, ciphertext, expiresAt]
+            )
+            await client.query('COMMIT')
+        } catch (err) {
+            await client.query('ROLLBACK').catch(() => undefined)
+            throw err
+        } finally {
+            client.release()
+        }
+
+        return {
+            rollback: async (): Promise<void> => {
+                if (previous) {
+                    await this.pool.query(
+                        `UPDATE agent_session_credential
+                            SET encrypted_credentials = $2, expires_at = $3, updated_at = NOW()
+                          WHERE session_id = $1 AND encrypted_credentials = $4`,
+                        [sessionId, previous.encrypted_credentials, previous.expires_at, ciphertext]
+                    )
+                } else {
+                    await this.pool.query(
+                        `DELETE FROM agent_session_credential
+                          WHERE session_id = $1 AND encrypted_credentials = $2`,
+                        [sessionId, ciphertext]
+                    )
+                }
+            },
+        }
     }
 
     async resolve(sessionId: string, target: string): Promise<Credential | null> {

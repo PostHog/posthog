@@ -4,112 +4,87 @@ import { IconBell, IconCheck, IconInfo } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { useAnimatedNumber } from '@posthog/quill-charts'
 
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { ExperimentLastRefreshText } from 'scenes/experiments/ExperimentView/ExperimentReloadAction'
 
 import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
 import { experimentResultsNotificationLogic } from '~/scenes/experiments/experimentResultsNotificationLogic'
+import { useRetryCountdownLabel } from '~/scenes/experiments/MetricsView/shared/MetricRetryState'
 import { Experiment } from '~/types'
 
 import type { ExperimentMetricsRecalculationApi } from 'products/experiments/frontend/generated/api.schemas'
 
 /**
- * Always-on status line for the recalculation flow. Renders exactly one state from
- * `recalculationDisplayState`; the in-flight states read live ClickHouse progress off the poll.
- * Only rendered behind EXPERIMENTS_METRICS_RECALCULATION (see ExperimentView).
+ * Status line for an in-flight recalculation. Renders only while a run is actually executing
+ * (`cold` / `refreshing`); loading-from-latest and terminal states show nothing — the metric rows
+ * carry their own loading and error affordances. Only rendered behind
+ * EXPERIMENTS_METRICS_RECALCULATION (see ExperimentView).
  */
-export function RecalculationStatus({ experiment }: { experiment: Experiment }): JSX.Element {
-    const { recalculationDisplayState, currentRecalculation, totalMetricsCount } = useValues(
+export function RecalculationStatus({ experiment }: { experiment: Experiment }): JSX.Element | null {
+    const { recalculationDisplayState, currentRecalculation, liveRowsProgress, metricRetries, nextRetryAt } = useValues(
         experimentMetricsLogic({ experiment })
     )
     /**
      * Mounted here rather than inside the in-flight branch so the finish-edge subscription that
-     * fires the browser notification is still alive when the bar swaps to a terminal state.
+     * fires the browser notification is still alive when the bar disappears on the terminal state.
      */
     const notificationLogic = experimentResultsNotificationLogic({ experiment })
     const { notifyWhenResultsReady } = useValues(notificationLogic)
     const { subscribeToResultsNotification } = useActions(notificationLogic)
 
-    switch (recalculationDisplayState) {
-        case 'initial':
-            return (
-                <StatusBar>
-                    <span className="flex items-center gap-1.5 whitespace-nowrap">
-                        <Spinner textColored className="text-sm text-accent" />
-                        <span className="font-medium">Loading metrics…</span>
-                    </span>
-                </StatusBar>
-            )
-        case 'cold':
-        case 'refreshing':
-            return (
-                <InFlightStatus
-                    recalculation={currentRecalculation}
-                    notifyWhenResultsReady={notifyWhenResultsReady}
-                    onSubscribe={subscribeToResultsNotification}
-                />
-            )
-        case 'partial':
-        case 'resting':
-            return (
-                <StatusBar>
-                    <span className="flex items-center gap-1.5 whitespace-nowrap">
-                        <IconCheck className="text-success text-sm" />
-                        <span className="font-medium">
-                            {totalMetricsCount} {totalMetricsCount === 1 ? 'metric' : 'metrics'}
-                        </span>
-                        {recalculationDisplayState === 'partial' && (
-                            <span className="text-danger font-medium">
-                                · {currentRecalculation?.failed_metrics} failed
-                            </span>
-                        )}
-                    </span>
-                    {currentRecalculation?.completed_at && (
-                        <>
-                            <LemonDivider vertical className="h-3.5" />
-                            <span className="flex items-center gap-1 whitespace-nowrap text-muted text-xs [&_span]:align-baseline">
-                                <span>Results calculated </span>
-                                <ExperimentLastRefreshText lastRefresh={currentRecalculation.completed_at} />
-                            </span>
-                        </>
-                    )}
-                </StatusBar>
-            )
+    if (recalculationDisplayState !== 'cold' && recalculationDisplayState !== 'refreshing') {
+        return null
     }
+    return (
+        <InFlightStatus
+            recalculation={currentRecalculation}
+            liveRowsProgress={liveRowsProgress}
+            retryingCount={Object.keys(metricRetries).length}
+            nextRetryAt={nextRetryAt}
+            notifyWhenResultsReady={notifyWhenResultsReady}
+            onSubscribe={subscribeToResultsNotification}
+        />
+    )
 }
 
 function InFlightStatus({
     recalculation,
+    liveRowsProgress,
+    retryingCount,
+    nextRetryAt,
     notifyWhenResultsReady,
     onSubscribe,
 }: {
     recalculation: ExperimentMetricsRecalculationApi | null
+    liveRowsProgress: { recalculationId: string; rowsRead: number; estimatedRows: number } | null
+    retryingCount: number
+    nextRetryAt: string | null
     notifyWhenResultsReady: boolean
     onSubscribe: () => void
 }): JSX.Element {
-    const rowsRead = recalculation?.rows_read ?? undefined
     const succeeded = recalculation?.completed_metrics ?? 0
     const failed = recalculation?.failed_metrics ?? 0
     const total = recalculation?.total_metrics ?? 0
+    const nextRetryLabel = useRetryCountdownLabel(nextRetryAt)
     /**
      * Pending (not yet resolved, not currently sampled as running) keeps the segment truthful in those gaps.
+     * Retrying metrics are unresolved too, but get their own slice so slow runs read as alive, not stuck.
      */
-    const pending = Math.max(0, total - succeeded - failed)
+    const pending = Math.max(0, total - succeeded - failed - retryingCount)
     return (
         <StatusBar>
             <span className="flex items-center gap-1.5 whitespace-nowrap">
                 <Spinner textColored className="text-sm text-accent" />
-                <CountsSegment pending={pending} succeeded={succeeded} failed={failed} />
+                <CountsSegment pending={pending} retrying={retryingCount} succeeded={succeeded} failed={failed} />
+                {retryingCount > 0 && <span className="text-muted text-xs">· next retry {nextRetryLabel}</span>}
                 <span className="text-muted text-xs">· running in the background</span>
                 <Tooltip title="We're computing each metric against the latest data. This runs server-side so you can leave this page; results appear as each metric finishes.">
                     <IconInfo className="text-muted text-xs" />
                 </Tooltip>
-                {rowsRead !== undefined && (
+                {liveRowsProgress && liveRowsProgress.recalculationId === recalculation?.id && (
                     <ClimbingRows
-                        rowsRead={rowsRead}
-                        estimatedRows={recalculation?.estimated_rows_total ?? undefined}
+                        rowsRead={liveRowsProgress.rowsRead}
+                        estimatedRows={liveRowsProgress.estimatedRows || undefined}
                     />
                 )}
             </span>
@@ -133,7 +108,7 @@ function InFlightStatus({
 
 function StatusBar({ children }: { children: React.ReactNode }): JSX.Element {
     return (
-        <div className="flex min-h-8 w-full flex-wrap items-center gap-2.5 rounded border border-primary bg-surface-secondary px-2.5 py-1 text-sm">
+        <div className="mb-2 flex min-h-8 w-full flex-wrap items-center gap-2.5 rounded border border-primary bg-surface-secondary px-2.5 py-1 text-sm">
             {children}
         </div>
     )
@@ -141,10 +116,12 @@ function StatusBar({ children }: { children: React.ReactNode }): JSX.Element {
 
 function CountsSegment({
     pending,
+    retrying,
     succeeded,
     failed,
 }: {
     pending: number
+    retrying: number
     succeeded: number
     failed: number
 }): JSX.Element {
@@ -153,6 +130,13 @@ function CountsSegment({
 
     if (pending > 0) {
         parts.push(<span key="pending">{pending} pending</span>)
+    }
+    if (retrying > 0) {
+        parts.push(
+            <span key="retrying" className="text-warning">
+                {retrying} retrying
+            </span>
+        )
     }
     parts.push(
         <span key="succeeded" className="text-success">

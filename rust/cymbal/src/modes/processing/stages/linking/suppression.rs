@@ -6,7 +6,7 @@ use crate::{
     metric_consts::{ISSUE_SUPPRESSION_OPERATOR, SUPPRESSED_ISSUE_DROPPED_EVENTS},
     stages::{linking::LinkingStage, pipeline::HandledError},
     types::{
-        exception_properties::ExceptionProperties,
+        exception_event::{ExceptionEvent, Linked},
         operator::{OperatorResult, ValueOperator},
     },
 };
@@ -15,7 +15,7 @@ use crate::{
 pub struct IssueSuppression;
 
 impl ValueOperator for IssueSuppression {
-    type Item = ExceptionProperties;
+    type Item = ExceptionEvent<Linked>;
     type Context = LinkingStage;
     type HandledError = HandledError;
     type UnhandledError = UnhandledError;
@@ -25,11 +25,10 @@ impl ValueOperator for IssueSuppression {
     }
 
     async fn execute_value(&self, input: Self::Item, _: LinkingStage) -> OperatorResult<Self> {
-        if let Some(issue) = input.issue.as_ref() {
-            if matches!(issue.status, IssueStatus::Suppressed) {
-                counter!(SUPPRESSED_ISSUE_DROPPED_EVENTS).increment(1);
-                return Ok(Err(EventError::Suppressed(issue.id)));
-            }
+        let issue = input.issue();
+        if matches!(issue.status, IssueStatus::Suppressed) {
+            counter!(SUPPRESSED_ISSUE_DROPPED_EVENTS).increment(1);
+            return Ok(Err(EventError::Suppressed(issue.id)));
         }
 
         Ok(Ok(input))

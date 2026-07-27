@@ -8,8 +8,7 @@ name: Build and deploy agent platform container images
 
 on:
     workflow_dispatch:
-    # paths mirror the changes job's dorny filter, which still gates push and
-    # merge_group events (merge_group triggers don't support paths).
+    # paths mirror the changes job's dorny filter, which still gates push events.
     pull_request:
         paths:
             - 'products/agent_platform/services/**'
@@ -27,7 +26,6 @@ on:
             - '.github/workflows/ci-agent-container.yml'
             - 'pnpm-lock.yaml'
             - 'pnpm-workspace.yaml'
-    merge_group:
     push:
         branches:
             - 'master'
@@ -43,7 +41,7 @@ jobs:
             contents: read
             pull-requests: read
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog' && github.event_name != 'merge_group'
+        if: github.repository == 'PostHog/posthog'
         name: Determine need to run agent Docker build
         outputs:
             agent_files: ${{ steps.filter.outputs.agent_files }}
@@ -85,10 +83,9 @@ jobs:
         name: Build ${{ matrix.image }}
         if: |
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.agent_files == 'true') ||
-            github.event_name == 'merge_group' ||
             github.event_name == 'workflow_dispatch' ||
             (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.agent_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         permissions:
             id-token: write
@@ -150,7 +147,7 @@ jobs:
                   context: ${{ matrix.context }}
                   buildx-fallback: false
                   project: ${{ matrix.depot_project }}
-                  push: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' || vars.CD_DEPLOY_ENABLED == 'true' }}
+                  push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   file: ${{ matrix.dockerfile }}
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}

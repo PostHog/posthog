@@ -3,6 +3,8 @@ import logging
 from collections.abc import Mapping
 from typing import cast
 
+from django.db.models import Q
+
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from opentelemetry import trace
@@ -99,27 +101,26 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
     def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
         from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
-        schema = (
+        statuses = set(
             ExternalDataSchema.objects.filter(
+                Q(name=schema_name) | Q(name__endswith=f".{schema_name}"),
                 team_id=team_id,
                 source__source_type=ext_source_type,
-                name=schema_name,
             )
             .exclude(source__deleted=True)
-            .first()
+            .values_list("status", flat=True)
         )
-        if schema is None:
-            return None
-        if schema.status == ExternalDataSchema.Status.RUNNING:
+        if ExternalDataSchema.Status.RUNNING in statuses:
             return "running"
-        if schema.status == ExternalDataSchema.Status.COMPLETED:
-            return "completed"
-        if schema.status in (
+        # One failing repo outranks its siblings' success, so a broken repo is never hidden.
+        if statuses & {
             ExternalDataSchema.Status.FAILED,
             ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
             ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
-        ):
+        }:
             return "failed"
+        if ExternalDataSchema.Status.COMPLETED in statuses:
+            return "completed"
         return None
 
     def validate(self, attrs: dict) -> dict:
@@ -368,6 +369,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
     implementation_pr_url = serializers.SerializerMethodField(
         help_text="PR URL from the latest implementation task run, if available.",
     )
+    implementation_pr_merged = serializers.SerializerMethodField(
+        help_text=(
+            "Whether that implementation PR is merged, per the GitHub webhook. False when there is no "
+            "PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been "
+            "resolved directly, without a merged PR."
+        ),
+    )
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
     )
@@ -394,6 +402,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "source_products",
             "scout_name",
             "implementation_pr_url",
+            "implementation_pr_merged",
             "refund",
             "refund_ineligibility_reason",
             "billing_exempt_reason",
@@ -509,6 +518,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return implementation_pr_url_map.get(str(obj.id))
         value = getattr(obj, "implementation_pr_url", None)
         return value if isinstance(value, str) else None
+
+    def get_implementation_pr_merged(self, obj: SignalReport) -> bool:
+        merged_report_ids: set[str] | None = self.context.get("implementation_pr_merged_ids")
+        if merged_report_ids is not None:
+            return str(obj.id) in merged_report_ids
+        # Annotated path: the JSON flag arrives as text, and NULL means no PR-bearing run at all.
+        value = getattr(obj, "implementation_pr_merged", None)
+        return value in (True, "true", "True")
 
     @extend_schema_field(SignalReportRefundSerializer(allow_null=True))
     def get_refund(self, obj: SignalReport) -> dict | None:
@@ -706,6 +723,16 @@ class SuggestedReviewerEntryWriteSerializer(serializers.Serializer):
         max_length=200,
         help_text="Optional human-readable display name. Not backfilled from GitHub by the server.",
     )
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=500,
+        help_text=(
+            "Optional short evidence for why this reviewer was chosen. Omitted entries keep the "
+            "prior reason for reviewers already on the report."
+        ),
+    )
 
     def validate(self, attrs: dict) -> dict:
         if not attrs.get("github_login") and not attrs.get("user_uuid"):
@@ -828,3 +855,88 @@ class CommitDiffResponseSerializer(serializers.Serializer):
         read_only=True,
         help_text="True when the diff was too large to return in full and has been truncated.",
     )
+
+
+class PullRequestCheckSerializer(serializers.Serializer):
+    """One CI check on a pull request's head commit — a GitHub Actions check run or a legacy commit
+    status, normalized to a common shape."""
+
+    name = serializers.CharField(read_only=True, help_text="Check run name or status context.")
+    status = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Lifecycle state: 'queued', 'in_progress', or 'completed'.",
+    )
+    conclusion = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Outcome once completed: 'success', 'failure', 'neutral', 'cancelled', 'skipped', "
+        "'timed_out', or 'action_required'. Null while still running.",
+    )
+    url = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Link to the check run / status detail on GitHub."
+    )
+
+
+class PullRequestChecksResponseSerializer(serializers.Serializer):
+    """Response for the PR checks endpoint — the CI status of a report's implementation PR."""
+
+    checks = PullRequestCheckSerializer(many=True, read_only=True)
+
+
+class PullRequestCommentSerializer(serializers.Serializer):
+    """One comment on a pull request — a conversation comment or an inline review comment."""
+
+    id = serializers.CharField(read_only=True, help_text="GitHub comment id.")
+    author = serializers.CharField(read_only=True, allow_null=True, help_text="Comment author's GitHub login.")
+    author_avatar_url = serializers.CharField(read_only=True, allow_null=True, help_text="Author's GitHub avatar URL.")
+    body = serializers.CharField(read_only=True, allow_blank=True, help_text="Comment body (GitHub-flavored markdown).")
+    created_at = serializers.CharField(read_only=True, allow_null=True, help_text="ISO 8601 creation timestamp.")
+    url = serializers.CharField(read_only=True, allow_null=True, help_text="Link to the comment on GitHub.")
+    comment_type = serializers.ChoiceField(
+        read_only=True,
+        choices=["conversation", "review"],
+        help_text="'conversation' for a PR discussion comment, 'review' for an inline code-review comment.",
+    )
+    path = serializers.CharField(
+        read_only=True, allow_null=True, help_text="File path the review comment is anchored to (review comments only)."
+    )
+    line = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Line in the diff the review comment is anchored to — the end line for multi-line comments "
+        "(review comments only; null when the comment is outdated relative to the PR head).",
+    )
+    start_line = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="First line of a multi-line review comment's range (review comments only).",
+    )
+    side = serializers.ChoiceField(
+        read_only=True,
+        allow_null=True,
+        choices=["LEFT", "RIGHT"],
+        help_text="Diff side the review comment is anchored to: 'LEFT' = deletions, 'RIGHT' = additions "
+        "(review comments only).",
+    )
+    diff_hunk = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Diff hunk excerpt the review comment applies to (review comments only).",
+    )
+    in_reply_to_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Id of the thread root comment this one replies to; null for thread roots and conversation comments.",
+    )
+    commit_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="SHA of the commit the review comment was made against (review comments only).",
+    )
+
+
+class PullRequestCommentsResponseSerializer(serializers.Serializer):
+    """Response for the PR comments endpoint — conversation and review comments merged chronologically."""
+
+    comments = PullRequestCommentSerializer(many=True, read_only=True)

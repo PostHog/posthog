@@ -110,10 +110,7 @@ export interface annotationsOverlayLogicActions {
     deleteAnnotation: (annotation: AnnotationType) => {
         annotation: AnnotationType
     } // annotationsModel
-    updateAnnotation: ({
-        annotationId,
-        annotationData,
-    }: {
+    updateAnnotation: (args_0: {
         annotationData: AnnotationDataWithoutInsight
         annotationId: RawAnnotationType['id']
     }) => {

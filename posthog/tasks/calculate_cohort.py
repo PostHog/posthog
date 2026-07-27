@@ -15,14 +15,7 @@ from prometheus_client import Counter, Gauge, Histogram
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
-from posthog.errors import (
-    CHQueryErrorCannotScheduleTask,
-    CHQueryErrorS3Error,
-    CHQueryErrorS3FileChangedDuringRead,
-    CHQueryErrorTableIsReadOnly,
-    CHQueryErrorTooManySimultaneousQueries,
-)
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -348,7 +341,12 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
         logger.exception("failed_to_update_cohort_metrics", error=str(e))
 
 
-def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
+def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> bool:
+    """
+    Returns False if dependency resolution failed and only `cohort` itself was enqueued instead
+    of its full dependency chain, so callers that need to (e.g. the staff recalculate endpoint)
+    can tell a caller the request wasn't fully honored. Callers that don't care can ignore it.
+    """
     dependent_cohorts = get_all_cohort_dependents(cohort)
     dependency_cohorts = get_all_cohort_dependencies(cohort)
     related_cohorts = dependent_cohorts + dependency_cohorts
@@ -375,16 +373,18 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
             # Fall back to calculating just this cohort without dependencies
             logger.warning("cohort_fallback_to_single_calculation", cohort_id=cohort.id)
             _enqueue_single_cohort_calculation(cohort, initiating_user)
-            return
+            return False
 
         # Create a chain of tasks to ensure sequential execution.
         # Non-first tasks get a 2s countdown to mitigate ClickHouse replica lag:
         # the preceding cohort's new rows may not have replicated yet. See #47618.
         task_chain: list = []
+        prepared_cohort_ids: list[int] = []
         for cohort_id in sorted_cohort_ids:
             current_cohort = seen_cohorts_cache.get(cohort_id)
             if current_cohort and not current_cohort.is_static:
                 _prepare_cohort_for_calculation(current_cohort)
+                prepared_cohort_ids.append(current_cohort.id)
                 task = calculate_cohort_ch.si(
                     current_cohort.id,
                     current_cohort.pending_version,
@@ -395,10 +395,19 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
                 task_chain.append(task)
 
         if task_chain:
-            chain(*task_chain).apply_async()
+            try:
+                chain(*task_chain).apply_async()
+            except Exception:
+                # apply_async() never actually enqueued anything, but _prepare_cohort_for_calculation
+                # already flipped is_calculating on every cohort in the chain. Clear it so they aren't
+                # stranded looking "in flight" until the hourly stuck-cohort reset catches them.
+                Cohort.objects.filter(id__in=prepared_cohort_ids).update(is_calculating=False)
+                raise
     else:
         logger.info("cohort_has_no_dependencies", cohort_id=cohort.id)
         _enqueue_single_cohort_calculation(cohort, initiating_user)
+
+    return True
 
 
 def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
@@ -421,25 +430,27 @@ def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
 def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional[User]) -> None:
     """Helper function to enqueue a single cohort for calculation"""
     _prepare_cohort_for_calculation(cohort)
-    calculate_cohort_ch.delay(
-        cohort.id,
-        cohort.pending_version,
-        initiating_user.id if initiating_user else None,
-    )
+    try:
+        calculate_cohort_ch.delay(
+            cohort.id,
+            cohort.pending_version,
+            initiating_user.id if initiating_user else None,
+        )
+    except Exception:
+        # .delay() never actually enqueued anything, but _prepare_cohort_for_calculation already
+        # flipped is_calculating. Clear it so the cohort isn't stranded looking "in flight" until
+        # the hourly stuck-cohort reset catches it.
+        if not cohort.is_static:
+            cohort.is_calculating = False
+            cohort.save(update_fields=["is_calculating"])
+        raise
 
 
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
     # Auto-retry for transient ClickHouse errors with exponential backoff
-    autoretry_for=(
-        CHQueryErrorTooManySimultaneousQueries,
-        CHQueryErrorCannotScheduleTask,
-        ClickHouseAtCapacity,
-        CHQueryErrorS3Error,
-        CHQueryErrorS3FileChangedDuringRead,
-        CHQueryErrorTableIsReadOnly,
-    ),
+    autoretry_for=CH_TRANSIENT_ERRORS,
     retry_backoff=60,
     retry_backoff_max=1800,
     max_retries=6,

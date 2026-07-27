@@ -19,7 +19,7 @@ import type { HttpFetcher } from './http-client'
 import type { IdentityCredentialStore, LinkedCredential, PutLinkedCredentialInput } from './identity-credential-store'
 import type { CreateLinkStateInput, IdentityLinkStateStore, LinkState } from './identity-link-state-store'
 import type { BearerVerification, IdentityProvider } from './identity-provider'
-import { MapIdentityProviderRegistry } from './identity-provider'
+import { IdentityProviderUnavailableError, MapIdentityProviderRegistry } from './identity-provider'
 import { Oauth2AuthProvider } from './oauth2-identity-provider'
 import type { TransportClaim } from './transport'
 import { MemoryTransportBindingStore } from './transport-binding-store'
@@ -420,6 +420,43 @@ describe('AdmissionService', () => {
             const binding = await bindings.find('app-1', res.identity.transportAgentUserId)
             expect(binding?.canonicalAgentUserId).toBe(res.identity.canonicalId)
         }
+    })
+
+    it('HTTP: provider unavailability fails closed as a retryable error — NOT auth_required', async () => {
+        // A userinfo brownout must never read as "token invalid": answering
+        // auth_required would send every holder of a valid bearer to re-auth.
+        const provider: IdentityProvider = {
+            id: 'work',
+            credentialTarget: 'work',
+            establishesIdentity: true,
+            binding: 'principal',
+            allowedHosts: () => ['work.example'],
+            initiate: async () => {
+                throw new Error('should_not_initiate')
+            },
+            exchange: async () => {
+                throw new Error('should_not_exchange')
+            },
+            complete: async () => {
+                throw new Error('should_not_complete')
+            },
+            resolve: async () => null,
+            verifyBearer: async () => {
+                throw new IdentityProviderUnavailableError('work', 'userinfo_status_503')
+            },
+        }
+        const admission = new AdmissionService({
+            registry: new MapIdentityProviderRegistry([provider]),
+            identities: new MemIdentityStore(),
+            bindings: new MemoryTransportBindingStore(),
+            credentials: new MemCredStore(),
+            redirectUriFor: REDIRECT,
+        })
+        const res = await admission.resolve(
+            { transport: 'http', subjectId: 'jwt-sub', bearer: { token: 'perfectly-valid-token' } },
+            { application: APP, revision: revWith('work') }
+        )
+        expect(res).toEqual({ kind: 'error', reason: 'authoritative_provider_unavailable' })
     })
 
     it('HTTP: a revoked bearer is NOT rescued by the binding a prior valid bearer wrote', async () => {

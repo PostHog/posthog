@@ -23,12 +23,15 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 
 
 class TestSystemPromptFormat(SimpleTestCase):
-    def _build_prompt(self, output_type: str = "boolean", guidance: str = "") -> str:
+    def _build_prompt(
+        self, output_type: str = "boolean", guidance: str = "", evaluation_target: str = "generation"
+    ) -> str:
         return build_eval_report_system_prompt(
             evaluation_name="Test Eval",
             evaluation_description="foo",
             evaluation_type="llm_judge",
             evaluation_prompt="criteria",
+            evaluation_target=evaluation_target,
             output_type=output_type,
             period_start="2026-04-08T14:00:00+00:00",
             period_end="2026-04-08T15:00:00+00:00",
@@ -53,6 +56,16 @@ class TestSystemPromptFormat(SimpleTestCase):
         self.assertIn("not response quality", formatted)
         self.assertIn('outcome="all"|"positive"|"neutral"|"negative"', formatted)
         self.assertNotIn("pass rate", formatted.lower())
+
+    def test_trace_prompt_uses_only_trace_detail_workflow(self):
+        formatted = self._build_prompt(evaluation_target="trace")
+
+        self.assertIn("Evaluation target: trace", formatted)
+        self.assertIn("sample_trace_details", formatted)
+        self.assertIn("get_trace_detail", formatted)
+        self.assertIn('generation_id=""', formatted)
+        self.assertNotIn("sample_generation_details", formatted)
+        self.assertIn("trace satisfied the configured criteria", formatted)
 
 
 class TestComputeMetrics(SimpleTestCase):
@@ -90,6 +103,15 @@ class TestFallbackContent(SimpleTestCase):
         self.assertIn("No evaluation runs", content.sections[0].content)
         self.assertIn("agent timed out", content.sections[0].content)
         self.assertEqual(content.metrics, metrics)
+
+    def test_trace_zero_runs_uses_trace_specific_ingestion_hint(self):
+        metrics = EvalReportMetrics(total_runs=0)
+
+        content = _fallback_content("Trace quality", metrics, "agent timed out", evaluation_target="trace")
+
+        self.assertIn("trace evaluation results", content.sections[0].content)
+        self.assertNotIn("$ai_generation", content.sections[0].content)
+        self.assertEqual(content.evaluation_target, "trace")
 
     def test_populated_metrics_stable_trend(self):
         metrics = EvalReportMetrics(
@@ -228,6 +250,17 @@ class TestAppendReferencesSection(SimpleTestCase):
         self.assertEqual(len(content.sections), 2)
         self.assertEqual(content.sections[-1].title, "References")
         self.assertIn("g1", content.sections[-1].content)
+
+    def test_trace_reference_uses_trace_id_when_generation_id_is_empty(self):
+        content = EvalReportContent(
+            title="t",
+            sections=[ReportSection(title="S1", content="c1")],
+            citations=[Citation(generation_id="", trace_id="customer-trace/42", reason="r1")],
+        )
+
+        _append_references_section(content)
+
+        self.assertIn("customer-trace/42", content.sections[-1].content)
 
     def test_references_does_not_displace_content_at_max_sections(self):
         # Regression: previously the auto-appended References section replaced

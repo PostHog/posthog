@@ -208,7 +208,7 @@ export interface experimentsLogicActions {
     } // teamLogic
     updateCurrentTeamSuccess: (
         currentTeam: TeamPublicType | TeamType,
-        payload?: Partial<TeamType>
+        payload?: Partial<TeamType> | undefined
     ) => {
         currentTeam: TeamPublicType | TeamType
         payload?: Partial<TeamType>
