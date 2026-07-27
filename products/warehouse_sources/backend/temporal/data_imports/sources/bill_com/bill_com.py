@@ -98,7 +98,13 @@ class BillComClient:
         self._dev_key = dev_key
         self._api_root = f"{base_url(environment)}/{api_version}"
         self._session_id: Optional[str] = None
-        self._session = make_tracked_session(redact_values=(password, dev_key))
+        # The login exchange is never sample-captured: its response body carries the freshly minted
+        # session ID, which no name-based scrubber recognises and which can't be in `redact_values`
+        # until after the response is read. login() builds the captured data session once the ID is
+        # known, so it can be masked there. Data requests default to `self._login_session` only in
+        # the (never-hit) case a GET precedes login — list_page always signs in first.
+        self._login_session = make_tracked_session(redact_values=(password, dev_key), capture=False)
+        self._session = self._login_session
 
     @property
     def api_root(self) -> str:
@@ -109,7 +115,9 @@ class BillComClient:
         return self._session_id
 
     def login(self) -> str:
-        response = self._session.post(
+        # The uncaptured login session handles every sign-in, including re-logins after a 401, so the
+        # session ID in the response is never written to a sample.
+        response = self._login_session.post(
             f"{self._api_root}/login",
             json={
                 "username": self._username,
@@ -128,7 +136,7 @@ class BillComClient:
             raise BillComAuthError("BILL sign-in did not return a session ID")
 
         self._session_id = str(session_id)
-        # Rebuild the session so the freshly minted session ID is masked in sampled requests too.
+        # Build the captured data session now the session ID is known, so it's masked in sampled requests.
         self._session = make_tracked_session(redact_values=(self._password, self._dev_key, self._session_id))
         return self._session_id
 

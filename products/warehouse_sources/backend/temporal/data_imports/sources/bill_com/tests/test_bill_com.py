@@ -187,6 +187,39 @@ class TestBillCom:
         with pytest.raises(BillComAuthError, match="did not return a session ID"):
             client.login()
 
+    def test_login_exchange_is_never_captured_and_masks_the_minted_session_id(self) -> None:
+        # Track every tracked session built during a sign-in, tagging each with the kwargs it was
+        # created with, so we can prove the login exchange never feeds HTTP sample capture.
+        created: list[tuple[dict[str, Any], mock.MagicMock]] = []
+
+        def _make(**kwargs: Any) -> mock.MagicMock:
+            session = mock.MagicMock()
+            session.post.return_value = _response(body={"sessionId": "sess-secret"})
+            created.append((kwargs, session))
+            return session
+
+        with mock.patch(f"{_MODULE}.make_tracked_session", side_effect=_make):
+            client = BillComClient(
+                username="finance@acme.com",
+                password="pw",
+                organization_id="org-1",
+                dev_key="dev-key",
+                environment="production",
+                api_version="v3",
+            )
+            client.login()
+
+        # The session that issued the login POST must be excluded from capture — its response body
+        # carries the freshly minted session ID that no name-based scrubber would recognise.
+        login_sessions = [kwargs for kwargs, session in created if session.post.called]
+        assert login_sessions, "login POST was never issued"
+        assert all(kwargs.get("capture", True) is False for kwargs in login_sessions)
+
+        # The captured data session must mask the minted session ID in sampled requests.
+        captured_sessions = [kwargs for kwargs, session in created if kwargs.get("capture", True) is True]
+        assert captured_sessions, "no captured data session was built"
+        assert any("sess-secret" in kwargs.get("redact_values", ()) for kwargs in captured_sessions)
+
     def test_list_page_signs_in_lazily_and_sends_session_headers(self) -> None:
         session = mock.MagicMock()
         session.post.return_value = _response(body={"sessionId": "sess-1"})
