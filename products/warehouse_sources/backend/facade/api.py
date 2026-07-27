@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.file_uploads import (
     build_file_upload_s3_key,
     build_file_upload_s3_path,
     build_file_upload_url_pattern,
+    hosted_upload_s3_path,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob as _ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
@@ -34,6 +35,7 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable a
 
 # Framework-free helper transforms — re-exported as the public helper surface.
 from products.warehouse_sources.backend.models.util import (
+    clickhouse_columns_to_dwh_columns,
     mysql_column_to_dwh_column,
     mysql_columns_to_dwh_columns,
     postgres_column_to_dwh_column,
@@ -55,6 +57,7 @@ __all__ = [
     "list_tables_for_source",
     "list_jobs_for_source",
     # framework-free helper transforms
+    "clickhouse_columns_to_dwh_columns",
     "mysql_column_to_dwh_column",
     "mysql_columns_to_dwh_columns",
     "postgres_column_to_dwh_column",
@@ -69,7 +72,26 @@ __all__ = [
     "build_file_upload_s3_key",
     "build_file_upload_s3_path",
     "build_file_upload_url_pattern",
+    "hosted_upload_s3_path",
 ]
+
+# GitHub multi-repo source helpers live in ``github_warehouse_repos`` and pull the source
+# registry (dlt drivers) in via ``facade.source_management``, so resolve them lazily to keep that
+# weight off the ``django.setup()`` import path — only the namespaced-resource registry loads them.
+_LAZY = {
+    "github_repositories_for_job_inputs": "github_warehouse_repos",
+    "reconcile_github_repositories": "github_warehouse_repos",
+}
+
+
+def __getattr__(name: str):
+    module = _LAZY.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+
+    return getattr(importlib.import_module(f"products.warehouse_sources.backend.{module}"), name)
+
 
 # --- Mappers (ORM -> contract) ---
 

@@ -78,6 +78,33 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             },
             setup=seed_approved_metric,
         ),
+        # Synonym/derived measure: the prompt asks for "ARR", which appears in no prompt or
+        # metric name — only the approved MRR metric is seeded. Tests semantic routing (the
+        # "no keyword stuffing" requirement): the agent must associate ARR with the stored MRR
+        # metric, run it canonically, then annualize and label the ARR figure noncanonical.
+        SandboxedEvalCase(
+            name="governed_metric_synonym",
+            prompt="What's our ARR?",
+            expected={
+                "metrics_catalog_queried": {},
+                "metrics_catalog_before_answer": {},
+                "canonical_metric_run": {
+                    "metric_name": APPROVED_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Recognized that ARR (annual recurring revenue) is the annualized form of the approved "
+                        f"metric '{APPROVED_METRIC_NAME}' even though 'ARR' and 'annual' appear in neither its name "
+                        "nor its description; found it via a name+description catalog search rather than deriving "
+                        "revenue from scratch; ran it through data-catalog-metric-run; rechecked the runner's "
+                        "approved and non-drifted response; derived ARR by annualizing the canonical MRR (x12); and "
+                        "labeled the ARR figure as a noncanonical derivation of the canonical MRR metric."
+                    )
+                },
+            },
+            setup=seed_approved_metric,
+        ),
         SandboxedEvalCase(
             name="governed_metric_implicit_ranking",
             prompt="give me the top 10 B2C customers by revenue and tell me which tool you used.",

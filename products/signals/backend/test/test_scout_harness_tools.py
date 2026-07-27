@@ -145,6 +145,17 @@ class TestSearchRecentRuns(BaseTest):
 
         assert len(hits) == MAX_RUN_SEARCH_LIMIT
 
+    def test_summary_surfaces_run_metadata(self) -> None:
+        # `metadata` carries the routed model triple stamped at run creation; a pre-column row
+        # (NULL) and a default-model run ({}) must both project as an empty dict, not None/crash.
+        routed = _create_run(self.team, metadata={"model": "@cf/zai-org/glm-5.2", "runtime_adapter": "claude"})
+        legacy = _create_run(self.team, metadata=None)
+
+        by_run_id = {hit.run_id: hit for hit in search_recent_runs(team_id=self.team.id)}
+
+        assert by_run_id[str(routed.id)].metadata == {"model": "@cf/zai-org/glm-5.2", "runtime_adapter": "claude"}
+        assert by_run_id[str(legacy.id)].metadata == {}
+
     def test_summary_surfaces_status_from_linked_task_run(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
         run = _create_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
@@ -514,6 +525,33 @@ class TestSearchScratchpad(BaseTest):
         results = search_scratchpad(team_id=self.team.id)
 
         assert results[0].content == "abcdefghij"
+
+    @parameterized.expand([(0,), (-5,)])
+    def test_non_positive_content_max_chars_blanks_the_body(self, content_max_chars: int) -> None:
+        remember(team_id=self.team.id, key="k1", content="abcdefghij")
+
+        results = search_scratchpad(team_id=self.team.id, content_max_chars=content_max_chars)
+
+        assert results[0].content == ""
+
+    def test_oversized_content_max_chars_returns_the_whole_body(self) -> None:
+        remember(team_id=self.team.id, key="k1", content="abcdefghij")
+
+        # Unclamped this reaches Postgres as an out-of-range LEFT() length and 500s.
+        results = search_scratchpad(team_id=self.team.id, content_max_chars=2**40)
+
+        assert results[0].content == "abcdefghij"
+
+    def test_key_lookup_survives_newer_entries_quoting_that_key(self) -> None:
+        remember(team_id=self.team.id, key="pattern:target", content="the body we want back")
+        # `text` would match all of these on content and, being newer, they'd crowd out the row.
+        for i in range(5):
+            remember(team_id=self.team.id, key=f"noise:{i}", content="see pattern:target for context")
+
+        results = search_scratchpad(team_id=self.team.id, key="pattern:target", limit=1)
+
+        assert [e.key for e in results] == ["pattern:target"]
+        assert results[0].content == "the body we want back"
 
 
 # --- emit adapter tests ---

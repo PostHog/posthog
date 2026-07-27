@@ -134,14 +134,10 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertIn("Couldn't generate a suggestion right now", resp.json()["detail"])
         self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())
 
-    def test_quality_flag_off_hides_endpoints(self) -> None:
-        # `replay-vision-quality` gates the sub-feature even when product-level `replay-vision` is on.
+    def test_product_flag_off_hides_endpoints(self) -> None:
         self._create_rated_observation("sess-1", True)
 
-        def _flags(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_key != "replay-vision-quality"
-
-        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", side_effect=_flags):
+        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False):
             current_resp = self.client.get(self._suggestions_url("current/"))
             generate_resp = self.client.post(self._suggestions_url("generate/"))
         self.assertEqual(current_resp.status_code, 404, current_resp.content)

@@ -98,6 +98,7 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -114,7 +115,11 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
         return schemas
 
     def validate_credentials(
-        self, config: MailchimpSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MailchimpSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_mailchimp_credentials(config.api_key)
 

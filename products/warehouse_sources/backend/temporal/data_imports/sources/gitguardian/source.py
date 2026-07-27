@@ -118,6 +118,7 @@ Workspaces on the EU instance should set the API URL to `https://api.eu1.gitguar
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             has_incremental = bool(INCREMENTAL_FIELDS.get(endpoint))
@@ -148,7 +149,11 @@ Workspaces on the EU instance should set the API URL to `https://api.eu1.gitguar
         return base_url, None
 
     def validate_credentials(
-        self, config: GitguardianSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GitguardianSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         base_url, error = self._check_base_url(config, team_id)
         if error:
@@ -164,7 +169,7 @@ Workspaces on the EU instance should set the API URL to `https://api.eu1.gitguar
         return validate_gitguardian_credentials(config.api_key, base_url)
 
     def get_endpoint_permissions(
-        self, config: GitguardianSourceConfig, team_id: int, endpoints: list[str]
+        self, config: GitguardianSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         base_url, error = self._check_base_url(config, team_id)
         if error:

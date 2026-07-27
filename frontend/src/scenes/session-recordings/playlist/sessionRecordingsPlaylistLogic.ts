@@ -16,6 +16,7 @@ import {
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
+import { z } from 'zod'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -33,13 +34,20 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isString } from 'lib/utils/guards'
+import { localStorageSlot } from 'lib/utils/localStorageSlot'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
+import {
+    NodeKind,
+    RecordingOrder,
+    RecordingsQuery,
+    RecordingsQueryResponse,
+    VALID_RECORDING_ORDERS,
+} from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,
@@ -175,6 +183,15 @@ const getDefaultFilterTestAccounts = (): boolean => {
     return stored === 'true'
 }
 
+// The sort the user explicitly picked in the list settings. It wins over the relevance
+// rollout/experiment default, so users who prefer another order aren't re-defaulted
+// into relevance on every visit and filter reset. Keyed per team, like the playlist
+// filter persistence below, so the preference doesn't leak across accounts
+export const preferredRecordingsSortStorage = localStorageSlot(
+    () => `${getCurrentTeamId()}__replay_list_preferred_sort`,
+    z.object({ order: z.enum(VALID_RECORDING_ORDERS), order_direction: z.enum(['ASC', 'DESC']) })
+)
+
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
     date_from: '-3d',
@@ -195,17 +212,22 @@ export const getDefaultFilters = (
     // (urlFilters, e.g. "View recordings" CTAs) come with a specific session in mind,
     // where recency is the better default than relevance
     const hasSpecificIntent = !!personUUID || !!pinnedFilters || !!urlFilters
+    // A sort the user explicitly picked beats the relevance default, but specific-intent
+    // surfaces keep recency regardless
+    const preferredSort = hasSpecificIntent ? null : preferredRecordingsSortStorage.get()
     const defaults: RecordingUniversalFilters = {
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: filterTestAccounts,
         date_from: personUUID ? '-30d' : '-3d',
         // Default to sorting by relevance for the surfacing-score rollout or the relevance-sort experiment's test arm
         order:
-            !hasSpecificIntent &&
+            preferredSort?.order ??
+            (!hasSpecificIntent &&
             (posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE) ||
                 posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT) === 'test')
                 ? 'surfacing_score'
-                : DEFAULT_RECORDING_FILTERS.order,
+                : DEFAULT_RECORDING_FILTERS.order),
+        order_direction: preferredSort?.order_direction ?? DEFAULT_RECORDING_FILTERS.order_direction,
     }
     if (pinnedFilters) {
         defaults.filter_group = mergePinnedFilters(defaults.filter_group, pinnedFilters)

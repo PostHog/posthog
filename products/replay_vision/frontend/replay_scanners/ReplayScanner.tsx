@@ -22,14 +22,12 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCredits } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
-import { ObservationSearchMaxChat } from './components/ObservationSearchMaxChat'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerDigestCard } from './components/ScannerDigestCard'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
 import { ScannerQualityTab } from './components/ScannerQualityTab'
 import { ScannerRunTab } from './components/ScannerRunTab'
-import { SummarizerMaxChat } from './components/SummarizerMaxChat'
 import { VisionActionsTab } from './components/VisionActionsTab'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
@@ -46,7 +44,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
     const actionsTabEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]
-    const qualityTabEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_QUALITY]
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
@@ -77,7 +74,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
-                        {qualityTabEnabled && activeTab !== ReplayScannerTab.Quality && (
+                        {activeTab !== ReplayScannerTab.Quality && (
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -113,21 +110,21 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 data-attr="vision-scanner-tabs"
                 tabs={[
                     {
-                        key: ReplayScannerTab.Observations,
-                        label: 'Observations',
+                        key: ReplayScannerTab.Overview,
+                        label: 'Overview',
                         content: (
                             <div className="flex flex-col gap-6">
                                 {actionsTabEnabled && (
                                     <ScannerDigestCard scannerId={scannerId} scannerName={scanner.name || ''} />
                                 )}
                                 <ScannerOverview scannerId={scannerId} />
-                                <div className="flex flex-col gap-2">
-                                    <SummarizerMaxChat scannerId={scannerId} />
-                                    <ObservationSearchMaxChat scannerId={scannerId} />
-                                    <ScannerObservationsTable scannerId={scannerId} />
-                                </div>
                             </div>
                         ),
+                    },
+                    {
+                        key: ReplayScannerTab.Observations,
+                        label: 'Observations',
+                        content: <ScannerObservationsTable scannerId={scannerId} />,
                     },
                     {
                         key: ReplayScannerTab.OnDemand,
@@ -139,14 +136,14 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         label: 'Configuration',
                         content: <ScannerConfigReadonly scanner={scanner} />,
                     },
-                    qualityTabEnabled && {
+                    {
                         key: ReplayScannerTab.Quality,
                         label: 'Quality',
                         content: <ScannerQualityTab scannerId={scannerId} />,
                     },
                     actionsTabEnabled && {
                         key: ReplayScannerTab.Actions,
-                        label: 'Summaries and alerts',
+                        label: 'Digests and alerts',
                         content: (
                             <VisionActionsTab
                                 scannerId={scannerId}

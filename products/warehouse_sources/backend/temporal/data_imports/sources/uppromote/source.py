@@ -162,6 +162,7 @@ class UpPromoteSource(
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
             ENDPOINTS,
@@ -180,7 +181,11 @@ class UpPromoteSource(
         )
 
     def validate_credentials(
-        self, config: UpPromoteSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: UpPromoteSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         valid, error = validate_uppromote_credentials(config.api_key)
         if valid:
@@ -193,7 +198,9 @@ class UpPromoteSource(
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
 
-    def create_webhook(self, config: UpPromoteSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: UpPromoteSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         return create_uppromote_webhook(config.api_key, webhook_url)
 
     def get_desired_webhook_events(
@@ -209,16 +216,19 @@ class UpPromoteSource(
         webhook_url: str,
         team_id: int,
         eligible_schema_names: list[str],
+        api_version: str | None = None,
     ) -> WebhookSyncResult:
         desired_events = self.get_desired_webhook_events(config, eligible_schema_names) or []
         return sync_uppromote_webhook_events(config.api_key, webhook_url, desired_events)
 
     def get_external_webhook_info(
-        self, config: UpPromoteSourceConfig, webhook_url: str, team_id: int
+        self, config: UpPromoteSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo | None:
         return get_uppromote_webhook_info(config.api_key, webhook_url)
 
-    def delete_webhook(self, config: UpPromoteSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: UpPromoteSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         return delete_uppromote_webhook(config.api_key, webhook_url)
 
     def source_for_pipeline(

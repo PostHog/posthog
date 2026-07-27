@@ -1,3 +1,4 @@
+import { SAMPLING_MODE_OPTIONS } from '../types'
 import { diffVersionConfigs, VersionConfig, versionChangesByVersion } from './versionChanges'
 
 describe('versionChanges', () => {
@@ -42,7 +43,10 @@ describe('versionChanges', () => {
             expect(changes.map((change) => change.label)).toEqual([label])
         })
 
-        it('formats sampling and model changes with the labels the configuration tab uses', () => {
+        it('formats sampling and coverage with the labels the configuration tab uses', () => {
+            // Read the copy from the option list rather than pinning it, so renaming a mode isn't a test failure.
+            const modeLabel = (value: string): string =>
+                SAMPLING_MODE_OPTIONS.find((option) => option.value === value)?.label ?? value
             const { changes } = diffVersionConfigs(
                 version(),
                 version({ version: 2, samplingRate: 0.255, samplingMode: 'focused' })
@@ -52,11 +56,13 @@ describe('versionChanges', () => {
                     field: 'samplingMode',
                     label: 'Session coverage',
                     kind: 'value',
-                    before: 'Balanced',
-                    after: 'Focused',
+                    before: modeLabel('balanced'),
+                    after: modeLabel('focused'),
                 },
                 { field: 'samplingRate', label: 'Sampling', kind: 'value', before: '100%', after: '25.5%' },
             ])
+            // The raw enum leaking through instead of the friendly label is the regression this guards.
+            expect(changes[0].after).not.toBe('focused')
         })
 
         it('carries the raw prompt text so the change can be diffed, and puts it first', () => {

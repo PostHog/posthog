@@ -187,6 +187,15 @@ def forward_pending_user_message(run_id: str) -> None:
         )
 
         if result.success or result.turn_in_flight:
+            # Attribution stamp for the sandbox usage ledger: the initial prompt is a
+            # user message, so its delivery starts the user-attributable window even
+            # when the run state carried a warm marker at provision time. A turn in
+            # flight counts: the message reached the sandbox and it is doing work.
+            from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — matches the file's deferred-import pattern
+                record_task_run_user_activity,
+            )
+
+            record_task_run_user_activity(run_id, task_run.team_id)
             logger.info("forward_pending_message_delivered", run_id=run_id)
         else:
             observe_followup_delivery_failed(task_run, retryable=False)

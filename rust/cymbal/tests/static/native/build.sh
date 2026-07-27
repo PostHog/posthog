@@ -79,6 +79,17 @@ GOOS=linux GOARCH=amd64 go build -ldflags "-B gobuildid" \
 zstd -19 -f -q test_go_binary_paths
 rm test_go_binary_paths
 
+# Go Mach-O fixtures: DWARF lives in the executable itself (Go never emits a
+# dSYM). -compressdwarf=false keeps the DWARF readable by symbolic; the
+# default build carries compressed __zdebug sections and is the fixture for
+# the "rebuild with -compressdwarf=false" guidance.
+GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-compressdwarf=false" -o test_go_binary_macho test_go.go
+zstd -19 -f -q test_go_binary_macho
+rm test_go_binary_macho
+GOOS=darwin GOARCH=arm64 go build -trimpath -o test_go_binary_macho_zdebug test_go.go
+zstd -19 -f -q test_go_binary_macho_zdebug
+rm test_go_binary_macho_zdebug
+
 echo "Built fixtures:"
 file test_binary_nopie test_binary_pie test_binary_inline test_binary_nodebug test_binary_nobuildid
-ls -la test_rust_binary.zst test_go_binary.zst test_go_binary_paths.zst
+ls -la test_rust_binary.zst test_go_binary.zst test_go_binary_paths.zst test_go_binary_macho.zst test_go_binary_macho_zdebug.zst

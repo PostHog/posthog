@@ -114,6 +114,7 @@ The free plan is restricted to the `EUR` base currency — a custom base currenc
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -134,7 +135,11 @@ The free plan is restricted to the `EUR` base currency — a custom base currenc
         return schemas
 
     def validate_credentials(
-        self, config: ExchangeRatesApiSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ExchangeRatesApiSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_exchange_rates_api_credentials(config.access_key):
             return True, None

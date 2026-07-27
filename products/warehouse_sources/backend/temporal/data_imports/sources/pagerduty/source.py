@@ -91,12 +91,17 @@ You can create a read-only API key in your PagerDuty account under **Integration
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # incidents mutates after creation, so it merges (incremental) but is never append-only.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"incidents"})
 
     def validate_credentials(
-        self, config: PagerDutySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PagerDutySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         ok, status, error = validate_pagerduty_credentials(config.api_token, schema_name)
         if ok:

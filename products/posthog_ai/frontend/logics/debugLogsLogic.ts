@@ -38,9 +38,10 @@ export type debugLogsLogicType = MakeLogicType<
 
 /**
  * Staff-only preference for whether `_posthog/console` debug rows surface in the run thread. Persisted
- * to localStorage and shared across every run surface (singleton, unkeyed), enabled by default. An
- * impersonated session always forces debug logs on, independent of the persisted toggle, so an engineer
- * debugging a customer's session never has them silently hidden.
+ * to localStorage and shared across every run surface (singleton, unkeyed), off by default — debug rows
+ * render only after the user explicitly opts in. An impersonated session always forces debug logs on,
+ * independent of the persisted toggle, so an engineer debugging a customer's session never has them
+ * silently hidden.
  */
 export const debugLogsLogic = kea<debugLogsLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'logics', 'debugLogsLogic']),
@@ -52,7 +53,7 @@ export const debugLogsLogic = kea<debugLogsLogicType>([
     }),
     reducers({
         debugLogsEnabled: [
-            true,
+            false,
             { persist: true, storageKey: 'posthog_ai.debugLogsEnabled' },
             {
                 setDebugLogsEnabled: (_, { enabled }) => enabled,
@@ -72,7 +73,7 @@ export const debugLogsLogic = kea<debugLogsLogicType>([
         ],
         /**
          * Whether debug rows should actually render. Impersonation always shows them; otherwise staff/dev
-         * see them subject to the persisted toggle (on by default); everyone else never does.
+         * see them only after opting in via the persisted toggle (off by default); everyone else never does.
          */
         showDebugLogs: [
             (s) => [s.user, s.canControlDebugLogs, s.debugLogsEnabled],

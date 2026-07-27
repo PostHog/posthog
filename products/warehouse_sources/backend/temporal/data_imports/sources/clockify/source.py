@@ -99,12 +99,17 @@ The key is user-scoped — it can read exactly what your Clockify user can. Use 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only time_entries has a server-side timestamp filter; everything else is full refresh.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: ClockifySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ClockifySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_clockify_credentials(config.api_key):
             return True, None

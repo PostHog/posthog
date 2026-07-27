@@ -417,10 +417,12 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('LLM provider. v1 is Google-only.\n\n\* `google` - Google'),
         model: zod
-            .enum(['gemini-3.5-flash-lite', 'gemini-3.6-flash'])
-            .describe('\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3.6-flash` - Gemini 3.6 Flash')
+            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.6-flash'])
             .describe(
-                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash (preview)\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+            )
+            .describe(
+                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash (preview)\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
             ),
         enabled: zod
             .boolean()
@@ -501,11 +503,13 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe('LLM provider. v1 is Google-only.\n\n\* `google` - Google'),
         model: zod
-            .enum(['gemini-3.5-flash-lite', 'gemini-3.6-flash'])
-            .describe('\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3.6-flash` - Gemini 3.6 Flash')
+            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.6-flash'])
+            .describe(
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash (preview)\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+            )
             .optional()
             .describe(
-                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash (preview)\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
             ),
         enabled: zod
             .boolean()
@@ -653,7 +657,7 @@ export const visionScannersEstimateCreateBodySamplingRateMin = 0
 export const visionScannersEstimateCreateBodySamplingRateMax = 1
 
 export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensive`
-export const visionScannersEstimateCreateBodyModelDefault = `gemini-3.6-flash`
+export const visionScannersEstimateCreateBodyModelDefault = `gemini-3-flash-preview`
 
 export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .object({
@@ -683,11 +687,13 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
                 "The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
             ),
         model: zod
-            .enum(['gemini-3.5-flash-lite', 'gemini-3.6-flash'])
-            .describe('\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3.6-flash` - Gemini 3.6 Flash')
+            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.6-flash'])
+            .describe(
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash (preview)\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+            )
             .default(visionScannersEstimateCreateBodyModelDefault)
             .describe(
-                'Proposed model; determines `credits_per_observation` in the response.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                'Proposed model; determines `credits_per_observation` in the response.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash (preview)\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
             ),
     })
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')

@@ -45,7 +45,7 @@ from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
 from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME
-from products.engineering_analytics.backend.logic.queries._test_spans import CI_SERVICE_NAME
+from products.engineering_analytics.backend.logic.queries._test_spans import PYTEST_CI_SERVICE_NAME
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     TEAM_MEMBERS_SCHEMA,
@@ -710,7 +710,7 @@ def _seed_trace_spans(team: Team) -> int:
                     rows.append(
                         f"('{_SPAN_TRACE_PREFIX}-{span_index:06d}', {team.pk}, "
                         f"'{_SPAN_TRACE_PREFIX}-trace-{span_index}', 'span-{span_index}', 'parent', "
-                        f"'{nodeid}', 1, '{ts}', '{ts}', '{ts}', 0, '{CI_SERVICE_NAME}', "
+                        f"'{nodeid}', 1, '{ts}', '{ts}', '{ts}', 0, '{PYTEST_CI_SERVICE_NAME}', "
                         f"map({', '.join(attr_pairs)}), map({', '.join(resource_pairs)}))"
                     )
 

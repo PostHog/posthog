@@ -246,9 +246,12 @@ class TestEmitSignalAnalytics:
                 extra=GITHUB_ISSUE_EXTRA,
             )
 
-        # Both the "started" marker and the final "emitted" event fire
-        events = [call.kwargs["event"] for call in capture.call_args_list]
-        assert events == ["signal_emission_started", "signal_emitted"]
+        # Both the "started" marker and the final "emitted" event fire, exactly once each
+        assert [call.kwargs["event"] for call in capture.call_args_list] == [
+            "signal_emission_started",
+            "signal_emitted",
+        ]
+        events = {call.kwargs["event"]: call for call in capture.call_args_list}
         # Only top-level scalar `extra` values are flattened onto the event (the `labels`
         # list is dropped); the core `source_*` keys win on conflict.
         expected_properties = {
@@ -262,9 +265,10 @@ class TestEmitSignalAnalytics:
             "source_type": "issue",
             "source_id": "posthog/posthog#42",
         }
-        for call in capture.call_args_list:
+        assert events["signal_emission_started"].kwargs["properties"] == expected_properties
+        assert events["signal_emitted"].kwargs["properties"] == expected_properties
+        for call in events.values():
             assert call.kwargs["distinct_id"] == str(team_stub.uuid)
-            assert call.kwargs["properties"] == expected_properties
             assert "labels" not in call.kwargs["properties"]
             assert "project" in call.kwargs["groups"]
 

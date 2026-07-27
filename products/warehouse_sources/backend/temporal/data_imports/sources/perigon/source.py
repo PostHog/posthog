@@ -101,13 +101,18 @@ Datasets available to sync depend on your Perigon plan. Perigon caps each search
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only articles and stories have a documented server-side timestamp filter; the
         # reference datasets are full refresh.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: PerigonSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PerigonSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         endpoint = PERIGON_ENDPOINTS.get(schema_name) if schema_name else None
         ok, status = validate_perigon_credentials(config.api_key, path=endpoint.path if endpoint else None)

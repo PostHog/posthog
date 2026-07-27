@@ -81,6 +81,7 @@ class ReasoningEffort(StrEnum):
     HIGH = "high"
     XHIGH = "xhigh"
     MAX = "max"
+    ULTRACODE = "ultracode"
 
 
 PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
@@ -89,7 +90,11 @@ PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     ReasoningEffort.HIGH,
     ReasoningEffort.XHIGH,
     ReasoningEffort.MAX,
+    ReasoningEffort.ULTRACODE,
 )
+
+
+CONTEXT_WINDOW_CHOICES: tuple[str, ...] = ("200k", "1m")
 
 
 RUNTIME_PROVIDER_BY_ADAPTER: dict[RuntimeAdapter, LLMProvider] = {
@@ -124,6 +129,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-opus-4-8": (
         ReasoningEffort.LOW,
@@ -131,6 +137,15 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
+    ),
+    "claude-opus-5": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-fable-5": (
         ReasoningEffort.LOW,
@@ -138,6 +153,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-sonnet-5": (
         ReasoningEffort.LOW,
@@ -145,6 +161,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-sonnet-4-6": (
         ReasoningEffort.LOW,
@@ -195,7 +212,7 @@ def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None)
 
 # Applied at fire time when a loop leaves its model unset ("" / None): a blank
 # model means "let PostHog pick", so defaults can improve without rewriting
-# stored loops.
+# stored loops. Mirrored by LOOP_DEFAULT_MODELS in posthog-code's loops UI.
 DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
     RuntimeAdapter.CLAUDE.value: "claude-sonnet-5",
     RuntimeAdapter.CODEX.value: "gpt-5",
@@ -295,13 +312,14 @@ class RunState(BaseModel, extra="allow"):
     auto_publish: bool | None = None
     github_credential_source: GitHubCredentialSource | None = None
     pr_base_branch: str | None = None
-    home_quick_action: str | None = None
     run_source: RunSource | None = None
     signal_report_id: str | None = None
     runtime_adapter: RuntimeAdapter | None = None
     provider: LLMProvider | None = None
     model: str | None = None
     reasoning_effort: ReasoningEffort | None = None
+    context_window: str | None = None
+    fast_mode: bool | None = None
     resume_from_run_id: str | None = None
     handoff_resumed: bool = False
     snapshot_external_id: str | None = None
@@ -376,7 +394,7 @@ def get_sandbox_snapshot_metadata(snapshot: SandboxSnapshot) -> SnapshotMetadata
 
 
 # TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
-# (notably the PostHog Code CLI) that still pass ``github_user_token`` on the run request.
+# (notably the PostHog Desktop CLI) that still pass ``github_user_token`` on the run request.
 # The server-side identity flow should be preferred going forward.
 GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 
@@ -396,8 +414,16 @@ def sandbox_identity_scope(run_id: str, state: dict[str, Any] | None) -> str:
     return (state or {}).get("sandbox_id") or run_id
 
 
-def _sandbox_mcp_session_cache_key(scope: str) -> str:
-    return f"tasks:sandbox-mcp-session:{scope}"
+def _sandbox_identity_cache_key(kind: str, scope: str) -> str:
+    return f"tasks:sandbox-{kind}:{scope}"
+
+
+def _mark_sandbox_identity(kind: str, scope: str, user_id: int) -> None:
+    get_tasks_cache().set(_sandbox_identity_cache_key(kind, scope), user_id, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+
+
+def _get_sandbox_identity_user(kind: str, scope: str) -> int | None:
+    return get_tasks_cache().get(_sandbox_identity_cache_key(kind, scope))
 
 
 def mark_sandbox_mcp_session(scope: str, user_id: int) -> None:
@@ -406,13 +432,31 @@ def mark_sandbox_mcp_session(scope: str, user_id: int) -> None:
     Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so an absent
     entry always reads as "must refresh".
     """
-    get_tasks_cache().set(_sandbox_mcp_session_cache_key(scope), user_id, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+    _mark_sandbox_identity("mcp-session", scope, user_id)
 
 
 def get_sandbox_mcp_session_user(scope: str) -> int | None:
     """User id the sandbox's MCP session was last bound to within the
     freshness window, or None when unknown."""
-    return get_tasks_cache().get(_sandbox_mcp_session_cache_key(scope))
+    return _get_sandbox_identity_user("mcp-session", scope)
+
+
+def mark_sandbox_github_identity(scope: str, user_id: int) -> None:
+    """Record which actor the sandbox's in-place GitHub credentials reflect.
+
+    The value is the actor whose token was applied, or who was logged out (no
+    usable access) — either way the sandbox no longer carries a *different*
+    actor's identity. Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS; an
+    absent entry reads as "must re-establish", which is always safe because
+    re-establishing re-applies or clears rather than trusting stale creds.
+    """
+    _mark_sandbox_identity("github-identity", scope, user_id)
+
+
+def get_sandbox_github_identity_user(scope: str) -> int | None:
+    """Actor id the sandbox's GitHub credentials were last bound to (or logged
+    out for) within the freshness window, or None when unknown."""
+    return _get_sandbox_identity_user("github-identity", scope)
 
 
 @dataclass(frozen=True)
@@ -616,8 +660,8 @@ def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
     """Map the task's interaction origin to the `x-posthog-mcp-consumer` value.
 
     Slack-launched runs send `"slack"` and posthog_ai (Max) runs send
-    `"posthog_ai"`; everything else (the PostHog Code UI, API callers, missing
-    origin) is treated as PostHog Code. Only `"posthog-code"` is a UI-apps host
+    `"posthog_ai"`; everything else (the PostHog Desktop UI, API callers, missing
+    origin) is treated as PostHog Desktop. Only `"posthog-code"` is a UI-apps host
     on the MCP server — it gates UI-apps payload emission, so `"posthog_ai"` and
     `"slack"` deliberately don't get UI apps. Keep the `"posthog-code"` literal
     in sync with `POSTHOG_CODE_CONSUMER` in
@@ -991,7 +1035,7 @@ def _resolve_sandbox_github_token(
     Resolution order for ``USER`` authorship:
 
     1. Caller-supplied token cached at run-create time (backward compat for the
-       PostHog Code CLI — wins when present so self-managed tokens still work).
+       PostHog Desktop CLI — wins when present so self-managed tokens still work).
     2. Server-side ``UserIntegration`` for the acting user, refreshing on demand.
     3. Team ``Integration`` token for legacy runs that predate persisted user identity.
 
@@ -1119,6 +1163,7 @@ def build_sandbox_environment_variables(
     access_token: str,
     team_id: int,
     sandbox_environment: Optional[Any] = None,
+    otel_telemetry_enabled: bool = False,
 ) -> dict[str, str]:
     """Build the environment variables dict for a sandbox, merging user env vars from SandboxEnvironment.
 
@@ -1149,6 +1194,27 @@ def build_sandbox_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+    if otel_telemetry_enabled:
+        env_vars.update(get_sandbox_otel_env_vars())
+
+    return env_vars
+
+
+def get_sandbox_otel_env_vars() -> dict[str, str]:
+    """OTLP config for agent-server run telemetry (PostHog Logs/APM).
+
+    Deliberately POSTHOG_-prefixed rather than the standard OTEL_* names: the
+    sandbox env is inherited by user processes, and standard OTEL_* vars would
+    make any OTel SDK in user code auto-export into our telemetry project.
+    """
+    if not (settings.SANDBOX_AGENT_OTEL_LOGS_URL and settings.SANDBOX_AGENT_OTEL_LOGS_TOKEN):
+        return {}
+    env_vars = {
+        "POSTHOG_AGENT_OTEL_LOGS_URL": settings.SANDBOX_AGENT_OTEL_LOGS_URL,
+        "POSTHOG_AGENT_OTEL_LOGS_TOKEN": settings.SANDBOX_AGENT_OTEL_LOGS_TOKEN,
+    }
+    if settings.SANDBOX_AGENT_OTEL_TRACES_URL:
+        env_vars["POSTHOG_AGENT_OTEL_TRACES_URL"] = settings.SANDBOX_AGENT_OTEL_TRACES_URL
     return env_vars
 
 
@@ -1180,7 +1246,7 @@ def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -
     """Return git author/committer env vars for the sandbox.
 
     Runs with user authorship are attributed to the acting user.
-    Bot-authored runs fall back to the Dockerfile defaults ("PostHog Code" /
+    Bot-authored runs fall back to the Dockerfile defaults ("PostHog Desktop" /
     code@posthog.com).
     """
     if get_pr_authorship_mode(task, state) != PrAuthorshipMode.USER:

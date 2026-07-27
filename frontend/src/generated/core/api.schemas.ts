@@ -527,9 +527,6 @@ export const BusinessModelEnumApi = {
  * * `track_costs` - track_costs
  * * `set_up_llm_evaluation` - set_up_llm_evaluation
  * * `run_ai_playground` - run_ai_playground
- * * `enable_revenue_analytics_viewset` - enable_revenue_analytics_viewset
- * * `connect_revenue_source` - connect_revenue_source
- * * `set_up_revenue_goal` - set_up_revenue_goal
  * * `enable_log_capture` - enable_log_capture
  * * `view_first_logs` - view_first_logs
  * * `create_first_workflow` - create_first_workflow
@@ -601,9 +598,6 @@ export const AvailableSetupTaskIdsEnumApi = {
     TrackCosts: 'track_costs',
     SetUpLlmEvaluation: 'set_up_llm_evaluation',
     RunAiPlayground: 'run_ai_playground',
-    EnableRevenueAnalyticsViewset: 'enable_revenue_analytics_viewset',
-    ConnectRevenueSource: 'connect_revenue_source',
-    SetUpRevenueGoal: 'set_up_revenue_goal',
     EnableLogCapture: 'enable_log_capture',
     ViewFirstLogs: 'view_first_logs',
     CreateFirstWorkflow: 'create_first_workflow',
@@ -936,7 +930,6 @@ export const BaseCurrencyEnumApi = {
 export interface TeamRevenueAnalyticsConfigApi {
     base_currency?: BaseCurrencyEnumApi
     events?: unknown
-    goals?: unknown
     filter_test_accounts?: boolean
 }
 
@@ -989,9 +982,29 @@ export interface TeamCustomerAnalyticsConfigApi {
     account_group_type_index?: number | null
 }
 
+/**
+ * * `off` - Off
+ * * `opt_out` - Opt Out
+ * * `opt_in` - Opt In
+ */
+export type EmailTrackingConsentModeEnumApi =
+    (typeof EmailTrackingConsentModeEnumApi)[keyof typeof EmailTrackingConsentModeEnumApi]
+
+export const EmailTrackingConsentModeEnumApi = {
+    Off: 'off',
+    OptOut: 'opt_out',
+    OptIn: 'opt_in',
+} as const
+
 export interface TeamWorkflowsConfigApi {
     /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
     capture_workflows_engagement_events?: boolean
+    /** Recipient-consent enforcement for open/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.
+     *
+     * * `off` - Off
+     * * `opt_out` - Opt Out
+     * * `opt_in` - Opt In */
+    email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
 }
 
 /**
@@ -2710,6 +2723,9 @@ export interface SharePasswordApi {
     readonly is_active: boolean
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
@@ -2718,6 +2734,11 @@ export interface SharingConfigurationApi {
     settings?: unknown
     password_required?: boolean
     readonly share_passwords: readonly SharePasswordApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface FileSystemApi {
@@ -3326,6 +3347,8 @@ export interface OrganizationApi {
      */
     members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
+    /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+    members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
     /** @nullable */
@@ -3774,7 +3797,7 @@ export interface UserGitHubPrepareCallbackRequestApi {
 
 export interface UserGitHubLinkStartRequestApi {
     /**
-     * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
+     * Optional team/project id (e.g. PostHog Desktop); web UI uses the session's current team.
      * @nullable
      */
     team_id?: number | null

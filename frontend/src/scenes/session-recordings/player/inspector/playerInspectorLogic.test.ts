@@ -118,6 +118,10 @@ describe('playerInspectorLogic', () => {
             },
         })
         featureFlagLogic.mount()
+        // featureFlags persist to localStorage across tests, so pin the experiment-context flag
+        // off before the first mount — otherwise a prior test leaves it on and the context load
+        // kicks off with stale state. The experiment-variant tests below opt in explicitly.
+        featureFlagLogic.actions.setFeatureFlags([], {})
 
         dataLogic = sessionRecordingDataCoordinatorLogic(playerLogicProps)
         dataLogic.mount()
@@ -321,9 +325,11 @@ describe('playerInspectorLogic', () => {
         it('synthesizes no markers when the feature flag is off', async () => {
             remountWithFlagState(false)
 
-            await expectLogic(sessionRecordingExperimentContextLogic({ sessionRecordingId: '1' })).toDispatchActions([
-                'loadExperimentContextSuccess',
-            ])
+            // With the flag off the context load never starts (afterMount is gated on the flag),
+            // so there is no exposure data and no markers are synthesized.
+            await expectLogic(
+                sessionRecordingExperimentContextLogic({ sessionRecordingId: '1' })
+            ).toNotHaveDispatchedActions(['loadExperimentContext'])
 
             expect(logic.values.allItems.items.filter((item) => item.type === 'experiment-variant')).toHaveLength(0)
             expect(logic.values.seekbarItems.filter((item) => item.type === 'experiment-variant')).toHaveLength(0)

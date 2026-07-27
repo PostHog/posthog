@@ -74,6 +74,16 @@ describe('installationProgressLogic merge', () => {
             expect(cloudProgress(state, [], conn, null).phase).toBe(expected)
         })
 
+        it.each([
+            // A deliberate cancel (button or PR close) must not read as a broken installation.
+            ['cancelled', 'Run cancelled'],
+            ['failed', 'Installation failed'],
+        ])('titles a terminal %s run as %s', (status, expectedTitle) => {
+            const result = cloudProgress(taskState({ status, error_message: 'Stopped by user' }), [], 'open', null)
+            expect(result.error?.title).toBe(expectedTitle)
+            expect(result.error?.detail).toBe('Stopped by user')
+        })
+
         it('surfaces a stalled queued run as an error instead of an eternal spinner', () => {
             const result = cloudProgress(taskState({ status: 'queued' }), [], 'open', null, true)
             expect(result.phase).toBe('error')

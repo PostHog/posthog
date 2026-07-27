@@ -103,6 +103,7 @@ The search tables (`gifs_search`, `stickers_search`) only appear once you set a 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         has_query = bool((config.search_query or "").strip())
 
@@ -129,7 +130,7 @@ The search tables (`gifs_search`, `stickers_search`) only appear once you set a 
         return schemas
 
     def validate_credentials(
-        self, config: GiphySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: GiphySourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_giphy_credentials(config.api_key):
             return True, None

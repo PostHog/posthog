@@ -2,6 +2,7 @@ import dataclasses
 from datetime import timedelta
 
 from django.conf import settings
+from django.db import transaction
 
 import pydantic
 import structlog
@@ -24,8 +25,106 @@ MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 MAX_SIGNAL_REMEDIATION_TOKENS = 16000
 
 
+@dataclasses.dataclass(frozen=True)
+class SignalSourceTypesState:
+    """configured = any bundle row exists; all_enabled = every type is currently enabled."""
+
+    configured: bool
+    all_enabled: bool
+
+
+def signal_source_types_state(
+    *, team_id: int, source_product: str, source_types: tuple[str, ...]
+) -> SignalSourceTypesState:
+    rows = list(
+        SignalSourceConfig.objects.filter(
+            team_id=team_id,
+            source_product=source_product,
+            source_type__in=source_types,
+        ).values_list("source_type", "enabled")
+    )
+    enabled_types = {source_type for source_type, enabled in rows if enabled}
+    return SignalSourceTypesState(configured=bool(rows), all_enabled=enabled_types == set(source_types))
+
+
+def set_signal_source_types_enabled(
+    *,
+    team_id: int,
+    source_product: str,
+    source_types: tuple[str, ...],
+    enabled: bool,
+    created_by_id: int,
+    config: dict | None = None,
+) -> None:
+    """Atomically update a product-owned bundle of signal-source types. Every enable refreshes
+    ``created_by``. Provided ``config`` keys are merged into each row's stored config rather than
+    replacing it, so re-enables can't wipe keys they don't manage (e.g. an operator's ``dry_run``)."""
+    with transaction.atomic():
+        Team.objects.select_for_update().only("id").get(id=team_id)
+        if not enabled:
+            SignalSourceConfig.objects.filter(
+                team_id=team_id,
+                source_product=source_product,
+                source_type__in=source_types,
+            ).update(enabled=False)
+            return
+        for source_type in source_types:
+            row, _ = SignalSourceConfig.objects.update_or_create(
+                team_id=team_id,
+                source_product=source_product,
+                source_type=source_type,
+                defaults={"enabled": True, "created_by_id": created_by_id},
+            )
+            if config is not None:
+                merged = {**row.config, **config} if isinstance(row.config, dict) else dict(config)
+                if merged != row.config:
+                    row.config = merged
+                    row.save(update_fields=["config"])
+
+
 def _token_count(text: str) -> int:
     return len(get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL).encode(text))
+
+
+def validate_signal_input(
+    *,
+    source_product: str,
+    source_type: str,
+    source_id: str,
+    description: str,
+    weight: float,
+    extra: dict | None,
+    remediation: SignalRemediation | None,
+) -> dict | None:
+    """The single emit-time schema check; emitters' tests call it directly so payloads can't drift
+    from the contract unnoticed. Raises ``pydantic.ValidationError`` on an unknown type pair or
+    mismatched payload; returns the JSON-safe remediation dict ``emit_signal`` forwards."""
+    variant_model = SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
+    if variant_model is None:
+        raise pydantic.ValidationError.from_exception_data(
+            title="SignalInput",
+            line_errors=[
+                {
+                    "type": "value_error",
+                    "loc": ("source_product", "source_type"),
+                    "input": {"source_product": source_product, "source_type": source_type},
+                    "ctx": {"error": ValueError(f"Unknown signal type: {source_product}/{source_type}")},
+                }
+            ],
+        )
+    remediation_dict = remediation.model_dump(mode="json", exclude_none=True) if remediation is not None else None
+    variant_model.model_validate(
+        {
+            "source_product": source_product,
+            "source_type": source_type,
+            "source_id": source_id,
+            "description": description,
+            "weight": weight,
+            "extra": extra or {},
+            "remediation": remediation_dict,
+        }
+    )
+    return remediation_dict
 
 
 def dismiss_report_from_slack(
@@ -123,6 +222,26 @@ def _ai_data_processing_approved(team_id: int) -> bool:
 def has_enabled_source(team_id: int) -> bool:
     """True once the team has at least one enabled signal source — i.e. there's something to respond to."""
     return SignalSourceConfig.objects.filter(team_id=team_id, enabled=True).exists()
+
+
+def team_ids_with_source_product_enabled(source_product: str) -> list[int]:
+    """Team ids with at least one enabled source of ``source_product`` — the enrolment list a
+    product's own scheduled emitter fans out over (e.g. engineering_analytics' CI-signals
+    coordinator). Per-``source_type`` and org AI-approval gating still happens in ``emit_signal``;
+    this is the cheap pre-filter so a sweep skips teams that never turned the product on."""
+    return list(
+        SignalSourceConfig.objects.filter(source_product=source_product, enabled=True)
+        .values_list("team_id", flat=True)
+        .distinct()
+    )
+
+
+def is_signal_source_enabled(team_id: int, source_product: str, source_type: str) -> bool:
+    """Whether ``emit_signal`` will accept this ``(source_product, source_type)`` for the team, or
+    silently drop it. A scheduled emitter that pre-checks this can skip a disabled type instead of
+    recording a phantom emission in its own dedupe ledger — ``emit_signal`` returns silently, not by
+    raising, so the caller can't otherwise tell an accepted emit from a dropped one."""
+    return SignalSourceConfig.is_source_enabled(team_id, source_product, source_type)
 
 
 def onboarding_sources(team_id: int) -> list[OnboardingSource]:
@@ -282,34 +401,15 @@ async def emit_signal(
                 f"Trim the remediation guidance before calling emit_signal."
             )
 
-    # Validate the signal against the matching schema variant
-    variant_model = SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
-    if variant_model is None:
-        raise pydantic.ValidationError.from_exception_data(
-            title="SignalInput",
-            line_errors=[
-                {
-                    "type": "value_error",
-                    "loc": ("source_product", "source_type"),
-                    "input": {"source_product": source_product, "source_type": source_type},
-                    "ctx": {"error": ValueError(f"Unknown signal type: {source_product}/{source_type}")},
-                }
-            ],
-        )
-    # Carry the remediation as a plain dict from here on (like `extra`) so it survives the
-    # Temporal/S3 JSON round-trip; `model_validate` below re-checks it against the variant's
-    # declared `remediation: SignalRemediation | None` field.
-    remediation_dict = remediation.model_dump(mode="json", exclude_none=True) if remediation is not None else None
-    payload_to_validate: dict = {
-        "source_product": source_product,
-        "source_type": source_type,
-        "source_id": source_id,
-        "description": description,
-        "weight": weight,
-        "extra": extra or {},
-        "remediation": remediation_dict,
-    }
-    variant_model.model_validate(payload_to_validate)
+    remediation_dict = validate_signal_input(
+        source_product=source_product,
+        source_type=source_type,
+        source_id=source_id,
+        description=description,
+        weight=weight,
+        extra=extra,
+        remediation=remediation,
+    )
 
     # Fire a "started" marker so direct callers (error tracking, AI observability evals, etc.)
     # that don't go through the data-source pipeline still have a top-of-funnel event. The
