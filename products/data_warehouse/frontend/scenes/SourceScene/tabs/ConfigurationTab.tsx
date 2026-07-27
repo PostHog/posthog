@@ -12,11 +12,10 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SourceFormComponent } from 'products/data_warehouse/frontend/shared/components/forms/SourceForm'
 
+import { getCustomSourceUi } from '../../customSourceUi'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
-import { EXCEL_SOURCE_NAME } from '../../NewSourceScene/excelSourceLogic'
 import { buildKeaFormDefaultFromSourceDetails } from '../../NewSourceScene/sourceWizardLogic'
 import { CDCSection } from './CDCSection'
-import { ExcelConfigurationForm } from './ExcelConfigurationForm'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 interface ConfigurationTabProps {
@@ -79,10 +78,11 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
         return <LemonSkeleton />
     }
 
-    // The generic form would render Excel's raw reference fields (upload id, stored filename) as
-    // editable inputs; what that source needs instead is a re-upload flow.
-    if (source.source_type === EXCEL_SOURCE_NAME) {
-        return <ExcelConfigurationForm />
+    // Sources whose configuration isn't a credentials form (e.g. an uploaded file with a
+    // re-upload flow) register a replacement in `customSourceUi` — this tab stays source-agnostic.
+    const CustomConfigurationForm = getCustomSourceUi(source.source_type)?.ConfigurationForm
+    if (CustomConfigurationForm) {
+        return <CustomConfigurationForm />
     }
 
     return (

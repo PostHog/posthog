@@ -34,13 +34,10 @@ import { SyncProgressStep } from '../../shared/components/forms/SyncProgressStep
 import { WebhookSetupForm } from '../../shared/components/forms/WebhookSetupForm'
 import { FreeHistoricalSyncsBanner } from '../../shared/components/FreeHistoricalSyncsBanner'
 import { SourceIcon } from '../../shared/components/SourceIcon'
+import { getCustomSourceUi } from '../customSourceUi'
 import { availableSourcesLogic } from './availableSourcesLogic'
 import { BillingLimitNotice } from './components/BillingLimitNotice'
-import { ExcelSourceForm } from './components/ExcelSourceForm'
-import { FileUploadSourceForm } from './components/FileUploadSourceForm'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
-import { EXCEL_SOURCE_NAME } from './excelSourceLogic'
-import { FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { SourceCatalog } from './SourceCatalog'
 import { type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
@@ -254,16 +251,16 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         }
     }, [props.initialSource]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const isFileUploadSource = selectedConnector?.name === FILE_UPLOAD_SOURCE_NAME
+    const customSourceHidesFooter = !!getCustomSourceUi(selectedConnector?.name)?.hidesWizardFooter
 
     const footer = useCallback(() => {
         if (currentStep === 1) {
             return null
         }
 
-        // The file upload form has its own submit button — the wizard's Next would submit the
-        // generic connection form that this source never renders.
-        if (isFileUploadSource) {
+        // Some custom source forms drive their own submit button — the wizard's Next would submit
+        // the generic connection form that those sources never render.
+        if (customSourceHidesFooter) {
             return null
         }
 
@@ -319,7 +316,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         onSubmit,
         props.hideBackButton,
         isSelfManagedSource,
-        isFileUploadSource,
+        customSourceHidesFooter,
     ])
 
     return (
@@ -520,17 +517,11 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
         source.access_method
     )
 
-    // File upload owns its whole flow (upload the file, then create the source), so it replaces the
-    // generic connection form and drives its own submit button rather than the wizard footer.
-    if (selectedConnector?.name === FILE_UPLOAD_SOURCE_NAME) {
-        return <FileUploadSourceForm />
-    }
-
-    // Excel's "credential" is an uploaded workbook, which the generic form can't take. This step
-    // uploads it and writes the reference into the payload; the rest of the wizard is standard, so
-    // the user still gets the normal sheet and column pickers.
-    if (selectedConnector?.name === EXCEL_SOURCE_NAME) {
-        return <ExcelSourceForm sourceWizardLogicProps={sourceWizardLogicProps} />
+    // Sources with bespoke connection UI (a file to upload rather than credentials to enter)
+    // register a replacement for this step in `customSourceUi` — the scene stays source-agnostic.
+    const CustomWizardForm = getCustomSourceUi(selectedConnector?.name)?.WizardForm
+    if (CustomWizardForm) {
+        return <CustomWizardForm sourceWizardLogicProps={sourceWizardLogicProps} />
     }
 
     return selectedConnector ? (
