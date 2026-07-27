@@ -13,25 +13,25 @@ From `frontend/src/queries/schema/schema-general.ts@8cbbcfdc` lines 1476–1504 
 
 ```ts
 export type PathsV2Item = {
-    step_index: number
-    source_step: string | null
-    target_step: string | null
-    value: number
+  step_index: number
+  source_step: string | null
+  target_step: string | null
+  value: number
 }
 export interface PathsV2QueryResponse extends AnalyticsQueryResponseBase<PathsV2Item[]> {}
 export type CachedPathsV2QueryResponse = CachedQueryResponse<PathsV2QueryResponse>
 
 export type PathsV2Filter = {
-    /** @default 5 */  maxSteps?: integer
-    /** @default 3 */  maxRowsPerStep?: integer
-    /** @default 14 */ windowInterval?: integer
-    /** @default day */ windowIntervalUnit?: ConversionWindowIntervalUnit
-    /** @default false */ collapseEvents?: boolean
+  /** @default 5 */ maxSteps?: integer
+  /** @default 3 */ maxRowsPerStep?: integer
+  /** @default 14 */ windowInterval?: integer
+  /** @default day */ windowIntervalUnit?: ConversionWindowIntervalUnit
+  /** @default false */ collapseEvents?: boolean
 }
 export interface PathsV2Query extends InsightsQueryBase<PathsV2QueryResponse> {
-    kind: NodeKind.PathsV2Query
-    series?: AnyEntityNode[]        // intended start/end points, max 2 (entitiesLimit=2 in the UI)
-    pathsV2Filter?: PathsV2Filter
+  kind: NodeKind.PathsV2Query
+  series?: AnyEntityNode[] // intended start/end points, max 2 (entitiesLimit=2 in the UI)
+  pathsV2Filter?: PathsV2Filter
 }
 ```
 
@@ -57,7 +57,7 @@ Each stage is a HogQL `parse_select` subquery nesting the previous one, with doc
    - **session split**: `arraySplit(x -> if(x.1 < x.3 + {session_interval}, 0, 1), paths_array)` with `session_interval = toInterval<Unit>(windowInterval)` (L274-275), then `ARRAY JOIN` with `session_index`;
    - `arrayMap` drops the prev-ts column (L277-278);
    - **consecutive dedupe** (`collapseEvents`): `arrayFilter((x, i) -> i = 1 OR x.2 != arrayElement(..., i - 1).2, ...)` (L280-285), selected via a placeholder alias only when `collapseEvents` is true (L307-312);
-   - **start/end trimming (WIP)**: `arrayFirstIndex(x -> x.3.1 = 1, ...)` / `arrayLastIndex(x -> x.3.2 = 1, ...) - 1` when 1 or 2 series entities exist, else `1`/`null`, then `arraySlice(arr, start_index, end_index)` (L287-290) — note `arraySlice`'s third argument is a *length*, not an end index, and the code is f-string-conditional on `len(series)`;
+   - **start/end trimming (WIP)**: `arrayFirstIndex(x -> x.3.1 = 1, ...)` / `arrayLastIndex(x -> x.3.2 = 1, ...) - 1` when 1 or 2 series entities exist, else `1`/`null`, then `arraySlice(arr, start_index, end_index)` (L287-290) — note `arraySlice`'s third argument is a _length_, not an end index, and the code is f-string-conditional on `len(series)`;
    - **dropoff append**: `arrayPushBack(..., (now(), '$$__posthog_dropoff__$$', tuple(null[, null])))` (L292-293);
    - **maxSteps slice**: `arraySlice(..., 1, {max_steps})` (L295-296).
 4. **`_paths_flattened_with_previous_item` (L316)** — `ARRAY JOIN` the per-session tuple array with `step_in_session_index`, adding `previous_path_item` via `arrayElement(..., i - 1).2`.
@@ -69,7 +69,7 @@ Defaults come from `PathsV2Filter.model_fields[...].default` via `@property` acc
 `posthog/hogql_queries/insights/paths_v2/utils.py@8cbbcfdc` maps interval units to SQL and contains a real bug: month maps to `"toInvervalMonth"` (typo — invalid function name).
 
 **Finished:** date/property/test-account filters, session window, collapse, dropoffs, maxSteps, per-step top-N + "other", final aggregation and sorting — all matching PR-body checkmarks and covered by tests (see §5).
-**Half-done at the tip:** start/end-point trimming (flag columns exist, trimming expressions questionable, all related tests skipped or hollow; the newer `paths-v2-base` branch tip `ce5106d4` — "remove more start and end event handling", 2025-09-04 — strips the flags machinery *and* `apply_path_cleaning` back out, see `git diff 8cbbcfdc ce5106d4 -- posthog/.../paths_v2_query_runner.py`); configurable path item (commented-out `event` alternative); two commented-out code blocks; the month-interval typo; `samplingFactor`/group aggregation ignored.
+**Half-done at the tip:** start/end-point trimming (flag columns exist, trimming expressions questionable, all related tests skipped or hollow; the newer `paths-v2-base` branch tip `ce5106d4` — "remove more start and end event handling", 2025-09-04 — strips the flags machinery _and_ `apply_path_cleaning` back out, see `git diff 8cbbcfdc ce5106d4 -- posthog/.../paths_v2_query_runner.py`); configurable path item (commented-out `event` alternative); two commented-out code blocks; the month-interval typo; `samplingFactor`/group aggregation ignored.
 
 Also touched: the PR **adds** `entity_to_expr(entity: EntityNode, team: Team)` to `posthog/hogql_queries/insights/utils/entities.py@8cbbcfdc:106` (plus tests in `utils/test/test_entities.py`) — this generic helper never merged and does not exist on master's `entities.py`.
 
@@ -105,25 +105,25 @@ Registration (all at `8cbbcfdc`):
 
 ## 4. PR-body todos vs actual code
 
-| Todo (state in PR body) | Reality in code at `8cbbcfdc` |
-| --- | --- |
-| ☑ date range / properties / test account filters | Done — runner L137-162, tests exist |
-| ☑ session window | Done — `arraySplit` + window fields; **month unit broken by `toInvervalMonth` typo** (`utils.py`) |
-| ☑ configurable row limit + group remaining ("other") | Done — `maxRowsPerStep`, `ROW_NUMBER ... rn <= N`, `POSTHOG_OTHER` |
-| ☑ configurable col limit | Done — `maxSteps` `arraySlice` |
-| ☐ start event support / ☐ end event support | **Partially present anyway**: `series_entities_flags` + `arrayFirstIndex`/`arrayLastIndex` trimming is in the tip runner, but untested (tests skipped), of dubious correctness (`arraySlice` length-vs-index), and the follow-up branch `paths-v2-base` (`ce5106d4`) removes it again |
-| ☐ intermediate steps / step orders | Absent |
-| ☑ collapsing events | Done — `collapseEvents` + `arrayFilter`, tested |
-| ☑ handle start step / dropoffs / remaining / ordering | Done — NULL-source keep, `POSTHOG_DROPOFF` append + keep, `POSTHOG_OTHER`, `_calculate` sort (runner L93-105, 401-427) |
-| ☐ expanding properties per event | Only the unwired `PathsV2GroupEventsBy` UI mock; runner hard-codes `$pathname` |
-| ☐ excluding steps | Absent |
-| ☐ groups "aggregating by..." | Schema accepts `aggregation_group_type_index`; runner ignores it; UI commented out in `PathsV2Steps.tsx` |
-| ☐ migration button v1→v2 | Absent (no conversion code anywhere in the diff) |
-| ☐ add test cases | **Understated: a 732-line backend test file exists** (see §5), though several tests are stale vs the tip |
-| ☐ comments with example data | **Actually done** — every runner stage has an example-table docstring |
-| ☐ persons modal | Not done — `PathV2NodeLabel.openModal` is `(): void => {}` |
-| ☐ query summary | Not done — `summarizeInsight.ts` returns `''`; `PathsV2Summary` stub |
-| ☐ context menu ("view funnel") / funnel→paths v2 | Absent (no menu on `PathV2NodeLabel`) |
+| Todo (state in PR body)                               | Reality in code at `8cbbcfdc`                                                                                                                                                                                                                                                         |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ☑ date range / properties / test account filters      | Done — runner L137-162, tests exist                                                                                                                                                                                                                                                   |
+| ☑ session window                                      | Done — `arraySplit` + window fields; **month unit broken by `toInvervalMonth` typo** (`utils.py`)                                                                                                                                                                                     |
+| ☑ configurable row limit + group remaining ("other")  | Done — `maxRowsPerStep`, `ROW_NUMBER ... rn <= N`, `POSTHOG_OTHER`                                                                                                                                                                                                                    |
+| ☑ configurable col limit                              | Done — `maxSteps` `arraySlice`                                                                                                                                                                                                                                                        |
+| ☐ start event support / ☐ end event support           | **Partially present anyway**: `series_entities_flags` + `arrayFirstIndex`/`arrayLastIndex` trimming is in the tip runner, but untested (tests skipped), of dubious correctness (`arraySlice` length-vs-index), and the follow-up branch `paths-v2-base` (`ce5106d4`) removes it again |
+| ☐ intermediate steps / step orders                    | Absent                                                                                                                                                                                                                                                                                |
+| ☑ collapsing events                                   | Done — `collapseEvents` + `arrayFilter`, tested                                                                                                                                                                                                                                       |
+| ☑ handle start step / dropoffs / remaining / ordering | Done — NULL-source keep, `POSTHOG_DROPOFF` append + keep, `POSTHOG_OTHER`, `_calculate` sort (runner L93-105, 401-427)                                                                                                                                                                |
+| ☐ expanding properties per event                      | Only the unwired `PathsV2GroupEventsBy` UI mock; runner hard-codes `$pathname`                                                                                                                                                                                                        |
+| ☐ excluding steps                                     | Absent                                                                                                                                                                                                                                                                                |
+| ☐ groups "aggregating by..."                          | Schema accepts `aggregation_group_type_index`; runner ignores it; UI commented out in `PathsV2Steps.tsx`                                                                                                                                                                              |
+| ☐ migration button v1→v2                              | Absent (no conversion code anywhere in the diff)                                                                                                                                                                                                                                      |
+| ☐ add test cases                                      | **Understated: a 732-line backend test file exists** (see §5), though several tests are stale vs the tip                                                                                                                                                                              |
+| ☐ comments with example data                          | **Actually done** — every runner stage has an example-table docstring                                                                                                                                                                                                                 |
+| ☐ persons modal                                       | Not done — `PathV2NodeLabel.openModal` is `(): void => {}`                                                                                                                                                                                                                            |
+| ☐ query summary                                       | Not done — `summarizeInsight.ts` returns `''`; `PathsV2Summary` stub                                                                                                                                                                                                                  |
+| ☐ context menu ("view funnel") / funnel→paths v2      | Absent (no menu on `PathV2NodeLabel`)                                                                                                                                                                                                                                                 |
 
 ## 5. Test coverage at the draft tip
 
@@ -157,6 +157,6 @@ Facts only; every item is a concrete conflict or drift.
 5. **`d3-sankey` vendored.** `renderPathsV2.ts@8cbbcfdc:2` imports `d3-sankey`; master removed that dependency and both paths scenes import `~/vendor/d3/sankey` (`scenes/paths-v2/renderPaths.ts:7` on master).
 6. **Editor-filter registration shape changed.** The draft inserts `...(isPathsV2 ? [{...}] : [])` spreads (`EditorFilters.tsx@8cbbcfdc:186-190`); master's `EditorFilters.tsx` now uses a flat `visibleFilters([...])` list with per-entry `show:` flags (master L149-156). Same for `InsightDisplayConfig` (insertion point still exists, master L~344 area). Mechanical but every hunk needs rewriting.
 7. **kea typegen convention.** Master logic files embed generated inline `MakeLogicType` blocks ("Generated by kea-typegen", e.g. master `scenes/paths-v2/pathsDataLogic.ts:43-102`); the draft's `pathsV2DataLogic.ts` uses the old `import type { ... } from './pathsV2DataLogicType'` pattern and needs regeneration.
-8. **`entity_to_expr` helper.** The draft's generic `entity_to_expr(EntityNode, Team)` in `entities.py` doesn't exist on master; master's `entities.py` renamed `ExclusionEntityNode`→`FunnelExclusionEntityNode` and added other helpers, and a *different* `entity_to_expr(entity: RetentionEntity, team)` exists at `posthog/hogql/property.py:1369` — re-adding the draft's helper invites a name clash.
+8. **`entity_to_expr` helper.** The draft's generic `entity_to_expr(EntityNode, Team)` in `entities.py` doesn't exist on master; master's `entities.py` renamed `ExclusionEntityNode`→`FunnelExclusionEntityNode` and added other helpers, and a _different_ `entity_to_expr(entity: RetentionEntity, team)` exists at `posthog/hogql/property.py:1369` — re-adding the draft's helper invites a name clash.
 9. **Already-landed hunks (no-ops now):** the `ActionFilter.tsx` footer cleanup (master `ActionFilter.tsx:314-330` already matches the PR's version) and the `funnels/base.py` dead-comment deletion (comment already gone on master).
 10. **Misc:** `ConversionWindowIntervalUnit` must be re-added to `frontend/src/types.ts` (comes with the branch, no conflict, but the schema build now emits it into `schema_enums.py`); master's `insightNavLogic.tsx` tab list (User Paths at L517) and `manifest.tsx` insight entries (L138 area) still exist as insertion points; `frontend/src/scenes/paths-v2/types.ts` and `pathUtils.ts` are live files on master that the draft rewrites/trims.

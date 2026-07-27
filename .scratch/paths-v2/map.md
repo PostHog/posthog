@@ -40,5 +40,5 @@ Done when a build session can start without further product decisions.
 ## Out of scope
 
 - Further v1 paths/sankey improvements beyond keeping it working — v2 replaces it.
-- Path cleaning rule *management* (web analytics settings surface) — v2 only consumes the rules.
+- Path cleaning rule _management_ (web analytics settings surface) — v2 only consumes the rules.
 - MCP tool-call paths ([#69586](https://github.com/PostHog/posthog/issues/69586)) — different surface; may consume paths v2 later, not part of this destination.
