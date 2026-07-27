@@ -67,3 +67,17 @@ def test_upgrades_when_explicit_ttl_already_matches_target() -> None:
     out = upgrade_cache_ttl(body, product="posthog_code")
     assert out["system"][0]["cache_control"]["ttl"] == "1h"
     assert out["tools"][0]["cache_control"]["ttl"] == "1h"
+
+
+def test_skips_rewrite_when_explicit_tool_ttl_precedes_implicit_system_breakpoint() -> None:
+    # Anthropic evaluates the cacheable prefix as tools -> system -> messages. An
+    # explicit 5m breakpoint on tools followed by an implicit one on system would
+    # become 5m (tools) -> 1h (system) if system were upgraded — an invalid order
+    # since tools is evaluated first. Must skip the system upgrade instead.
+    body = {
+        "tools": [{"name": "t", "cache_control": {"type": "ephemeral", "ttl": "5m"}}],
+        "system": [{"type": "text", "text": "a", "cache_control": {"type": "ephemeral"}}],
+    }
+    out = upgrade_cache_ttl(body, product="posthog_code")
+    assert out["tools"][0]["cache_control"]["ttl"] == "5m"
+    assert "ttl" not in out["system"][0]["cache_control"]

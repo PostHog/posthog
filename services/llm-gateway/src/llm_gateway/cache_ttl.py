@@ -28,7 +28,8 @@ _ONE_HOUR = "1h"
 
 
 def _collect_cache_controls(body: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return every `cache_control` dict in `body`, in wire order."""
+    """Return every `cache_control` dict in `body`, in the order Anthropic evaluates
+    the cacheable prefix: tools, then system, then messages."""
     controls: list[dict[str, Any]] = []
 
     def _from_blocks(value: Any) -> None:
@@ -41,8 +42,8 @@ def _collect_cache_controls(body: dict[str, Any]) -> list[dict[str, Any]]:
             if isinstance(cc, dict):
                 controls.append(cc)
 
-    _from_blocks(body.get("system"))
     _from_blocks(body.get("tools"))
+    _from_blocks(body.get("system"))
 
     messages = body.get("messages")
     if isinstance(messages, list):
