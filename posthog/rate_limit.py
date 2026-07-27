@@ -480,6 +480,24 @@ class CopyFlagsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "300/hour"
 
 
+# The batch session-context endpoint computes experiment context for up to 20 recordings per
+# call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
+# — and its primary caller is the session-authenticated replay/experiment UI, which the
+# ClickHouse*RateThrottle pair deliberately does not cover. PersonalApiKeyOrUserRateThrottle
+# applies regardless of auth method (keyed per project for web sessions). The UI fires at most
+# one prefetch per user action (page load, filter change — debounced client-side — or
+# recording open), and repeats hit the server-side cache, so these rates clear a whole
+# project's worth of concurrent viewers while capping a scripted loop of cold batches.
+class SessionContextsBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "session_contexts_burst"
+    rate = "60/minute"
+
+
+class SessionContextsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "session_contexts_sustained"
+    rate = "600/hour"
+
+
 class _AIThrottleBase(UserRateThrottle):
     action_name: str
 
