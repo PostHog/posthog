@@ -12,7 +12,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import has_aggregation
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
@@ -121,6 +123,17 @@ def build_metric_predicate(
     else:
         timestamp_field_chain = [table_alias, "timestamp"]
         metric_event_filter = event_or_action_to_filter(team, source)
+
+    # The event filter lands in a WHERE that runs per event, where ClickHouse rejects aggregate
+    # functions. A HogQL metric filter that resolves to an aggregate (e.g. avg/sum/count) would
+    # otherwise reach this predicate and fail every load with a cryptic IllegalAggregation error,
+    # so raise a user-facing message here instead. Note this guards the filter only: an aggregate
+    # in the metric's HogQL *value* is handled separately, with its inner expression extracted.
+    if has_aggregation(metric_event_filter):
+        raise ExposedHogQLError(
+            "A metric filter can't use an aggregate function like avg, sum, or count. "
+            "Remove the aggregation from the filter, or set it as the metric value instead."
+        )
 
     date_from = date_range_query.date_from_as_hogql()
     if cuped_lookback_days is not None:
