@@ -189,10 +189,11 @@ export function TraceDrawer({
                                     {
                                         key: 'logs',
                                         label: 'Logs',
-                                        // Not keyed by span: the embedded viewer (keyed by trace_id) and the memoized
-                                        // pinned filter re-query in place when the selected span changes, so a remount
-                                        // would only churn its logics and lose scroll.
-                                        content: <SpanLogsTab span={inspectedSpan} />,
+                                        // Keyed by trace, not span: a new trace remounts to reset the scope toggle
+                                        // back to whole-trace, while selecting another span within the same trace
+                                        // re-queries in place (the embedded viewer and memoized pinned filter handle
+                                        // it) so we don't churn its logics or lose scroll.
+                                        content: <SpanLogsTab key={inspectedSpan.trace_id} span={inspectedSpan} />,
                                     },
                                     {
                                         key: 'raw',
