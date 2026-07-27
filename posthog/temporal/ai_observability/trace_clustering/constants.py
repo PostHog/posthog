@@ -16,8 +16,11 @@ DEFAULT_MAX_K = 10
 # generations.
 MIN_TRACES_FOR_CLUSTERING = 1000
 
-# Coordinator concurrency settings
-DEFAULT_MAX_CONCURRENT_TEAMS = 4  # Max teams to process in parallel
+# Coordinator concurrency settings.
+# Each team's compute activity runs a heavy embedding scan against ClickHouse, so keep the
+# fan-out low to avoid exhausting the shared query pool (see the offline-workload routing in
+# data.py and the capacity backoff in activities.py).
+DEFAULT_MAX_CONCURRENT_TEAMS = 2  # Max teams to process in parallel
 
 # Workflow timeouts
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
@@ -50,7 +53,7 @@ EMIT_HEARTBEAT_TIMEOUT = timedelta(seconds=30)  # 30 seconds - ClickHouse writes
 # Schedule-to-close timeouts - caps total time including all retry attempts,
 # backoff intervals, and queue time. Prevents runaway retries from blocking
 # the workflow indefinitely.
-COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=300)  # 5 min (2 attempts * 120s + backoff)
+COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=360)  # 6 min (2 attempts * 120s + capacity backoff)
 LLM_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=900)  # 15 min (2 attempts * 600s + backoff, capped)
 AGGREGATES_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=330)  # 5.5 min (1 attempt only, best-effort)
 EMIT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=150)  # 2.5 min (2 attempts * 60s + backoff)
@@ -63,6 +66,13 @@ COMPUTE_ACTIVITY_RETRY_POLICY = RetryPolicy(
     backoff_coefficient=2.0,
     non_retryable_error_types=["ValueError", "TypeError"],
 )
+
+# When ClickHouse reports it is at capacity (too many simultaneous queries), an immediate retry
+# just piles more load onto a pool that is already starved. Back off with jitter instead, so the
+# retry lands after the contention has had a chance to clear. Jitter spreads retries from the
+# concurrent per-team activities so they don't all re-fire at the same instant.
+CLICKHOUSE_AT_CAPACITY_BACKOFF_MIN = timedelta(seconds=20)
+CLICKHOUSE_AT_CAPACITY_BACKOFF_MAX = timedelta(seconds=60)
 
 # LLM activity - external dependency, longer intervals between retries
 LLM_ACTIVITY_RETRY_POLICY = RetryPolicy(
