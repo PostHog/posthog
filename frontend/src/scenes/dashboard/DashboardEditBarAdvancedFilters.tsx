@@ -126,7 +126,7 @@ export function DashboardEditBarAdvancedFilters(): JSX.Element {
                         <>
                             <LemonDivider className="my-0" />
                             <LemonLabel info="Pin a breakdown value to a color, or pick a color theme, so every insight on this dashboard draws it the same way.">
-                                Colors
+                                Breakdown colors
                             </LemonLabel>
                             <LemonButton
                                 type="secondary"
