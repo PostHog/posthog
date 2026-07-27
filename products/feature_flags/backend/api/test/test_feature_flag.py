@@ -8227,6 +8227,24 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert body["updated"] == [{"id": flag.id, "tags": ["foo"]}]
         assert body["skipped"] == []
 
+    def test_bulk_update_tags_with_non_integer_replay_linked_flag_id(self):
+        # A team with a non-integer session_recording_linked_flag id used to 500 the endpoint:
+        # get_queryset cast that JSON id to integer, and Postgres errors on a non-numeric value.
+        # bulk_update_tags doesn't need replay-usage info, so the cast must stay off its path.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-cast-test")
+        self.team.session_recording_linked_flag = {"id": "not-an-int", "key": "some-key"}
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_update_tags/",
+            {"ids": [flag.id], "action": "add", "tags": ["foo"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["updated"] == [{"id": flag.id, "tags": ["foo"]}]
+        assert body["skipped"] == []
+
     # Lives in the feature-flag test file (instead of test_insight.py) so the
     # full bulk-ops PAT regression story — positive feature-flag cases and the
     # negative cross-resource block — stays adjacent for reviewers of #57885.

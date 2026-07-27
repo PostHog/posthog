@@ -2879,23 +2879,24 @@ class FeatureFlagViewSet(
             )
         )
 
-        # Annotate with replay settings usage to avoid N+1 queries
-        # This checks if any team in the same project uses this flag for session recording
-        # Extract the 'id' key from the JSONB field and cast to integer for safe comparison
-        from django.db.models import IntegerField
-        from django.db.models.functions import Cast
-
-        queryset = queryset.annotate(
-            is_used_in_replay_settings_annotation=Exists(
-                Team.objects.filter(
-                    project_id=OuterRef("team__project_id"),
-                )
-                .annotate(json_flag_id=Cast("session_recording_linked_flag__id", IntegerField()))
-                .filter(json_flag_id=OuterRef("id"))
-            )
-        )
-
         if self.action == "list":
+            # Annotate replay settings usage to avoid N+1 queries when serializing a whole page.
+            # The cast of session_recording_linked_flag->>'id' to integer errors on non-integer
+            # ids, so keep it off other actions like bulk_update_tags. Those serialize a single
+            # object and fall back to the cast-free JSONB containment check in the serializer.
+            from django.db.models import IntegerField
+            from django.db.models.functions import Cast
+
+            queryset = queryset.annotate(
+                is_used_in_replay_settings_annotation=Exists(
+                    Team.objects.filter(
+                        project_id=OuterRef("team__project_id"),
+                    )
+                    .annotate(json_flag_id=Cast("session_recording_linked_flag__id", IntegerField()))
+                    .filter(json_flag_id=OuterRef("id"))
+                )
+            )
+
             queryset = (
                 queryset.filter(deleted=False)
                 .prefetch_related("analytics_dashboards")
