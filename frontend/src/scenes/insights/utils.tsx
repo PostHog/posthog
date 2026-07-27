@@ -40,6 +40,7 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
+    hasBreakdownFilter,
     isDataTableNode,
     isAnyDataWarehouseNode,
     isEventsNode,
@@ -866,7 +867,9 @@ export const hasUnsupportedBreakdownForDataWarehouseTrends = (
 ): boolean => {
     const breakdownFilter = filtersOverride?.breakdown_filter
 
-    if (!breakdownFilter) {
+    // Matches the backend's has_breakdown_filter gate: a set-but-empty breakdown filter is the
+    // explicit "no breakdown" override, which data warehouse series do support.
+    if (!hasBreakdownFilter(breakdownFilter)) {
         return false
     }
 
