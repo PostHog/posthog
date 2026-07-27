@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+from unittest.mock import patch
 
 import psycopg
 
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DUCKGRES_STATUS_TABLE,
     DUCKGRES_STATUS_VIEW,
     DuckgresBatchQueue,
+    SupersedeSweepResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
@@ -429,7 +431,7 @@ class TestDuckgresCrossRunOrdering:
         await BatchQueue.update_status(conn, batch_id=new0, job_state="succeeded", attempt=1)
 
         superseded = await DuckgresBatchQueue.supersede_replaced_runs(conn)
-        assert superseded == 1  # run-1's pending batch 1
+        assert superseded.superseded == 1  # run-1's pending batch 1
 
         batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [(b.run_uuid, b.batch_index) for b in batches] == [("run-2", 0)]
@@ -445,10 +447,46 @@ class TestDuckgresCrossRunOrdering:
         await BatchQueue.update_status(conn, batch_id=new0, job_state="succeeded", attempt=1)
 
         superseded = await DuckgresBatchQueue.supersede_replaced_runs(conn)
-        assert superseded == 0
+        assert superseded.superseded == 0
 
         batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [(b.run_uuid, b.batch_index) for b in batches] == [("run-1", 0)]
+
+    @pytest.mark.asyncio
+    async def test_supersede_retires_across_team_chunks(self, conn):
+        # The sweep runs per bounded team chunk; a team beyond the first chunk
+        # must still be superseded (regression against a chunking loop that only
+        # processes the first chunk or drops the chunk filter).
+        for team_id in (1, 2):
+            schema_id = f"schema-{team_id}"
+            old0 = await _insert_batch(
+                conn, team_id=team_id, schema_id=schema_id, run_uuid=f"run-1-t{team_id}", batch_index=0
+            )
+            old1 = await _insert_batch(
+                conn, team_id=team_id, schema_id=schema_id, run_uuid=f"run-1-t{team_id}", batch_index=1
+            )
+            await BatchQueue.update_status(conn, batch_id=old0, job_state="succeeded", attempt=1)
+            await BatchQueue.update_status(conn, batch_id=old1, job_state="succeeded", attempt=1)
+            await _mark_applied_raw(conn, batch_id=old0, run_uuid=f"run-1-t{team_id}", batch_index=0)
+
+            new0 = await _insert_batch(
+                conn,
+                team_id=team_id,
+                schema_id=schema_id,
+                run_uuid=f"run-2-t{team_id}",
+                batch_index=0,
+                sync_type="full_refresh",
+            )
+            await BatchQueue.update_status(conn, batch_id=new0, job_state="succeeded", attempt=1)
+
+        # Chunk size 1 forces each team into its own statement.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db.SUPERSEDE_TEAM_CHUNK_SIZE",
+            1,
+        ):
+            result = await DuckgresBatchQueue.supersede_replaced_runs(conn, team_ids=[1, 2])
+
+        assert result == SupersedeSweepResult(superseded=2, timed_out_team_chunks=0)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -569,7 +607,7 @@ class TestBackfillGating:
         old = await _insert_batch(conn, run_uuid="run-0", sync_type="incremental")
         await BatchQueue.update_status(conn, batch_id=old, job_state="succeeded", attempt=1)
 
-        assert await DuckgresBatchQueue.supersede_replaced_runs(conn) == 0
+        assert (await DuckgresBatchQueue.supersede_replaced_runs(conn)).superseded == 0
 
 
 @pytest.mark.django_db(transaction=True)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, NamedTuple
 
 import psycopg
 from psycopg.rows import dict_row
@@ -60,6 +60,28 @@ def _latest_status_lateral(status_table: str, batch_alias: str) -> str:
 # DB. Cap each statement so a slow query fails fast and the poll loop retries on
 # the next tick instead of wedging. Tune up if a legitimate run needs longer.
 ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS = 30_000
+
+# The supersede sweep runs across every enabled team on each ~30s maintenance
+# tick. Its cost is dominated by the replace_heads/victims self-join, which grows
+# with the set of older pending runs a team has to retire. Run it in bounded team
+# chunks so one team with a pathologically large replaced-run set can't sink the
+# whole sweep: that team's chunk may hit the statement timeout, but every other
+# chunk still commits its retirements. A single unbounded statement instead times
+# out and retires nothing, so the backlog it was meant to clear only grows —
+# making the next statement even slower. Supersede logic is entirely within a
+# (team_id, schema_id), with no cross-team interaction, so chunking by team is
+# result-equivalent to one statement over the whole set.
+SUPERSEDE_TEAM_CHUNK_SIZE = 200
+
+
+class SupersedeSweepResult(NamedTuple):
+    """Outcome of one supersede sweep across all team chunks."""
+
+    superseded: int
+    # Team chunks whose statement hit the timeout and were skipped this tick.
+    # A skip is expected back-pressure — the chunk is retried on the next sweep —
+    # so callers surface it on a metric, not as a captured exception.
+    timed_out_team_chunks: int
 
 
 @asynccontextmanager
@@ -582,7 +604,7 @@ class DuckgresBatchQueue:
         conn: psycopg.AsyncConnection[Any],
         *,
         team_ids: list[int] | None = None,
-    ) -> int:
+    ) -> SupersedeSweepResult:
         """Fail older runs' pending duckgres work once a newer replace-run is ready.
 
         When a newer run whose batch 0 will CREATE OR REPLACE the table (full
@@ -593,11 +615,43 @@ class DuckgresBatchQueue:
         exclusion retires them and the cross-run gate opens for the new run.
 
         Skips batches currently 'executing' (their attempt resolves on its own)
-        and anything already terminal. Returns the number of batches superseded.
+        and anything already terminal.
+
+        Runs per bounded team chunk (see SUPERSEDE_TEAM_CHUNK_SIZE) so one team
+        whose chunk hits the statement timeout doesn't stop retirement for the
+        rest: a timed-out chunk is skipped and retried next sweep. Returns the
+        batches superseded across all chunks plus how many chunks timed out.
         """
-        async with _statement_timeout(conn, ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS), conn.cursor() as cur:
-            await cur.execute(
-                f"""
+        if team_ids is None:
+            return await DuckgresBatchQueue._supersede_team_chunk(conn, team_ids=None)
+
+        total_superseded = 0
+        total_timed_out = 0
+        for start in range(0, len(team_ids), SUPERSEDE_TEAM_CHUNK_SIZE):
+            chunk = team_ids[start : start + SUPERSEDE_TEAM_CHUNK_SIZE]
+            result = await DuckgresBatchQueue._supersede_team_chunk(conn, team_ids=chunk)
+            total_superseded += result.superseded
+            total_timed_out += result.timed_out_team_chunks
+        return SupersedeSweepResult(superseded=total_superseded, timed_out_team_chunks=total_timed_out)
+
+    @staticmethod
+    async def _supersede_team_chunk(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_ids: list[int] | None,
+    ) -> SupersedeSweepResult:
+        """Run the supersede statement for a single team chunk.
+
+        A statement timeout here is expected back-pressure (the chunk's
+        replaced-run set is too large to retire within the bound), not an error:
+        swallow the QueryCanceled and report the chunk as timed out so the sweep
+        moves on and retries it next tick, instead of surfacing an exception that
+        would flood error tracking every ~30s while the sweep is still working.
+        """
+        try:
+            async with _statement_timeout(conn, ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS), conn.cursor() as cur:
+                await cur.execute(
+                    f"""
                 WITH {ELIGIBILITY_CTES}
                 replace_heads AS MATERIALIZED (
                     SELECT nb.team_id, nb.schema_id, nb.run_uuid, rs.started_at
@@ -652,9 +706,11 @@ class DuckgresBatchQueue:
                     jsonb_build_object('error', 'superseded by newer replace run ' || v.superseded_by, 'kind', '{RETIRE_KIND_SUPERSEDED_BY_REPLACE}')
                 FROM victims v
                 """,
-                {"team_ids": team_ids},
-            )
-            return cur.rowcount or 0
+                    {"team_ids": team_ids},
+                )
+                return SupersedeSweepResult(superseded=cur.rowcount or 0, timed_out_team_chunks=0)
+        except psycopg.errors.QueryCanceled:
+            return SupersedeSweepResult(superseded=0, timed_out_team_chunks=1)
 
     @staticmethod
     async def get_backlog_stats(

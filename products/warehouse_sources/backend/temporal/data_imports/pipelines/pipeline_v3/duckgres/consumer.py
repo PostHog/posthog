@@ -11,7 +11,7 @@ from django.utils import timezone
 import psycopg
 import structlog
 from asgiref.sync import sync_to_async
-from prometheus_client import Gauge
+from prometheus_client import Counter, Gauge
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import DuckgresSinkSchemaState
@@ -108,6 +108,11 @@ SINK_SUPERSEDED_BATCHES_TOTAL = Gauge(
     "Batches retired because a newer replace-run made their work obsolete (last sweep)",
     multiprocess_mode="livemax",
 )
+SINK_SUPERSEDE_TIMEOUTS_TOTAL = Counter(
+    "duckgres_sink_supersede_timeouts_total",
+    "Supersede-sweep team chunks that hit the statement timeout and were skipped this tick (retried next sweep). "
+    "Sustained growth means a team's replaced-run set is too large to retire within the timeout — investigate that team.",
+)
 SINK_ORGS_AT_BUDGET = Gauge(
     "duckgres_sink_orgs_at_budget",
     "Orgs whose live group leases have reached their sink_max_concurrency budget. "
@@ -195,12 +200,25 @@ class DuckgresBatchConsumerAdapter:
         try:
             # Eligibility-CTE queries scan the queue DB over the partition-pruning
             # window per enabled team; they are statement-timeout bounded (see
-            # jobs_db). A timeout or transient queue-DB error must not wedge or
-            # crash the poll loop — skip this tick and retry on the next one.
-            superseded = await DuckgresBatchQueue.supersede_replaced_runs(conn, team_ids=team_ids)
-            SINK_SUPERSEDED_BATCHES_TOTAL.set(superseded)
-            if superseded:
-                logger.info("duckgres_superseded_obsolete_batches", count=superseded)
+            # jobs_db). A transient queue-DB error must not wedge or crash the poll
+            # loop — skip this tick and retry on the next one. Supersede swallows
+            # its own per-chunk timeouts and reports them below, so a slow team
+            # doesn't cost the rest of this maintenance pass.
+            supersede = await DuckgresBatchQueue.supersede_replaced_runs(conn, team_ids=team_ids)
+            SINK_SUPERSEDED_BATCHES_TOTAL.set(supersede.superseded)
+            if supersede.superseded:
+                logger.info("duckgres_superseded_obsolete_batches", count=supersede.superseded)
+            if supersede.timed_out_team_chunks:
+                # A timed-out chunk is expected, self-healing back-pressure — the
+                # sweep retires the rest and retries this chunk next tick. Track it
+                # on a metric and a warning, not capture_exception: surfacing every
+                # ~30s timeout as an error floods error tracking while the sweep is
+                # still doing useful work.
+                SINK_SUPERSEDE_TIMEOUTS_TOTAL.inc(supersede.timed_out_team_chunks)
+                logger.warning(
+                    "duckgres_supersede_sweep_chunk_timed_out",
+                    timed_out_chunks=supersede.timed_out_team_chunks,
+                )
 
             backlog, oldest_age, blocked, blocked_age, failing_blocked = await DuckgresBatchQueue.get_backlog_stats(
                 conn,
