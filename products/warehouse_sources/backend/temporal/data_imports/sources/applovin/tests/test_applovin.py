@@ -1,7 +1,7 @@
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, quote_plus, urlparse
 
 import pytest
 from unittest import mock
@@ -404,30 +404,40 @@ class TestErrorClassification:
 
         assert str(exc_info.value).startswith(expected_prefix)
 
+    # A Report Key with reserved characters is percent-/plus-encoded in the request URL, so a
+    # transport error that quotes the URL never carries the raw key — redaction must cover the
+    # encoded forms too.
+    @pytest.mark.parametrize("api_key", ["super-secret", "ab/c+d=="])
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_transport_error_never_leaks_the_report_key(self, mock_session: mock.MagicMock) -> None:
+    def test_transport_error_never_leaks_the_report_key(self, mock_session: mock.MagicMock, api_key: str) -> None:
+        # `requests`/`urllib3` quote the built URL, where the key is URL-encoded.
+        leaked_url = f"/maxReport?api_key={quote_plus(api_key)}&columns=day"
         mock_session.return_value.get.side_effect = requests.ConnectionError(
-            "Max retries exceeded with url: /maxReport?api_key=super-secret&columns=day"
+            f"Max retries exceeded with url: {leaked_url}"
         )
 
         with pytest.raises(AppLovinAPIError) as exc_info:
-            list(get_rows("super-secret", "max_ad_revenue", mock.MagicMock(), FakeResumeManager()))
+            list(get_rows(api_key, "max_ad_revenue", mock.MagicMock(), FakeResumeManager()))
 
-        assert "super-secret" not in str(exc_info.value)
-        assert "<redacted>" in str(exc_info.value)
+        message = str(exc_info.value)
+        assert api_key not in message
+        assert quote_plus(api_key) not in message
+        assert quote(api_key, safe="") not in message
+        assert "REDACTED" in message
         # The original exception carries the unredacted URL, so it must not be chained.
         assert exc_info.value.__cause__ is None
 
+    @pytest.mark.parametrize("api_key", ["super-secret", "ab/c+d=="])
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_error_body_echoing_the_report_key_is_redacted(self, mock_session: mock.MagicMock) -> None:
+    def test_error_body_echoing_the_report_key_is_redacted(self, mock_session: mock.MagicMock, api_key: str) -> None:
         mock_session.return_value.get.return_value = _response(
-            status_code=400, text="bad request for api_key=super-secret"
+            status_code=400, text=f"bad request for api_key={api_key}"
         )
 
         with pytest.raises(AppLovinAPIError) as exc_info:
-            list(get_rows("super-secret", "max_ad_revenue", mock.MagicMock(), FakeResumeManager()))
+            list(get_rows(api_key, "max_ad_revenue", mock.MagicMock(), FakeResumeManager()))
 
-        assert "super-secret" not in str(exc_info.value)
+        assert api_key not in str(exc_info.value)
 
 
 class TestValidateCredentials:

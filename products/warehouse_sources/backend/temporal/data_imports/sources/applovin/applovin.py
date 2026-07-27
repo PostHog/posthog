@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.s
     AppLovinEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import redact_literal_values
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 REQUEST_TIMEOUT_SECONDS = 120
@@ -31,7 +32,6 @@ BAD_REQUEST_ERROR_PREFIX = "AppLovin rejected the report request"
 TRANSIENT_ERROR_PREFIX = "AppLovin API error (retryable)"
 
 _AUTH_STATUS_CODES = (401, 403)
-_REDACTION_PLACEHOLDER = "<redacted>"
 
 
 class AppLovinAPIError(Exception):
@@ -43,8 +43,12 @@ def _utc_today() -> date:
 
 
 def _redacted(message: str, api_key: str) -> str:
-    """Strip the Report Key out of a message before it can reach a user-visible error."""
-    return message.replace(api_key, _REDACTION_PLACEHOLDER) if api_key else message
+    """Strip the Report Key out of a message before it can reach a user-visible error.
+
+    A transport error quotes the request URL, where the key is URL-encoded, so redact the
+    raw, percent-encoded, and plus-encoded forms via the shared value-based masker.
+    """
+    return redact_literal_values(message, (api_key,)) if api_key else message
 
 
 def _to_date(value: Any) -> Optional[date]:
