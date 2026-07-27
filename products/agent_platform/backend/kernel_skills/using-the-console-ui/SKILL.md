@@ -1,13 +1,13 @@
 ---
 name: using-the-console-ui
-description: How to drive PostHog Code's read panel as the user works with you — focus_* etiquette, when to call toast, how to handle 'follow mode' being off. Load when the session client kind is `posthog-code`.
+description: How to drive PostHog Desktop's read panel as the user works with you — focus_* etiquette, when to call toast, how to handle 'follow mode' being off. Load when the session client kind is `posthog-code`.
 agents:
   - agent-builder
 ---
 
-# Skill — using the PostHog Code UI
+# Skill — using the PostHog Desktop UI
 
-How to drive PostHog Code's read panel while you work, so
+How to drive PostHog Desktop's read panel while you work, so
 the user always sees what you're working on. Load when
 `client.kind` is `posthog-code`.
 
@@ -20,15 +20,15 @@ the user always sees what you're working on. Load when
 | `focus_revision`     | Open one revision in the configuration panel                                               | About to inspect / diff a specific revision                                                |
 | `focus_session`      | Open one session in the sessions panel                                                     | About to fetch a session's conversation or event log                                       |
 | `focus_spec_section` | Jump to a section of the spec (`tools` / `skills` / `triggers` / `secrets` / `limits`)     | Discussing one part of the spec specifically                                               |
-| `toast`              | Surfaces a transient status notification in PostHog Code                                   | Sparingly — for long-running tool calls, or to flag something the user should look at      |
+| `toast`              | Surfaces a transient status notification in PostHog Desktop                                | Sparingly — for long-running tool calls, or to flag something the user should look at      |
 | `set_secret`         | Render an inline form for the user to enter a secret value, scoped to one key on one agent | Whenever you need a credential set or rotated. See `secrets-and-integrations` for the loop |
 
 All are no-ops if the client doesn't handle them; the runner hides
-them from your tool surface. If they're in your tool list, PostHog Code
+them from your tool surface. If they're in your tool list, PostHog Desktop
 is on the other end.
 
 `set_secret` is the first **render-style, interactive** client tool — instead
-of running a synchronous handler, PostHog Code mounts a UI inside
+of running a synchronous handler, PostHog Desktop mounts a UI inside
 the tool-call card and the runner parks the session while the user
 fills it in. Your call returns a synthetic `{queued:true, interactive:true, call_id}`
 envelope immediately; end the turn cleanly and the real outcome
@@ -122,7 +122,7 @@ a tool result you should react to.
 
 ## When the user steers via the read panel
 
-PostHog Code lets the user click around the read panel
+PostHog Desktop lets the user click around the read panel
 independently. If the user says "I just opened revisions, can
 you compare r_old and r_new?", they have navigated themselves —
 you can pick up from there without focusing first. But still
@@ -150,17 +150,17 @@ The user's experience: text appears, panel transitions to the
 revision view, a moment later the chat shows the summary. Three
 beats, all in one turn.
 
-## Deep links PostHog Code understands
+## Deep links PostHog Desktop understands
 
-PostHog Code reads its full view state from URL params, so you can hand
+PostHog Desktop reads its full view state from URL params, so you can hand
 the user a link to a specific surface and trust they'll land where you
 want them to. The two patterns that are load-bearing today:
 
-| Goal                                    | URL                                                                          | Notes                                                                                                                                          |
-| --------------------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Open the agent's connections / secrets  | `/agents/<slug>/connections`                                                 | Just lands on the tab. Use as a fallback when there's no specific key yet.                                                                     |
-| Open the secret editor for one key      | `/agents/<slug>/connections?edit_secret=<KEY>`                               | Opens the modal pre-targeted. Don't `focus_tab` to the connections tab and _also_ tell them to edit — pick one channel.                        |
-| Same, with a callback into THIS session | `/agents/<slug>/connections?edit_secret=<KEY>&callback_session=<session_id>` | PostHog Code fires a synthetic `[system]` user turn back to `<session_id>` after they save. You wait silently. See `secrets-and-integrations`. |
+| Goal                                    | URL                                                                          | Notes                                                                                                                                             |
+| --------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Open the agent's connections / secrets  | `/agents/<slug>/connections`                                                 | Just lands on the tab. Use as a fallback when there's no specific key yet.                                                                        |
+| Open the secret editor for one key      | `/agents/<slug>/connections?edit_secret=<KEY>`                               | Opens the modal pre-targeted. Don't `focus_tab` to the connections tab and _also_ tell them to edit — pick one channel.                           |
+| Same, with a callback into THIS session | `/agents/<slug>/connections?edit_secret=<KEY>&callback_session=<session_id>` | PostHog Desktop fires a synthetic `[system]` user turn back to `<session_id>` after they save. You wait silently. See `secrets-and-integrations`. |
 
 Get `<session_id>` from `get_context` — it's the `session_id`
 field on the envelope. Don't try to derive it any other way; you
@@ -184,7 +184,7 @@ wall of text.
 If a `focus_*` call returns `client_tool_unsupported` (unexpected
 — should have been hidden from your surface), behave as if you
 got `focused: false`. Don't crash; fall back to text narration.
-This shouldn't happen, but a buggy PostHog Code version might.
+This shouldn't happen, but a buggy PostHog Desktop version might.
 
 ## The "screen-sharing" mental model
 

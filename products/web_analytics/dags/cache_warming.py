@@ -22,10 +22,10 @@ from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_quer
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Team
 from posthog.models.instance_setting import get_instance_setting
+from posthog.query_cache import QueryCache
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.storage import object_storage
 
@@ -33,7 +33,10 @@ from products.analytics_platform.backend.lazy_computation.stale_policy import SH
 from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import (
     can_use_lazy_precompute as can_use_goals_lazy_precompute,
 )
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import BACKGROUND_WARMING_TRIGGERS
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    BACKGROUND_WARMING_TRIGGERS,
+    SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS,
+)
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     can_use_lazy_precompute as can_use_overview_lazy_precompute,
 )
@@ -101,6 +104,13 @@ UNWARMABLE_QUERY_KINDS = ("WebVitalsQuery",)
 # counting them would double-count demand for teams on those strategies.
 INTERNAL_QUERY_TYPE_SUFFIXES = ("_lazy_insert", "_preflight")
 _INTERNAL_QUERY_TYPE_FILTER = " OR ".join(f"endsWith(query_type, '{s}')" for s in INTERNAL_QUERY_TYPE_SUFFIXES)
+
+# Request kind (top-level log_comment `kind`) excluded from demand selection.
+# Temporal-kind requests are batch/scheduled workflows that run web queries
+# across nearly every team; counting them made the selection reflect background
+# traffic rather than real dashboard usage. UI and personal-API-key requests are
+# kept — those are the reads warming is meant to keep fast.
+EXCLUDED_REQUEST_KIND = "temporal"
 
 # Read-bytes ceiling for the demand-selection scan. The 14-day fleet-wide
 # query_log scan reads ~40 TiB, over the default cap, so it's raised — but to a
@@ -252,14 +262,20 @@ def queries_to_keep_fresh(
     # to offline nodes, while the user traffic we want to replay lands on other
     # replicas. (metrics_query_log_mv only looks usable — its DDL in
     # posthog/models/query_metrics/sql.py was never migrated, the table does not
-    # exist in production.) Grouping by the query JSON alone collapses strategy
-    # variants of one shape into one replay, and demand is counted as distinct
-    # query_ids so duplicated log rows for one request can't inflate it. The
-    # per-shape hash is derived from the JSON we already read out of log_comment
-    # (cityHash64 of the group key) rather than normalizedQueryHash(query): the
-    # latter reads the full `query` SQL-text column — the largest column in
-    # query_log — across the whole window purely for a logging id, which over a
-    # multi-day scan dominates the read cost.
+    # exist in production.) Demand is grouped by the NORMALIZED shape — the query
+    # JSON with the range-varying and non-shape fields stripped
+    # (SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS: dateRange, compareFilter, limit, …) —
+    # which is the same set the precompute bucket namespace collapses to, so one
+    # warmed -30d bucket serves every date-range variant of a shape. Grouping by
+    # the raw JSON instead fragmented a shape queried across many date ranges into
+    # many sub-threshold entries that never cleared min-count, even though warming
+    # it once would serve them all; the largest, most date-varied teams were the
+    # worst hit. any(query_json_raw) keeps a representative to replay — its date
+    # range is widened to -30d anyway. Demand is counted as distinct query_ids so
+    # duplicated log rows for one request can't inflate it. The per-shape hash is
+    # cityHash64 of the group key rather than normalizedQueryHash(query), which
+    # would read the full `query` SQL-text column — the largest in query_log —
+    # across the whole window purely for a logging id.
     #
     # The scan spans the whole WEB_ANALYTICS_WARMING_DAYS window fleet-wide, which
     # exceeds the default max_bytes_to_read, so the cap is raised to
@@ -278,12 +294,44 @@ def queries_to_keep_fresh(
         f"""
         SELECT
             team_id,
-            query_json_raw,
-            uniqExact(query_id) AS query_count,
-            cityHash64(query_json_raw) AS normalized_query_hash
+            -- Representative = the shape's most-requested exact variant (its real
+            -- date range, modifiers, …). Picking the mode rather than an arbitrary
+            -- any() keeps a rare ineligible variant — an all-time range, a UUID
+            -- join mode requested once — from being the one that gets replayed.
+            argMax(query_json_raw, variant_count) AS representative_query_json,
+            -- Summed across variants so date/compare variants of one lazy shape
+            -- combine to clear the selection floor: one shared bucket serves them.
+            sum(variant_count) AS query_count,
+            -- The representative variant's OWN demand. The raw (ineligible) replay
+            -- path gates on this, not the sum, so an expensive variant can't
+            -- inherit a popular sibling's demand — raw replays aren't shared, so
+            -- each stale hour re-runs a full live query.
+            max(variant_count) AS representative_query_count,
+            cityHash64(normalized_shape) AS normalized_query_hash
         FROM (
             SELECT
+                team_id,
+                normalized_shape,
+                query_json_raw,
+                uniqExact(query_id) AS variant_count
+            FROM (
+            SELECT
                 JSONExtractInt(log_comment, 'team_id') AS team_id,
+                -- The shape key: every top-level query field except the range-
+                -- varying / non-shape ones the precompute namespace ignores, so
+                -- date-range and compare variants of one shape group together
+                -- (char(31)/char(30) are control-char separators that can't occur
+                -- in JSON keys). Sorted so field order in the payload is irrelevant.
+                arrayStringConcat(
+                    arraySort(arrayMap(
+                        kv -> concat(kv.1, char(31), kv.2),
+                        arrayFilter(
+                            kv -> NOT has(%(shape_ignored_fields)s, kv.1),
+                            JSONExtractKeysAndValuesRaw(JSONExtractRaw(log_comment, 'query'))
+                        )
+                    )),
+                    char(30)
+                ) AS normalized_shape,
                 -- aliased away from the native `query_kind` column so the PREWHERE
                 -- below binds to the column (Select/Insert/…), not this JSON kind
                 -- (WebOverviewQuery/…); with prefer_column_name_to_alias=0 a name
@@ -293,6 +341,7 @@ def queries_to_keep_fresh(
                 JSONExtractString(log_comment, 'query_type') AS query_type,
                 JSONExtractString(log_comment, 'trigger') AS trigger,
                 JSONExtractString(log_comment, 'feature') AS feature,
+                JSONExtractString(log_comment, 'kind') AS request_kind,
                 JSONExtractRaw(log_comment, 'query') AS query_json_raw,
                 query_id
             FROM clusterAllReplicas(%(cluster)s, system.query_log)
@@ -320,9 +369,20 @@ def queries_to_keep_fresh(
             AND NOT ({_INTERNAL_QUERY_TYPE_FILTER})
             AND trigger NOT IN %(background_triggers)s
             AND feature != %(cache_warmup_feature)s
+            -- Demand should reflect real product usage, not background query
+            -- traffic. Temporal-kind requests (batch/scheduled workflows) run
+            -- web queries across nearly every team — left in, they dominated the
+            -- selection and filled the cap with shapes no dashboard reader ever
+            -- loads. UI and personal-API-key traffic are kept.
+            AND request_kind != %(excluded_request_kind)s
+            GROUP BY
+                team_id,
+                normalized_shape,
+                query_json_raw
+        ) AS variants
         GROUP BY
             team_id,
-            query_json_raw
+            normalized_shape
         HAVING query_count >= %(minimum_query_count)s
         ORDER BY
             query_count DESC
@@ -335,10 +395,12 @@ def queries_to_keep_fresh(
             "minimum_query_count": minimum_query_count,
             "max_shapes": max_shapes,
             "max_shapes_per_team": MAX_SHAPES_PER_TEAM,
+            "shape_ignored_fields": sorted(SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS),
             "kind_prefix": WARMABLE_QUERY_KIND_PREFIX,
             "unwarmable_kinds": UNWARMABLE_QUERY_KINDS,
             "background_triggers": tuple(BACKGROUND_WARMING_TRIGGERS | SHARED_BACKGROUND_WARMING_TRIGGERS),
             "cache_warmup_feature": Feature.CACHE_WARMUP.value,
+            "excluded_request_kind": EXCLUDED_REQUEST_KIND,
         },
         settings={"max_bytes_to_read": _SELECTION_MAX_BYTES_TO_READ, "max_execution_time": 600},
     )
@@ -348,7 +410,8 @@ def queries_to_keep_fresh(
             "team_id": result[0],
             "query_json": json.loads(result[1]),
             "query_count": result[2],
-            "normalized_query_hash": result[3],
+            "representative_query_count": result[3],
+            "normalized_query_hash": result[4],
         }
         for result in results
     ]
@@ -366,7 +429,13 @@ def queries_to_keep_fresh(
 # single Redis value. The cached blob embeds the selection parameters and a
 # timestamp so a settings change or an entry older than the TTL is treated as a
 # miss — object storage has no per-key expiry of its own.
-_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v1.json.gz"
+#
+# The vN suffix versions the selection *logic*: the cache only validates the
+# settings params (days/min/max), not the query itself, so a change to the
+# selection query (new filter, different grouping) would otherwise keep replaying
+# a stale blob written by the old logic until its TTL expired. Bump the version
+# whenever the selection query changes so the new logic takes effect on deploy.
+_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v3.json.gz"
 
 
 def _read_cached_warmable_queries(
@@ -498,8 +567,11 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             # one cheap today-bucket refresh), but an ineligible shape replays as
             # a full live query every stale hour — with the min-2 floor a tenant
             # could mint MAX_SHAPES_PER_TEAM such shapes from two runs each and
-            # have the warmer amplify them outside request throttles.
-            if not lazy_eligible and query_info.get("query_count", 0) < RAW_REPLAY_MIN_QUERY_COUNT:
+            # have the warmer amplify them outside request throttles. Gate on the
+            # representative variant's own demand, not the shape-wide sum: raw
+            # replays aren't shared across variants, so a rarely-run expensive
+            # variant must not inherit a popular sibling's count.
+            if not lazy_eligible and query_info.get("representative_query_count", 0) < RAW_REPLAY_MIN_QUERY_COUNT:
                 WARMING_QUERIES_COUNTER.labels(outcome="skipped_raw_low_demand").inc()
                 return "skipped_raw_low_demand"
 
@@ -510,8 +582,8 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
                     return "skipped_duplicate"
                 seen_cache_keys.add((team.pk, cache_key))
 
-            cache_manager = DjangoCacheQueryCacheManager(team_id=team.pk, cache_key=cache_key)
-            cached_data = cache_manager.get_cache_data()
+            entry = QueryCache(team_id=team.pk, cache_key=cache_key).lookup().entry
+            cached_data = entry.as_full_response() if entry else None
 
             if cached_data is not None:
                 last_refresh = parse_datetime(cached_data["last_refresh"])

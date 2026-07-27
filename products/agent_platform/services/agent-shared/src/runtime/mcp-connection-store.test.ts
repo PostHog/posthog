@@ -177,7 +177,7 @@ describe('PgMcpConnectionStore', () => {
         expect(String(http.calls[0].init?.body)).toContain('grant_type=refresh_token')
         expect(String(http.calls[0].init?.body)).toContain('client_id=client-1')
 
-        // Wrote back, in the per-leaf-encrypted format Django/PostHog Code reads.
+        // Wrote back, in the per-leaf-encrypted format Django/PostHog Desktop reads.
         expect(writes).toHaveLength(1)
         const written = enc.decryptJsonFieldValue(JSON.parse(writes[0].values[0] as string)) as Record<string, unknown>
         expect(written.access_token).toBe('tok-2')

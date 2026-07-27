@@ -801,6 +801,67 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
 
+    @parameterized.expand(
+        [
+            ("conditional_branch_no_conditions", "conditional_branch", {}, "conditions"),
+            ("random_cohort_branch_no_cohorts", "random_cohort_branch", {}, "cohorts"),
+            # The shape an LLM invents when it cross-breeds the two branch types: the split data
+            # stored under 'conditions' on a random_cohort_branch. Must fail loudly, not store.
+            (
+                "random_cohort_branch_wrong_key",
+                "random_cohort_branch",
+                {"conditions": [{"name": "A", "percentage": 50}, {"name": "B", "percentage": 50}]},
+                "cohorts",
+            ),
+            ("conditional_branch_non_list", "conditional_branch", {"conditions": "not-a-list"}, "conditions"),
+            # A cohort without a numeric percentage makes the runtime's cumulative sum NaN, silently
+            # routing everyone to the last cohort instead of splitting.
+            ("random_cohort_branch_no_percentage", "random_cohort_branch", {"cohorts": [{"name": "A"}]}, "percentage"),
+            (
+                "random_cohort_branch_string_percentage",
+                "random_cohort_branch",
+                {"cohorts": [{"percentage": "50"}, {"percentage": 50}]},
+                "percentage",
+            ),
+        ]
+    )
+    def test_hog_flow_branch_action_missing_branch_array_rejected_when_strict(
+        self, _name, action_type, config, expected_key
+    ):
+        branch_action = {"id": "branch_1", "name": "branch_1", "type": action_type, "config": config}
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        hog_flow = {"name": "Test Flow", "status": "active", "actions": [trigger_action, branch_action]}
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert expected_key in response.json()["detail"]
+
+    def test_hog_flow_branch_action_missing_branch_array_allowed_for_web_draft(self):
+        # The web builder saves incomplete nodes mid-edit; a draft save must not reject them.
+        branch_actions = [
+            {"id": "cond_1", "name": "cond_1", "type": "conditional_branch", "config": {}},
+            {"id": "split_1", "name": "split_1", "type": "random_cohort_branch", "config": {}},
+        ]
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        hog_flow = {"name": "Test Flow", "status": "draft", "actions": [trigger_action, *branch_actions]}
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
     def test_hog_flow_single_condition_field(self):
         trigger_action = {
             "id": "trigger_node",
@@ -2696,12 +2757,13 @@ class TestHogFlowAPI(APIBaseTest):
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
     def test_programmatic_batch_dispatch_requires_audience_confirm_token(self, mock_create_invocation):
-        # A batch run is an irreversible mass send. Programmatic callers must hold a token only the
+        # A batch run is an irreversible mass send. Agent surfaces must hold a token only the
         # blast-radius preview mints, signed over the workflow's stored trigger filters - the audience
         # the dispatch actually fans out to. A token minted for other (e.g. narrower) filters is
         # rejected, so an agent can't size one audience and send to another, and an edited trigger
-        # invalidates earlier previews. The web builder (session auth) keeps its own confirm UI and
-        # stays token-free (covered by the existing batch job tests, which run as WEB).
+        # invalidates earlier previews. The web builder (session auth) keeps its own confirm UI
+        # (covered by the existing batch job tests, which run as WEB), and headless callers (raw API
+        # keys) dispatch in one call - the gate targets agents, not automation.
         flow_id = self._create_active_hog_flow()
         trigger_filters = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()["trigger"][
             "filters"
@@ -2793,6 +2855,40 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert draft_schedule.status_code == 400, draft_schedule.json()
         assert "active" in draft_schedule.json()["detail"].lower()
+
+        # A raw API key is a headless professional surface - no agent in the loop to read a count,
+        # so the two-step would be ceremony. Dispatches in one call, no token. A fresh client keeps
+        # the request session-free so it classifies as API, not WEB.
+        api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="batch dispatch",
+            user=self.user,
+            secure_value=hash_key_value(api_key),
+            scopes=["hog_flow:write", "person:read"],
+        )
+        api_client = self.client_class()
+        api_dispatch = api_client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+            {},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+        assert api_dispatch.status_code == 200, api_dispatch.json()
+        assert api_dispatch.json()["filters"] == trigger_filters
+        assert mock_create_invocation.call_count == 2
+
+        # Fanning out renders person properties into outbound sends, so the write scope alone
+        # isn't enough - person:read is required, same as the blast-radius preview.
+        write_only_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="write only", user=self.user, secure_value=hash_key_value(write_only_key), scopes=["hog_flow:write"]
+        )
+        write_only = api_client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+            {},
+            headers={"authorization": f"Bearer {write_only_key}"},
+        )
+        assert write_only.status_code == 403, write_only.json()
+        assert "person:read" in write_only.json().get("detail", "")
 
     def test_post_hog_flow_batch_jobs_endpoint_rejects_non_active_workflow(self):
         # A batch run is gated on an enabled workflow — a draft (or archived) one can't start a broadcast.
