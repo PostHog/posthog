@@ -5,7 +5,8 @@ from typing import Literal, TypedDict
 
 from django.utils import timezone
 
-from posthog.ducklake.models import DuckgresServerTeam, DuckgresSinkSchemaState
+from posthog.ducklake.cp_teams import CPTeam
+from posthog.ducklake.models import DuckgresSinkSchemaState
 
 from products.data_warehouse.backend.logic.backfill_status import historical_backfill_months
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
@@ -88,7 +89,7 @@ class ManagedWarehouseDataStatus(TypedDict):
     generated_at: datetime
 
 
-def _event_historical_partition_count(backfill: DuckgresServerTeam) -> int | None:
+def _event_historical_partition_count(backfill: CPTeam) -> int | None:
     if backfill.earliest_event_date is None:
         return None
 
@@ -99,7 +100,7 @@ def _event_historical_partition_count(backfill: DuckgresServerTeam) -> int | Non
 def dataset_status(
     *,
     dataset: Literal["events", "persons"],
-    backfill: DuckgresServerTeam | None,
+    backfill: CPTeam | None,
     partitions: list[ManagedWarehouseBackfillPartition],
 ) -> DatasetStatus:
     if backfill is None or not backfill.backfill_enabled:
@@ -362,7 +363,13 @@ def _roll_up_state(states: list[ReadinessState]) -> ReadinessState:
 
 
 def get_managed_warehouse_data_status(team_id: int) -> ManagedWarehouseDataStatus:
-    backfill = DuckgresServerTeam.objects.filter(team_id=team_id).first()
+    # Deferred: team_state pulls ducklake.common (and its duckdb dependency) in — keep
+    # that off the API import path.
+    from posthog.ducklake import team_state  # noqa: PLC0415
+
+    # Degrades to None (reported not_configured) when the control plane can't answer:
+    # a status read must never 500.
+    backfill = team_state.team_backfill_row(team_id)
     partitions = list(
         ManagedWarehouseBackfillPartition.objects.for_team(team_id)
         .filter(environment_id=team_id)

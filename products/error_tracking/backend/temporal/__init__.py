@@ -9,6 +9,7 @@ from products.error_tracking.backend.temporal.lifecycle import (
     WORKFLOWS as LIFECYCLE_WORKFLOWS,
     ErrorTrackingIssueCreatedWorkflow,
     ErrorTrackingIssueReopenedWorkflow,
+    ErrorTrackingIssueSpikingWorkflow,
 )
 from products.error_tracking.backend.temporal.recommendations_refresh import (
     ACTIVITIES as RECOMMENDATIONS_REFRESH_ACTIVITIES,
@@ -51,6 +52,7 @@ __all__ = [
     "ErrorTrackingFingerprintEmbeddingResultWorkflow",
     "ErrorTrackingIssueCreatedWorkflow",
     "ErrorTrackingIssueReopenedWorkflow",
+    "ErrorTrackingIssueSpikingWorkflow",
     "ErrorTrackingRecommendationsRefreshWorkflow",
     "ErrorTrackingSpikeEventCleanupWorkflow",
     "ErrorTrackingSymbolSetCleanupWorkflow",

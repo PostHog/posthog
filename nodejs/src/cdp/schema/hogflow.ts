@@ -177,6 +177,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             message_category_id: z.string().optional(),
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
+            // When false, no open pixel is injected, links are not rewritten, and the send uses the
+            // untracked SES configuration set. Absent/true means tracked (existing behavior).
+            tracking_enabled: z.boolean().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),
@@ -275,6 +278,10 @@ export const HogFlowSchema = z.object({
         'exit_only_at_end',
     ]),
     actions: z.array(HogFlowActionSchema),
+    // Secret function inputs, split out of `actions` and stored Fernet-encrypted at rest, keyed by
+    // action id then input key. Decrypted by the manager and merged back into `action.config.inputs`
+    // before execution; never present on the plaintext `actions` blob.
+    encrypted_inputs: z.record(z.string(), z.record(z.string(), CyclotronInputSchema)).optional().nullable(),
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
     variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),

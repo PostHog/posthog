@@ -870,6 +870,14 @@ fn finish(
     }
     // Deferred image jobs resolve here: the block lines are the last surface tokens can be on.
     let lines = ctx.patch_pending_images(lines);
+    // Nothing downstream can fix a token that gets past this point, and a shipped one is an image
+    // no reader can ever recover (the marker is random per process). Fail closed instead.
+    if crate::images::contains_token(&lines) {
+        return Err(Failure::new(
+            FailKind::AnonymizeFailed,
+            "internal: unresolved image token in anonymized output",
+        ));
+    }
     Ok(AnonymizedMessage {
         lines,
         route,

@@ -1902,14 +1902,11 @@ export const getLlmPromptsNameArchiveCreateUrl = (projectId: string, promptName:
 export const llmPromptsNameArchiveCreate = async (
     projectId: string,
     promptName: string,
-    lLMPromptApi: NonReadonly<LLMPromptApi>,
     options?: RequestInit
-): Promise<LLMPromptApi> => {
-    return apiMutator<LLMPromptApi>(getLlmPromptsNameArchiveCreateUrl(projectId, promptName), {
+): Promise<void> => {
+    return apiMutator<void>(getLlmPromptsNameArchiveCreateUrl(projectId, promptName), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(lLMPromptApi),
     })
 }
 
