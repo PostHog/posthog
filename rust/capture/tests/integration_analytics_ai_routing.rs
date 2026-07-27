@@ -377,7 +377,11 @@ async fn import_mode_historical_batch_never_overflows() {
     post_batch(&client, historical_mixed_batch_payload()).await;
 
     let events = sink.get_events().await;
-    assert_eq!(events.len(), 2, "both historical events must reach the sink");
+    assert_eq!(
+        events.len(),
+        2,
+        "both historical events must reach the sink"
+    );
 
     for event in &events {
         assert_eq!(
