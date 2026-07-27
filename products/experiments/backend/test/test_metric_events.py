@@ -375,6 +375,97 @@ class TestScanSessionForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin)
             (MetricSourceRole.STEP, "upgraded", 2, 3)
         ]
 
+    @parameterized.expand([("one_occurrence", 1), ("three_occurrences", 3)])
+    def test_funnel_repeated_step_event_maps_occurrences_to_steps_positionally(
+        self, _name: str, occurrences: int
+    ) -> None:
+        # An "N-th activation" funnel lists the same event as every step (production: a 3-step funnel
+        # of "product intent marked activated"). The steps share one aggregate group, so the scan
+        # used to echo that single group under all N steps — one occurrence read as a completed
+        # N-step funnel. Each identical step must instead map to a distinct occurrence: step k fires
+        # only once the event has fired k+1 times, at its k-th occurrence.
+        funnel = _metric(
+            "funnel",
+            name="Third activation",
+            series=[_events_node("activated"), _events_node("activated"), _events_node("activated")],
+        )
+        occurrence_times = [
+            datetime(2026, 1, 1, 10, 5, tzinfo=UTC),
+            datetime(2026, 1, 1, 10, 6, tzinfo=UTC),
+            datetime(2026, 1, 1, 10, 7, tzinfo=UTC),
+        ]
+        for ts in occurrence_times[:occurrences]:
+            self._create_session_event("activated", "s1", timestamp=ts.isoformat())
+        flush_persons_and_events()
+
+        hits = self._scan([funnel], "s1")
+
+        assert len(hits) == 1
+        hit = hits[0]
+        # The metric total still counts every occurrence; only the per-step breakdown is positional.
+        assert hit.event_count == occurrences
+        assert [
+            (source.role, source.index, source.total, source.event_count, source.first_timestamp)
+            for source in hit.sources
+        ] == [(MetricSourceRole.STEP, i, 3, 1, occurrence_times[i]) for i in range(occurrences)]
+
+    def test_funnel_repeated_step_ranks_by_same_event_position_not_series_index(self) -> None:
+        # Interleaved "A → B" funnels (production: insight date range changed / query completed,
+        # repeated) put a repeated event at non-adjacent steps. Each event's occurrences must be
+        # assigned by rank among that event's own steps, not by absolute series index: with query
+        # completed at steps 2 and 4, its first occurrence maps to step 2 and its second to step 4,
+        # while the never-fired date-change steps drop out. Using the absolute index would look for
+        # step 4's occurrence at position 3 and wrongly drop it.
+        funnel = _metric(
+            "funnel",
+            name="Date change -> query loaded x2",
+            series=[
+                _events_node("date changed"),
+                _events_node("query completed"),
+                _events_node("date changed"),
+                _events_node("query completed"),
+            ],
+        )
+        self._create_session_event("query completed", "s1", timestamp="2026-01-01T10:05:00Z")
+        self._create_session_event("query completed", "s1", timestamp="2026-01-01T10:06:00Z")
+        flush_persons_and_events()
+
+        hits = self._scan([funnel], "s1")
+
+        assert len(hits) == 1
+        assert [(source.index, source.event_count, source.first_timestamp) for source in hits[0].sources] == [
+            (1, 1, datetime(2026, 1, 1, 10, 5, tzinfo=UTC)),
+            (3, 1, datetime(2026, 1, 1, 10, 6, tzinfo=UTC)),
+        ]
+
+    def test_funnel_repeated_step_reached_past_seek_point_cap_is_still_shown(self) -> None:
+        # Seek points are capped at MAX_METRIC_EVENT_TIMESTAMPS. A repeated step reached past that
+        # cap (only reachable by a funnel of >cap identical steps whose event fired >cap times) must
+        # still be shown: gauging "reached" on the capped seek-point tuple instead of the true event
+        # count would silently drop it. The step past the cap reuses the last available seek point.
+        funnel = _metric(
+            "funnel",
+            name="Third activation",
+            series=[_events_node("activated"), _events_node("activated"), _events_node("activated")],
+        )
+        times = [
+            datetime(2026, 1, 1, 10, 5, tzinfo=UTC),
+            datetime(2026, 1, 1, 10, 6, tzinfo=UTC),
+            datetime(2026, 1, 1, 10, 7, tzinfo=UTC),
+        ]
+        for ts in times:
+            self._create_session_event("activated", "s1", timestamp=ts.isoformat())
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.metric_events.MAX_METRIC_EVENT_TIMESTAMPS", 2):
+            hits = self._scan([funnel], "s1")
+
+        assert [(source.index, source.first_timestamp) for source in hits[0].sources] == [
+            (0, times[0]),
+            (1, times[1]),
+            (2, times[1]),
+        ]
+
     def test_retention_distinct_completion_in_session_reports_its_source(self) -> None:
         # A distinct return event that fires in the session must surface as a completion source,
         # even for a window that opens a day later — the analysis counts such a return when the

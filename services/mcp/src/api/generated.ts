@@ -3673,6 +3673,14 @@ export namespace Schemas {
       InitialUTMTerm: 'InitialUTMTerm',
       InitialUTMContent: 'InitialUTMContent',
       InitialUTMSourceMediumCampaign: 'InitialUTMSourceMediumCampaign',
+      FirstPageviewChannelType: 'FirstPageviewChannelType',
+      FirstPageviewReferringDomain: 'FirstPageviewReferringDomain',
+      FirstPageviewUTMSource: 'FirstPageviewUTMSource',
+      FirstPageviewUTMCampaign: 'FirstPageviewUTMCampaign',
+      FirstPageviewUTMMedium: 'FirstPageviewUTMMedium',
+      FirstPageviewUTMTerm: 'FirstPageviewUTMTerm',
+      FirstPageviewUTMContent: 'FirstPageviewUTMContent',
+      FirstPageviewUTMSourceMediumCampaign: 'FirstPageviewUTMSourceMediumCampaign',
       Browser: 'Browser',
       Os: 'OS',
       Viewport: 'Viewport',
@@ -14891,6 +14899,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `conversation` - conversation
+     * * `review` - review
+     */
+    export type CommentTypeEnum = typeof CommentTypeEnum[keyof typeof CommentTypeEnum];
+
+
+    export const CommentTypeEnum = {
+      Conversation: 'conversation',
+      Review: 'review',
+    } as const;
+
+    /**
      * Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
      * repository default branch.
      */
@@ -15231,6 +15251,11 @@ export namespace Schemas {
       readonly task: ConversationTask | null;
     }
 
+    export interface ConversationsTicketImage {
+      url: string;
+      author: string;
+    }
+
     export interface ConversationsTicketSignalExtra {
       ticket_number: number;
       channel_source: string;
@@ -15239,6 +15264,7 @@ export namespace Schemas {
       priority: string | null;
       created_at: string;
       email_subject: string | null;
+      images?: ConversationsTicketImage[] | null;
     }
 
     export interface ConversionGoalSummary {
@@ -17298,7 +17324,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.
+      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
        *
        * * `never` - never
        * * `15min` - 15min
@@ -17310,6 +17336,8 @@ export namespace Schemas {
        * * `7day` - 7day
        * * `30day` - 30day */
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
+      /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
+      readonly sync_frequency_managed_by_dag: boolean;
       readonly columns: readonly DataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *
@@ -17474,6 +17502,8 @@ export namespace Schemas {
       readonly description: string;
       /** @nullable */
       readonly sync_frequency: string | null;
+      /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
+      readonly sync_frequency_managed_by_dag: boolean;
       readonly columns: readonly DataWarehouseSavedQueryMinimalColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *
@@ -24992,15 +25022,32 @@ export namespace Schemas {
     };
 
     /**
-     * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+     * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
      */
     export type EvaluationTargetConfig = {
+      /** Wait a fixed window after the first matching generation, then evaluate. */
+      strategy?: 'fixed_window';
       /**
-         * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
+         * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
          * @minimum 10
          * @maximum 7200
          */
       window_seconds?: number;
+    } | {
+      /** Evaluate once the trace has had no new activity for the quiet period. */
+      strategy: 'inactivity';
+      /**
+         * Seconds without new trace activity before the trace counts as settled.
+         * @minimum 10
+         * @maximum 1800
+         */
+      quiet_period_seconds?: number;
+      /**
+         * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+         * @minimum 60
+         * @maximum 7200
+         */
+      max_age_seconds?: number;
     };
 
     /**
@@ -25179,12 +25226,12 @@ export namespace Schemas {
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
-      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
        *
        * * `generation` - Generation
        * * `trace` - Trace */
       target?: EvaluationTargetEnum;
-      /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+      /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
       target_config?: EvaluationTargetConfig;
       /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
@@ -32421,7 +32468,7 @@ export namespace Schemas {
        * * `continue` - continue
        * * `branch` - branch */
       type: HogFlowEdgeTypeEnum;
-      /** Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing). */
+      /** Required for type='branch'. conditional_branch: index into config.conditions[index]. random_cohort_branch: index into config.cohorts[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing). */
       index?: number;
       /** Source action id. */
       from: string;
@@ -32440,7 +32487,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
      */
     export type HogFlowActionConfig = { [key: string]: unknown } | {
       /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
@@ -32490,7 +32537,7 @@ export namespace Schemas {
          * @maxLength 100
          */
       type: string;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
       /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
@@ -39464,6 +39511,20 @@ export namespace Schemas {
       specificity_rejection?: SpecificityMetadata | null;
     }
 
+    export interface NodeSuspension {
+      /** When the node was suspended. */
+      at: string;
+      /** Error from the materialization that tripped suspension. */
+      reason: string;
+      /** Materialization job that tripped suspension. */
+      job_id: string;
+    }
+
+    /**
+     * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
+     */
+    export type NodeSuspended = {[key: string]: NodeSuspension};
+
     /**
      * * `table` - Table
      * * `view` - View
@@ -39504,6 +39565,13 @@ export namespace Schemas {
       readonly user_tag: string | null;
       /** @nullable */
       readonly sync_interval: string | null;
+      /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
+      readonly suspended: NodeSuspended;
+    }
+
+    export interface NodeResume {
+      /** False when the node was not suspended to begin with. */
+      resumed: boolean;
     }
 
     /**
@@ -47240,7 +47308,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.
+      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
        *
        * * `never` - never
        * * `15min` - 15min
@@ -47252,6 +47320,8 @@ export namespace Schemas {
        * * `7day` - 7day
        * * `30day` - 30day */
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
+      /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
+      readonly sync_frequency_managed_by_dag?: boolean;
       readonly columns?: readonly PatchedDataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *
@@ -47969,15 +48039,32 @@ export namespace Schemas {
     };
 
     /**
-     * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+     * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
      */
     export type PatchedEvaluationTargetConfig = {
+      /** Wait a fixed window after the first matching generation, then evaluate. */
+      strategy?: 'fixed_window';
       /**
-         * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
+         * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
          * @minimum 10
          * @maximum 7200
          */
       window_seconds?: number;
+    } | {
+      /** Evaluate once the trace has had no new activity for the quiet period. */
+      strategy: 'inactivity';
+      /**
+         * Seconds without new trace activity before the trace counts as settled.
+         * @minimum 10
+         * @maximum 1800
+         */
+      quiet_period_seconds?: number;
+      /**
+         * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+         * @minimum 60
+         * @maximum 7200
+         */
+      max_age_seconds?: number;
     };
 
     export interface PatchedEvaluation {
@@ -48015,12 +48102,12 @@ export namespace Schemas {
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
-      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
        *
        * * `generation` - Generation
        * * `trace` - Trace */
       target?: EvaluationTargetEnum;
-      /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+      /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
       target_config?: PatchedEvaluationTargetConfig;
       /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
@@ -49796,6 +49883,11 @@ export namespace Schemas {
       tile?: MoveTileTile;
     }
 
+    /**
+     * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
+     */
+    export type PatchedNodeSuspended = {[key: string]: NodeSuspension};
+
     export interface PatchedNode {
       readonly id?: string;
       /** @maxLength 2048 */
@@ -49820,6 +49912,8 @@ export namespace Schemas {
       readonly user_tag?: string | null;
       /** @nullable */
       readonly sync_interval?: string | null;
+      /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
+      readonly suspended?: PatchedNodeSuspended;
     }
 
     /**
@@ -55127,6 +55221,50 @@ export namespace Schemas {
     }
 
     /**
+     * One scout in either bucket of `inventory.scout_fleet`.
+     */
+    export interface ScoutFleetEntry {
+      /** The `signals-scout-*` skill this config schedules. */
+      skill_name: string;
+      /** Minutes between runs when no cron schedule is set (default 1440, every 24 hours). */
+      run_interval_minutes: number;
+      /**
+         * Optional cron expression, evaluated in the project timezone. Takes precedence over the interval.
+         * @nullable
+         */
+      run_cron_schedule: string | null;
+      /** Whether this scout's findings actually reach the inbox. False means dry-run: it runs and logs but emits nothing, so its silence says nothing about the surface it watches. */
+      emit: boolean;
+      /**
+         * ISO-8601 timestamp the coordinator last dispatched this scout, or null if it has never run.
+         * @nullable
+         */
+      last_run_at: string | null;
+      /**
+         * ISO-8601 timestamp this scout last produced output on either channel (a finding, or an authored/edited report), within `emitted_lookback_days`. Null means quiet for at least that window, not never.
+         * @nullable
+         */
+      last_emitted_at: string | null;
+      /**
+         * Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.
+         * @nullable
+         */
+      not_running_reason: string | null;
+    }
+
+    /**
+     * `inventory.scout_fleet` — the other scouts running on this project, split by enablement.
+     */
+    export interface ScoutFleet {
+      /** Scouts that actually run on this team: enabled, with a live skill the coordinator dispatches. */
+      enabled: ScoutFleetEntry[];
+      /** Scouts that do not run, each carrying a `not_running_reason` — turned off, or left on with a skill that can't dispatch. Different from a surface no scout ever covered. */
+      disabled: ScoutFleetEntry[];
+      /** The window `last_emitted_at` was resolved over, so a null reads as 'quiet', not 'never'. */
+      emitted_lookback_days: number;
+    }
+
+    /**
      * One row in `inventory.recent_activity.by_scope`.
      */
     export interface ScopeActivityEntry {
@@ -55547,6 +55685,8 @@ export namespace Schemas {
       signal_source_configs: SignalSourceConfigsBuckets;
       /** Whether scout findings can actually reach the inbox for this team — the org-level AI data-processing consent gate and the `signals_scout` source toggle, plus a one-line remediation pointer. Read at cold start to quick-close before doing throwaway work. */
       emit_eligibility: EmitEligibility;
+      /** The other scouts configured on this project, split into enabled / disabled, each with its cadence, dry-run posture, last run, and last emit. Read it to see who else is watching this project before investigating a surface a sibling already covers. */
+      scout_fleet: ScoutFleet;
       /** Counts of reports already in the inbox, grouped by status. */
       existing_inbox_reports: ExistingInboxReports;
       /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`. */
@@ -55850,6 +55990,126 @@ export namespace Schemas {
       results: ProxyRecord[];
       /** Maximum number of proxy records allowed for this organization's current plan. */
       max_proxy_records: number;
+    }
+
+    /**
+     * One CI check on a pull request's head commit — a GitHub Actions check run or a legacy commit
+     * status, normalized to a common shape.
+     */
+    export interface PullRequestCheck {
+      /** Check run name or status context. */
+      readonly name: string;
+      /**
+         * Lifecycle state: 'queued', 'in_progress', or 'completed'.
+         * @nullable
+         */
+      readonly status: string | null;
+      /**
+         * Outcome once completed: 'success', 'failure', 'neutral', 'cancelled', 'skipped', 'timed_out', or 'action_required'. Null while still running.
+         * @nullable
+         */
+      readonly conclusion: string | null;
+      /**
+         * Link to the check run / status detail on GitHub.
+         * @nullable
+         */
+      readonly url: string | null;
+    }
+
+    /**
+     * Response for the PR checks endpoint — the CI status of a report's implementation PR.
+     */
+    export interface PullRequestChecksResponse {
+      readonly checks: readonly PullRequestCheck[];
+    }
+
+    /**
+     * * `LEFT` - LEFT
+     * * `RIGHT` - RIGHT
+     */
+    export type SideEnum = typeof SideEnum[keyof typeof SideEnum];
+
+
+    export const SideEnum = {
+      Left: 'LEFT',
+      Right: 'RIGHT',
+    } as const;
+
+    /**
+     * One comment on a pull request — a conversation comment or an inline review comment.
+     */
+    export interface PullRequestComment {
+      /** GitHub comment id. */
+      readonly id: string;
+      /**
+         * Comment author's GitHub login.
+         * @nullable
+         */
+      readonly author: string | null;
+      /**
+         * Author's GitHub avatar URL.
+         * @nullable
+         */
+      readonly author_avatar_url: string | null;
+      /** Comment body (GitHub-flavored markdown). */
+      readonly body: string;
+      /**
+         * ISO 8601 creation timestamp.
+         * @nullable
+         */
+      readonly created_at: string | null;
+      /**
+         * Link to the comment on GitHub.
+         * @nullable
+         */
+      readonly url: string | null;
+      /** 'conversation' for a PR discussion comment, 'review' for an inline code-review comment.
+       *
+       * * `conversation` - conversation
+       * * `review` - review */
+      readonly comment_type: CommentTypeEnum;
+      /**
+         * File path the review comment is anchored to (review comments only).
+         * @nullable
+         */
+      readonly path: string | null;
+      /**
+         * Line in the diff the review comment is anchored to — the end line for multi-line comments (review comments only; null when the comment is outdated relative to the PR head).
+         * @nullable
+         */
+      readonly line: number | null;
+      /**
+         * First line of a multi-line review comment's range (review comments only).
+         * @nullable
+         */
+      readonly start_line: number | null;
+      /** Diff side the review comment is anchored to: 'LEFT' = deletions, 'RIGHT' = additions (review comments only).
+       *
+       * * `LEFT` - LEFT
+       * * `RIGHT` - RIGHT */
+      readonly side: SideEnum | null;
+      /**
+         * Diff hunk excerpt the review comment applies to (review comments only).
+         * @nullable
+         */
+      readonly diff_hunk: string | null;
+      /**
+         * Id of the thread root comment this one replies to; null for thread roots and conversation comments.
+         * @nullable
+         */
+      readonly in_reply_to_id: string | null;
+      /**
+         * SHA of the commit the review comment was made against (review comments only).
+         * @nullable
+         */
+      readonly commit_id: string | null;
+    }
+
+    /**
+     * Response for the PR comments endpoint — conversation and review comments merged chronologically.
+     */
+    export interface PullRequestCommentsResponse {
+      readonly comments: readonly PullRequestComment[];
     }
 
     export interface PushCISample {
@@ -60224,6 +60484,11 @@ export namespace Schemas {
       block_consent_modals?: boolean;
     }
 
+    export interface SavedQueryResume {
+      /** False when the query's materialization was not suspended. */
+      resumed: boolean;
+    }
+
     /**
      * Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown.
      */
@@ -60411,6 +60676,8 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
+      /** Where the note came from: `human` for one left directly through this API, or `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports. A `report_dismissal` note is one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. */
+      origin: string;
     }
 
     /**
