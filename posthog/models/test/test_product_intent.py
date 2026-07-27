@@ -419,6 +419,7 @@ class TestProductIntent(BaseTest):
     @patch("posthog.models.product_intent.product_intent.get_managed_warehouse_compute_usage")
     def test_has_activated_managed_warehouse(self, _name, usage, expected, mock_compute_usage):
         mock_compute_usage.return_value = usage
+        EventDefinition.objects.create(team=self.team, name="managed warehouse compute usage")
         intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.MANAGED_WAREHOUSE)
         assert intent.has_activated_managed_warehouse() is expected
 
@@ -427,6 +428,7 @@ class TestProductIntent(BaseTest):
     def test_managed_warehouse_activation_uses_30_day_window(self, mock_compute_usage):
         # Usage is only counted within 30 days of the intent, so the compute lookup must be
         # bounded to [created_at, created_at + 30 days).
+        EventDefinition.objects.create(team=self.team, name="managed warehouse compute usage")
         intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.MANAGED_WAREHOUSE)
         assert intent.has_activated_managed_warehouse() is False
         mock_compute_usage.assert_called_once_with(
@@ -434,6 +436,23 @@ class TestProductIntent(BaseTest):
             datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
             datetime(2024, 1, 31, 12, 0, 0, tzinfo=UTC),
         )
+
+    @patch("posthog.models.product_intent.product_intent.get_managed_warehouse_compute_usage")
+    def test_managed_warehouse_activation_skips_clickhouse_without_usage_event(self, mock_compute_usage):
+        # A team that never emitted the compute-usage heartbeat must not trigger a ClickHouse query.
+        intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.MANAGED_WAREHOUSE)
+        assert intent.has_activated_managed_warehouse() is False
+        mock_compute_usage.assert_not_called()
+
+    @patch("posthog.models.product_intent.product_intent.get_managed_warehouse_compute_usage")
+    def test_managed_warehouse_activation_skips_clickhouse_after_window(self, mock_compute_usage):
+        # Once the 30-day window has closed, activation is impossible, so no ClickHouse query runs.
+        EventDefinition.objects.create(team=self.team, name="managed warehouse compute usage")
+        with freeze_time("2024-01-01T12:00:00Z"):
+            intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.MANAGED_WAREHOUSE)
+        with freeze_time("2024-03-01T12:00:00Z"):
+            assert intent.has_activated_managed_warehouse() is False
+        mock_compute_usage.assert_not_called()
 
     def test_has_activated_product_analytics_with_all_criteria(self):
         self.product_intent.product_type = ProductKey.PRODUCT_ANALYTICS

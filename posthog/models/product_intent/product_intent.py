@@ -239,9 +239,19 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
 
     def has_activated_managed_warehouse(self) -> bool:
         # Provisioning is the intent; genuine usage is compute crossing the threshold within
-        # 30 days of the intent. Once past the window it's fixed, so a warehouse that stayed
-        # idle in its first 30 days can no longer activate (mirrors has_activated_data_warehouse).
+        # 30 days of the intent (mirrors has_activated_data_warehouse's window).
         window_end = self.created_at + timedelta(days=MANAGED_WAREHOUSE_ACTIVATION_WINDOW_DAYS)
+
+        # Unlike the other (Postgres-backed) checks, this one reads ClickHouse, and
+        # check_and_update_activation re-runs daily until activation. Gate the ClickHouse query
+        # behind cheap Postgres checks so it only fires when it could change the answer:
+        #   1. once the 30-day window has closed, activation is permanently impossible, and
+        #   2. a team that never emitted the compute-usage heartbeat cannot have any usage.
+        if datetime.now(tz=UTC) > window_end:
+            return False
+        if not EventDefinition.objects.filter(team=self.team, name="managed warehouse compute usage").exists():
+            return False
+
         usage = get_managed_warehouse_compute_usage(self.team_id, self.created_at, window_end)
         return usage >= MANAGED_WAREHOUSE_ACTIVATION_CPU_SECONDS
 
