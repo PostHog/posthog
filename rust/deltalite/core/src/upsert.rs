@@ -812,6 +812,19 @@ fn ensure_supported_table(table: &DeltaTable) -> Result<()> {
         }
     }
 
+    // `invariants` / `checkConstraints` as declared writer features (writer protocol v7):
+    // deltalite's raw `RecordBatchWriter` evaluates neither, so a rewrite that inserts
+    // source rows could persist ones that violate them. The legacy pre-v7 CHECK-constraint
+    // form is caught below via `delta.constraints.*` config.
+    for bad in ["invariants", "checkConstraints"] {
+        if has(writer.as_deref(), bad) {
+            return Err(Error::Unsupported(format!(
+                "table declares writer feature '{bad}', which deltalite's writer does not \
+                 enforce and could persist violating rows"
+            )));
+        }
+    }
+
     let metadata = snapshot.metadata();
     let config = metadata.configuration();
     let is_true = |key: &str| {
