@@ -1,9 +1,6 @@
 import { Counter, Histogram } from 'prom-client'
 
-import { ScrubUnavailableReason } from './scrub-client'
-
-/** The scrub client's reasons, plus the two the batch itself owns and the client never sees. */
-export type DropReason = ScrubUnavailableReason | 'deadline' | 'unattempted'
+import { ScrubWaitReason } from './scrub-client'
 
 export class ImageScrubConsumerMetrics {
     private static readonly scrubbed = new Counter({
@@ -50,17 +47,89 @@ export class ImageScrubConsumerMetrics {
         help: 'Scrubbed image bytes written into shards',
     })
     /**
-     * The lane's data-loss signal, and the one to alert on. Every drop here is an image that reached
-     * the consumer and will never reach the bucket, because the sidecar had no capacity for it inside
-     * the batch's budget. A low background rate is the shape of a lane running near its ceiling; a
-     * rate approaching `scrubbed` means the sidecar is effectively down. Nothing else reports that:
-     * a pod dropping every image still passes its probes, keeps its lag flat, and keeps advancing
-     * offsets.
+     * The saturation signal, and the one to alert on.
+     *
+     * Each increment is one attempt that came back without bytes and will be retried rather than
+     * abandoned, so this never means data was lost. What it means is that the consumer is spending
+     * wall time waiting on the sidecar instead of draining, which is the thing that turns into lag.
+     * Read it against `scrubbed`: a small ratio is a lane near its ceiling, and a large one means the
+     * sidecar is not keeping up and the backlog is growing.
      */
-    private static readonly dropped = new Counter({
-        name: 'ml_mirror_image_scrub_consumer_dropped_total',
-        help: 'Images dropped because the sidecar could not take them. Never published, so this is lost coverage rather than leaked content. By reason: "busy" (503, shed), "timeout" (no reply inside the request timeout), "transport" (socket refused or reset, or an unexpected status), "aborted" (a sibling failure ended the batch), "deadline" (in flight when the batch scrub budget expired), "unattempted" (never submitted, because the budget expired first)',
+    private static readonly scrubWaits = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_scrub_waits_total',
+        help: 'Scrub attempts that returned no bytes and will be retried, by reason: "busy" (503, shed), "timeout" (no reply inside the request timeout), "transport" (socket refused or reset, or an unexpected status). Retried rather than dropped, so this is backpressure and not loss',
         labelNames: ['reason'],
+    })
+    /**
+     * Images that have been retried long past what any healthy sidecar needs for one image.
+     *
+     * Separate from the wait counter because it means something different. Waits rise and fall with
+     * load; this rising while `scrub_waits_total{reason="busy"}` is flat points at one image the
+     * sidecar cannot process rather than at capacity, and that image is holding the head of its
+     * partition. The log line beside it carries the ref.
+     */
+    private static readonly stuckImages = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_stuck_images_total',
+        help: 'Images still being retried after the point where a healthy sidecar would have finished, so likely unprocessable rather than merely queued. Each one holds the head of its partition until it succeeds',
+    })
+    /**
+     * How much of a batch reached a recordable offset, and how long the batch took.
+     *
+     * Offsets retire contiguously from the front, so one image stuck at the head holds back every
+     * completed image behind it: the pod carries their bytes without being able to commit any of
+     * them. Nothing else distinguishes that from a batch that was simply slow, and the difference
+     * matters, because a batch running long against max.poll.interval.ms is what gets the pod
+     * evicted and its work redone elsewhere.
+     */
+    private static readonly batchRetiredRatio = new Histogram({
+        name: 'ml_mirror_image_scrub_consumer_batch_retired_ratio',
+        help: 'Share of a batch that retired to a recordable offset. Well under 1 means head-of-line blocking: later images finished but a stuck one at the front prevented any offset advancing',
+        buckets: [0, 0.25, 0.5, 0.75, 0.9, 0.99, 1],
+    })
+    private static readonly batchDuration = new Histogram({
+        name: 'ml_mirror_image_scrub_consumer_batch_duration_seconds',
+        help: 'Wall time per poll batch. Read against Kafka max.poll.interval.ms (300s): batches approaching it get the pod evicted mid-batch, and the partition is redone by whoever picks it up',
+        buckets: [1, 5, 15, 30, 60, 120, 240, 300, 600],
+    })
+    /**
+     * Images parked on the dead-letter topic because the sidecar could not process them.
+     *
+     * Not a loss counter: the bytes are still in Kafka, and the reason this exists at all is that
+     * one such image otherwise holds the head of its partition against every team whose records
+     * share it. It should sit at zero. Anything above a trickle is a sidecar bug reproducing across
+     * many images rather than a genuinely odd one, and the fix is in the sidecar, not here.
+     */
+    private static readonly deadLettered = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_dead_lettered_total',
+        help: 'Images published to the dead-letter topic after the sidecar repeatedly failed on them while succeeding on others. The bytes are retained, so this is quarantine rather than loss',
+        labelNames: ['reason'],
+    })
+    /**
+     * Failed attempts to park an image, each of which leaves it at the head of its partition.
+     *
+     * Distinct from the dead-letter counter because the consequence is opposite: this is the lane
+     * stalled on an image it cannot scrub and cannot put anywhere, which is the pre-dead-letter
+     * behaviour and needs the topic looked at (wrong cluster, missing, or max.message.bytes below
+     * what a source image can be).
+     */
+    private static readonly deadLetterFailed = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_dead_letter_failed_total',
+        help: 'Attempts to publish to the dead-letter topic that failed. Each leaves an unscrubbed image holding the head of its partition, so a sustained rate means the topic is misconfigured rather than that images are bad',
+    })
+    /**
+     * Parked images pushed back at the source topic by a replay run, and those left behind.
+     *
+     * `exhausted` is the one that needs reading: those images have been round-tripped as often as
+     * they are allowed to be and will not be replayed again, so they stay parked until someone
+     * either fixes what rejects them or accepts losing them to retention.
+     */
+    private static readonly replayed = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_replayed_total',
+        help: 'Parked images published back to the source topic by a replay run',
+    })
+    private static readonly replayExhausted = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_replay_exhausted_total',
+        help: 'Parked images a replay run left in place because they have already been round-tripped the maximum number of times, so the sidecar still cannot process them',
     })
     private static readonly offsetsDiscarded = new Counter({
         name: 'ml_mirror_image_scrub_consumer_offsets_discarded_total',
@@ -81,8 +150,29 @@ export class ImageScrubConsumerMetrics {
     public static incSkipped(): void {
         this.skipped.inc()
     }
-    public static incDropped(reason: DropReason, count = 1): void {
-        this.dropped.labels(reason).inc(count)
+    public static incScrubWait(reason: ScrubWaitReason): void {
+        this.scrubWaits.labels(reason).inc()
+    }
+    public static incStuckImage(): void {
+        this.stuckImages.inc()
+    }
+    public static observeBatchProgress(retired: number, planned: number, durationSeconds: number): void {
+        if (planned > 0) {
+            this.batchRetiredRatio.observe(retired / planned)
+        }
+        this.batchDuration.observe(durationSeconds)
+    }
+    public static incDeadLettered(reason: string): void {
+        this.deadLettered.labels(reason).inc()
+    }
+    public static incDeadLetterFailed(): void {
+        this.deadLetterFailed.inc()
+    }
+    public static incReplayed(): void {
+        this.replayed.inc()
+    }
+    public static incReplayExhausted(): void {
+        this.replayExhausted.inc()
     }
     public static incOffsetsDiscarded(count: number): void {
         this.offsetsDiscarded.inc(count)

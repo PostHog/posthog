@@ -3,6 +3,7 @@ use std::{net::SocketAddr, num::NonZeroU32};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
+use sha2::{Digest, Sha256};
 use tracing::Level;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -67,6 +68,10 @@ pub enum AiSinkMode {
     /// Only tokens listed in `ai_secondary_allowlist_tokens` go to the
     /// secondary sink; everything else stays on the primary.
     SecondaryAllowlist,
+    /// Tokens whose deterministic hash bucket falls under the configured
+    /// percentage go to the secondary sink; everything else stays on the
+    /// primary.
+    SecondaryPercentage,
     /// All AI events go to the secondary sink.
     Secondary,
 }
@@ -78,6 +83,7 @@ impl std::str::FromStr for AiSinkMode {
         match s.trim().to_lowercase().as_ref() {
             "primary" => Ok(AiSinkMode::Primary),
             "secondary_allowlist" | "secondary-allowlist" => Ok(AiSinkMode::SecondaryAllowlist),
+            "secondary_percentage" | "secondary-percentage" => Ok(AiSinkMode::SecondaryPercentage),
             "secondary" => Ok(AiSinkMode::Secondary),
             _ => Err(format!("Unknown AiSinkMode: {s}")),
         }
@@ -85,27 +91,44 @@ impl std::str::FromStr for AiSinkMode {
 }
 
 /// Resolved AI routing policy: the configured `AiSinkMode` with the token
-/// allowlist it needs attached to the one variant that uses it. Built from the
-/// raw `ai_sink_mode` + `ai_secondary_allowlist_tokens` config in `setup` and
+/// allowlist or percentage it needs attached to the variant that uses it.
+/// Built from the raw `ai_sink_mode` + companion config in `setup` and
 /// carried by `SplitKafkaSink`, so routing needs nothing but the event's token.
 #[derive(Debug, Clone)]
 pub enum AiRouting {
     Primary,
     SecondaryAllowlist(HashSet<String>),
+    SecondaryPercentage(u8),
     Secondary,
 }
 
 impl AiRouting {
     /// Whether an AI event for `token` should be routed to the secondary sink.
     /// `Primary` never does; `Secondary` always does; `SecondaryAllowlist` routes
-    /// only allowlisted tokens.
+    /// only allowlisted tokens; `SecondaryPercentage` routes tokens whose bucket
+    /// falls under the percentage.
     pub fn routes_to_secondary(&self, token: &str) -> bool {
         match self {
             AiRouting::Primary => false,
             AiRouting::Secondary => true,
             AiRouting::SecondaryAllowlist(allowlist) => allowlist.contains(token),
+            AiRouting::SecondaryPercentage(percentage) => {
+                token_percentage_bucket(token) < *percentage
+            }
         }
     }
+}
+
+/// Deterministic 0-99 bucket for a project API token, used by
+/// `AiRouting::SecondaryPercentage`. Keying on the token (not the distinct id)
+/// keeps a whole team on one side of the split, and SHA-256 keeps the bucket
+/// stable across pods, restarts, and deploys — a process-seeded hash would
+/// reshuffle which teams sit under a given percentage. Raising the percentage
+/// only ever adds teams to the secondary; it never moves routed teams back.
+fn token_percentage_bucket(token: &str) -> u8 {
+    let digest = Sha256::digest(token.as_bytes());
+    let n = u64::from_be_bytes(digest[..8].try_into().expect("SHA-256 digest is 32 bytes"));
+    (n % 100) as u8
 }
 
 #[derive(Envconfig, Clone)]
@@ -300,7 +323,9 @@ pub struct Config {
     // --- AI secondary sink (e.g. WarpStream cluster) routing ---
     /// `primary` keeps all AI events on the primary sink; `secondary_allowlist`
     /// sends only `ai_secondary_allowlist_tokens` to the secondary; `secondary`
-    /// sends every AI event to the secondary. Only consulted in `CaptureMode::Ai`.
+    /// sends every AI event to the secondary. `secondary_percentage` is not
+    /// supported here (it exists for `capture_analytics_ai_events_mode`).
+    /// Only consulted in `CaptureMode::Ai`.
     #[envconfig(default = "primary")]
     pub ai_sink_mode: AiSinkMode,
 
@@ -321,16 +346,22 @@ pub struct Config {
     // --- Dedicated $ai_* topic routing on analytics deployments ---
     /// Routing mode for `$ai_*` events into the dedicated AI topic
     /// (`kafka.capture_analytics_ai_events_topic`, i.e. `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`): `primary` (default)
-    /// diverts nothing, `secondary` diverts all `$ai_*` events, and
+    /// diverts nothing, `secondary` diverts all `$ai_*` events,
     /// `secondary_allowlist` diverts only tokens listed in
-    /// `capture_analytics_ai_events_allowlist_tokens`. The topic is required whenever the
-    /// mode is not `primary`.
+    /// `capture_analytics_ai_events_allowlist_tokens`, and `secondary_percentage`
+    /// diverts the `capture_analytics_ai_events_percentage` share of teams (by
+    /// token hash). The topic is required whenever the mode is not `primary`.
     #[envconfig(default = "primary")]
     pub capture_analytics_ai_events_mode: AiSinkMode,
 
     /// Comma-separated project API tokens whose `$ai_*` events are diverted to
     /// `capture_analytics_ai_events_topic` when `capture_analytics_ai_events_mode` is `secondary_allowlist`.
     pub capture_analytics_ai_events_allowlist_tokens: Option<String>,
+
+    /// Percent of teams (0-100, by deterministic token hash) whose `$ai_*`
+    /// events are diverted to `capture_analytics_ai_events_topic`. Required
+    /// when `capture_analytics_ai_events_mode` is `secondary_percentage`.
+    pub capture_analytics_ai_events_percentage: Option<u8>,
 
     // HTTP/1 header read timeout in milliseconds - closes connections that don't
     // send complete headers within this duration (slow loris protection).
@@ -546,6 +577,45 @@ mod tests {
         assert_eq!(config.kafka.capture_analytics_ai_events_topic, None);
         assert_eq!(config.capture_analytics_ai_events_mode, AiSinkMode::Primary);
         assert_eq!(config.capture_analytics_ai_events_allowlist_tokens, None);
+        assert_eq!(config.capture_analytics_ai_events_percentage, None);
+    }
+
+    #[test]
+    fn capture_analytics_ai_events_percentage_parses() {
+        let mut env = required_config_env();
+        env.insert(
+            "CAPTURE_ANALYTICS_AI_EVENTS_MODE".into(),
+            "secondary_percentage".into(),
+        );
+
+        // 150 parses here on purpose: the env layer only types the value, the
+        // 0-100 range check lives in setup so it can refuse to start.
+        for (raw, expected) in [("0", 0u8), ("25", 25), ("100", 100), ("150", 150)] {
+            env.insert("CAPTURE_ANALYTICS_AI_EVENTS_PERCENTAGE".into(), raw.into());
+            let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+            assert_eq!(
+                config.capture_analytics_ai_events_mode,
+                AiSinkMode::SecondaryPercentage
+            );
+            assert_eq!(
+                config.capture_analytics_ai_events_percentage,
+                Some(expected),
+                "raw={raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn capture_analytics_ai_events_percentage_rejects_malformed_values() {
+        // Locks the fail-fast contract: the field is a typed u8, so malformed
+        // env values abort startup. Loosening it (e.g. to a string parsed
+        // later) would let a broken rollout config through init silently.
+        for bad in ["", " 25 ", "abc", "-1", "25%", "12.5", "300"] {
+            let mut env = required_config_env();
+            env.insert("CAPTURE_ANALYTICS_AI_EVENTS_PERCENTAGE".into(), bad.into());
+            let result: Result<Config, _> = envconfig::Envconfig::init_from_hashmap(&env);
+            assert!(result.is_err(), "expected init to fail for {bad:?}");
+        }
     }
 
     #[test]
@@ -593,6 +663,9 @@ mod tests {
             ("secondary_allowlist", AiSinkMode::SecondaryAllowlist),
             ("secondary-allowlist", AiSinkMode::SecondaryAllowlist),
             ("Secondary_Allowlist", AiSinkMode::SecondaryAllowlist),
+            ("secondary_percentage", AiSinkMode::SecondaryPercentage),
+            ("secondary-percentage", AiSinkMode::SecondaryPercentage),
+            ("Secondary_Percentage", AiSinkMode::SecondaryPercentage),
         ];
         for (input, expected) in ok {
             assert_eq!(
@@ -602,7 +675,14 @@ mod tests {
             );
         }
 
-        for bad in ["", "secondaryallowlist", "warpstream", "allowlist"] {
+        for bad in [
+            "",
+            "secondaryallowlist",
+            "secondarypercentage",
+            "percentage",
+            "warpstream",
+            "allowlist",
+        ] {
             assert!(
                 AiSinkMode::from_str(bad).is_err(),
                 "expected err for {bad:?}"
@@ -634,6 +714,8 @@ mod tests {
                 "tok_a",
                 false,
             ),
+            (AiRouting::SecondaryPercentage(0), "tok_a", false),
+            (AiRouting::SecondaryPercentage(100), "tok_a", true),
         ];
         for (routing, token, expected) in cases {
             assert_eq!(
@@ -642,5 +724,31 @@ mod tests {
                 "routing={routing:?} token={token}"
             );
         }
+    }
+
+    #[test]
+    fn token_percentage_buckets_are_stable() {
+        // The bucket values are part of the rollout contract: a hash change
+        // reshuffles which teams sit under a given percentage mid-rollout,
+        // flipping already-migrated teams back and forth between destinations.
+        // These pin the exact SHA-256-derived buckets for fixed tokens.
+        let buckets = [("tok_a", 27), ("tok_b", 40), ("phc_other", 29)];
+        for (token, expected) in buckets {
+            assert_eq!(
+                super::token_percentage_bucket(token),
+                expected,
+                "token={token}"
+            );
+        }
+    }
+
+    #[test]
+    fn secondary_percentage_routes_exactly_at_bucket_boundary() {
+        // `bucket < percentage` makes the split monotonic: raising the
+        // percentage only ever adds teams to the secondary. A flipped
+        // comparison (or off-by-one) would silently invert who migrates first.
+        let bucket = super::token_percentage_bucket("tok_a");
+        assert!(!AiRouting::SecondaryPercentage(bucket).routes_to_secondary("tok_a"));
+        assert!(AiRouting::SecondaryPercentage(bucket + 1).routes_to_secondary("tok_a"));
     }
 }
