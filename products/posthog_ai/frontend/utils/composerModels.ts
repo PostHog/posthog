@@ -27,6 +27,7 @@ const EFFORT_LABELS: Record<ReasoningEffortEnumApi, string> = {
     [ReasoningEffortEnumApi.High]: 'High',
     [ReasoningEffortEnumApi.Xhigh]: 'Extra high',
     [ReasoningEffortEnumApi.Max]: 'Max',
+    [ReasoningEffortEnumApi.Ultracode]: 'Ultracode',
 }
 
 // Mirrors backend CLAUDE_REASONING_EFFORTS_BY_MODEL (products/tasks/backend/temporal/process_task/utils.py):
