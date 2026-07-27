@@ -48,6 +48,7 @@ import {
 } from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
 import { useReportDetailActions } from './ReportDetailActions'
+import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 
@@ -341,6 +342,9 @@ export function InboxDetailFrame({
                     )}
                 </DetailSection>
                 {summaryFooter}
+                {/* The rating closes out the report body, where the reading ends – ahead of the
+                    supporting sections, which stack underneath once the layout drops to one column. */}
+                <ReportFeedbackFooter report={report} />
             </div>
 
             <div className="flex flex-col min-w-0 gap-5">
@@ -440,15 +444,18 @@ export function InboxDetailFrame({
                                 </LemonButton>
                             ))}
                         </div>
-                        <LemonMenu items={overflowMenuItems} placement="bottom-end">
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconEllipsis />}
-                                aria-label="More actions"
-                                className="@4xl:hidden"
-                            />
-                        </LemonMenu>
+                        {/* A resolved report past its refund window has no secondary actions at all. */}
+                        {overflowMenuItems.length > 0 && (
+                            <LemonMenu items={overflowMenuItems} placement="bottom-end">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconEllipsis />}
+                                    aria-label="More actions"
+                                    className="@4xl:hidden"
+                                />
+                            </LemonMenu>
+                        )}
                     </div>
                 </div>
             </div>
@@ -468,7 +475,16 @@ export function InboxDetailFrame({
                                     {diffBranchTag}
                                 </span>
                             ),
-                            content: <>{diffSection}</>,
+                            // `LemonTabs` renders only the active tab, so the rating row is repeated
+                            // at the end of the diff – otherwise reviewing a PR's code and stopping
+                            // there leaves no way to rate the report. Both rows drive the same
+                            // report-keyed logic, so a rating given on one reads back on the other.
+                            content: (
+                                <div className="flex flex-col gap-5">
+                                    {diffSection}
+                                    <ReportFeedbackFooter report={report} />
+                                </div>
+                            ),
                         },
                     ]}
                 />

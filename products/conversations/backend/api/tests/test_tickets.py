@@ -546,6 +546,40 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(results[0]["id"], str(urgent_ticket.id))
         self.assertEqual(results[1]["id"], str(self.ticket.id))
 
+    @parameterized.expand(
+        [
+            ("sla_due_at", ["soon", "later", "null_c", "null_b", "null_a"]),
+            ("-sla_due_at", ["later", "soon", "null_c", "null_b", "null_a"]),
+        ]
+    )
+    def test_order_by_sla_due_at_is_stable_across_pages(self, mock_on_commit, order_by, expected):
+        # Most tickets have no SLA (NULL sla_due_at), so the sort key ties across many rows.
+        # Without a unique tiebreaker the tied rows have no stable order across the separate
+        # LIMIT/OFFSET page queries, so paging duplicates or drops rows and the sort looks lost.
+        # ticket_numbers: null_a=1 (setUp), null_b=2, null_c=3, soon=4, later=5.
+        now = timezone.now()
+        tickets: dict[str, Ticket] = {"null_a": self.ticket}
+        for key in ("null_b", "null_c", "soon", "later"):
+            tickets[key] = Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=key,
+                distinct_id=key,
+                sla_due_at={"soon": now + timedelta(hours=1), "later": now + timedelta(hours=5)}.get(key),
+            )
+
+        seen: list[str] = []
+        for offset in range(0, len(tickets), 2):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/conversations/tickets/?order_by={order_by}&limit=2&offset={offset}"
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            seen.extend(r["id"] for r in response.json()["results"])
+
+        # Real deadlines sort first (ascending/descending), no-SLA tickets last, ties broken by
+        # -ticket_number — a single total order, so the pages concatenate back to exactly it.
+        self.assertEqual(seen, [str(tickets[key].id) for key in expected])
+
     def test_filter_multiple_priorities_excludes_null(self, mock_on_commit):
         """Test that multiple priority filter excludes tickets with NULL priority."""
         self.ticket.priority = Priority.LOW

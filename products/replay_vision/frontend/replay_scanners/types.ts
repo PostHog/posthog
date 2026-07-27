@@ -174,6 +174,14 @@ export function modelLabel(model: string | null | undefined): string {
     return MODEL_OPTIONS.find((opt) => opt.value === model)?.label ?? model
 }
 
+/** Plain model name without the price suffix, for surfaces that show the price separately. */
+export function modelName(model: string | null | undefined): string {
+    if (!model) {
+        return '—'
+    }
+    return MODEL_NAMES[model as ScannerModelEnumApi] ?? model
+}
+
 export function scannerTypeLabel(scannerType: ScannerType | null | undefined): string {
     if (!scannerType) {
         return '—'

@@ -1005,6 +1005,7 @@ export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
         trigger: zod
             .enum([
                 'manual',
+                'agent_mcp',
                 'cold_run',
                 'stale_refresh',
                 'auto_refresh',
@@ -1014,11 +1015,11 @@ export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
                 'experiment_update',
             ])
             .describe(
-                '\* `manual` - Manual\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
+                '\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
             )
             .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
             .describe(
-                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
+                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
             ),
     })
     .describe('Request body for triggering a metrics recalculation.')
