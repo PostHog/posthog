@@ -173,6 +173,21 @@ class TestValidateArtefactContent(SimpleTestCase):
             # TypeError straight out of the validator, turning a bad write into a 500 instead of a 400.
             ("chart", {"chart_id": "ok", "title": "t", "query": {"kind": []}}),
             ("chart", {"chart_id": "ok", "title": "t", "query": {"kind": {"nested": 1}}}),
+            # Conditional-formatting bytecode runs through `execHog` once per rendered cell, on the
+            # reader's main thread, so a chart carrying it can freeze the tab of whoever opens the
+            # report. The whole key is refused wherever it sits, not just at the path known today.
+            (
+                "chart",
+                {
+                    "chart_id": "ok",
+                    "title": "t",
+                    "query": {
+                        "kind": "DataVisualizationNode",
+                        "tableSettings": {"conditionalFormatting": [{"bytecode": ["_H", 1]}]},
+                    },
+                },
+            ),
+            ("chart", {"chart_id": "ok", "title": "t", "query": {"kind": "InsightVizNode", "bytecode": ["_H", 1]}}),
         ]
     )
     def test_rejects_invalid_content_for_type(self, artefact_type, content):

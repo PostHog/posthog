@@ -423,6 +423,25 @@ MAX_CHART_CAPTION_LENGTH = 500
 _MAX_CHART_QUERY_CHARS = 20_000
 
 
+def _carries_bytecode(value: Any) -> bool:
+    """Whether a query node carries HogVM bytecode anywhere inside it.
+
+    A `DataVisualizationNode` can hold `tableSettings.conditionalFormatting[*].bytecode`, which the
+    table renderer runs through `execHog` once per rendered cell, synchronously, on the reader's main
+    thread. HogVM bounds a single call at five seconds, but the cost multiplies by cell count, so a
+    chart carrying expensive bytecode freezes the tab of whoever opens the report. A chart is a
+    picture of a query, not a program, so the whole key is refused wherever it appears rather than
+    only at the path known today.
+    """
+    if isinstance(value, dict):
+        return any(key == "bytecode" and item for key, item in value.items()) or any(
+            _carries_bytecode(item) for item in value.values()
+        )
+    if isinstance(value, list):
+        return any(_carries_bytecode(item) for item in value)
+    return False
+
+
 class ChartArtefact(BaseModel):
     """Content schema for a `chart` artefact: a query the report renders inline.
 
@@ -504,6 +523,8 @@ class ChartArtefact(BaseModel):
             raise ValueError(f"query.kind must be one of {allowed} (got {kind!r})")
         if len(json.dumps(v)) > _MAX_CHART_QUERY_CHARS:
             raise ValueError(f"query must not exceed {_MAX_CHART_QUERY_CHARS} characters when serialized")
+        if _carries_bytecode(v):
+            raise ValueError("query must not carry `bytecode` (conditional formatting is not supported on a chart)")
         return v
 
 
