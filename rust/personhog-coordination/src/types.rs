@@ -122,6 +122,27 @@ pub struct HandoffState {
     /// past a drain or warm that never happened.
     #[serde(default)]
     pub handoff_id: String,
+    /// The routers whose freeze acks this handoff requires: those
+    /// registered when the coordinator created it, intersected with the
+    /// live registry at evaluation (`required_freeze_ackers`), so the
+    /// requirement only ever shrinks. Fixing membership at creation
+    /// keeps the quorum satisfiable — every member's watch coverage
+    /// spans this handoff's Freezing event, and a router that registers
+    /// later is never required to ack an event it may not observe.
+    ///
+    /// Exempting late joiners is safe because the freeze quorum is an
+    /// availability gate, not the safety boundary: a joining router
+    /// opens stashes for in-flight handoffs before its routing table
+    /// can forward anywhere, and the drain fence plus the broker's
+    /// producer epoch reject anything that slips through before it is
+    /// ever acked.
+    ///
+    /// `None` means the record predates this field; the quorum then
+    /// falls back to requiring every live router. `Some([])` is a real
+    /// snapshot — zero routers were registered at creation — and
+    /// requires nobody.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freeze_quorum: Option<Vec<String>>,
 }
 
 /// State machine for partition handoffs:
@@ -290,6 +311,7 @@ mod tests {
             phase: HandoffPhase::Freezing,
             started_at: 1700000000,
             handoff_id: "1700000000000-0".to_string(),
+            freeze_quorum: None,
             new_owner_address: None,
         };
         let json = serde_json::to_string(&handoff).unwrap();
@@ -306,6 +328,7 @@ mod tests {
             phase: HandoffPhase::Freezing,
             started_at: 1700000000,
             handoff_id: "1700000000000-0".to_string(),
+            freeze_quorum: None,
             new_owner_address: None,
         };
         let json = serde_json::to_string(&handoff).unwrap();

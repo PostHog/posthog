@@ -651,6 +651,7 @@ mod tests {
             phase,
             started_at: 0,
             handoff_id: "h-test".to_string(),
+            freeze_quorum: None,
             new_owner_address: None,
         }
     }

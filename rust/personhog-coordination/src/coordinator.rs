@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use etcd_client::{EventType, WatchStream};
 use metrics::{counter, gauge, histogram};
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
@@ -35,6 +36,39 @@ pub struct CoordinatorConfig {
     /// indefinitely, and doubles as defense-in-depth for anything else
     /// that slips through the event-driven paths.
     pub reconcile_interval: Duration,
+    /// How long a handoff may sit in a pre-terminal phase before the
+    /// coordinator cancels it and lets the next plan try again.
+    ///
+    /// This is the backstop for causes we have not found: a participant
+    /// that never acks leaves a handoff that no other path removes —
+    /// cleanup only deletes handoffs whose new owner is gone, and an
+    /// in-flight handoff pins its partition so no re-plan can touch it.
+    /// Cancelling is the only safe response; force-advancing past a
+    /// missing freeze ack is exactly the split-brain the quorum exists
+    /// to prevent.
+    ///
+    /// Measured against the handoff's total age rather than time in its
+    /// current phase: `started_at` is the only timestamp the record
+    /// carries, and a per-phase budget derived from it would silently
+    /// shrink for whichever phase happened to run last. One end-to-end
+    /// budget is also the honest statement of intent — a handoff should
+    /// finish, and how it divides its time between freezing, draining,
+    /// and warming is not something to police.
+    ///
+    /// Generous by design: healthy handoffs complete in a few seconds,
+    /// so this sits orders of magnitude above them. Too tight a bound
+    /// would cancel the handoffs that are merely slow.
+    ///
+    /// Ages are wall-clock differences that may span machines: a
+    /// handoff created by one coordinator can be evaluated by its
+    /// successor after a failover, so clock skew between nodes shifts
+    /// the effective deadline by its magnitude. That is tolerated
+    /// rather than engineered away — skew is NTP-bounded at
+    /// milliseconds against a deadline of minutes, and a mistimed
+    /// cancellation is safe in either direction: early, the re-plan
+    /// recreates the handoff stamped and judged by one clock; late, a
+    /// wedge lives that much longer before cancellation.
+    pub handoff_deadline: Duration,
 }
 
 impl Default for CoordinatorConfig {
@@ -53,6 +87,7 @@ impl Default for CoordinatorConfig {
             election_retry_interval: Duration::from_secs(1),
             rebalance_debounce_interval: Duration::from_secs(1),
             reconcile_interval: Duration::from_secs(5),
+            handoff_deadline: Duration::from_secs(120),
         }
     }
 }
@@ -195,11 +230,21 @@ impl Coordinator {
 
         let mut tasks = tokio::task::JoinSet::new();
 
+        // Wakes the planning loop for state changes only the coordinator
+        // itself produces — a deadline cancellation deletes a handoff,
+        // which fires no pod event, so without an explicit wake no
+        // re-plan would run until the next unrelated pod change. Waking
+        // the one planning loop rather than planning inline keeps a
+        // single planner task; `Notify` stores a permit, so a wake fired
+        // mid-plan is picked up on the next iteration rather than lost.
+        let replan = Arc::new(Notify::new());
+
         {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
             let k8s_awareness = self.k8s_awareness.clone();
             let debounce_interval = self.config.rebalance_debounce_interval;
+            let replan = Arc::clone(&replan);
             let token = cancel.child_token();
             tasks.spawn(async move {
                 Self::watch_pods_loop(
@@ -207,6 +252,7 @@ impl Coordinator {
                     strategy,
                     k8s_awareness,
                     debounce_interval,
+                    replan,
                     token,
                     pods_stream,
                 )
@@ -252,8 +298,12 @@ impl Coordinator {
         {
             let store = Arc::clone(&self.store);
             let interval = self.config.reconcile_interval;
+            let handoff_deadline = self.config.handoff_deadline;
+            let replan = Arc::clone(&replan);
             let token = cancel.child_token();
-            tasks.spawn(async move { Self::reconcile_tick_loop(store, interval, token).await });
+            tasks.spawn(async move {
+                Self::reconcile_tick_loop(store, interval, handoff_deadline, replan, token).await
+            });
         }
 
         // Reconcile any handoffs that already have full ack quorum.
@@ -281,13 +331,17 @@ impl Coordinator {
         strategy: Arc<dyn AssignmentStrategy>,
         k8s_awareness: Option<Arc<K8sAwareness>>,
         debounce_interval: Duration,
+        replan: Arc<Notify>,
         cancel: CancellationToken,
         mut stream: WatchStream,
     ) -> Result<()> {
         loop {
-            // Wait for the first pod event
+            // Wait for the first pod event, or an explicit re-plan wake
+            // (a deadline cancellation deletes a handoff, which fires no
+            // pod event but leaves the placement short of desired).
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
+                _ = replan.notified() => {}
                 msg = stream.message() => {
                     let resp = msg?.ok_or_else(|| Error::invalid_state("pod watch stream ended".to_string()))?;
                     Self::log_pod_events(&resp);
@@ -412,6 +466,8 @@ impl Coordinator {
     async fn reconcile_tick_loop(
         store: Arc<PersonhogStore>,
         interval: Duration,
+        handoff_deadline: Duration,
+        replan: Arc<Notify>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let mut tick = tokio::time::interval(interval);
@@ -423,6 +479,15 @@ impl Coordinator {
                     for handoff in &handoffs {
                         Self::handle_handoff_update_static(&store, handoff).await?;
                         Self::check_phase_advance(&store, handoff.partition).await?;
+                    }
+                    // Advancement first, cancellation second: a handoff
+                    // that can still progress gets every chance to before
+                    // its deadline is considered. A cancellation wakes
+                    // the planning loop, since deleting a handoff fires
+                    // no pod event and the placement is now short of
+                    // desired.
+                    if Self::cancel_expired_handoffs(&store, &handoffs, handoff_deadline).await? {
+                        replan.notify_one();
                     }
                     // The gauge refresh is best-effort and runs after the
                     // reconcile pass: its reads exist only for metrics and
@@ -654,6 +719,17 @@ impl Coordinator {
             return Ok(());
         }
 
+        // Snapshot the routers that must ack these freezes. Read here,
+        // once, rather than per-check: the whole point is that the
+        // requirement is fixed at creation and cannot grow as routers
+        // come and go (see `HandoffState::freeze_quorum`).
+        let freeze_quorum: Vec<String> = store
+            .list_routers()
+            .await?
+            .into_iter()
+            .map(|r| r.router_name)
+            .collect();
+
         let now = util::now_seconds();
         let handoff_objects: Vec<HandoffState> = plan
             .handoffs
@@ -669,6 +745,7 @@ impl Coordinator {
                 phase: HandoffPhase::Freezing,
                 started_at: now,
                 handoff_id: util::new_handoff_id(),
+                freeze_quorum: Some(freeze_quorum.clone()),
             })
             .collect();
 
@@ -730,6 +807,91 @@ impl Coordinator {
         }
 
         Ok(())
+    }
+
+    /// Cancel handoffs that have sat in one phase past its deadline.
+    ///
+    /// Nothing else removes a handoff that simply never gets its ack:
+    /// `cleanup_stale_handoffs` only fires when the new owner is gone,
+    /// and an in-flight handoff pins its partition so no re-plan can
+    /// touch it. Deleting is the only safe response — advancing without
+    /// the ack is the split-brain the phase exists to prevent — and the
+    /// next plan is free to try again, with a fresh handoff id and a
+    /// fresh quorum snapshot.
+    ///
+    /// Deliberately not backed off: the snapshot rule keeps freeze
+    /// quorums satisfiable, so repeated cancellation of one partition
+    /// means a new cause, and
+    /// `handoffs_cancelled_total{reason="phase_deadline"}` exists to
+    /// make that visible rather than absorbed.
+    ///
+    /// Returns whether anything was cancelled, so the caller can wake
+    /// the planning loop — a deletion fires no pod event, and without
+    /// the wake no re-plan would run until the next unrelated pod
+    /// change. `handoffs` is the caller's already-listed snapshot; each
+    /// candidate is re-read under mod_revision before deletion, so the
+    /// snapshot's staleness only ever skips a cancel, never misdirects
+    /// one.
+    async fn cancel_expired_handoffs(
+        store: &PersonhogStore,
+        handoffs: &[HandoffState],
+        handoff_deadline: Duration,
+    ) -> Result<bool> {
+        let now = util::now_seconds();
+        let deadline = handoff_deadline.as_secs() as i64;
+        let mut cancelled = false;
+        for handoff in handoffs {
+            // Complete is terminal and cleaned up by its own path.
+            if handoff.phase == HandoffPhase::Complete {
+                continue;
+            }
+            // A record carrying no creation time cannot be judged on age;
+            // deleting it would be acting on an age of "since the epoch"
+            // rather than on evidence that it is stuck.
+            if handoff.started_at <= 0 {
+                continue;
+            }
+            let age = now.saturating_sub(handoff.started_at);
+            if age < deadline {
+                continue;
+            }
+            // Re-read under mod_revision and re-verify the phase before
+            // deleting: this runs alongside the watch-driven paths, and
+            // the record at this key may already be a successor handoff
+            // that has not had its own chance yet.
+            let Some((current, mod_revision)) = store
+                .get_handoff_with_mod_revision(handoff.partition)
+                .await?
+            else {
+                continue;
+            };
+            if current.handoff_id != handoff.handoff_id
+                || current.phase == HandoffPhase::Complete
+                || now.saturating_sub(current.started_at) < deadline
+            {
+                continue;
+            }
+            tracing::error!(
+                partition = current.partition,
+                phase = ?current.phase,
+                age_secs = age,
+                new_owner = %current.new_owner,
+                old_owner = ?current.old_owner,
+                "handoff exceeded its deadline; cancelling so a later plan can retry"
+            );
+            if store
+                .delete_handoff_and_acks_if_unchanged(current.partition, mod_revision)
+                .await?
+            {
+                cancelled = true;
+                counter!(
+                    "personhog_coordination_handoffs_cancelled_total",
+                    "reason" => "phase_deadline",
+                )
+                .increment(1);
+            }
+        }
+        Ok(cancelled)
     }
 
     /// Delete handoffs that cannot progress because the new_owner is gone —
