@@ -118,14 +118,20 @@ def _reconcile_repo_webhooks(
     if added:
         if signing_secret:
             failures.extend(
-                source.ensure_webhooks_for_repositories(new_config, webhook_url, team.pk, added, signing_secret)
+                source.ensure_webhooks_for_repositories(
+                    new_config, webhook_url, team.pk, added, signing_secret, api_version=source_model.api_version
+                )
             )
         else:
             failures.append(
                 "no signing secret is stored for this source's webhook; re-create the webhook to cover the added repositories"
             )
     if removed:
-        failures.extend(source.delete_webhooks_for_repositories(new_config, webhook_url, team.pk, removed))
+        failures.extend(
+            source.delete_webhooks_for_repositories(
+                new_config, webhook_url, team.pk, removed, api_version=source_model.api_version
+            )
+        )
     if failures:
         logger.warning(
             "github_repo_webhook_reconcile_partial",

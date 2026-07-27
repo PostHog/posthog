@@ -189,7 +189,9 @@ The account or API key needs **read** access (the `rest_api_explorer` role or eq
             return False, str(exc)
 
         table = SERVICENOW_ENDPOINTS[schema_name].table if schema_name in SERVICENOW_ENDPOINTS else None
-        return validate_servicenow_credentials(config.instance_url, auth, team_id, table=table)
+        return validate_servicenow_credentials(
+            config.instance_url, auth, team_id, table=table, api_version=self.resolve_api_version(api_version)
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ServiceNowResumeConfig]:
         return ResumableSourceManager[ServiceNowResumeConfig](inputs, ServiceNowResumeConfig)

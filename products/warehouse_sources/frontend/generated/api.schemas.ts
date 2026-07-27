@@ -866,6 +866,7 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `PrestaShop` - PrestaShop
  * * `Pretix` - Pretix
  * * `Primetric` - Primetric
+ * * `Printavo` - Printavo
  * * `Printify` - Printify
  * * `Productive` - Productive
  * * `Pylon` - Pylon
@@ -1676,6 +1677,9 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Tally` - Tally
  * * `Nuntly` - Nuntly
  * * `Vturb` - Vturb
+ * * `Meltwater` - Meltwater
+ * * `UserCom` - UserCom
+ * * `Latitude` - Latitude
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2116,6 +2120,7 @@ export const ExternalDataSourceTypeEnumApi = {
     PrestaShop: 'PrestaShop',
     Pretix: 'Pretix',
     Primetric: 'Primetric',
+    Printavo: 'Printavo',
     Printify: 'Printify',
     Productive: 'Productive',
     Pylon: 'Pylon',
@@ -2926,6 +2931,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Tally: 'Tally',
     Nuntly: 'Nuntly',
     Vturb: 'Vturb',
+    Meltwater: 'Meltwater',
+    UserCom: 'UserCom',
+    Latitude: 'Latitude',
 } as const
 
 /**
@@ -2945,6 +2953,7 @@ export const AccessMethodEnumApi = {
  * * `mysql` - mysql
  * * `snowflake` - snowflake
  * * `redshift` - redshift
+ * * `clickhouse` - clickhouse
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
@@ -2954,6 +2963,7 @@ export const EngineEnumApi = {
     Mysql: 'mysql',
     Snowflake: 'snowflake',
     Redshift: 'redshift',
+    Clickhouse: 'clickhouse',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -2971,7 +2981,7 @@ export interface ExternalDataSourceSerializersApi {
     readonly created_at: string
     /** @nullable */
     readonly created_by: string | null
-    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
+    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.
      *
      * * `web` - web
      * * `api` - api
@@ -3013,7 +3023,8 @@ export interface ExternalDataSourceSerializersApi {
      * * `postgres` - postgres
      * * `mysql` - mysql
      * * `snowflake` - snowflake
-     * * `redshift` - redshift */
+     * * `redshift` - redshift
+     * * `clickhouse` - clickhouse */
     readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -3503,6 +3514,7 @@ export interface ExternalDataSourceCreateApi {
      * * `PrestaShop` - PrestaShop
      * * `Pretix` - Pretix
      * * `Primetric` - Primetric
+     * * `Printavo` - Printavo
      * * `Printify` - Printify
      * * `Productive` - Productive
      * * `Pylon` - Pylon
@@ -4312,7 +4324,10 @@ export interface ExternalDataSourceCreateApi {
      * * `Zylo` - Zylo
      * * `Tally` - Tally
      * * `Nuntly` - Nuntly
-     * * `Vturb` - Vturb */
+     * * `Vturb` - Vturb
+     * * `Meltwater` - Meltwater
+     * * `UserCom` - UserCom
+     * * `Latitude` - Latitude */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -4333,7 +4348,7 @@ export interface ExternalDataSourceCreateApi {
      * * `warehouse` - warehouse
      * * `direct` - direct */
     access_method?: AccessMethodEnumApi
-    /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Code-driven MCP calls. Defaults to `api`.
+    /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Desktop-driven MCP calls. Defaults to `api`.
      *
      * * `web` - web
      * * `api` - api
@@ -4358,7 +4373,7 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: string | null
-    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
+    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.
      *
      * * `web` - web
      * * `api` - api
@@ -4400,7 +4415,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      * * `postgres` - postgres
      * * `mysql` - mysql
      * * `snowflake` - snowflake
-     * * `redshift` - redshift */
+     * * `redshift` - redshift
+     * * `clickhouse` - clickhouse */
     readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -4526,7 +4542,8 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `postgres` - postgres
      * * `mysql` - mysql
      * * `snowflake` - snowflake
-     * * `redshift` - redshift */
+     * * `redshift` - redshift
+     * * `clickhouse` - clickhouse */
     readonly engine: EngineEnumApi | null
     /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
      *
@@ -4965,6 +4982,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `PrestaShop` - PrestaShop
      * * `Pretix` - Pretix
      * * `Primetric` - Primetric
+     * * `Printavo` - Printavo
      * * `Printify` - Printify
      * * `Productive` - Productive
      * * `Pylon` - Pylon
@@ -5774,7 +5792,10 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Zylo` - Zylo
      * * `Tally` - Tally
      * * `Nuntly` - Nuntly
-     * * `Vturb` - Vturb */
+     * * `Vturb` - Vturb
+     * * `Meltwater` - Meltwater
+     * * `UserCom` - UserCom
+     * * `Latitude` - Latitude */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -6237,6 +6258,7 @@ export interface DatabaseSchemaRequestApi {
      * * `PrestaShop` - PrestaShop
      * * `Pretix` - Pretix
      * * `Primetric` - Primetric
+     * * `Printavo` - Printavo
      * * `Printify` - Printify
      * * `Productive` - Productive
      * * `Pylon` - Pylon
@@ -7046,7 +7068,10 @@ export interface DatabaseSchemaRequestApi {
      * * `Zylo` - Zylo
      * * `Tally` - Tally
      * * `Nuntly` - Nuntly
-     * * `Vturb` - Vturb */
+     * * `Vturb` - Vturb
+     * * `Meltwater` - Meltwater
+     * * `UserCom` - UserCom
+     * * `Latitude` - Latitude */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -7569,6 +7594,7 @@ export interface SourcePreviewRequestApi {
      * * `PrestaShop` - PrestaShop
      * * `Pretix` - Pretix
      * * `Primetric` - Primetric
+     * * `Printavo` - Printavo
      * * `Printify` - Printify
      * * `Productive` - Productive
      * * `Pylon` - Pylon
@@ -8378,7 +8404,10 @@ export interface SourcePreviewRequestApi {
      * * `Zylo` - Zylo
      * * `Tally` - Tally
      * * `Nuntly` - Nuntly
-     * * `Vturb` - Vturb */
+     * * `Vturb` - Vturb
+     * * `Meltwater` - Meltwater
+     * * `UserCom` - UserCom
+     * * `Latitude` - Latitude */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -8858,6 +8887,7 @@ export interface SourceSetupApi {
      * * `PrestaShop` - PrestaShop
      * * `Pretix` - Pretix
      * * `Primetric` - Primetric
+     * * `Printavo` - Printavo
      * * `Printify` - Printify
      * * `Productive` - Productive
      * * `Pylon` - Pylon
@@ -9667,7 +9697,10 @@ export interface SourceSetupApi {
      * * `Zylo` - Zylo
      * * `Tally` - Tally
      * * `Nuntly` - Nuntly
-     * * `Vturb` - Vturb */
+     * * `Vturb` - Vturb
+     * * `Meltwater` - Meltwater
+     * * `UserCom` - UserCom
+     * * `Latitude` - Latitude */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -10154,6 +10187,7 @@ export interface SourceCredentialCreateApi {
      * * `PrestaShop` - PrestaShop
      * * `Pretix` - Pretix
      * * `Primetric` - Primetric
+     * * `Printavo` - Printavo
      * * `Printify` - Printify
      * * `Productive` - Productive
      * * `Pylon` - Pylon
@@ -10963,7 +10997,10 @@ export interface SourceCredentialCreateApi {
      * * `Zylo` - Zylo
      * * `Tally` - Tally
      * * `Nuntly` - Nuntly
-     * * `Vturb` - Vturb */
+     * * `Vturb` - Vturb
+     * * `Meltwater` - Meltwater
+     * * `UserCom` - UserCom
+     * * `Latitude` - Latitude */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload

@@ -397,13 +397,6 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                         <LabeledRow label="Total observations">
                             <span className="tabular-nums">{observationStats.total.toLocaleString()}</span>
                         </LabeledRow>
-                        <LabeledRow label="Success rate">
-                            {observationStats.successRate != null ? (
-                                <span className="tabular-nums">{observationStats.successRate}%</span>
-                            ) : (
-                                <span className="text-muted">—</span>
-                            )}
-                        </LabeledRow>
                         <LabeledRow label="Outcomes">
                             <span className="text-sm">
                                 {observationStats.succeeded.toLocaleString()} succeeded ·{' '}

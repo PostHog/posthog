@@ -1,1 +1,1 @@
-0067_signalscoutconfig_run_cron_schedule
+0073_signal_scout_run_report_id_gin_indexes

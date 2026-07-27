@@ -27,7 +27,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.constants import AvailableFeature
+from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS, AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
@@ -46,7 +46,7 @@ from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntentSerializer,
     cached_product_intents_for_team,
@@ -57,6 +57,7 @@ from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
+from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -97,21 +98,33 @@ from products.feature_flags.backend.models.evaluation_context import (
 )
 from products.logs.backend.models import TeamLogsConfig
 from products.signals.backend.models import SignalSourceConfig
-from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
 
 
 class TeamLogsConfigSerializer(serializers.ModelSerializer):
     logs_distinct_id_attribute_key = serializers.CharField(
-        max_length=200,
+        read_only=True,
         help_text=(
-            "Log attribute key whose value should match a person's distinct_id. "
-            "Used by the person profile Logs tab and the `query-logs` MCP tool. "
-            "Defaults to 'posthogDistinctId' — the convention documented at "
+            "Legacy single-key alias — always the first entry of "
+            "`logs_distinct_id_attribute_keys`. Read-only; write the plural field instead."
+        ),
+    )
+    logs_distinct_id_attribute_keys = serializers.ListField(
+        # trim_whitespace is the DRF default, but the uniqueness validator below
+        # depends on it — spell it out so it can't drift silently.
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
+        allow_empty=False,
+        max_length=10,
+        help_text=(
+            "Log attribute keys whose values should match a person's distinct_id — a log "
+            "links to a person when any of these attributes equals one of their distinct IDs. "
+            "Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to "
+            "['posthogDistinctId'] — the convention documented at "
             "https://posthog.com/docs/logs/link-session-replay and the key the "
-            "posthog-js / posthog-react-native SDKs auto-attach. Override only if "
-            "your pipeline emits a different attribute."
+            "posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your "
+            "pipeline emits the person identifier under different attributes."
         ),
     )
     logs_session_id_attribute_keys = serializers.ListField(
@@ -131,14 +144,31 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TeamLogsConfig
-        fields = ["logs_distinct_id_attribute_key", "logs_session_id_attribute_keys"]
+        fields = [
+            "logs_distinct_id_attribute_key",
+            "logs_distinct_id_attribute_keys",
+            "logs_session_id_attribute_keys",
+        ]
 
-    def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
+    def _validate_unique_keys(self, value: list[str]) -> list[str]:
         # The child CharField already trims whitespace and rejects blanks; only
         # cross-item uniqueness needs checking here.
         if len(set(value)) != len(value):
             raise serializers.ValidationError("Attribute keys must be unique.")
         return value
+
+    def validate_logs_distinct_id_attribute_keys(self, value: list[str]) -> list[str]:
+        return self._validate_unique_keys(value)
+
+    def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
+        return self._validate_unique_keys(value)
+
+    def update(self, instance: TeamLogsConfig, validated_data: dict) -> TeamLogsConfig:
+        # Keep the legacy single-key column in sync so pre-plural readers stay coherent.
+        keys = validated_data.get("logs_distinct_id_attribute_keys")
+        if keys:
+            validated_data["logs_distinct_id_attribute_key"] = keys[0]
+        return super().update(instance, validated_data)
 
 
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:
@@ -467,6 +497,10 @@ TEAM_CONFIG_ADMIN_FIELDS_SET: set[str] = (TEAM_CONFIG_FIELDS_SET - TEAM_CONFIG_M
     "is_demo",
     "app_urls",
     "access_control",
+    # Renaming a project/environment is admin-only (the settings UI gates TeamDisplayName behind
+    # useRestrictedArea(Admin)). Excluded from the create-time gate below so members allowed to
+    # create projects can still name them.
+    "name",
 }
 
 # Fields that are not member-safe but carry their own `field_access_control` (enforced in
@@ -477,27 +511,22 @@ TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS: set[str] = {"app_urls"}
 
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     events = serializers.JSONField(required=False)
-    goals = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
 
     class Meta:
         model = TeamRevenueAnalyticsConfig
-        fields = ["base_currency", "events", "goals", "filter_test_accounts"]
+        fields = ["base_currency", "events", "filter_test_accounts"]
 
     def to_representation(self, instance):
         repr = super().to_representation(instance)
         if instance.events:
             repr["events"] = [event.model_dump() for event in instance.events]
-        if instance.goals:
-            repr["goals"] = [goal.model_dump() for goal in instance.goals]
         return repr
 
     def to_internal_value(self, data):
         internal_value = super().to_internal_value(data)
         if "events" in internal_value:
             internal_value["_events"] = internal_value["events"]
-        if "goals" in internal_value:
-            internal_value["_goals"] = internal_value["goals"]
         return internal_value
 
 
@@ -584,10 +613,21 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "alongside the existing workflow metrics."
         ),
     )
+    email_tracking_consent_mode = serializers.ChoiceField(
+        choices=EmailTrackingConsentMode.choices,
+        required=False,
+        help_text=(
+            "Recipient-consent enforcement for open/click tracking on marketing workflow emails. "
+            "'off': no enforcement, tracking follows each email step's own setting. "
+            "'opt_out': track by default but not recipients who have opted out. "
+            "'opt_in': only track recipients who have explicitly opted in. "
+            "Transactional emails are exempt from consent enforcement."
+        ),
+    )
 
     class Meta:
         model = TeamWorkflowsConfig
-        fields = ["capture_workflows_engagement_events"]
+        fields = ["capture_workflows_engagement_events", "email_tracking_consent_mode"]
 
 
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -750,6 +790,22 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
     token = encode_jwt(claims, timedelta(days=7), PosthogJwtAudience.LIVESTREAM)
     safe_cache_set(cache_key, token, timeout=LIVE_EVENTS_TOKEN_TTL_SECONDS)
     return token
+
+
+def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerializer) -> Organization | None:
+    if serializer.instance is not None:
+        team = (
+            serializer.instance.passthrough_team
+            if hasattr(serializer.instance, "passthrough_team")
+            else serializer.instance
+        )
+        return team.organization
+
+    get_organization = serializer.context.get("get_organization")
+    if callable(get_organization):
+        return cast(Organization | None, get_organization())
+
+    return None
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
@@ -1411,10 +1467,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
-    VALID_RETENTION_DAYS = {14, 30, 90}
+    VALID_RETENTION_DAYS = {14, 30}
 
     def validate_logs_settings(self, value: dict | None) -> dict | None:
-        if value is None or not self.instance:
+        if value is None:
             return value
 
         new_retention = value.get("retention_days")
@@ -1423,14 +1479,25 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 f"retention_days must be one of {sorted(TeamSerializer.VALID_RETENTION_DAYS)}"
             )
 
-        # Only validate retention changes if we have an existing instance
-        logs_settings = (
-            self.instance.passthrough_team.logs_settings
-            if hasattr(self.instance, "passthrough_team")
-            else self.instance.logs_settings
+        team = (
+            self.instance.passthrough_team
+            if self.instance is not None and hasattr(self.instance, "passthrough_team")
+            else self.instance
         )
+        logs_settings = team.logs_settings if team is not None else None
+        old_retention = logs_settings.get("retention_days") if logs_settings else None
+
+        if new_retention is not None and old_retention != new_retention:
+            required_feature = LOGS_RETENTION_FEATURES_BY_DAYS.get(new_retention)
+            if required_feature:
+                organization = _get_organization_for_logs_settings_check(self)
+                if organization is None or not organization.is_feature_available(required_feature):
+                    raise exceptions.PermissionDenied(
+                        f"This organization does not have permission to set Logs retention to {new_retention} days."
+                    )
+
+        # Only validate retention throttling if we have an existing retention setting
         if self.instance and logs_settings:
-            old_retention = logs_settings.get("retention_days")
             old_last_updated = logs_settings.get("retention_last_updated")
 
             # Check if retention_days is being changed
@@ -1624,7 +1691,26 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **validated_data["modifiers"],
             }
 
-        updated_team = super().update(instance, validated_data)
+        # Persist only the fields this request changes. A full-row save() writes back every
+        # column from this request's snapshot of the team, so two concurrent PATCHes clobber
+        # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
+        # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
+        # bouncing freshly onboarded users back into onboarding.
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if validated_data:
+            # auto_now fields only refresh when included in update_fields
+            instance.save(update_fields=[*validated_data.keys(), "updated_at"])
+        # Snapshot before the cache refresh below so the audit diff only reflects this
+        # request's writes, not fields a concurrent request changed.
+        after_update = instance.__dict__.copy()
+        if validated_data:
+            # The in-memory instance may hold stale values for fields a concurrent request
+            # changed, and the post-save receiver has already cached that snapshot. Reload
+            # and re-cache so the team cache reflects the merged row.
+            instance.refresh_from_db()
+            set_team_in_cache(instance.api_token, instance)
+        updated_team = instance
 
         if "proactive_tasks_enabled" in validated_data:
             # Backward compat for old proactive tasks enabled field, remove after February 2026
@@ -1642,7 +1728,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
                 ).delete()
 
-        changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)
+        changes = dict_changes_between("Team", before_update, after_update, use_field_exclusions=True)
 
         log_activity(
             organization_id=cast(UUIDT, instance.organization_id),
@@ -1670,7 +1756,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Capture old config before saving
         old_config = {
             "events": [event.model_dump() for event in (instance.revenue_analytics_config.events or [])],
-            "goals": [goal.model_dump() for goal in (instance.revenue_analytics_config.goals or [])],
             "filter_test_accounts": instance.revenue_analytics_config.filter_test_accounts,
         }
 
@@ -1688,7 +1773,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Log activity for revenue analytics config changes
         new_config = {
             "events": validated_data.get("events", []),
-            "goals": validated_data.get("goals", []),
             "filter_test_accounts": validated_data.get("filter_test_accounts", False),
         }
 
@@ -2498,8 +2582,9 @@ def validate_team_attrs(
         # On create there's no team yet, so check the creator's org-level membership. Without this a
         # non-admin member (allowed to create projects via members_can_create_projects) could set
         # admin-only team fields like receive_org_level_activity_logs. `is_demo` is excluded — demo
-        # project creation is intentionally open to members and gated separately.
-        admin_fields_touched = (TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo"}) & attrs.keys()
+        # project creation is intentionally open to members and gated separately. `name` is excluded
+        # too — naming a project you're allowed to create is not the same as renaming an existing one.
+        admin_fields_touched = (TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo", "name"}) & attrs.keys()
         if admin_fields_touched:
             membership = OrganizationMembership.objects.filter(
                 user=cast(User, view.request.user), organization_id=view.organization_id

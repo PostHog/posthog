@@ -26,11 +26,9 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
-import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -60,8 +58,6 @@ import {
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
-
-const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 
 const frequencyRank = (frequency: DataWarehouseSyncInterval | null | undefined): number =>
     frequency ? SYNC_FREQUENCY_ORDER.indexOf(frequency) : -1
@@ -130,7 +126,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
         deleteTable,
         loadJobs,
     } = useActions(sourceSettingsLogic)
-    const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Load (and poll) jobs so the Rows synced column can show live progress for in-progress
@@ -326,30 +321,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                     description="Control who can query, sync, and manage this table. Members without editor access can't trigger syncs, change its settings, or delete it."
                 />
             )}
-            {source?.source_type &&
-                REVENUE_ENABLED_SOURCES.includes(source.source_type) &&
-                featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
-                    <div className="flex justify-end">
-                        <LemonButton
-                            type="primary"
-                            className="mt-2"
-                            tooltip="This source is feeding data into our Revenue analytics product - currently in alpha."
-                            onClick={() => {
-                                addProductIntentForCrossSell({
-                                    from: ProductKey.DATA_WAREHOUSE,
-                                    to: ProductKey.REVENUE_ANALYTICS,
-                                    intent_context: ProductIntentContext.DATA_WAREHOUSE_STRIPE_SOURCE_CREATED,
-                                })
-                                router.actions.push(urls.revenueAnalytics())
-                            }}
-                        >
-                            See data in Revenue analytics
-                            <LemonTag className="ml-2" type="danger" size="small">
-                                ALPHA
-                            </LemonTag>
-                        </LemonButton>
-                    </div>
-                )}
         </>
     )
 }
@@ -682,8 +653,16 @@ function SchemaBulkActions({
     schemas: readonly ExternalDataSourceSchema[]
     clearSelection: () => void
 }): JSX.Element {
-    const { bulkEnable, bulkDisable, bulkSetFrequency, bulkSyncNow, bulkResync, bulkDeleteData } =
-        useActions(sourceSettingsLogic)
+    const {
+        bulkEnable,
+        bulkDisable,
+        bulkSetFrequency,
+        bulkSyncNow,
+        bulkResync,
+        bulkDeleteData,
+        pausePolling,
+        resumePolling,
+    } = useActions(sourceSettingsLogic)
     const { bulkEnableLoading } = useValues(sourceSettingsLogic)
 
     // Wrap every action so the selection clears once it's been kicked off.
@@ -764,6 +743,11 @@ function SchemaBulkActions({
             </LemonButton>
             <More
                 size="small"
+                // Pause the 5s source refresh while the menu is open — a poll re-renders the table
+                // and dismisses the menu out from under the user.
+                dropdown={{
+                    onVisibilityChange: (visible) => (visible ? pausePolling() : resumePolling()),
+                }}
                 overlay={
                     <>
                         <LemonButton
@@ -832,11 +816,18 @@ function SchemaRowMore({
     deleteTable: (schema: ExternalDataSourceSchema) => void
     onOpenAccessControl?: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
+    const { pausePolling, resumePolling } = useActions(sourceSettingsLogic)
+
     return (
         <SchemaEditorAction schema={schema}>
             {({ disabledReason }) => (
                 <More
                     disabledReason={disabledReason}
+                    // Pause the 5s source refresh while the menu is open — a poll re-renders the
+                    // table and dismisses the menu out from under the user.
+                    dropdown={{
+                        onVisibilityChange: (visible) => (visible ? pausePolling() : resumePolling()),
+                    }}
                     overlay={
                         <>
                             {onOpenAccessControl && schema.table && (

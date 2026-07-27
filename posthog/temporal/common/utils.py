@@ -169,6 +169,28 @@ async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, An
         return await operation()
 
 
+def retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
+    """Run a sync DB read, retrying once on a transient connection drop.
+
+    The sync sibling of ``aretry_on_db_connection_drop``, for activities that run sync
+    Django ORM code (e.g. under ``@asyncify``). See that function for the full rationale:
+    a long-lived worker pools connections through pgbouncer, so a pool recycle / failover
+    / deploy can leave a stale pooled connection that raises ``OperationalError`` /
+    ``InterfaceError`` on first use. Evict the dead connection and retry once; a second
+    failure propagates, left to the caller's retry posture.
+
+    Pass a zero-arg callable that *produces* the result, so the retry can issue a fresh
+    query:
+
+        task = retry_on_db_connection_drop(lambda: Task.objects.get(id=task_id))
+    """
+    try:
+        return operation()
+    except (django.db.OperationalError, django.db.InterfaceError):
+        _close_db_connections()
+        return operation()
+
+
 def get_scheduled_start_time():
     """Return the start time of a workflow.
 

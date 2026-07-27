@@ -6,8 +6,10 @@ use std::borrow::Cow;
 
 use simd_json::borrowed::{Object, Value};
 
-use crate::blur::{blank_image_data_uri, is_image_data_uri};
+use crate::blur::is_image_data_uri;
+use crate::collect::is_image_ref_strict;
 use crate::context::Ctx;
+use crate::images::ImageFallback;
 use crate::json::{as_str, string_value};
 use crate::url::scrub_url;
 
@@ -43,9 +45,7 @@ pub fn blur_inline_image_attr(ctx: &Ctx<'_>, attrs: &mut Object<'_>, name: &str)
     if !is_image_data_uri(&value) {
         return false;
     }
-    let blurred = ctx
-        .blur_data_uri(&value)
-        .unwrap_or_else(blank_image_data_uri);
+    let blurred = ctx.scrub_image(&value, ImageFallback::Blank);
     attrs.insert(Cow::Owned(name.to_string()), string_value(blurred));
     true
 }
@@ -59,11 +59,17 @@ pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object<'_>) -> bool {
         let Some(existing) = attrs.get(*key).and_then(as_str).map(str::to_string) else {
             continue;
         };
+        // A content ref from an earlier pass over already-mirrored output: opaque, carrying no
+        // content of its own, with its bytes scrubbed out of band. Re-scrubbing would redact it
+        // into the placeholder and strand that image beyond recovery, so a caller re-scrubbing
+        // mirrored output opts into keeping it. Gated on the caller's own assertion of
+        // provenance, never on the shape alone — the format is forgeable by a captured page.
+        if ctx.keeps_image_refs() && is_image_ref_strict(&existing) {
+            continue;
+        }
         acted = true;
         if is_image_data_uri(&existing) {
-            let blurred = ctx
-                .blur_data_uri(&existing)
-                .unwrap_or_else(|| PLACEHOLDER_SRC.to_string());
+            let blurred = ctx.scrub_image(&existing, ImageFallback::Placeholder);
             attrs.insert(Cow::Borrowed(*key), string_value(blurred));
         } else {
             // Stashed under a namespaced attr that won't collide with an app `data-original-*`.

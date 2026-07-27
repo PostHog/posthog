@@ -433,12 +433,34 @@ class GoogleCloudCredentialsError(Exception):
 
 
 async def ensure_our_google_cloud_credentials_are_valid():
-    """Raise `InvalidCredentialsError` if we cannot refresh our credentials."""
+    """Raise `GoogleCloudCredentialsError` if we cannot refresh our credentials."""
+
     our_credentials = get_our_google_cloud_credentials()
+    session = _make_requests_session()
     try:
-        await asyncio.to_thread(our_credentials.refresh, google.auth.transport.requests.Request())
+        await asyncio.to_thread(our_credentials.refresh, google.auth.transport.requests.Request(session=session))
     except Exception as e:
         raise GoogleCloudCredentialsError from e
+
+
+def _make_requests_session() -> "requests.Session":
+    """Make a requests.Session for Google credentials refresh requests."""
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+
+    retry = Retry(
+        total=5,
+        connect=5,  # Redundant to set this + total, but just being explicit
+        backoff_factor=1.0,  # 0s, 2s, 4s, 6s, ...
+    )
+
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+    return session
 
 
 async def get_service_account_description(

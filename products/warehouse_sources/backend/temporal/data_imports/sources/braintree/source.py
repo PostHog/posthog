@@ -131,7 +131,7 @@ You can find your public and private keys in the [Braintree control panel](https
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_braintree_credentials(
-            config.environment, config.public_key, config.private_key, self.resolve_api_version(None)
+            config.environment, config.public_key, config.private_key, self.resolve_api_version(api_version)
         ):
             return True, None
 

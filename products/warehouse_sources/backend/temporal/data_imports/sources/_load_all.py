@@ -636,6 +636,7 @@ from .lago.source import LagoSource
 from .lambda_labs.source import LambdaLabsSource
 from .langfuse.source import LangfuseSource
 from .langsmith.source import LangSmithSource
+from .latitude.source import LatitudeSource
 from .lattice.source import LatticeSource
 from .launchdarkly.source import LaunchDarklySource
 from .lawmatics.source import LawmaticsSource
@@ -685,6 +686,7 @@ from .mastodon.source import MastodonSource
 from .matomo.source import MatomoSource
 from .maxio.source import MaxioSource
 from .meetup.source import MeetupSource
+from .meltwater.source import MeltwaterSource
 from .mem0.source import Mem0Source
 from .memberful.source import MemberfulSource
 from .mendeley.source import MendeleySource
@@ -890,6 +892,7 @@ from .preset.source import PresetSource
 from .prestashop.source import PrestaShopSource
 from .pretix.source import PretixSource
 from .primetric.source import PrimetricSource
+from .printavo.source import PrintavoSource
 from .printify.source import PrintifySource
 from .procore.source import ProcoreSource
 from .productboard.source import ProductboardSource
@@ -1166,6 +1169,7 @@ from .us_bls.source import UsBlsSource
 from .us_census.source import USCensusSource
 from .us_eia.source import UsEiaSource
 from .us_treasury_fiscal_data.source import UsTreasuryFiscalDataSource
+from .user_com.source import UserComSource
 from .usersnap.source import UsersnapSource
 from .uservoice.source import UservoiceSource
 from .vanta.source import VantaSource

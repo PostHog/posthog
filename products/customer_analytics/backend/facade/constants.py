@@ -13,6 +13,7 @@ from products.customer_analytics.backend.constants import (
     CUSTOM_PROPERTY_OPTION_COLORS,
     CUSTOMER_ANALYTICS_CSP_FLAG,
     DEFAULT_ACTIVITY_EVENT,
+    MAX_ANNOUNCEMENT_CHANNELS,
 )
 
 __all__ = [
@@ -23,4 +24,5 @@ __all__ = [
     "CUSTOM_PROPERTY_OPTION_COLORS",
     "CUSTOMER_ANALYTICS_CSP_FLAG",
     "DEFAULT_ACTIVITY_EVENT",
+    "MAX_ANNOUNCEMENT_CHANNELS",
 ]

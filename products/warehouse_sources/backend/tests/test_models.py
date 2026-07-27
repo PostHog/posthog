@@ -27,7 +27,11 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
+from products.warehouse_sources.backend.models.util import (
+    CLICKHOUSE_HOGQL_MAPPING,
+    clean_type,
+    clickhouse_column_to_dwh_column,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
@@ -558,6 +562,21 @@ def test_clean_type_unwraps_low_cardinality(clickhouse_type: str, expected: str)
 
 
 @pytest.mark.parametrize(
+    "clickhouse_type,nullable,expected",
+    [
+        ("String", False, "String"),
+        ("String", True, "Nullable(String)"),
+        ("Nullable(String)", True, "Nullable(String)"),
+        # LowCardinality must stay outermost — ClickHouse rejects Nullable(LowCardinality(...)).
+        ("LowCardinality(String)", True, "LowCardinality(Nullable(String))"),
+        ("LowCardinality(Nullable(String))", True, "LowCardinality(Nullable(String))"),
+    ],
+)
+def test_clickhouse_column_to_dwh_column_nullable_wrapping(clickhouse_type: str, nullable: bool, expected: str) -> None:
+    assert clickhouse_column_to_dwh_column("col", clickhouse_type, nullable)["clickhouse"] == expected
+
+
+@pytest.mark.parametrize(
     "sync_type,expected",
     [
         (ExternalDataSchema.SyncType.XMIN, True),
@@ -706,6 +725,24 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
 
 
 @pytest.mark.parametrize(
+    "value,field_type,expected",
+    [
+        # Unix-epoch cursors (e.g. Stripe `created`) arrive as numbers on datetime-typed fields;
+        # dateutil raised "Parser must be a string or character stream, not int" before this passthrough.
+        (1718377611, IncrementalFieldType.DateTime, 1718377611),
+        (1718377611, IncrementalFieldType.Timestamp, 1718377611),
+        (1718377611, IncrementalFieldType.Date, 1718377611),
+        (1718377611.5, IncrementalFieldType.DateTime, 1718377611.5),
+        (datetime(2024, 6, 14, 15, 33, 31), IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
+        ("2024-06-14T15:33:31", IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
+        ("2024-06-14", IncrementalFieldType.Date, date(2024, 6, 14)),
+    ],
+)
+def test_process_incremental_value_datetime_handles_epoch_numbers(value, field_type, expected) -> None:
+    assert process_incremental_value(value, field_type) == expected
+
+
+@pytest.mark.parametrize(
     "value,field_type,lookback_seconds,expected",
     [
         (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.Timestamp, 3600, datetime(2026, 6, 14, 14, 33, 31)),
@@ -718,6 +755,8 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
         (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.Timestamp, -5, datetime(2026, 6, 14, 15, 33, 31)),
         (100, IncrementalFieldType.Integer, 3600, 100),
         (100, IncrementalFieldType.Numeric, 3600, 100),
+        # Epoch-second cursor on a datetime field shifts directly instead of crashing on int - timedelta.
+        (1718377611, IncrementalFieldType.DateTime, 3600, 1718374011),
         ("abc123", IncrementalFieldType.ObjectID, 3600, "abc123"),
         (None, IncrementalFieldType.Timestamp, 3600, None),
         (datetime(2026, 6, 14, 15, 33, 31), None, 3600, datetime(2026, 6, 14, 15, 33, 31)),
@@ -743,6 +782,19 @@ class TestStagedIncrementalCursor:
             schema.stage_incremental_field_value("run-1", 42)
         staged = schema.sync_type_config["incremental_staged"]
         assert staged == {"run_uuid": "run-1", "last_value": 42}
+
+    def test_stage_keeps_epoch_number_for_datetime_field(self) -> None:
+        # A datetime-typed epoch cursor must round-trip as a number, not "1718377611", so the next
+        # run's read-back doesn't feed a numeric string into dateutil and crash.
+        schema = self._make_schema(incremental_field_type=IncrementalFieldType.DateTime)
+        with patch.object(schema, "save"):
+            schema.stage_incremental_field_value("run-1", 1718377611)
+        assert schema.sync_type_config["incremental_staged"]["last_value"] == 1718377611
+
+    def test_update_incremental_field_value_keeps_epoch_number_for_datetime_field(self) -> None:
+        schema = self._make_schema(incremental_field_type=IncrementalFieldType.DateTime)
+        schema.update_incremental_field_value(1718377611, save=False)
+        assert schema.sync_type_config["incremental_field_last_value"] == 1718377611
 
     def test_stage_writes_earliest_value(self) -> None:
         schema = self._make_schema()

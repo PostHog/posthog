@@ -130,10 +130,12 @@ def _get_headers(api_key: str, revision: str = KLAVIYO_API_VERSION_2026_07_15) -
     }
 
 
-def validate_credentials(api_key: str) -> bool:
+def validate_credentials(api_key: str, api_version: str = KLAVIYO_API_VERSION_2026_07_15) -> bool:
+    # Probe under the caller's resolved pin so a 2024-10-15-pinned source validates on the
+    # same `revision` header it syncs with.
     url = f"{KLAVIYO_BASE_URL}/accounts"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        response = make_tracked_session().get(url, headers=_get_headers(api_key, api_version), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
