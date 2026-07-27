@@ -24,6 +24,7 @@ from posthog.hogql import ast
 from posthog.clickhouse.workload import Workload
 
 from products.engineering_analytics.backend.facade.contracts import (
+    CITestRunner,
     TeamCIActivity,
     TeamCIHealthItem,
     TeamCIHealthList,
@@ -51,13 +52,14 @@ _ROSTER_SELECT = f"""
         countIf(recovery_runs_prior = 0 AND blast_radius_prior) AS regression_test_count_prior,
         sum(failed_runs_current) AS failed_run_count,
         sum(failed_runs_prior) AS failed_run_count_prior,
-        sum(recovery_runs_current) AS rerun_passed_run_count,
-        sum(recovery_runs_prior) AS rerun_passed_run_count_prior,
+        sum(recovery_runs_current) AS same_commit_recovery_run_count,
+        sum(recovery_runs_prior) AS same_commit_recovery_run_count_prior,
         sum(xfail_runs_current) AS quarantined_failed_run_count,
         sum(xfail_runs_prior) AS quarantined_failed_run_count_prior,
         max(last_signal) AS last_seen_at
     FROM (
         SELECT
+            runner,
             nodeid,
             argMax(owner_team, run_signal_at) AS owner_team,
             countIf(recovered_in_run AND is_current) AS recovery_runs_current,
@@ -74,7 +76,7 @@ _ROSTER_SELECT = f"""
                 AS blast_radius_prior,
             max(run_signal_at) AS last_signal
         FROM ({_RUN_EVIDENCE})
-        GROUP BY nodeid
+        GROUP BY runner, nodeid
     )
     GROUP BY owner_team
     ORDER BY
@@ -86,18 +88,19 @@ _ROSTER_SELECT = f"""
 
 _TEST_SIGNAL_SELECT = f"""
     SELECT
+        runner,
         nodeid,
         anyIf(selector, selector != '') AS selector,
         countIf(is_current AND (failed_in_run OR recovered_in_run)) AS signal_count,
         countIf(NOT is_current AND (failed_in_run OR recovered_in_run)) AS signal_count_prior,
         max(run_signal_at) AS last_seen_at
     FROM ({_RUN_EVIDENCE})
-    GROUP BY nodeid
+    GROUP BY runner, nodeid
     -- Latest stamp owns the whole test, exactly as the roster counts it, so this drill-in never
     -- shows different rows than the summary that opened it.
     HAVING argMax(owner_team, run_signal_at) = {{owner_team}}
         AND (signal_count > 0 OR signal_count_prior > 0)
-    ORDER BY greatest(signal_count, signal_count_prior) DESC, signal_count DESC, nodeid ASC
+    ORDER BY greatest(signal_count, signal_count_prior) DESC, signal_count DESC, nodeid ASC, runner ASC
     LIMIT {{test_limit_plus_one}}
 """
 
@@ -147,8 +150,8 @@ def query_team_ci_health(
                 regression_test_count_prior=regression_test_count_prior,
                 failed_run_count=failed_run_count,
                 failed_run_count_prior=failed_run_count_prior,
-                rerun_passed_run_count=rerun_passed_run_count,
-                rerun_passed_run_count_prior=rerun_passed_run_count_prior,
+                same_commit_recovery_run_count=same_commit_recovery_run_count,
+                same_commit_recovery_run_count_prior=same_commit_recovery_run_count_prior,
                 quarantined_failed_run_count=quarantined_failed_run_count,
                 quarantined_failed_run_count_prior=quarantined_failed_run_count_prior,
                 last_seen_at=last_seen_at,
@@ -161,8 +164,8 @@ def query_team_ci_health(
                 regression_test_count_prior,
                 failed_run_count,
                 failed_run_count_prior,
-                rerun_passed_run_count,
-                rerun_passed_run_count_prior,
+                same_commit_recovery_run_count,
+                same_commit_recovery_run_count_prior,
                 quarantined_failed_run_count,
                 quarantined_failed_run_count_prior,
                 last_seen_at,
@@ -198,13 +201,14 @@ def query_team_ci_activity(
         owner_team=owner_team,
         tests=[
             TeamTestSignal(
+                runner=CITestRunner(runner),
                 nodeid=nodeid,
                 selector=selector or selector_from_nodeid(nodeid),
                 signal_count=signal_count,
                 signal_count_prior=signal_count_prior,
                 last_seen_at=last_seen_at,
             )
-            for nodeid, selector, signal_count, signal_count_prior, last_seen_at in test_rows[:test_limit]
+            for runner, nodeid, selector, signal_count, signal_count_prior, last_seen_at in test_rows[:test_limit]
         ],
         truncated_tests=len(test_rows) > test_limit,
     )

@@ -6,13 +6,15 @@ import pytest
 from unittest.mock import MagicMock
 
 from django.conf import settings
+from django.test import override_settings
 
 import temporalio.worker
 import temporalio.converter
 from temporalio import activity as temporal_activity
 from temporalio.testing import WorkflowEnvironment
 
-from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
+from posthog.ducklake import cp_teams
+from posthog.ducklake.models import DuckgresServer
 from posthog.ducklake.storage import compute_staging_uri
 from posthog.ducklake.verification import DuckLakeCopyVerificationParameter, DuckLakeCopyVerificationQuery
 from posthog.sync import database_sync_to_async
@@ -36,6 +38,18 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+
+
+@pytest.fixture(autouse=True)
+def _cp_no_rows():
+    # The data-imports schema resolves via the team's control-plane row; serve the
+    # no-row (legacy team-id schema) shape so these tests stay CP-independent.
+    from unittest.mock import patch
+
+    cp_teams.clear_cache()
+    with patch("posthog.ducklake.cp_teams._fetch_org_rows", return_value=[]):
+        yield
+    cp_teams.clear_cache()
 
 
 class _FakeColumn:
@@ -138,14 +152,20 @@ async def test_prepare_excludes_only_v3_sink_owned_schemas(ateam, monkeypatch):
         create_job_model, "is_pipeline_v3_enabled", lambda team_id, source_type: source_type == "Postgres"
     )
 
-    server = await database_sync_to_async(DuckgresServer.objects.create)(
+    await database_sync_to_async(DuckgresServer.objects.create)(
         organization_id=ateam.organization_id,
         host="h",
         username="root",
         password="x",
         bucket="bucket",
     )
-    membership = await database_sync_to_async(DuckgresServerTeam.objects.create)(server=server, team=ateam)
+    # Sink membership now lives in the duckgres control plane; toggle it at the seam the
+    # activity reads (membership resolution itself is covered in the enablement tests).
+    member = {"value": True}
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_duckgres_sink_team_member",
+        lambda team_id: member["value"],
+    )
 
     credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
         team=ateam, access_key="k", access_secret="s"
@@ -182,7 +202,7 @@ async def test_prepare_excludes_only_v3_sink_owned_schemas(ateam, monkeypatch):
     # v3 source dropped (sink owns it); non-v3 source still copied.
     assert [m.source_schema_id for m in result] == [str(non_v3_schema.id)]
 
-    await database_sync_to_async(membership.delete)()
+    member["value"] = False
     result_without_membership = await prepare_data_imports_ducklake_metadata_activity(inputs)
 
     assert {m.source_schema_id for m in result_without_membership} == {str(v3_schema.id), str(non_v3_schema.id)}
@@ -467,6 +487,11 @@ def test_copy_data_imports_to_ducklake_activity_via_duckdb(monkeypatch):
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.HeartbeaterSync",
         MagicMock(return_value=mock_heartbeater),
     )
+    mock_close_old_connections = MagicMock()
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.close_old_connections",
+        mock_close_old_connections,
+    )
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
         MagicMock(return_value=True),
@@ -514,8 +539,14 @@ def test_copy_data_imports_to_ducklake_activity_via_duckdb(monkeypatch):
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
-    copy_data_imports_to_ducklake_activity(inputs)
+    # TEST=False: the close_old_connections() call is skipped under settings.TEST (matching
+    # database_sync_to_async's convention) so it never trips pytest-django's db-access guard
+    # in tests that don't need the database; override it here to prove the call still fires
+    # outside tests, i.e. in the real long-lived worker thread.
+    with override_settings(TEST=False):
+        copy_data_imports_to_ducklake_activity(inputs)
 
+    mock_close_old_connections.assert_called_once()
     mock_configure_connection.assert_called_once_with(mock_conn)
     mock_ensure_bucket.assert_called_once_with(config={"DUCKLAKE_BUCKET": "ducklake-dev"}, team_id=1)
     mock_attach_catalog.assert_called_once_with(mock_conn, {"DUCKLAKE_BUCKET": "ducklake-dev"}, alias="ducklake")
@@ -617,6 +648,11 @@ def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_querie
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.HeartbeaterSync",
         MagicMock(return_value=mock_heartbeater),
     )
+    mock_close_old_connections = MagicMock()
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.close_old_connections",
+        mock_close_old_connections,
+    )
 
     metadata = DuckLakeCopyDataImportsMetadata(
         model_label="postgres_customers",
@@ -630,9 +666,14 @@ def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_querie
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
-    results = verify_data_imports_ducklake_copy_activity(inputs)
+    # TEST=False: see the comment in test_copy_data_imports_to_ducklake_activity_via_duckdb.
+    with override_settings(TEST=False):
+        results = verify_data_imports_ducklake_copy_activity(inputs)
 
     assert results == []
+    # Same long-lived worker thread caveat as copy_data_imports_to_ducklake_activity:
+    # this must run even on the early-return path, before any DB access is attempted.
+    mock_close_old_connections.assert_called_once()
 
 
 def test_verify_data_imports_ducklake_copy_activity_uses_duckdb_in_dev(monkeypatch):
@@ -967,6 +1008,23 @@ def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeyp
     assert results[0].passed is True
     assert results[1].name == "outside_tolerance"
     assert results[1].passed is False
+
+
+def test_cleanup_data_imports_staging_activity_closes_stale_connections_before_querying(monkeypatch):
+    """Same long-lived worker thread caveat as copy_data_imports_to_ducklake_activity:
+    a connection killed by the DB/proxy is never detected and closed before reuse
+    unless the activity does it itself."""
+    mock_close_old_connections = MagicMock()
+    monkeypatch.setattr(ducklake_module, "close_old_connections", mock_close_old_connections)
+    monkeypatch.setattr(ducklake_module, "get_duckgres_server_by_team_org", MagicMock(return_value=None))
+
+    inputs = DuckLakeDataImportsStagingCleanupInputs(team_id=1, staging_uri="s3://bucket/__posthog_staging/team_1")
+
+    # TEST=False: see the comment in test_copy_data_imports_to_ducklake_activity_via_duckdb.
+    with override_settings(TEST=False):
+        ducklake_module.cleanup_data_imports_staging_activity(inputs)
+
+    mock_close_old_connections.assert_called_once()
 
 
 _DUCKGRES_CURSOR_DESCRIPTION = [_FakeColumn("id", 20), _FakeColumn("name", 25)]

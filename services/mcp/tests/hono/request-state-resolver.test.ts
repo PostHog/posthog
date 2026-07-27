@@ -69,9 +69,8 @@ vi.mock('@/hono/request-context', () => {
 })
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
-import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
+import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { Env } from '@/tools/types'
 
@@ -99,9 +98,6 @@ function makeResolver(): RequestStateResolver {
 
 describe('RequestStateResolver MCP client contexts', () => {
     beforeEach(() => {
-        vi.clearAllMocks()
-        vi.mocked(evaluateFeatureFlags).mockResolvedValue({})
-        vi.mocked(resolveFeatureFlagOverrides).mockReturnValue({})
         mockSessionStore.clear()
         mockTokenStore.clear()
     })
@@ -307,19 +303,6 @@ describe('RequestStateResolver MCP client contexts', () => {
         const result = await makeResolver().resolve(props)
 
         expect(result.toolFeatureFlags?.['dev-forced-flag']).toBe(true)
-    })
-
-    it('evaluates the exec skills flag independently of generated tool flags', async () => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ [MCP_EXEC_SKILLS_FEATURE_FLAG]: true })
-
-        const result = await makeResolver().resolve(makeProps())
-
-        expect(evaluateFeatureFlags).toHaveBeenCalledWith(
-            expect.arrayContaining([MCP_EXEC_SKILLS_FEATURE_FLAG]),
-            'distinct-id',
-            undefined
-        )
-        expect(result.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG]).toBe(true)
     })
 
     it('captures consumer from a later request when initialize omitted the header', async () => {

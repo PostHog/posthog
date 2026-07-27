@@ -651,7 +651,7 @@ _VALID_WORKSPACE_CLAIM_KINDS = frozenset(SLACK_INTEGRATION_KINDS)
 def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
     """Cross-region probe: does this region hold an Integration row for the given Slack workspace?
 
-    Both Cloud regions provision the PostHog Code Slack signing secret, so a region can HMAC-sign
+    Both Cloud regions provision the PostHog Desktop Slack signing secret, so a region can HMAC-sign
     a small JSON body and the receiver can verify it with the same routine that validates real
     Slack webhooks. The signed body covers `slack_team_id` + `kinds`, so a captured signature
     cannot be replayed against a different workspace.

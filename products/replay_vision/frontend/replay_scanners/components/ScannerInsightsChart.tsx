@@ -1,9 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
-
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
 import {
@@ -16,7 +14,8 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { replayScannerLogic } from '../replayScannerLogic'
+import { getReplayVisionRecordingViewDisabledReason } from '../../utils/accessControl'
+import { scannerOverviewLogic } from '../scannerOverviewLogic'
 import { ScannerType } from '../types'
 import { VisionInsightChart } from './VisionInsightChart'
 
@@ -155,21 +154,22 @@ export function ScannerInsightsChart({
     scannerId: string
     scannerType: ScannerType
 }): JSX.Element {
-    const { chartDateFrom, chartDateTo, coverageStats, observationStatsApiLoading } = useValues(
-        replayScannerLogic({ id: scannerId })
+    // Date comes from the Overview tab's shared filter bar (scannerOverviewLogic), so the chart and the
+    // stat panels move together; the chart no longer carries its own date picker.
+    const { overviewDateFrom, overviewDateTo, coverageStats, overviewStatsApiLoading } = useValues(
+        scannerOverviewLogic({ scannerId })
     )
-    const { setChartDateRange } = useActions(replayScannerLogic({ id: scannerId }))
     // Memoized so a re-render (e.g. stats arriving) can't churn the query and abort an in-flight load.
     // `tags.productKey` is required for ClickHouse query tagging; without it the runner aborts.
     const chartQuery = useMemo<InsightVizNode>(
         () => ({
             kind: NodeKind.InsightVizNode,
             source: {
-                ...buildQuery(scannerId, scannerType, chartDateFrom, chartDateTo),
+                ...buildQuery(scannerId, scannerType, overviewDateFrom, overviewDateTo),
                 tags: { productKey: ProductKey.REPLAY_VISION },
             },
         }),
-        [scannerId, scannerType, chartDateFrom, chartDateTo]
+        [scannerId, scannerType, overviewDateFrom, overviewDateTo]
     )
     const chartInsightProps = useMemo<InsightLogicProps>(
         () => ({
@@ -178,6 +178,9 @@ export function ScannerInsightsChart({
         }),
         [scannerId]
     )
+    // Drill-down opens the actors modal, which surfaces the recordings behind a data point. Only enable it for
+    // users who can view recordings, so a scanner-only viewer denied session_recording access can't enumerate them.
+    const canDrillIntoRecordings = !getReplayVisionRecordingViewDisabledReason()
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
             <div className="flex items-baseline justify-between gap-2">
@@ -191,19 +194,19 @@ export function ScannerInsightsChart({
                             {coverageStats.recentDays === 1 ? '' : 's'} ·{' '}
                             <span className="font-semibold text-default">{coverageStats.totalSessions}</span> total
                         </div>
-                    ) : observationStatsApiLoading ? (
+                    ) : overviewStatsApiLoading ? (
                         <div className="text-xs text-muted mt-0.5 flex items-center gap-1.5">
                             <Spinner /> Loading coverage…
                         </div>
                     ) : null}
                 </div>
-                <DateFilter
-                    dateFrom={chartDateFrom}
-                    dateTo={chartDateTo}
-                    onChange={(from, to) => setChartDateRange(from ?? null, to ?? null)}
-                />
             </div>
-            <VisionInsightChart query={chartQuery} insightProps={chartInsightProps} className="InsightCard h-80" />
+            <VisionInsightChart
+                query={chartQuery}
+                insightProps={chartInsightProps}
+                className="InsightCard h-80"
+                drillable={canDrillIntoRecordings}
+            />
         </div>
     )
 }

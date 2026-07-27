@@ -147,6 +147,17 @@ class QuarantineMode(StrEnum):
     SKIP = "skip"
 
 
+class CITestRunner(StrEnum):
+    PYTEST = "pytest"
+    JEST = "jest"
+
+
+class QuarantineRunner(StrEnum):
+    PYTEST = "pytest"
+    JEST = "jest"
+    PLAYWRIGHT = "playwright"
+
+
 class QuarantineLifecycle(StrEnum):
     """Where an entry sits relative to its expiry: ``active`` (more than 7 days
     left), ``expiring_soon`` (7 days or fewer left), ``in_grace`` (expired up to
@@ -518,28 +529,28 @@ class CIFailureLogs:
 # The one caveat that governs every flaky figure, defined once here (the canonical-types home)
 # so the API/MCP description and any other consumer-facing copy read from it instead of drifting.
 FLAKY_TEST_SIGNAL_CAVEAT = (
-    "Counts are absolute, never rates: CI emits a span for every failure but only for passes slow "
-    "enough to clear the emitter's duration threshold, so there is no execution denominator. "
+    "Counts are absolute, never rates: CI emits every failure but omits ordinary passing spans, "
+    "so there is no execution denominator. "
     "'suspected_regression' means no recovery was recorded in this data, not that the test never flakes."
 )
 
 
 class FlakyTestClassification(StrEnum):
-    # An in-job retry recovered the test in the same run.
+    # One commit both failed and passed the test: a re-run attempt going green, or an in-job retry.
     CONFIRMED_FLAKE = "confirmed_flake"
     # Only failures recorded, which is absence of proof, not proof of a regression.
     SUSPECTED_REGRESSION = "suspected_regression"
-    # Failing while masked as xfail.
+    # A tolerated failure recorded while the test is masked by quarantine.
     QUARANTINED = "quarantined"
 
     @classmethod
     def from_run_evidence(
-        cls, *, quarantined_failed_run_count: int, rerun_passed_run_count: int
+        cls, *, quarantined_failed_run_count: int, same_commit_recovery_run_count: int
     ) -> "FlakyTestClassification":
-        # Quarantine wins over a recovery proof: an xfail is already masked, so surface that first.
+        # Quarantine wins over a recovery proof: it is already masked, so surface that first.
         if quarantined_failed_run_count > 0:
             return cls.QUARANTINED
-        if rerun_passed_run_count > 0:
+        if same_commit_recovery_run_count > 0:
             return cls.CONFIRMED_FLAKE
         return cls.SUSPECTED_REGRESSION
 
@@ -548,22 +559,22 @@ class FlakyTestClassification(StrEnum):
 class FlakyTestItem:
     """One test in the active test-health queue, aggregated from the per-test CI spans in the Traces store.
 
-    Ranked by blast radius: what a failing test costs, not how often it flakes. This queue only sees
-    Backend CI. Evidence is counted per CI run, never per span: one run fans a test across matrix
-    legs, so only the run grain counts one failure once. See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why
-    every figure is an absolute count.
+    Ranked by blast radius: what a failing test costs, not how often it flakes. This queue only
+    sees the main pytest and Jest CI suites. Evidence is counted per CI run, never per span or run
+    attempt: one run fans a test across matrix legs and re-run attempts re-test the same commit, so
+    only the run grain counts one failure once. See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why every figure
+    is an absolute count.
     """
 
-    # Reconstructed pytest nodeid (the span name), e.g. 'posthog/api/test/test_x/TestX::test_y'.
+    runner: CITestRunner
+    # Stable test identity (the span name), runner-specific and not necessarily runnable.
     nodeid: str
-    # Runnable pytest selector ('posthog/api/test/test_x.py::TestX::test_y'). Exact when the CI
-    # reporter stamped it; reconstructed from the nodeid (file/class boundary guessed) for older spans.
+    # Runnable selector. Exact when the CI reporter stamped it; best-effort for older pytest spans.
     selector: str
     classification: FlakyTestClassification
-    # Runs where an in-job pytest retry recovered the test after it failed. Only tests hand-marked
-    # @pytest.mark.flaky(reruns=N) can reach this: Backend CI runs without --reruns so failures
-    # stay visible instead of being retried away.
-    rerun_passed_run_count: int
+    # Runs where one commit both failed and passed the test: a later run attempt going green, or an
+    # in-job retry. A pass in a different run is a different commit and proves nothing, hence the name.
+    same_commit_recovery_run_count: int
     failed_run_count: int
     # Master/branch failures carry no PR number and don't count here.
     failed_pr_count: int
@@ -577,8 +588,8 @@ class FlakyTestItem:
 class FlakyTestList:
     """The active test-health queue for a window: tests with a live failure signal, ranked by blast
     radius (trunk first, then PRs, then runs), capped at ``limit`` with an explicit truncation flag
-    (same shape as ``PullRequestList``). A test qualifies on any in-run recovery, any
-    default-branch failure, failures on at least ``min_failed_prs`` distinct PRs, or an xfail.
+    (same shape as ``PullRequestList``). A test qualifies on any same-commit recovery, any
+    default-branch failure, failures on at least ``min_failed_prs`` distinct PRs, or a quarantined failure.
     """
 
     items: list[FlakyTestItem]
@@ -599,7 +610,7 @@ class TeamCIHealthItem:
 
     # Owning team slug (CODEOWNERS handle minus '@PostHog/'), or 'unowned' for unstamped spans.
     owner_team: str
-    # Owned tests an in-job retry recovered in the window: the same proof, and the same word,
+    # Owned tests one commit was seen both failing and passing: the same proof, and the same word,
     # the test-health queue's `confirmed_flake` uses.
     flaky_test_count: int
     flaky_test_count_prior: int
@@ -609,12 +620,12 @@ class TeamCIHealthItem:
     # Runs (not spans) where an owned test's recorded outcome was failed or error.
     failed_run_count: int
     failed_run_count_prior: int
-    rerun_passed_run_count: int
-    rerun_passed_run_count_prior: int
-    # Runs where an owned test failed while quarantined (xfail): already masked, still failing.
+    same_commit_recovery_run_count: int
+    same_commit_recovery_run_count_prior: int
+    # Runs where an owned test recorded a tolerated failure while quarantined: already masked, still failing.
     quarantined_failed_run_count: int
     quarantined_failed_run_count_prior: int
-    # Most recent failure, recovery, or xfail run across the team's owned tests, either window.
+    # Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window.
     last_seen_at: datetime
 
 
@@ -633,10 +644,11 @@ class TeamCIHealthList:
 @dataclass(frozen=True)
 class TeamTestSignal:
     """One owned test's flaky signal across the current window and its equal-length prior
-    window, the pair behind a before-vs-after slope reading. Signal = runs where the test
-    failed, errored, or a retry recovered it (xfail excluded: already-quarantined noise).
+    window, the pair behind a before-vs-after slope reading. Signal = failed + error +
+    pass-on-retry spans (quarantined failures excluded: already-masked noise).
     """
 
+    runner: CITestRunner
     nodeid: str
     selector: str
     signal_count: int
@@ -857,6 +869,7 @@ class QuarantineRequest:
     # serializers' 'action' enums in the OpenAPI spec and churns their generated types.
     operation: QuarantineRequestAction
     selector: str
+    runner: QuarantineRunner | None = None
     repo: str | None = None
     reason: str = ""
     owner: str = ""

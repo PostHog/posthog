@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -173,6 +173,7 @@ pub async fn run(args: ConsistencyArgs) -> Result<()> {
 /// violations. A failed read is likewise not a recency violation — reads
 /// legitimately fail while a killed owner's partitions are in limbo, and
 /// end-of-run verification owns readability.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_probers(
     client: &HarnessClient,
     team_id: i64,
@@ -181,6 +182,7 @@ pub async fn run_probers(
     duration: Duration,
     collector: &Arc<StatsCollector>,
     state: &PersonState,
+    stop: Arc<AtomicBool>,
 ) -> Result<Vec<ConsistencyViolation>> {
     let deadline = Instant::now() + duration;
 
@@ -190,12 +192,13 @@ pub async fn run_probers(
         let collector = collector.clone();
         let state = state.clone();
         let person_ids = person_ids.clone();
+        let stop = stop.clone();
 
         handles.push(tokio::spawn(async move {
             let mut violations = Vec::new();
             let mut iteration: usize = 0;
 
-            while Instant::now() < deadline {
+            while Instant::now() < deadline && !stop.load(Ordering::Relaxed) {
                 let person_id = person_ids[(worker_id + iteration) % person_ids.len()];
                 iteration += 1;
                 let marker = uuid::Uuid::new_v4().to_string();

@@ -27,7 +27,7 @@ import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
-import MaxTool from 'scenes/max/MaxTool'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { Scene } from 'scenes/sceneTypes'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
@@ -244,33 +244,34 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
         },
     })
 
-    return (
-        <MaxTool
-            identifier="filter_web_analytics"
-            context={{
-                current_filters: {
-                    date_from: dateFrom,
-                    date_to: dateTo,
-                    properties: rawWebAnalyticsFilters,
-                    doPathCleaning: isPathCleaningEnabled,
-                    compareFilter: compareFilter,
-                },
-            }}
-            contextDescription={{
-                text: 'Current filters',
-                icon: <IconFilter />,
-            }}
-            callback={applyFilters}
-            initialMaxPrompt="Filter web analytics data for "
-            suggestions={[
-                'Show mobile traffic from last 30 days for the US',
-                'Filter only sessions greater than 2 minutes coming from organic search',
-                "Don't include direct traffic and show data for the last 7 days",
-            ]}
-        >
-            {children}
-        </MaxTool>
-    )
+    // Register the tool so PostHog AI can still drive web analytics filters, but render no button:
+    // the deprecated floating MaxTool "+" cluttered the filter bar. The scene's other tools
+    // (web_analytics_doctor, assess_heatmap, summarize_website_interactions) also register hook-only.
+    useMaxTool({
+        identifier: 'filter_web_analytics',
+        context: {
+            current_filters: {
+                date_from: dateFrom,
+                date_to: dateTo,
+                properties: rawWebAnalyticsFilters,
+                doPathCleaning: isPathCleaningEnabled,
+                compareFilter: compareFilter,
+            },
+        },
+        contextDescription: {
+            text: 'Current filters',
+            icon: <IconFilter />,
+        },
+        callback: applyFilters,
+        initialMaxPrompt: 'Filter web analytics data for ',
+        suggestions: [
+            'Show mobile traffic from last 30 days for the US',
+            'Filter only sessions greater than 2 minutes coming from organic search',
+            "Don't include direct traffic and show data for the last 7 days",
+        ],
+    })
+
+    return children
 }
 
 export const WebAnalyticsDomainSelector = (): JSX.Element => {

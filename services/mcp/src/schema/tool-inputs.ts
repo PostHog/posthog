@@ -366,7 +366,12 @@ export const InsightQueryInputSchema = z.preprocess(
 )
 
 export const AIObservabilityGetCostsSchema = z.object({
-    projectId: z.number().int().positive(),
+    projectId: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe('Project ID. Defaults to the active project when omitted.'),
     days: z.number().optional(),
 })
 

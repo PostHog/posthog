@@ -117,9 +117,6 @@ from posthog.hogql_queries.access_controlled_resources import queried_access_con
 from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
-from posthog.hogql_queries.query_cache import count_query_cache_hit
-from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
-from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
 from posthog.hogql_queries.validation.validation import (
@@ -130,6 +127,7 @@ from posthog.hogql_queries.validation.validation import (
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
+from posthog.query_cache import QueryCache, count_query_cache_hit
 from posthog.rbac.user_access_control import WAREHOUSE_ACCESS_SCOPES, UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
@@ -740,104 +738,6 @@ def get_query_runner(
             user=user,
         )
 
-    if kind == "RevenueAnalyticsGrossRevenueQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_gross_revenue_query_runner import (
-            RevenueAnalyticsGrossRevenueQueryRunner,
-        )
-
-        return RevenueAnalyticsGrossRevenueQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueAnalyticsMetricsQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_metrics_query_runner import (
-            RevenueAnalyticsMetricsQueryRunner,
-        )
-
-        return RevenueAnalyticsMetricsQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueAnalyticsMRRQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_mrr_query_runner import (
-            RevenueAnalyticsMRRQueryRunner,
-        )
-
-        return RevenueAnalyticsMRRQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueAnalyticsOverviewQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
-            RevenueAnalyticsOverviewQueryRunner,
-        )
-
-        return RevenueAnalyticsOverviewQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueAnalyticsTopCustomersQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
-            RevenueAnalyticsTopCustomersQueryRunner,
-        )
-
-        return RevenueAnalyticsTopCustomersQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueExampleEventsQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
-            RevenueExampleEventsQueryRunner,
-        )
-
-        return RevenueExampleEventsQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueExampleDataWarehouseTablesQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
-            RevenueExampleDataWarehouseTablesQueryRunner,
-        )
-
-        return RevenueExampleDataWarehouseTablesQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
     if kind == "ErrorTrackingQuery":
         from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
 
@@ -1391,6 +1291,19 @@ R = TypeVar("R", bound=BaseModel)
 CR = TypeVar("CR", bound=GenericCachedQueryResponse)
 
 
+def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None:
+    # A series' display override for legends and tooltips. `custom_name` is set by the in-app
+    # "Rename graph series" modal; a `name` that differs from the raw event/action label is a rename
+    # applied via the query editor or API. Either should win over the raw event name.
+    custom_name = getattr(series, "custom_name", None)
+    if custom_name:
+        return custom_name
+    name = getattr(series, "name", None)
+    if name and name != raw_label:
+        return name
+    return None
+
+
 class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
     response: R
@@ -1510,7 +1423,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def enqueue_async_calculation(
         self,
         *,
-        cache_manager: QueryCacheManagerBase,
+        cache_manager: QueryCache,
         refresh_requested: bool = False,
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
@@ -1556,7 +1469,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def handle_cache_and_async_logic(
         self,
         execution_mode: ExecutionMode,
-        cache_manager: QueryCacheManagerBase,
+        cache_manager: QueryCache,
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> Optional[CR | CacheMissResponse]:
@@ -1565,6 +1478,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cached_response_candidate: Optional[dict]
         self.raw_cached_results_bytes = None
         raw_results: Optional[bytes] = None
+        entry = cache_manager.lookup().entry
         if self.serve_raw_cached_results:
             # Serving results as raw bytes skips parsing (and later re-serializing) the results
             # payload. Only safe when the caller opted in AND validation of the parsed results
@@ -1573,7 +1487,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # the schema-drift check that triggers recomputation) AND neither the query nor
             # the cached results carry custom series names — otherwise
             # apply_series_custom_names below must be able to patch the parsed results.
-            split_candidate = cache_manager.get_cache_data_split()
+            split_candidate = entry
             if split_candidate is None:
                 cached_response_candidate = None
             else:
@@ -1588,7 +1502,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     else:
                         raw_results = split_candidate.results_bytes
         else:
-            cached_response_candidate = cache_manager.get_cache_data()
+            cached_response_candidate = entry.as_full_response() if entry else None
 
         if self.is_cached_response(cached_response_candidate):
             assert cached_response_candidate is not None
@@ -1621,7 +1535,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             if custom_names_modified:
                 # Update cache with patched response so subsequent requests get the updated names
-                cache_manager.set_cache_data(
+                cache_manager.store_result(
                     response=cached_response.model_dump(),
                     target_age=cached_response.cache_target_age,
                 )
@@ -1848,8 +1762,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     trigger: str | None = get_query_tag_value("trigger")
 
                     CachedResponse: type[CR] = self.cached_response_type
-                    cache_manager = get_query_cache_manager(
-                        team=self.team,
+                    cache_manager = QueryCache(
+                        team_id=self.team.pk,
                         cache_key=cache_key,
                         insight_id=insight_id,
                         dashboard_id=dashboard_id,
@@ -1961,7 +1875,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self,
         *,
         cache_key: str,
-        cache_manager: QueryCacheManagerBase,
+        cache_manager: QueryCache,
         execution_mode: ExecutionMode,
         insight_id: Optional[int],
         dashboard_id: Optional[int],
@@ -2054,7 +1968,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Guard against response classes that don't carry the field: every analytics response
             # inherits `warnings` from AnalyticsQueryResponseBase, and several standalone classes
             # add it explicitly — but a future response class that omits it would otherwise crash
-            # pydantic validation on the extra key (and poison the cache, which set_cache_data has
+            # pydantic validation on the extra key (and poison the cache, which store_result has
             # already written by the time CachedResponse(**dict) raises).
             if warnings_accumulator and "warnings" in CachedResponse.model_fields:
                 # The accumulator is authoritative for sync warnings (it collects across every inner
@@ -2073,7 +1987,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             errors: Optional[list[Any]] = fresh_response_dict.get("error", None)
             has_error = errors is not None and len(errors) > 0
             if not has_error and self.limit_context != LimitContext.EXPORT:
-                cache_manager.set_cache_data(
+                cache_manager.store_result(
                     response=fresh_response_dict,
                     # This would be a possible place to decide to not ever keep this cache warm
                     # Example: Not for super quickly calculated insights
@@ -2233,10 +2147,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if not results or not isinstance(results, list):
             return cached_response, False
 
-        custom_names_by_order: dict[int, str | None] = {}
-        for i, s in enumerate(series):
-            custom_name = getattr(s, "custom_name", None)
-            custom_names_by_order[i] = custom_name
+        series_by_order = dict(enumerate(series))
+        # Only TrendsQuery surfaces a `name`-based rename into custom_name on the fresh path (see
+        # TrendsQueryRunner's use of resolve_series_custom_name). Stickiness/lifecycle use custom_name
+        # only, so honoring `name` here would desync their cached responses from a fresh computation.
+        honor_name = isinstance(self.query, TrendsQuery)
 
         was_modified = False
         for result in results:
@@ -2246,11 +2161,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if not isinstance(action, dict):
                 continue
             order = action.get("order")
-            if order is not None and order in custom_names_by_order:
-                new_name = custom_names_by_order[order]
-                if action.get("custom_name") != new_name:
-                    action["custom_name"] = new_name
-                    was_modified = True
+            if order is None or order not in series_by_order:
+                continue
+            s = series_by_order[order]
+            if honor_name:
+                # The cached action's `name` holds the raw event/action label (`series_label or "All events"`).
+                new_name = resolve_series_custom_name(s, action.get("name"))
+            else:
+                new_name = getattr(s, "custom_name", None)
+            if action.get("custom_name") != new_name:
+                action["custom_name"] = new_name
+                was_modified = True
 
         return cached_response, was_modified
 

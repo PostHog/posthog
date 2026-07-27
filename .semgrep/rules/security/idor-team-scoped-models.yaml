@@ -80,6 +80,7 @@ rules:
                               |BatchExportBackfill
                               |BatchExportFileDownload
                               |BatchExportOnDemand
+                              |BatchExportSource
                               |BatchImport
                               |BriefConfig
                               |ButtonTile
@@ -130,6 +131,8 @@ rules:
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |EventFilterConfig
+                              |EventStream
+                              |EventStreamMember
                               |ErrorTrackingAssignmentRule
                               |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
@@ -198,6 +201,7 @@ rules:
                               |LLMPromptLabel
                               |LLMProviderKey
                               |LLMSkill
+                              |LLMSkillOwner
                               |LLMTraceSummary
                               |ManagedWarehouseBackfillPartition
                               |MarketingAnalyticsGoalMapping
@@ -262,6 +266,7 @@ rules:
                               |SignalScoutConfig
                               |SignalScoutRun
                               |SignalScoutEmission
+                              |SignalScoutNote
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -279,6 +284,7 @@ rules:
                               |Tag
                               |Tagger
                               |Task
+                              |TaskActivity
                               |TaskArtifact
                               |TaskAutomation
                               |TaskPresence
@@ -396,6 +402,7 @@ rules:
                         |BatchExportBackfill
                         |BatchExportFileDownload
                         |BatchExportOnDemand
+                        |BatchExportSource
                         |BatchImport
                         |BriefConfig
                         |ButtonTile
@@ -446,6 +453,8 @@ rules:
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |EventFilterConfig
+                        |EventStream
+                        |EventStreamMember
                         |ErrorTrackingAssignmentRule
                         |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
@@ -510,6 +519,7 @@ rules:
                         |LLMPromptLabel
                         |LLMProviderKey
                         |LLMSkill
+                        |LLMSkillOwner
                         |LLMTraceSummary
                         |ManagedWarehouseBackfillPartition
                         |MarketingAnalyticsGoalMapping
@@ -573,6 +583,7 @@ rules:
                         |SignalScoutConfig
                         |SignalScoutRun
                         |SignalScoutEmission
+                        |SignalScoutNote
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -590,6 +601,7 @@ rules:
                         |Tag
                         |Tagger
                         |Task
+                        |TaskActivity
                         |TaskArtifact
                         |TaskAutomation
                         |TaskPresence
