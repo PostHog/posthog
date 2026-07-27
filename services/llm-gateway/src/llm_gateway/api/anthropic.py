@@ -520,6 +520,7 @@ async def _handle_anthropic_messages(
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS)
+    data = enable_required_opus_5_thinking(data)
     provider = _get_provider_from_headers(request)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
@@ -543,7 +544,6 @@ async def _handle_anthropic_messages(
     # A body assembled for a non-thinking model reaches Anthropic when a runtime retries under its
     # fallback model. Only this leg needs the fix: GLM normalizes its own traffic and Bedrock drops
     # context_management wholesale.
-    data = enable_required_opus_5_thinking(data)
     data = drop_orphaned_clear_thinking(data, product=product)
 
     litellm_data = {**data, "model": normalize_litellm_model_name(body.model, ANTHROPIC_CONFIG.name)}
