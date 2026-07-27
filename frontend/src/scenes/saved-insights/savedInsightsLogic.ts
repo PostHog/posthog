@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { dayjs, type Dayjs } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
@@ -94,7 +94,7 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
 }
 
 /** Query params the insights list API is called with for a given set of filters. */
-function insightsListParams(filters: SavedInsightFilters) {
+function insightsListParams(filters: SavedInsightFilters): Record<string, any> {
     return {
         order: filters.order,
         limit: INSIGHTS_PER_PAGE,
@@ -164,26 +164,7 @@ export interface savedInsightsLogicValues {
     insights: InsightsResult
     insightsLoading: boolean
     pagination: PaginationManual
-    paramsFromFilters: {
-        created_by?: string | undefined
-        created_date_from?: string | Dayjs | undefined
-        created_date_to?: string | Dayjs | null | undefined
-        dashboards?: number[] | undefined
-        date_from?: string | Dayjs | undefined
-        date_to?: string | Dayjs | null | undefined
-        favorited?: true | undefined
-        hide_feature_flag_insights?: true | undefined
-        insight?: string | undefined
-        last_viewed_date_from?: string | Dayjs | undefined
-        last_viewed_date_to?: string | Dayjs | null | undefined
-        limit: number
-        offset: number
-        order: string
-        saved: true
-        search?: string | undefined
-        tags?: string | undefined
-        user?: true | undefined
-    }
+    paramsFromFilters: Record<string, any>
     rawFilters: Partial<SavedInsightFilters> | null
     sidePanelContext: SidePanelSceneContext
     sorting: Sorting | null
@@ -346,26 +327,7 @@ export interface savedInsightsLogicMeta {
         count: (insights: InsightsResult) => number
         usingFilters: (filters: SavedInsightFilters) => boolean
         sorting: (filters: SavedInsightFilters) => Sorting | null
-        paramsFromFilters: (filters: SavedInsightFilters) => {
-            created_by?: string | undefined
-            created_date_from?: string | Dayjs | undefined
-            created_date_to?: string | Dayjs | null | undefined
-            dashboards?: number[] | undefined
-            date_from?: string | Dayjs | undefined
-            date_to?: string | Dayjs | null | undefined
-            favorited?: true | undefined
-            hide_feature_flag_insights?: true | undefined
-            insight?: string | undefined
-            last_viewed_date_from?: string | Dayjs | undefined
-            last_viewed_date_to?: string | Dayjs | null | undefined
-            limit: number
-            offset: number
-            order: string
-            saved: true
-            search?: string | undefined
-            tags?: string | undefined
-            user?: true | undefined
-        }
+        paramsFromFilters: (filters: SavedInsightFilters) => Record<string, any>
         pagination: (filters: SavedInsightFilters, count: number) => PaginationManual
         draftInsightRow: (
             draftQuery: DraftInsightQuery | null,
@@ -417,7 +379,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 }
                 const { filters } = values
 
-                const params = {
+                const params: Record<string, any> = {
                     ...values.paramsFromFilters,
                     basic: true,
                 }
