@@ -364,6 +364,12 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "POSTHOG_WIZARD_API_KEY",
         "POSTHOG_API_URL",
         "POSTHOG_PROJECT_ID",
+        # The run's own identity. It addresses the API the sandbox writes back through (the agent
+        # prompt POSTs living artifacts to /tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/) and
+        # it is what run-scoped telemetry joins on, so a sandbox environment must not supply it:
+        # the user env vars are merged AFTER these, and would otherwise win.
+        "POSTHOG_TASK_ID",
+        "POSTHOG_TASK_RUN_ID",
         "JWT_PUBLIC_KEY",
         "GITHUB_TOKEN",
         "GH_TOKEN",
