@@ -1,8 +1,10 @@
 from posthog.test.base import BaseTest
 
+from django.core.cache import caches
+
 from posthog.cache_utils import OrjsonJsonSerializer
 from posthog.caching.fetch_from_cache import fetch_cached_response_by_key, fetch_split_cached_response_by_key
-from posthog.caching.query_cache_routing import get_query_cache
+from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 
 
@@ -38,7 +40,7 @@ class TestQueryCacheWriteFormat(BaseTest):
     def test_legacy_blobs_written_before_split_rollout_stay_readable(self):
         cache_key = f"cache_format_test_preexisting_{self.team.pk}"
         response = {"is_cached": False, "results": [{"data": [1]}], "cache_key": "k"}
-        get_query_cache().set(cache_key, OrjsonJsonSerializer({}).dumps(response), 60)
+        caches[QUERY_CACHE_ALIAS].set(cache_key, OrjsonJsonSerializer({}).dumps(response), 60)
 
         split = fetch_split_cached_response_by_key(cache_key, self.team.pk)
         assert split is not None

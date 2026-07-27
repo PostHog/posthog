@@ -8,10 +8,12 @@ import { availableSourcesLogic } from '../availableSourcesLogic'
 import { sourceCatalogLogic } from '../sourceCatalogLogic'
 
 const AVAILABLE_SOURCES: Record<string, SourceConfig> = {
+    // Featured, so it must lead the browse list even though `Stripe` sorts after `Mango`.
     Stripe: {
         name: 'Stripe',
         iconPath: '',
         caption: '',
+        featured: true,
         fields: [],
     } as unknown as SourceConfig,
     // `Apple` sorts alphabetically first but is unreleased, so connectable-first ordering must
@@ -69,6 +71,16 @@ describe('sourceCatalogLogic', () => {
         const names = items.map((item) => item.name)
         expect(names.indexOf('Mango')).toBeLessThan(names.indexOf('Apple'))
         expect(names.indexOf('Zebra')).toBeLessThan(names.indexOf('Apple'))
+    })
+
+    it('leads the browse list with featured sources', () => {
+        const logic = sourceCatalogLogic()
+        const names = logic.values.filteredItems.map((item) => item.name)
+
+        // `Stripe` is featured, so it must come before the plain connectable sources even though
+        // it sorts after `Mango` alphabetically.
+        expect(names.indexOf('Stripe')).toBeLessThan(names.indexOf('Mango'))
+        expect(names.indexOf('Stripe')).toBeLessThan(names.indexOf('Zebra'))
     })
 
     it('surfaces self-managed file-storage connectors when searching for a file format', () => {

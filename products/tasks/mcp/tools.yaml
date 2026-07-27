@@ -148,6 +148,9 @@ tools:
             error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and
             what they produced.
         feature_flag: loops
+    loops-skill-bundles-update:
+        operation: loops_skill_bundles_update
+        enabled: false
     loops-trigger-create:
         operation: loops_trigger_create
         enabled: false

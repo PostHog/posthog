@@ -84,6 +84,8 @@ _DOCKER_URL_ENV_KEYS = frozenset(
     {
         "POSTHOG_API_URL",
         "POSTHOG_SITE_URL",
+        "POSTHOG_AGENT_OTEL_LOGS_URL",
+        "POSTHOG_AGENT_OTEL_TRACES_URL",
         "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
     }
@@ -162,9 +164,9 @@ class DockerSandbox(SandboxBase):
     @staticmethod
     def _get_local_posthog_code_packages() -> tuple[str, str, str, str] | None:
         """
-        Get paths to local PostHog Code packages for development builds.
+        Get paths to local PostHog Desktop packages for development builds.
 
-        Configure via LOCAL_POSTHOG_CODE_MONOREPO_ROOT pointing to the PostHog Code monorepo root.
+        Configure via LOCAL_POSTHOG_CODE_MONOREPO_ROOT pointing to the PostHog Desktop monorepo root.
         Returns tuple of (agent_path, shared_path, git_path, enricher_path) or None if not configured.
         """
         monorepo_root = os.environ.get(
@@ -250,8 +252,8 @@ class DockerSandbox(SandboxBase):
 
     @staticmethod
     def _build_local_image(agent_path: str, shared_path: str, git_path: str, enricher_path: str) -> None:
-        """Build the local sandbox image with local PostHog Code packages."""
-        logger.info("Building posthog-sandbox-base-local image with local PostHog Code packages...")
+        """Build the local sandbox image with local PostHog Desktop packages."""
+        logger.info("Building posthog-sandbox-base-local image with local PostHog Desktop packages...")
         dockerfile_path = os.path.join(
             settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-local"
         )

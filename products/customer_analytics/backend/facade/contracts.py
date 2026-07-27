@@ -377,6 +377,7 @@ class CustomPropertySourceView:
     source_column: str | None = ""
     key_column: str = ""
     column_property_map: dict | None = None
+    column_descriptions: dict | None = None
     is_enabled: bool = True
     consecutive_failures: int = 0
     last_synced_at: datetime | None = None

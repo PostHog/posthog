@@ -86,7 +86,7 @@ RUN cd /scripts && \
 # Runs configured for user-authored pull requests receive
 # GIT_AUTHOR_*/GIT_COMMITTER_* env vars that override these defaults.
 RUN git config --global user.email "code@posthog.com" && \
-    git config --global user.name "PostHog Code"
+    git config --global user.name "PostHog Desktop"
 
 # Block `git commit`/`git push` so unsigned commits cannot leave the sandbox.
 COPY products/tasks/backend/sandbox/images/git-guard.sh /opt/posthog/bin/git

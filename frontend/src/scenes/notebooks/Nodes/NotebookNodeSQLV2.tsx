@@ -239,6 +239,9 @@ const Component = ({
                                     page={page}
                                     pageSize={pageSize}
                                     hasMore={hasMorePages}
+                                    // Wide text columns (long strings, JSON blobs) shouldn't make every
+                                    // row tall; clamp to one line here and let the user open a cell.
+                                    truncateCells
                                     // Serialize page fetches: no new page while one is in flight, a run
                                     // is replacing this result, or another cell's operation is running.
                                     paginationDisabledReason={

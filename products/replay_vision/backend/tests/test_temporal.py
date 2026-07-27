@@ -1,3 +1,4 @@
+import time
 import uuid
 import datetime as dt
 from typing import Any
@@ -30,6 +31,12 @@ from posthog.session_recordings.queries.session_replay_events import SessionEven
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.enqueue_claims import (
+    _RELEASE_GRACE_SECONDS,
+    pending_enqueue_claims_for_scanner,
+    pending_enqueue_claims_for_team,
+    try_claim_enqueue_slot,
+)
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -189,6 +196,24 @@ class TestCountInFlightAppliesActivity:
 
         assert result == InFlightApplyCounts(scanner=2, team=3)
 
+    def test_counts_include_enqueued_claims(self) -> None:
+        # Missing claims here lets the sweep dispatch on top of an on-demand burst.
+        scanner = _make_scanner()
+        _make_observation(scanner, session_id="s1", status=ObservationStatus.PENDING)
+        assert try_claim_enqueue_slot(
+            team_id=scanner.team_id,
+            scanner_id=scanner.id,
+            workflow_id="wf-enqueued",
+            team_in_flight_rows=1,
+            scanner_in_flight_rows=1,
+        )
+
+        result = count_in_flight_by_team_activity(
+            CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+        )
+
+        assert result == InFlightApplyCounts(scanner=2, team=2)
+
 
 @pytest.mark.django_db(transaction=True)
 class TestCreateObservationActivity:
@@ -221,6 +246,37 @@ class TestCreateObservationActivity:
         assert observation.scanner_snapshot["scanner_config"] == scanner.scanner_config
         assert observation.started_at is None  # set when transitioning to running, not here
         assert observation.completed_at is None
+
+    def test_decays_enqueue_claim_once_the_row_exists(self) -> None:
+        # A claim that never decays holds a phantom cap slot for the full TTL.
+        scanner = _make_scanner()
+        assert try_claim_enqueue_slot(
+            team_id=scanner.team_id,
+            scanner_id=scanner.id,
+            workflow_id="wf-claimed",
+            team_in_flight_rows=0,
+            scanner_in_flight_rows=0,
+        )
+
+        create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-claimed",
+                triggered_by=ObservationTrigger.ON_DEMAND,
+                triggered_by_user_id=None,
+                workflow_id="wf-claimed",
+            )
+        )
+
+        # The claim decays: it overlaps its new row for the grace, then expires.
+        assert pending_enqueue_claims_for_team(scanner.team_id) == 1
+        with patch(
+            "products.replay_vision.backend.enqueue_claims.time.time",
+            return_value=time.time() + _RELEASE_GRACE_SECONDS + 1,
+        ):
+            assert pending_enqueue_claims_for_team(scanner.team_id) == 0
+            assert pending_enqueue_claims_for_scanner(scanner.id) == 0
 
     def test_snapshot_is_frozen_against_later_scanner_edits(self) -> None:
         scanner = _make_scanner()

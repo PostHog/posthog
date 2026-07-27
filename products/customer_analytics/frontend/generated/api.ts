@@ -879,8 +879,9 @@ export const getCustomPropertySourcesBackfillUrl = (projectId: string, id: strin
 }
 
 /**
- * Person sources only: start a backfill that reads the whole warehouse table and populates
- * person properties for historical rows. Coalesces if one is already running for the table.
+ * Person and group sources only: start a backfill that reads the whole warehouse table and
+ * populates person or group properties for historical rows. Coalesces if one is already running
+ * for the table.
  */
 export const customPropertySourcesBackfill = async (
     projectId: string,
@@ -914,8 +915,9 @@ export const getCustomPropertySourcesRunsListUrl = (
 }
 
 /**
- * Person sources only: the source's sync/backfill run history, newest first. Gated on the
- * caller's warehouse-source viewer access, since the runs expose its row counts and sync errors.
+ * Person and group sources only: the source's sync/backfill run history, newest first. Gated
+ * on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
+ * errors.
  */
 export const customPropertySourcesRunsList = async (
     projectId: string,
@@ -937,8 +939,9 @@ export const getCustomPropertySourcesSyncUrl = (projectId: string, id: string) =
 }
 
 /**
- * Person sources only: trigger the underlying warehouse schema's sync now. This re-runs a
- * real (billable) warehouse sync; the incremental person-property update runs off it.
+ * Person and group sources only: trigger the underlying warehouse schema's sync now. This
+ * re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
+ * off it.
  */
 export const customPropertySourcesSync = async (
     projectId: string,

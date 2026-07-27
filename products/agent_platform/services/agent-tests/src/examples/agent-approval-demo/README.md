@@ -53,8 +53,8 @@ authoring API the same way the Agent Builder fixture does.
 
 ## Driving the demo
 
-1. Open PostHog Code and go to the agents view (the agent console now
-   lives in the PostHog Code app).
+1. Open PostHog Desktop and go to the agents view (the agent console now
+   lives in the PostHog Desktop app).
 2. Open the playground for `agent-approval-demo`.
 3. Send: `save this note: hello world`.
 4. The agent should propose `memory-write` → the dispatcher gates →

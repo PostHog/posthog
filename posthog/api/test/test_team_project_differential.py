@@ -342,7 +342,7 @@ WRITE_ACTION_CASES = [
         "logs_config",
         "patch",
         "logs_config/",
-        {"logs_distinct_id_attribute_key": "myDistinctId"},
+        {"logs_distinct_id_attribute_keys": ["myDistinctId"]},
         status.HTTP_200_OK,
         "full_body",
     ),

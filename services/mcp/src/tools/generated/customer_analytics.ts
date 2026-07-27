@@ -693,6 +693,9 @@ const customPropertySourcesCreate = (): ToolBase<
         if (params.column_property_map !== undefined) {
             body['column_property_map'] = params.column_property_map
         }
+        if (params.column_descriptions !== undefined) {
+            body['column_descriptions'] = params.column_descriptions
+        }
         if (params.key_column !== undefined) {
             body['key_column'] = params.key_column
         }

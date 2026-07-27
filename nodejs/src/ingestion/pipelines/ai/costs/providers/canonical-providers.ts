@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-23 10:43:52 UTC
+// Generated at: 2026-07-24 10:40:07 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -31,6 +31,7 @@ export type CanonicalProvider =
     | 'azure-us-east-2'
     | 'baidu-fp4'
     | 'baidu-fp8'
+    | 'baseten-fast'
     | 'baseten-fp4'
     | 'baseten-fp8'
     | 'cerebras-fp16'
@@ -40,6 +41,13 @@ export type CanonicalProvider =
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
+    | 'coreweave-bf16'
+    | 'coreweave-fp16'
+    | 'coreweave-fp4'
+    | 'coreweave-fp8'
+    | 'coreweave-int4'
+    | 'crusoe'
+    | 'crusoe-bf16'
     | 'crusoe-fp8'
     | 'darkbloom'
     | 'decart-fp4'
@@ -134,6 +142,7 @@ export type CanonicalProvider =
     | 'reka-fp8'
     | 'relace-bf16'
     | 'relace-fp8'
+    | 'sail-research-fp8'
     | 'sakana'
     | 'sambanova'
     | 'sambanova-fp8'
@@ -160,11 +169,6 @@ export type CanonicalProvider =
     | 'wafer-fast'
     | 'wafer-fp4'
     | 'wafer-fp8'
-    | 'wandb-bf16'
-    | 'wandb-fp16'
-    | 'wandb-fp4'
-    | 'wandb-fp8'
-    | 'wandb-int4'
     | 'xai'
     | 'xai-priority'
     | 'xai-zdr'

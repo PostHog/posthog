@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.models import Organization, PropertyDefinition, Team
+
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import PersonPropertySyncSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline import person_property_sync as pps
 
@@ -375,3 +377,54 @@ class TestGroupTarget:
         stamp.assert_not_called()
         write_snapshot.assert_not_awaited()
         assert result.produced == 0
+
+
+@pytest.mark.django_db
+class TestStampProvenance:
+    """`_stamp_provenance` updates existing property definitions with warehouse provenance, folding a
+    per-property description into the origin when the source carries one."""
+
+    def _team(self):
+        org = Organization.objects.create(name="o")
+        return Team.objects.create(organization=org, name="t")
+
+    def test_folds_descriptions_into_provenance_only_where_present(self):
+        team = self._team()
+        PropertyDefinition.objects.create(team=team, name="plan_tier", type=PropertyDefinition.Type.PERSON)
+        PropertyDefinition.objects.create(team=team, name="seat_count", type=PropertyDefinition.Type.PERSON)
+        source = PersonPropertySyncSource(
+            "s1",
+            "d1",
+            "distinct_id",
+            {"plan": "plan_tier", "seats": "seat_count"},
+            property_descriptions={"plan_tier": "The plan tier"},
+        )
+
+        pps._stamp_provenance(team.id, "schema-1", source, ["plan_tier", "seat_count"])
+
+        described = PropertyDefinition.objects.get(team=team, name="plan_tier")
+        plain = PropertyDefinition.objects.get(team=team, name="seat_count")
+        assert described.warehouse_origin is not None
+        assert plain.warehouse_origin is not None
+        assert described.warehouse_origin["custom_property_source_id"] == "s1"
+        assert described.warehouse_origin["description"] == "The plan tier"
+        # A property without a configured description carries provenance but no description key.
+        assert plain.warehouse_origin["custom_property_source_id"] == "s1"
+        assert "description" not in plain.warehouse_origin
+
+    def test_group_target_stamps_only_matching_group_type(self):
+        team = self._team()
+        PropertyDefinition.objects.create(
+            team=team, name="tier", type=PropertyDefinition.Type.GROUP, group_type_index=0
+        )
+        other = PropertyDefinition.objects.create(
+            team=team, name="tier", type=PropertyDefinition.Type.GROUP, group_type_index=1
+        )
+        source = PersonPropertySyncSource("s1", "d1", "group_key", {"plan": "tier"}, target="group", group_type_index=0)
+
+        pps._stamp_provenance(team.id, "schema-1", source, ["tier"])
+
+        assert PropertyDefinition.objects.get(id=other.id).warehouse_origin is None
+        stamped = PropertyDefinition.objects.get(team=team, name="tier", group_type_index=0)
+        assert stamped.warehouse_origin is not None
+        assert stamped.warehouse_origin["custom_property_source_id"] == "s1"

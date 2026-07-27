@@ -58,9 +58,6 @@ tools:
     persons-emails-list:
         operation: persons_emails_list
         enabled: false
-    persons-lifecycle-retrieve:
-        operation: persons_lifecycle_retrieve
-        enabled: false
     persons-list:
         operation: persons_list
         enabled: true

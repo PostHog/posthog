@@ -246,7 +246,7 @@ export function EditAlertModalV2({
             return undefined
         }
         const preview = deriveAlertCheckPreviewSeries(
-            alert.checks,
+            alert.checks ?? [],
             alertForm.condition?.type ?? AlertConditionType.ABSOLUTE_VALUE,
             alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
         )
