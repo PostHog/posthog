@@ -275,7 +275,7 @@ Callers have two orthogonal ways to prevent an event from being produced:
 | Mechanism | Where set | Effect |
 |---|---|---|
 | `should_publish() == false` | Pipeline validation (e.g. `EventResult != Ok`) | Silently skipped, no `SinkResult` returned |
-| `Destination::Drop` | Routing logic (e.g. quota limiter) | `topic_for()` returns `None`, event skipped |
+| `Destination::Drop` | Routing logic (e.g. quota limiter) | `as_output()` returns `None`, event skipped |
 
 ### Header construction
 
@@ -568,7 +568,7 @@ corresponds 1:1 to a published event.
   │                                                                 │
   │   input: &[PreparedEvent] (already serialized by serialize_batch)│
   │   for each prepared event:                                      │
-  │     ├── topic_for(destination)? → skip if Drop/None             │
+  │     ├── destination.as_output()? → registry topic; skip if Drop │
   │     ├── payload: prepared.payload (Bytes, no re-encode)         │
   │     ├── effective_partition_key(prepared.partition_key, dest)?  │
   │     ├── CapturedEventHeaders → OwnedHeaders (via From)          │
@@ -803,7 +803,9 @@ only needs to specify hosts and topics.
 | `topic_heatmap` | _(required)_ | — | Heatmap ingestion topic |
 | `topic_client_ingestion_warning` | _(required)_ | — | Client ingestion warning topic |
 
-Topic resolution is handled by `Config::topic_for(&Destination)`:
+Topic resolution runs through the shared `OutputRegistry`: `Destination::as_output()`
+maps each destination onto an `Outputs` variant, and `OutputRegistry::topic_for()`
+resolves it to a topic (the registry is built from this per-sink `Config`):
 
 | Destination | Topic |
 |---|---|
@@ -1108,7 +1110,8 @@ pub enum Destination {
 which events are subject to analytics-scoped restrictions, overflow
 routing, and related pipeline logic.
 
-Topic resolution happens inside `kafka::config::Config::topic_for()`,
+Topic resolution happens through the shared `OutputRegistry`
+(`Destination::as_output()` → `OutputRegistry::topic_for()`),
 keeping the Sink trait unaware of topic names.
 
 ### Partition key resolution

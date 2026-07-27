@@ -1,6 +1,6 @@
 use envconfig::Envconfig;
 
-use crate::v1::sinks::types::Destination;
+use crate::sinks::registry::OutputRegistry;
 
 /// Per-sink Kafka producer configuration. Loaded via `Envconfig::init_from_hashmap`
 /// from env vars under the `KAFKA_` sub-prefix of a sink's env namespace.
@@ -147,19 +147,25 @@ impl Config {
 
         Ok(())
     }
+}
 
-    /// Resolve which topic to use for the given destination on this sink.
-    pub fn topic_for<'a>(&'a self, dest: &'a Destination) -> Option<&'a str> {
-        match dest {
-            Destination::AnalyticsMain => Some(&self.topic_main),
-            Destination::AnalyticsHistorical => Some(&self.topic_historical),
-            Destination::Overflow => Some(&self.topic_overflow),
-            Destination::Dlq => Some(&self.topic_dlq),
-            Destination::ExceptionErrorTracking => Some(&self.topic_exception),
-            Destination::HeatmapMain => Some(&self.topic_heatmap),
-            Destination::ClientIngestionWarning => Some(&self.topic_client_ingestion_warning),
-            Destination::Custom(t) => Some(t.as_str()),
-            Destination::Drop => None,
+/// Build the shared [`OutputRegistry`] from this per-sink Kafka config. This is
+/// how the v1 stack folds its topic wiring onto the one registry: topics stay
+/// per-sink (loaded from `CAPTURE_V1_SINK_*` env), but resolution runs through
+/// [`OutputRegistry::topic_for`] via [`Destination::as_output`], not a parallel
+/// match. v1 is analytics-only, so `replay_overflow` is left unset — an
+/// `Events`/`Ai` deployment never produces to it.
+impl From<&Config> for OutputRegistry {
+    fn from(config: &Config) -> Self {
+        OutputRegistry {
+            main: config.topic_main.clone(),
+            overflow: config.topic_overflow.clone(),
+            historical: config.topic_historical.clone(),
+            client_ingestion_warning: config.topic_client_ingestion_warning.clone(),
+            heatmaps: config.topic_heatmap.clone(),
+            replay_overflow: String::new(),
+            dlq: config.topic_dlq.clone(),
+            error_tracking: config.topic_exception.clone(),
         }
     }
 }
@@ -171,7 +177,7 @@ mod tests {
     use envconfig::Envconfig;
     use rstest::rstest;
 
-    use super::Config;
+    use super::{Config, OutputRegistry};
     use crate::v1::sinks::Destination;
 
     fn required_kafka_env() -> HashMap<String, String> {
@@ -374,6 +380,9 @@ mod tests {
         assert!(cfg.validate().is_ok(), "exactly 3x should pass");
     }
 
+    /// A destination resolves to the same topic whether read off this per-sink
+    /// config or through the shared `OutputRegistry` — proving the v1 stack's
+    /// topic wiring now folds onto the one registry via `Destination::as_output`.
     #[rstest]
     #[case(Destination::AnalyticsMain, Some("events_main"))]
     #[case(Destination::AnalyticsHistorical, Some("events_hist"))]
@@ -382,9 +391,15 @@ mod tests {
     #[case(Destination::ExceptionErrorTracking, Some("error_tracking_events"))]
     #[case(Destination::HeatmapMain, Some("heatmaps_ingestion"))]
     #[case(Destination::ClientIngestionWarning, Some("events_plugin_ingestion"))]
+    #[case(Destination::Custom("admin_topic".to_string()), Some("admin_topic"))]
     #[case(Destination::Drop, None)]
-    fn topic_for_resolves_destination(#[case] dest: Destination, #[case] expected: Option<&str>) {
+    fn destination_resolves_through_registry(
+        #[case] dest: Destination,
+        #[case] expected: Option<&str>,
+    ) {
         let cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
-        assert_eq!(cfg.topic_for(&dest), expected);
+        let registry = OutputRegistry::from(&cfg);
+        let resolved = dest.as_output().map(|out| registry.topic_for(&out));
+        assert_eq!(resolved, expected);
     }
 }

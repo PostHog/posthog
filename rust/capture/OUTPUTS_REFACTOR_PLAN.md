@@ -309,6 +309,29 @@ Test bodies port with assertions preserved.
 one step = one commit, subject from the tracker below.
 No `--no-verify` — pre-commit hooks must pass.
 
+## Closing state
+
+All steps are complete. The five strata are landed:
+
+- **Pipelines and lanes.** `pipeline::resolve` is the one lane decision
+  (dlq > custom > historical > overflow > main), pure over
+  `ProcessedEventMetadata`; `Pipeline`/`Lane` are the event's address.
+- **Outputs are the produce surface.** Every pipeline publishes through the
+  `OutputTable`; the `Output` policy tree (single | failover | split) owns all
+  multi-target behavior, composing the way the old sink composites did. The
+  v0 `Event` trait, `FallbackSink`, and `SplitKafkaSink` are gone.
+- **Serialization is a seam.** Format × envelope per destination, with
+  content headers carrying encoding coexistence (the lz4 replay design,
+  generalized); a protobuf cutover is an output-level config change.
+- **Sinks are mechanism.** Kafka/S3/print/noop take prepared payloads and
+  ack them; `Prepare` is backend SPI, never caller API. Prep still lives with
+  each backend and migrates into the outputs layer without touching callers.
+- **Breaker failover is dark-launched** behind `CAPTURE_FAILOVER_ENABLED`,
+  ported intact from `-sinks-v1` as the failover output's autonomous mode.
+- **v1 resolves topics through the shared `OutputRegistry`** via
+  `Destination::as_output`. The v1 `Sink`/`Router` trait convergence stays
+  gated on the per-event response model, as before.
+
 ## Progress tracker
 
 | Step | Status | Commit subject |
@@ -325,4 +348,4 @@ No `--no-verify` — pre-commit hooks must pass.
 | 8b · `Event` retired | done | `refactor(capture): retire v0 Event trait` |
 | 9 · Mode-scoped completeness | done | `refactor(capture): mode-scoped output registry completeness` |
 | 10 · Breaker mode (dark) | done | `feat(capture): breaker-driven failover mode (dark)` |
-| 11 · v1 convergence | pending | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
+| 11 · v1 convergence | done | `refactor(capture): v1 resolves through shared pipeline/lane strata` |

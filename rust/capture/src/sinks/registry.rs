@@ -24,8 +24,9 @@ use crate::config::{CaptureMode, KafkaConfig};
 
 /// Which configured output a routing decision selects. The sink resolves this to
 /// a concrete topic string against the [`OutputRegistry`]. Promoted from Step 2's
-/// `RouteTarget`; mirrors v1's `Destination` split (the Step 12 convergence
-/// target, when the v1 stack folds onto this registry).
+/// `RouteTarget`; the v1 stack's `Destination` folds onto this enum via
+/// [`Destination::as_output`](crate::v1::sinks::Destination::as_output), so both
+/// sink stacks now resolve topics through this one registry (Step 12).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outputs<'a> {
     Main,
@@ -96,16 +97,22 @@ impl Outputs<'_> {
 
 /// The one place output→topic wiring lives. Holds the configured topic for every
 /// fixed [`Outputs`] variant. Cheap to clone; the sink holds it behind an `Arc`.
+///
+/// Both sink stacks resolve topics through this one type: the v0 stack builds it
+/// [`From<&KafkaConfig>`](crate::config::KafkaConfig), the v1 stack builds it from
+/// its per-sink Kafka config (see `crate::v1::sinks::kafka::config::Config`). The
+/// fields are `pub(crate)` so those constructors — and the completeness tests —
+/// can populate them by name.
 #[derive(Clone, Debug)]
 pub struct OutputRegistry {
-    main: String,
-    overflow: String,
-    historical: String,
-    client_ingestion_warning: String,
-    heatmaps: String,
-    replay_overflow: String,
-    dlq: String,
-    error_tracking: String,
+    pub(crate) main: String,
+    pub(crate) overflow: String,
+    pub(crate) historical: String,
+    pub(crate) client_ingestion_warning: String,
+    pub(crate) heatmaps: String,
+    pub(crate) replay_overflow: String,
+    pub(crate) dlq: String,
+    pub(crate) error_tracking: String,
 }
 
 impl OutputRegistry {
