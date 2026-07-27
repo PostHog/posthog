@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (Element is only the node type for annotations — all parsing goes through defusedxml below)
 from xml.etree.ElementTree import Element
+
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (escape only serializes text — it does no XML parsing, so there is no XXE surface)
 from xml.sax.saxutils import escape as xml_escape
 
