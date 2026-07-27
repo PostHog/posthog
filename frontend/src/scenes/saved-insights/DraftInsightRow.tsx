@@ -10,6 +10,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { urls } from 'scenes/urls'
 
+import { DRAFT_INSIGHT_FALLBACK_NAME } from './draftInsight'
 import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
 
 function draftAgeSeconds(item: SavedInsightListItem): number {
@@ -25,7 +26,7 @@ export function DraftInsightNameCell({ item }: { item: SavedInsightListItem }): 
             onClick={() => reportInsightDraftRestored('saved_insights', draftAgeSeconds(item))}
             title={
                 <span className="flex items-center gap-2">
-                    <i>{summarizeInsight(item.query) || 'Unsaved insight'}</i>
+                    <i>{summarizeInsight(item.query) || DRAFT_INSIGHT_FALLBACK_NAME}</i>
                     <LemonTag type="warning" size="small">
                         Draft
                     </LemonTag>

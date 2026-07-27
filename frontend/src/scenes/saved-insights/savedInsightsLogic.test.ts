@@ -357,6 +357,15 @@ describe('savedInsightsLogic', () => {
             expect(localStorage.getItem(draftKey)).toBeNull()
         })
 
+        it('applies the list filters to the draft row', async () => {
+            localStorage.setItem(draftKey, JSON.stringify(draft))
+            logic.actions.loadDraftQuery()
+            logic.actions.setSavedInsightsFilters({ insightType: 'FUNNELS' })
+            await expectLogic(logic).toMatchValues({ draftInsightRow: null })
+            logic.actions.setSavedInsightsFilters({ insightType: 'TRENDS' })
+            await expectLogic(logic).toMatchValues({ draftInsightRow: partial({ id: -1 }) })
+        })
+
         it('discarding a draft clears localStorage so it does not come back', async () => {
             localStorage.setItem(draftKey, JSON.stringify(draft))
             logic.actions.loadDraftQuery()
