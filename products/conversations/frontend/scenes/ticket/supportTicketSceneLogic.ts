@@ -1174,10 +1174,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             actions.loadTicket()
         }
     }),
-    beforeUnmount(() => {
-        // The failure toast never auto-closes, so it would outlive the scene and offer a Retry
-        // for an edit the user just discarded via the beforeUnload prompt.
-        lemonToast.dismiss(TICKET_UPDATE_ERROR_TOAST_ID)
+    beforeUnmount(({ cache }) => {
+        cache.disposables.disposeAll()
         impersonationNoticeLogic.findMounted()?.actions.setTicketContext(null)
     }),
     beforeUnload(({ values, actions }) => ({
