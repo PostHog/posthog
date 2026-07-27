@@ -32,7 +32,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.s
     _COLLECTED_SETTINGS,
     POSTGRES_STATS_CATALOGS,
     _collect_statements,
-    _redact_unsafe_statement_text,
+    _sanitize_statement_text,
+    _strip_sql_comments,
     fetch_postgres_stats_columns,
     postgres_database_stats_source,
 )
@@ -342,6 +343,32 @@ class TestCollectStatementsScripted:
         assert rows[0]["calls"] == 1
         assert rows[1]["query"] == "SELECT * FROM users WHERE id = $1"
 
+    @pytest.mark.parametrize(
+        "statement,expected",
+        [
+            # Normalization replaces constants but keeps comments verbatim — the same
+            # behaviour query tagging relies on.
+            ("SELECT * FROM users WHERE id = $1 /* api_token=secret */", "SELECT * FROM users WHERE id = $1"),
+            ("SELECT 1 -- api_token=secret\nFROM t", "SELECT 1 FROM t"),
+            # Postgres nests block comments, so a naive first-`*/` scan would leave the
+            # tail — and the secret — behind.
+            ("SELECT /* a /* nested secret */ still hidden */ 1", "SELECT 1"),
+            # Quoted spans are not comments, however much they look like one.
+            ("SELECT * FROM t WHERE url = '--not-a-comment'", "SELECT * FROM t WHERE url = '--not-a-comment'"),
+            ('SELECT "odd--column" FROM t', 'SELECT "odd--column" FROM t'),
+            # Unterminated: drop the remainder rather than guess where it ends.
+            ("SELECT 1 /* unterminated secret", "SELECT 1"),
+            ("VACUUM ANALYZE public.users", "VACUUM ANALYZE public.users"),
+        ],
+    )
+    def test_comments_are_stripped_from_retained_text(self, statement, expected):
+        assert _strip_sql_comments(statement) == expected
+
+    def test_retained_statement_text_has_its_comments_stripped(self):
+        rows = _sanitize_statement_text([{"query": "SELECT $1 /* api_token=secret */", "calls": 3}])
+        assert rows[0]["query"] == "SELECT $1"
+        assert rows[0]["calls"] == 3
+
     def test_unsafe_statement_text_is_redacted_but_counters_survive(self):
         # pg_stat_statements records utility statements verbatim, and the set that can
         # embed a secret isn't closed — any custom GUC namespace can hold one. So text is
@@ -369,7 +396,7 @@ class TestCollectStatementsScripted:
             "VACUUM ANALYZE public.users",
             "REINDEX INDEX CONCURRENTLY idx",
         ]
-        rows = _redact_unsafe_statement_text(
+        rows = _sanitize_statement_text(
             [{"query": text, "calls": 7, "total_exec_time": 1.5} for text in [*unsafe, *safe]]
         )
         assert [row["query"] for row in rows[: len(unsafe)]] == [None] * len(unsafe)
