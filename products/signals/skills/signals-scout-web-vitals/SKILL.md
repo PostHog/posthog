@@ -40,7 +40,7 @@ you'd stand behind as a standalone inbox item a human will act on. A page the in
 already covers is an **edit** when the picture moved materially (deepening, recovering,
 re-crossing a band); steady-state "still slow, same level" is a scratchpad
 re-confirmation, not an append every run — and a report that closed or already shipped
-its fix (`ready` with an implementation PR) is done absorbing appends.
+its fix (`ready` with an open or merged implementation PR) is done absorbing appends.
 The harness prompt carries the full report-channel contract (fields, status mapping,
 reviewer routing, dedupe, and the edit rules); this body adds only the web-vitals framing.
 
@@ -363,8 +363,8 @@ the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`
 - key `report:web_vitals:checkout-inp` — _"Report `019f0a96-…` covers the `/checkout`
   INP finding. Edit it (append_note the fresh p75 + sample count) while the page stays
   slow and the report is still live and not scope-frozen; if it closed (or shipped its
-  fix — `ready` with an implementation PR) and the page later re-crosses, that's a fresh
-  report."_
+  fix — `ready` with an open or merged implementation PR) and the page later re-crosses,
+  that's a fresh report."_
 - key `reviewer:web_vitals:marketing-site` — _"Marketing-site performance reports route
   to `alice` (GitHub login)."_
 
@@ -387,10 +387,12 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   sample count), or rewrite the title/summary on a report you authored. This is the
   default when a match exists — a chronically slow page is one report across weeks, not
   one per run. `edit-report` can't change status, so if the matched report is `resolved` /
-  `suppressed` / `failed`, don't append (it won't resurface) — and a `ready` report with
-  an implementation PR attached is equally done absorbing scope: its fix is already cut,
-  so anything it doesn't cover is genuinely new. In both cases author a fresh report and
-  repoint the `report:` key.
+  `suppressed` / `failed`, don't append (it won't resurface) — and a `ready` report whose
+  implementation PR is open or merged is equally done absorbing scope: its fix is already
+  cut, so anything it doesn't cover is genuinely new. (A PR closed without merging never
+  shipped — that report isn't frozen; when you can't tell the PR's state, treat it as
+  frozen: a rare duplicate beats burying new work under a shipped fix.) In both cases
+  author a fresh report and repoint the `report:` key.
 - **Author** (`scout-emit-report`) only when nothing live covers it — one report
   per page+metric problem, never one per query row. A **report-worthy finding**
   (confidence ≥ 0.8): names the **page** (host + path), the **metric**, the **p75 value
