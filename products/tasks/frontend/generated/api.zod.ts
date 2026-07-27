@@ -2554,7 +2554,7 @@ export const TasksRunsCancelCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, and mcp_response commands.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, and native Pi RPC commands.
  * @summary Send command to task run
  */
 export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
@@ -2642,26 +2642,9 @@ export const TasksRunsStartCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * API for managing task runs. Each run represents an execution of a task.
- * @summary Finalize an active task session sync
+ * @summary Replace the active native task session
  */
-export const tasksRunsTaskSessionSyncCreateBodyExpectedRevisionMin = 0
-
-export const TasksRunsTaskSessionSyncCreateBody = /* @__PURE__ */ zod.object({
-    sandbox_id: zod.string(),
-    sync_id: zod.uuid(),
-    expected_revision: zod.number().min(tasksRunsTaskSessionSyncCreateBodyExpectedRevisionMin),
-})
-
-/**
- * API for managing task runs. Each run represents an execution of a task.
- * @summary Prepare an active task session sync
- */
-export const tasksRunsTaskSessionSyncPrepareCreateBodyExpectedRevisionMin = 0
-
-export const TasksRunsTaskSessionSyncPrepareCreateBody = /* @__PURE__ */ zod.object({
-    sandbox_id: zod.string(),
-    expected_revision: zod.number().min(tasksRunsTaskSessionSyncPrepareCreateBodyExpectedRevisionMin),
-})
+export const TasksRunsTaskSessionSyncCreateBody = /* @__PURE__ */ zod.instanceof(File)
 
 /**
  * Create a stable, editable artifact handle from direct markdown/text content or an existing run artifact. Slack adapters deliver into the mapped Slack thread; document artifacts use external connector storage when available.

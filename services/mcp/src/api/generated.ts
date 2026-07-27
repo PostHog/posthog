@@ -67875,36 +67875,15 @@ export namespace Schemas {
 
     export interface TaskSessionResponse {
       id: string;
-      download_url: string;
-      /** @minimum 0 */
-      revision: number;
-    }
-
-    export interface TaskSessionSync {
-      sandbox_id: string;
-      sync_id: string;
-      /** @minimum 0 */
-      expected_revision: number;
-    }
-
-    export interface TaskSessionSyncPrepare {
-      sandbox_id: string;
-      /** @minimum 0 */
-      expected_revision: number;
-    }
-
-    export type TaskSessionSyncPrepareResponseUpload = { [key: string]: unknown };
-
-    export interface TaskSessionSyncPrepareResponse {
-      id: string;
-      sync_id: string;
-      upload: TaskSessionSyncPrepareResponseUpload;
+      /** @nullable */
+      download_url: string | null;
+      /** @nullable */
+      content_sha256: string | null;
     }
 
     export interface TaskSessionSyncResponse {
       id: string;
-      /** @minimum 1 */
-      revision: number;
+      content_sha256: string;
     }
 
     export interface TaskStagedArtifactFinalizeUpload {

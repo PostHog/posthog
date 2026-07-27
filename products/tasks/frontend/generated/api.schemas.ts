@@ -2815,36 +2815,15 @@ export interface StreamReadTokenResponseApi {
 
 export interface TaskSessionResponseApi {
     id: string
-    download_url: string
-    /** @minimum 0 */
-    revision: number
-}
-
-export interface TaskSessionSyncApi {
-    sandbox_id: string
-    sync_id: string
-    /** @minimum 0 */
-    expected_revision: number
+    /** @nullable */
+    download_url: string | null
+    /** @nullable */
+    content_sha256: string | null
 }
 
 export interface TaskSessionSyncResponseApi {
     id: string
-    /** @minimum 1 */
-    revision: number
-}
-
-export interface TaskSessionSyncPrepareApi {
-    sandbox_id: string
-    /** @minimum 0 */
-    expected_revision: number
-}
-
-export type TaskSessionSyncPrepareResponseApiUpload = { [key: string]: unknown }
-
-export interface TaskSessionSyncPrepareResponseApi {
-    id: string
-    sync_id: string
-    upload: TaskSessionSyncPrepareResponseApiUpload
+    content_sha256: string
 }
 
 /**

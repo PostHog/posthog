@@ -90,9 +90,6 @@ import type {
     TaskRunRelayMessageResponseApi,
     TaskRunStartRequestApi,
     TaskSessionResponseApi,
-    TaskSessionSyncApi,
-    TaskSessionSyncPrepareApi,
-    TaskSessionSyncPrepareResponseApi,
     TaskSessionSyncResponseApi,
     TaskStagedArtifactsFinalizeUploadRequestApi,
     TaskStagedArtifactsFinalizeUploadResponseApi,
@@ -1439,7 +1436,7 @@ export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, 
 }
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, and mcp_response commands.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, and native Pi RPC commands.
  * @summary Send command to task run
  */
 export const tasksRunsCommandCreate = async (
@@ -1673,7 +1670,7 @@ export const getTasksRunsTaskSessionRetrieveUrl = (projectId: string, taskId: st
 
 /**
  * API for managing task runs. Each run represents an execution of a task.
- * @summary Prepare active task session storage access
+ * @summary Get active task session storage access
  */
 export const tasksRunsTaskSessionRetrieve = async (
     projectId: string,
@@ -1693,47 +1690,20 @@ export const getTasksRunsTaskSessionSyncCreateUrl = (projectId: string, taskId: 
 
 /**
  * API for managing task runs. Each run represents an execution of a task.
- * @summary Finalize an active task session sync
+ * @summary Replace the active native task session
  */
 export const tasksRunsTaskSessionSyncCreate = async (
     projectId: string,
     taskId: string,
     id: string,
-    taskSessionSyncApi: TaskSessionSyncApi,
+    tasksRunsTaskSessionSyncCreateBody?: Blob | string,
     options?: RequestInit
 ): Promise<TaskSessionSyncResponseApi> => {
     return apiMutator<TaskSessionSyncResponseApi>(getTasksRunsTaskSessionSyncCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskSessionSyncApi),
+        body: JSON.stringify(tasksRunsTaskSessionSyncCreateBody),
     })
-}
-
-export const getTasksRunsTaskSessionSyncPrepareCreateUrl = (projectId: string, taskId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/task_session_sync_prepare/`
-}
-
-/**
- * API for managing task runs. Each run represents an execution of a task.
- * @summary Prepare an active task session sync
- */
-export const tasksRunsTaskSessionSyncPrepareCreate = async (
-    projectId: string,
-    taskId: string,
-    id: string,
-    taskSessionSyncPrepareApi: TaskSessionSyncPrepareApi,
-    options?: RequestInit
-): Promise<TaskSessionSyncPrepareResponseApi> => {
-    return apiMutator<TaskSessionSyncPrepareResponseApi>(
-        getTasksRunsTaskSessionSyncPrepareCreateUrl(projectId, taskId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(taskSessionSyncPrepareApi),
-        }
-    )
 }
 
 export const getTasksRunsLivingArtifactsListUrl = (projectId: string, taskId: string, runId: string) => {
