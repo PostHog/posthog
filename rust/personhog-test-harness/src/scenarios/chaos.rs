@@ -257,12 +257,11 @@ async fn execute(
             }
         }
         Scenario::CrossClassPair => {
-            // Leader and router are distinct classes with independent
-            // min-alive counts, so they run concurrently; each fresh rng
-            // is only for its own victim draw. The two never contend for
-            // `killed` because they touch disjoint pod names, so a plain
-            // sequential-after-join insert is unnecessary — each kill
-            // records its own name.
+            // Distinct classes have independent min-alive counts, so the
+            // two kills run concurrently — each with its own rng and its
+            // own killed-set, since a `&mut` cannot be shared across the
+            // join. Both sets fold back afterwards so a later step of
+            // this scenario still sees everything it killed.
             let leader = cfg.targets.iter().find(|t| t.kind == TargetKind::Leader);
             let router = cfg.targets.iter().find(|t| t.kind == TargetKind::Router);
             if let (Some(leader), Some(router)) = (leader, router) {
