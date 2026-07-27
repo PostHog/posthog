@@ -929,6 +929,7 @@ export interface sourceWizardLogicActions {
             | 'Eventee'
             | 'Eventzilla'
             | 'Everhour'
+            | 'Excel'
             | 'ExchangeRatesApi'
             | 'Expensify'
             | 'EZOfficeInventory'
