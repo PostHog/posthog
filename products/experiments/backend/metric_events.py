@@ -494,12 +494,14 @@ def scan_session_for_metric_events(
             if repeated_step_nodes[node_sig] > 1:
                 rank = step_rank.get(node_sig, 0)
                 step_rank[node_sig] = rank + 1
-                # timestamps are ascending and capped at MAX_METRIC_EVENT_TIMESTAMPS, so their
-                # length is min(count, cap): rank < len both proves the occurrence exists and gives
-                # us its timestamp. A later step of a single-occurrence funnel is therefore dropped.
-                if rank >= len(source_timestamps):
+                # A step is reached once the event has fired more times than its rank; drop only the
+                # steps the event never reached (gauge that on the true count, not the seek-point
+                # tuple). Seek points are capped at MAX_METRIC_EVENT_TIMESTAMPS, so a step reached
+                # past the cap (a >cap-step funnel of one event) keeps its place and points at the
+                # last available seek point rather than vanishing.
+                if rank >= source_count:
                     continue
-                occurrence = source_timestamps[rank]
+                occurrence = source_timestamps[min(rank, len(source_timestamps) - 1)]
                 source_count, source_first, source_timestamps = 1, occurrence, (occurrence,)
             source_hits.append(
                 MetricSourceHit(

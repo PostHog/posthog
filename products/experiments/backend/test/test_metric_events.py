@@ -438,6 +438,34 @@ class TestScanSessionForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin)
             (3, 1, datetime(2026, 1, 1, 10, 6, tzinfo=UTC)),
         ]
 
+    def test_funnel_repeated_step_reached_past_seek_point_cap_is_still_shown(self) -> None:
+        # Seek points are capped at MAX_METRIC_EVENT_TIMESTAMPS. A repeated step reached past that
+        # cap (only reachable by a funnel of >cap identical steps whose event fired >cap times) must
+        # still be shown: gauging "reached" on the capped seek-point tuple instead of the true event
+        # count would silently drop it. The step past the cap reuses the last available seek point.
+        funnel = _metric(
+            "funnel",
+            name="Third activation",
+            series=[_events_node("activated"), _events_node("activated"), _events_node("activated")],
+        )
+        times = [
+            datetime(2026, 1, 1, 10, 5, tzinfo=UTC),
+            datetime(2026, 1, 1, 10, 6, tzinfo=UTC),
+            datetime(2026, 1, 1, 10, 7, tzinfo=UTC),
+        ]
+        for ts in times:
+            self._create_session_event("activated", "s1", timestamp=ts.isoformat())
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.metric_events.MAX_METRIC_EVENT_TIMESTAMPS", 2):
+            hits = self._scan([funnel], "s1")
+
+        assert [(source.index, source.first_timestamp) for source in hits[0].sources] == [
+            (0, times[0]),
+            (1, times[1]),
+            (2, times[1]),
+        ]
+
     def test_retention_distinct_completion_in_session_reports_its_source(self) -> None:
         # A distinct return event that fires in the session must surface as a completion source,
         # even for a window that opens a day later — the analysis counts such a return when the
