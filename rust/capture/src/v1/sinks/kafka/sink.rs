@@ -13,7 +13,7 @@ use tracing::Level;
 use uuid::Uuid;
 
 use crate::config::CaptureMode;
-use crate::outputs::registry::OutputRegistry;
+use crate::sinks::topics::TopicTable;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::sink::Sink;
 use crate::v1::sinks::types::{BatchSummary, Destination, Outcome, PreparedEvent, SinkResult};
@@ -67,7 +67,7 @@ pub struct KafkaSink<P: KafkaProducerTrait> {
     config: Config,
     /// Shared output→topic wiring, built once from this sink's Kafka config.
     /// Every topic resolution runs through it (see [`Self::enqueue_events`]).
-    output_registry: OutputRegistry,
+    output_registry: TopicTable,
     capture_mode: CaptureMode,
     handle: lifecycle::Handle,
 }
@@ -80,7 +80,7 @@ impl<P: KafkaProducerTrait> KafkaSink<P> {
         capture_mode: CaptureMode,
         handle: lifecycle::Handle,
     ) -> Self {
-        let output_registry = OutputRegistry::from(&config.kafka);
+        let output_registry = TopicTable::from(&config.kafka);
         Self {
             name,
             producer,
@@ -158,10 +158,11 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
             let uuid = event.uuid;
             let dest_tag = event.destination.as_tag();
 
-            let topic = match event.destination.as_output() {
-                Some(output) => self.output_registry.topic_for(&output),
+            let address = match event.destination.as_address() {
+                Some(address) => address,
                 None => continue,
             };
+            let topic = self.output_registry.topic_for(&address);
 
             let key = if should_null_partition_key(
                 event

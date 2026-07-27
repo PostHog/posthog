@@ -1,6 +1,6 @@
 use envconfig::Envconfig;
 
-use crate::outputs::registry::OutputRegistry;
+use crate::sinks::topics::TopicTable;
 
 /// Per-sink Kafka producer configuration. Loaded via `Envconfig::init_from_hashmap`
 /// from env vars under the `KAFKA_` sub-prefix of a sink's env namespace.
@@ -149,15 +149,15 @@ impl Config {
     }
 }
 
-/// Build the shared [`OutputRegistry`] from this per-sink Kafka config. This is
+/// Build the shared [`TopicTable`] from this per-sink Kafka config. This is
 /// how the v1 stack folds its topic wiring onto the one registry: topics stay
 /// per-sink (loaded from `CAPTURE_V1_SINK_*` env), but resolution runs through
-/// [`OutputRegistry::topic_for`] via [`Destination::as_output`], not a parallel
+/// [`TopicTable::topic_for`] via [`Destination::as_address`], not a parallel
 /// match. v1 is analytics-only, so `replay_overflow` is left unset — an
 /// `Events`/`Ai` deployment never produces to it.
-impl From<&Config> for OutputRegistry {
+impl From<&Config> for TopicTable {
     fn from(config: &Config) -> Self {
-        OutputRegistry {
+        TopicTable {
             main: config.topic_main.clone(),
             overflow: config.topic_overflow.clone(),
             historical: config.topic_historical.clone(),
@@ -177,7 +177,7 @@ mod tests {
     use envconfig::Envconfig;
     use rstest::rstest;
 
-    use super::{Config, OutputRegistry};
+    use super::{Config, TopicTable};
     use crate::v1::sinks::Destination;
 
     fn required_kafka_env() -> HashMap<String, String> {
@@ -381,8 +381,8 @@ mod tests {
     }
 
     /// A destination resolves to the same topic whether read off this per-sink
-    /// config or through the shared `OutputRegistry` — proving the v1 stack's
-    /// topic wiring now folds onto the one registry via `Destination::as_output`.
+    /// config or through the shared `TopicTable` — proving the v1 stack's
+    /// topic wiring now folds onto the one registry via `Destination::as_address`.
     #[rstest]
     #[case(Destination::AnalyticsMain, Some("events_main"))]
     #[case(Destination::AnalyticsHistorical, Some("events_hist"))]
@@ -398,8 +398,11 @@ mod tests {
         #[case] expected: Option<&str>,
     ) {
         let cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
-        let registry = OutputRegistry::from(&cfg);
-        let resolved = dest.as_output().map(|out| registry.topic_for(&out));
+        let registry = TopicTable::from(&cfg);
+        let resolved = dest
+            .as_address()
+            .map(|addr| registry.topic_for(&addr).to_string());
+        let expected = expected.map(str::to_string);
         assert_eq!(resolved, expected);
     }
 }

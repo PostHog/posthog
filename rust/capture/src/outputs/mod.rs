@@ -28,8 +28,6 @@
 //! prep path via the `OutputRegistry`); the table is where per-address
 //! wiring lands when the first config needs it.
 
-pub mod registry;
-
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -42,7 +40,7 @@ use tracing::{info_span, Instrument};
 
 use crate::api::CaptureError;
 use crate::config::{AiRouting, EnvelopeCompression, KafkaConfig};
-use crate::failover::{AttemptOutcome, FailoverController, Route as FailoverRoute};
+use crate::failover::{AttemptOutcome, BreakerState, FailoverController, Route as FailoverRoute};
 use crate::pipeline::{resolve, KeyPolicy, LaneEffect, Pipeline};
 use crate::serialization::{Format, Serializer};
 use crate::sinks::sink::{fold_results, AddressedPayload, Sink};
@@ -440,7 +438,7 @@ impl Output {
                 // if we can't win the permit.
                 let mut probing = false;
                 let effective = if route == FailoverRoute::Primary {
-                    if state == crate::failover::BreakerState::HalfOpen {
+                    if state == BreakerState::HalfOpen {
                         if controller.try_acquire_probe() {
                             probing = true;
                             FailoverRoute::Primary

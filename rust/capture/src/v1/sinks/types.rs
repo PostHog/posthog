@@ -5,7 +5,7 @@ use std::fmt;
 use common_types::CapturedEventHeaders;
 use uuid::Uuid;
 
-use crate::outputs::registry::Outputs;
+use crate::pipeline::{Address, AnalyticsLane, BasicLane, Pipeline};
 
 /// Kafka topic routing for a processed event.
 /// `Drop` means the event should not be produced at all.
@@ -31,21 +31,24 @@ impl Destination {
         matches!(self, Self::AnalyticsMain | Self::AnalyticsHistorical)
     }
 
-    /// Map this v1 destination onto the shared [`Outputs`] enum so topic
-    /// resolution goes through the one [`OutputRegistry`](crate::outputs::registry::OutputRegistry)
-    /// instead of a parallel `topic_for` match. `Drop` has no topic and returns
-    /// `None`; `Custom` borrows its inline admin-supplied topic. v1 is
-    /// analytics-only, so it never produces `Outputs::ReplayOverflow`.
-    pub fn as_output(&self) -> Option<Outputs<'_>> {
+    /// Map this v1 destination onto the shared [`Address`] so topic
+    /// resolution goes through the one
+    /// [`TopicTable`](crate::sinks::topics::TopicTable) instead of a parallel
+    /// `topic_for` match. `Drop` has no address and returns `None`. v1 is
+    /// analytics-only, so it never produces a replay address.
+    pub fn as_address(&self) -> Option<Address> {
         Some(match self {
-            Self::AnalyticsMain => Outputs::Main,
-            Self::AnalyticsHistorical => Outputs::Historical,
-            Self::Overflow => Outputs::Overflow,
-            Self::Dlq => Outputs::Dlq,
-            Self::ExceptionErrorTracking => Outputs::ErrorTracking,
-            Self::HeatmapMain => Outputs::Heatmaps,
-            Self::ClientIngestionWarning => Outputs::ClientIngestionWarning,
-            Self::Custom(topic) => Outputs::Custom(topic.as_str()),
+            Self::AnalyticsMain => Address::Analytics(AnalyticsLane::Main),
+            Self::AnalyticsHistorical => Address::Analytics(AnalyticsLane::Historical),
+            Self::Overflow => Address::Analytics(AnalyticsLane::Overflow),
+            Self::Dlq => Address::Analytics(AnalyticsLane::Dlq),
+            Self::ExceptionErrorTracking => Address::ErrorTracking(BasicLane::Main),
+            Self::HeatmapMain => Address::Heatmaps(BasicLane::Main),
+            Self::ClientIngestionWarning => Address::Warnings(BasicLane::Main),
+            Self::Custom(topic) => Address::Custom {
+                pipeline: Pipeline::Analytics,
+                topic: topic.clone(),
+            },
             Self::Drop => return None,
         })
     }
@@ -70,37 +73,49 @@ impl Destination {
 #[cfg(test)]
 mod destination_tests {
     use super::Destination;
-    use crate::outputs::registry::Outputs;
+    use crate::pipeline::{Address, AnalyticsLane, BasicLane, Pipeline};
 
-    /// Every non-`Drop` destination bridges to a shared `Outputs` variant, and
-    /// `Drop` maps to `None`. This is the seam that lets the v1 stack resolve
-    /// topics through the one `OutputRegistry` (Step 12 convergence).
+    /// Every non-`Drop` destination bridges to a shared `Address`, and `Drop`
+    /// maps to `None`. This is the seam that lets the v1 stack resolve topics
+    /// through the one `TopicTable`.
     #[test]
-    fn as_output_bridges_every_destination() {
-        assert_eq!(Destination::AnalyticsMain.as_output(), Some(Outputs::Main));
+    fn as_address_bridges_every_destination() {
         assert_eq!(
-            Destination::AnalyticsHistorical.as_output(),
-            Some(Outputs::Historical)
-        );
-        assert_eq!(Destination::Overflow.as_output(), Some(Outputs::Overflow));
-        assert_eq!(Destination::Dlq.as_output(), Some(Outputs::Dlq));
-        assert_eq!(
-            Destination::ExceptionErrorTracking.as_output(),
-            Some(Outputs::ErrorTracking)
+            Destination::AnalyticsMain.as_address(),
+            Some(Address::Analytics(AnalyticsLane::Main))
         );
         assert_eq!(
-            Destination::HeatmapMain.as_output(),
-            Some(Outputs::Heatmaps)
+            Destination::AnalyticsHistorical.as_address(),
+            Some(Address::Analytics(AnalyticsLane::Historical))
         );
         assert_eq!(
-            Destination::ClientIngestionWarning.as_output(),
-            Some(Outputs::ClientIngestionWarning)
+            Destination::Overflow.as_address(),
+            Some(Address::Analytics(AnalyticsLane::Overflow))
         );
         assert_eq!(
-            Destination::Custom("t".to_string()).as_output(),
-            Some(Outputs::Custom("t"))
+            Destination::Dlq.as_address(),
+            Some(Address::Analytics(AnalyticsLane::Dlq))
         );
-        assert_eq!(Destination::Drop.as_output(), None);
+        assert_eq!(
+            Destination::ExceptionErrorTracking.as_address(),
+            Some(Address::ErrorTracking(BasicLane::Main))
+        );
+        assert_eq!(
+            Destination::HeatmapMain.as_address(),
+            Some(Address::Heatmaps(BasicLane::Main))
+        );
+        assert_eq!(
+            Destination::ClientIngestionWarning.as_address(),
+            Some(Address::Warnings(BasicLane::Main))
+        );
+        assert_eq!(
+            Destination::Custom("t".to_string()).as_address(),
+            Some(Address::Custom {
+                pipeline: Pipeline::Analytics,
+                topic: "t".to_string(),
+            })
+        );
+        assert_eq!(Destination::Drop.as_address(), None);
     }
 
     #[test]

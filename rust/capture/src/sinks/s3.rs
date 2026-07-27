@@ -18,6 +18,7 @@ use tracing::instrument;
 use tracing::log::{debug, error, info};
 
 use crate::api::CaptureError;
+use crate::sinks::sink::{AddressedPayload, Sink, SinkResult};
 
 const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 const HEALTH_INTERVAL: Duration = Duration::from_secs(10);
@@ -266,16 +267,13 @@ impl Inner {
 }
 
 #[async_trait]
-impl crate::sinks::sink::Sink for S3Sink {
+impl Sink for S3Sink {
     /// Append each payload to the shared buffer and await the flush outcome the
     /// buffer broadcasts — the same wait `Event::send_batch` performs. Results
     /// are batch-uniform: one flush covers the whole batch.
     #[instrument(skip_all)]
-    async fn publish(
-        &self,
-        prepared: Vec<crate::sinks::sink::AddressedPayload>,
-    ) -> Vec<crate::sinks::sink::SinkResult> {
-        use crate::sinks::sink::SinkResult;
+    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
+        use SinkResult;
 
         let uuids: Vec<uuid::Uuid> = prepared.iter().map(|p| p.uuid).collect();
 
@@ -378,7 +376,7 @@ mod tests {
 
         async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
             use crate::pipeline::{Address, AnalyticsLane};
-            use crate::sinks::sink::{fold_results, AddressedPayload, Sink};
+            use crate::sinks::sink::fold_results;
             let serializer = crate::serialization::Serializer::json();
             let prepared = events
                 .iter()

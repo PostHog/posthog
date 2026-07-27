@@ -405,3 +405,4 @@ All steps are complete. The five strata are landed:
 | 14 · Sinks realize namespaces | done | `refactor(capture): payloads carry addresses; sinks realize them in their own namespace` |
 | 15 · Per-mode output tables | done | `feat(capture): per-mode output tables; handlers bound by publish capabilities` |
 | 16 · AI ingress family | done | `feat(capture): ai ingress is its own router family with its own capability` |
+| 17 · Topic tables injected into sinks | done | `refactor(capture): topic tables are sink-side data, injected at construction` |

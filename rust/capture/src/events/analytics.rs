@@ -655,9 +655,9 @@ mod tests {
         EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
         RestrictionScope, RestrictionType,
     };
-    use crate::outputs::registry::test_topics;
     use crate::outputs::{AnalyticsFamilyOutputs, Output, PrepSpec};
     use crate::sinks::test_sink::MockSink;
+    use crate::sinks::topics::test_topics;
     use crate::sinks::Sink;
 
     /// Wrap a test sink in the outputs surface `process_events` publishes
@@ -675,7 +675,7 @@ mod tests {
         })
     }
 
-    use crate::pipeline::{Address, AnalyticsLane, BasicLane};
+    use crate::pipeline::{Address, AnalyticsLane, BasicLane, Pipeline as CapturePipeline};
 
     /// Deserialize a captured payload back into the event it carries.
     fn event_of(p: &crate::sinks::AddressedPayload) -> common_types::CapturedEvent {
@@ -1086,7 +1086,7 @@ mod tests {
         assert_eq!(
             captured[0].address,
             Address::Custom {
-                pipeline: crate::pipeline::Pipeline::Analytics,
+                pipeline: CapturePipeline::Analytics,
                 topic: "custom_events_topic".to_string(),
             }
         );

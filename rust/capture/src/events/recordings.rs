@@ -556,9 +556,10 @@ mod tests {
     use crate::event_restrictions::{
         EventRestrictionService, Restriction, RestrictionManager, RestrictionScope,
     };
-    use crate::outputs::{Output, ReplayOutputs};
+    use crate::outputs::{Output, PrepSpec, ReplayOutputs};
     use crate::pipeline::{Address, ReplayLane};
     use crate::sinks::test_sink::MockSink;
+    use crate::sinks::topics::test_topics;
     use common_redis::MockRedisClient;
     use limiters::redis::{QuotaResource, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
     use std::sync::{Arc, Mutex};
@@ -578,8 +579,8 @@ mod tests {
         serde_json::from_value(json).unwrap()
     }
 
-    fn test_spec() -> crate::outputs::PrepSpec {
-        crate::outputs::PrepSpec::new(crate::config::EnvelopeCompression::None)
+    fn test_spec() -> PrepSpec {
+        PrepSpec::new(crate::config::EnvelopeCompression::None)
     }
 
     fn create_test_context() -> crate::v0_request::ProcessingContext {
@@ -1250,7 +1251,7 @@ mod tests {
             replay: Output::single(
                 Arc::new(KafkaSinkBase::with_producer(
                     producer.clone(),
-                    crate::outputs::registry::test_topics(),
+                    test_topics(),
                 )),
                 test_spec(),
             ),

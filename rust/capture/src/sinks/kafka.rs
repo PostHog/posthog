@@ -18,15 +18,16 @@
 //! cost in the scatter-gather batch path at two `Arc::clone` calls (producer
 //! + topics) rather than deep copies of limiter state.
 use crate::api::CaptureError;
+#[cfg(test)]
+use crate::config::EnvelopeCompression;
 use crate::config::KafkaConfig;
 #[cfg(test)]
-pub(crate) use crate::outputs::registry::test_topics;
-use crate::outputs::registry::{OutputRegistry, Outputs};
-use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, ReplayLane};
+use crate::outputs::PrepSpec;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 #[cfg(test)]
 use crate::sinks::sink::fold_results;
 use crate::sinks::sink::{AddressedPayload, Sink, SinkResult};
+use crate::sinks::topics::TopicTable;
 use async_trait::async_trait;
 use metrics::{counter, gauge, histogram};
 use rdkafka::producer::{FutureProducer, Producer};
@@ -174,33 +175,6 @@ impl rdkafka::ClientContext for KafkaContext {
     }
 }
 
-/// Bridge from a resolved [`Address`] to this cluster's registry vocabulary.
-/// Total — lanes are typed per pipeline, so there is no invalid pair to
-/// reject. The AI pipeline maps onto the analytics topics today; giving it
-/// its own topics is a table change, not a routing change.
-fn output_for(address: &Address) -> Outputs<'_> {
-    match address {
-        Address::Custom { topic, .. } => Outputs::Custom(topic.as_str()),
-        Address::Analytics(AnalyticsLane::Main) => Outputs::Main,
-        Address::Analytics(AnalyticsLane::Overflow) => Outputs::Overflow,
-        Address::Analytics(AnalyticsLane::Historical) => Outputs::Historical,
-        Address::Analytics(AnalyticsLane::Dlq) => Outputs::Dlq,
-        Address::Ai(AiLane::Main) => Outputs::Main,
-        Address::Ai(AiLane::Overflow) => Outputs::Overflow,
-        Address::Ai(AiLane::Historical) => Outputs::Historical,
-        Address::Ai(AiLane::Dlq) => Outputs::Dlq,
-        Address::Heatmaps(BasicLane::Main) => Outputs::Heatmaps,
-        Address::Heatmaps(BasicLane::Dlq) => Outputs::Dlq,
-        Address::Warnings(BasicLane::Main) => Outputs::ClientIngestionWarning,
-        Address::Warnings(BasicLane::Dlq) => Outputs::Dlq,
-        Address::ErrorTracking(BasicLane::Main) => Outputs::ErrorTracking,
-        Address::ErrorTracking(BasicLane::Dlq) => Outputs::Dlq,
-        Address::Replay(ReplayLane::Main) => Outputs::Main,
-        Address::Replay(ReplayLane::Overflow) => Outputs::ReplayOverflow,
-        Address::Replay(ReplayLane::Dlq) => Outputs::Dlq,
-    }
-}
-
 /// Generic Kafka sink that can use any producer implementation.
 ///
 /// Holds the producer handle and this cluster's topic table. The sink makes
@@ -211,7 +185,7 @@ fn output_for(address: &Address) -> Outputs<'_> {
 /// swapping this table without any upstream change.
 pub struct KafkaSinkBase<P: KafkaProducer> {
     producer: Arc<P>,
-    topics: Arc<OutputRegistry>,
+    topics: Arc<TopicTable>,
 }
 
 impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
@@ -229,6 +203,7 @@ pub type KafkaSink = KafkaSinkBase<RdKafkaProducer<KafkaContext>>;
 impl KafkaSink {
     pub async fn new(
         config: KafkaConfig,
+        topics: TopicTable,
         liveness: Option<lifecycle::Handle>,
     ) -> anyhow::Result<KafkaSink> {
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
@@ -352,7 +327,7 @@ impl KafkaSink {
 
         Ok(KafkaSinkBase {
             producer: Arc::new(rd_producer),
-            topics: Arc::new(OutputRegistry::from(&config)),
+            topics: Arc::new(topics),
         })
     }
 }
@@ -361,7 +336,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Create a new KafkaSinkBase with a custom producer (useful for testing).
     /// No limiters — the sink is a mechanism layer; overflow stamping happens
     /// upstream in the pipeline. See the module header for details.
-    pub fn with_producer(producer: P, topics: OutputRegistry) -> Self {
+    pub fn with_producer(producer: P, topics: TopicTable) -> Self {
         Self {
             producer: Arc::new(producer),
             topics: Arc::new(topics),
@@ -371,10 +346,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Realize an address in this cluster's namespace. `Custom` redirects
     /// carry a literal topic and bypass the table.
     fn wire_record(&self, payload: AddressedPayload) -> ProduceRecord {
-        let topic = self
-            .topics
-            .topic_for(&output_for(&payload.address))
-            .to_string();
+        let topic = self.topics.topic_for(&payload.address).to_string();
         ProduceRecord {
             topic,
             key: payload.key,
@@ -466,8 +438,8 @@ use crate::v0_request::ProcessedEvent;
 /// test topics with no envelope compression; lz4 goldens pass their own.
 #[cfg(test)]
 impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
-    pub(crate) fn test_prep_spec() -> crate::outputs::PrepSpec {
-        crate::outputs::PrepSpec::new(crate::config::EnvelopeCompression::None)
+    pub(crate) fn test_prep_spec() -> PrepSpec {
+        PrepSpec::new(EnvelopeCompression::None)
     }
 
     pub(crate) async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
@@ -476,7 +448,7 @@ impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
 
     pub(crate) async fn send_with(
         &self,
-        spec: &crate::outputs::PrepSpec,
+        spec: &PrepSpec,
         event: ProcessedEvent,
     ) -> Result<(), CaptureError> {
         self.send_batch_with(spec, vec![event]).await
@@ -488,7 +460,7 @@ impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
 
     pub(crate) async fn send_batch_with(
         &self,
-        spec: &crate::outputs::PrepSpec,
+        spec: &PrepSpec,
         events: Vec<ProcessedEvent>,
     ) -> Result<(), CaptureError> {
         let prepared = crate::outputs::prepare_batch(spec, events).await?;
@@ -527,7 +499,9 @@ async fn drain_acks(mut ack_set: JoinSet<Result<(), CaptureError>>) -> Result<()
 mod tests {
     use crate::api::CaptureError;
     use crate::config::{self, EnvelopeCompression};
+    use crate::outputs::PrepSpec;
     use crate::sinks::kafka::KafkaSink;
+    use crate::sinks::topics::TopicTable;
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
@@ -616,7 +590,7 @@ mod tests {
             kafka_metrics_metadata_max_age_ms: None,
             kafka_replay_envelope_compression: EnvelopeCompression::None,
         };
-        let sink = KafkaSink::new(config, Some(handle))
+        let sink = KafkaSink::new(config.clone(), TopicTable::from(&config), Some(handle))
             .await
             .expect("failed to create sink");
         (cluster, sink)
@@ -913,8 +887,9 @@ mod tests {
     mod topic_routing {
         use super::*;
         use crate::outputs::SCATTER_GATHER_MIN_BATCH;
-        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::kafka::KafkaSinkBase;
         use crate::sinks::producer::MockKafkaProducer;
+        use crate::sinks::topics::test_topics;
 
         const MAIN_TOPIC: &str = "events_plugin_ingestion";
         const OVERFLOW_TOPIC: &str = "events_plugin_ingestion_overflow";
@@ -1035,7 +1010,7 @@ mod tests {
 
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
-            let spec = crate::outputs::PrepSpec::new(input.compression);
+            let spec = PrepSpec::new(input.compression);
 
             let event = create_test_event(&input);
             sink.send_with(&spec, event).await.unwrap();
@@ -2404,7 +2379,7 @@ mod tests {
         async fn snapshot_payload_lz4_compressed_when_enabled() {
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
-            let spec = crate::outputs::PrepSpec::new(EnvelopeCompression::Lz4);
+            let spec = PrepSpec::new(EnvelopeCompression::Lz4);
 
             let event = create_test_event(&EventInput {
                 data_type: DataType::SnapshotMain,
@@ -2434,7 +2409,7 @@ mod tests {
         async fn non_snapshot_payload_not_compressed_when_lz4_enabled() {
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
-            let spec = crate::outputs::PrepSpec::new(EnvelopeCompression::Lz4);
+            let spec = PrepSpec::new(EnvelopeCompression::Lz4);
 
             let event = create_test_event(&EventInput {
                 data_type: DataType::AnalyticsMain,

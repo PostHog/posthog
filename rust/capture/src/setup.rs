@@ -15,7 +15,6 @@ use crate::config::{AiRouting, AiSinkMode, CaptureMode, Config, KafkaConfig};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::failover::FailoverController;
 use crate::global_rate_limiter::GlobalRateLimiter;
-use crate::outputs::registry::OutputRegistry;
 use crate::outputs::{AnalyticsFamilyOutputs, DeploymentOutputs, Output, PrepSpec, ReplayOutputs};
 use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
@@ -27,6 +26,7 @@ use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
+use crate::sinks::topics::TopicTable;
 use crate::sinks::Sink;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
@@ -299,13 +299,13 @@ pub async fn build_components(
         // The secondary cluster has its own topic wiring, so it preps with its
         // own spec (checked for completeness like the primary's).
         let secondary_kafka = build_ai_secondary_kafka_config(&config);
-        let secondary_registry = Arc::new(OutputRegistry::from(&secondary_kafka));
-        secondary_registry
+        let secondary_topics = TopicTable::from(&secondary_kafka);
+        secondary_topics
             .check_complete(config.capture_mode)
             .expect("AI secondary Kafka topics incomplete");
         let secondary_prep = PrepSpec::new(secondary_kafka.kafka_replay_envelope_compression);
         let secondary_sink: Arc<dyn Sink> = Arc::new(
-            KafkaSink::new(secondary_kafka, secondary_handle)
+            KafkaSink::new(secondary_kafka, secondary_topics, secondary_handle)
                 .await
                 .expect("failed to start AI secondary Kafka sink"),
         );
@@ -575,12 +575,10 @@ async fn create_row_factory(
     // mode-scoped boot completeness check) and serializers live on the prep
     // spec, shared by every target of the deployment. Print/noop deployments
     // skip the completeness check (they produce to no broker).
-    let kafka_prep = || -> anyhow::Result<PrepSpec> {
-        let registry = Arc::new(OutputRegistry::from(&config.kafka));
-        registry.check_complete(config.capture_mode)?;
-        Ok(PrepSpec::new(
-            config.kafka.kafka_replay_envelope_compression,
-        ))
+    let kafka_topics = || -> anyhow::Result<TopicTable> {
+        let topics = TopicTable::from(&config.kafka);
+        topics.check_complete(config.capture_mode)?;
+        Ok(topics)
     };
 
     if config.print_sink {
@@ -596,11 +594,15 @@ async fn create_row_factory(
         let s3_handle = sink_handle.expect("sink lifecycle handle required for S3 fallback");
         let kafka_handle = advisory_handle.expect("kafka advisory handle required for fallback");
 
-        let prep = kafka_prep()?;
+        let prep = PrepSpec::from(&config.kafka);
         let kafka_sink: Arc<dyn Sink> = Arc::new(
-            KafkaSink::new(config.kafka.clone(), Some(kafka_handle.clone()))
-                .await
-                .context("failed to start Kafka sink")?,
+            KafkaSink::new(
+                config.kafka.clone(),
+                kafka_topics()?,
+                Some(kafka_handle.clone()),
+            )
+            .await
+            .context("failed to start Kafka sink")?,
         );
 
         let s3_sink: Arc<dyn Sink> = Arc::new(
@@ -645,9 +647,9 @@ async fn create_row_factory(
     } else {
         // `sink_handle` is `None` for a primary that must not gate the pod (a
         // full `Secondary` cutover hands the gating handle to the secondary).
-        let prep = kafka_prep()?;
+        let prep = PrepSpec::from(&config.kafka);
         let kafka_sink: Arc<dyn Sink> = Arc::new(
-            KafkaSink::new(config.kafka.clone(), sink_handle)
+            KafkaSink::new(config.kafka.clone(), kafka_topics()?, sink_handle)
                 .await
                 .context("failed to start Kafka sink")?,
         );
