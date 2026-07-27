@@ -5,30 +5,24 @@ from rest_framework.serializers import ValidationError as DRFValidationError
 
 from posthog.models import Team, User
 
-from products.review_hog.backend.reviewer.skill_loader import (
-    CANONICAL_BLIND_SPOTS_SKILL_NAMES,
-    CANONICAL_PERSPECTIVE_SKILL_NAMES,
-    CANONICAL_VALIDATION_SKILL_NAMES,
-)
-
 from ..models.community_skills import CommunitySkill, CommunitySkillVote
 from ..models.skills import LLMSkill
 from .skill_serializers import validate_allowed_tool, validate_skill_file_path, validate_skill_name_value
 from .skill_services import MAX_SKILL_FILE_BYTES, create_skill
 
-# Community skills must not land in the reserved Signals-scout namespace: on a Signals-enrolled team
-# the coordinator auto-registers and executes every `signals-scout-*` skill with privileged scopes,
-# so a community contributor could otherwise have attacker-controlled instructions auto-run against
-# an installing team. Canonical scouts are seeded through a separate, authorized path, never install.
-RESERVED_INSTALL_NAME_PREFIXES = ("signals-scout-",)
-
-# ReviewHog's canonical skills auto-enable by name on a team's first PR review and run their body with
-# review scopes, so a community install must not land on one of those exact names — otherwise a
-# contributor's instructions would auto-run in an installing user's reviews. Only the canonical names
-# are reserved; custom `review-hog-*` skills stay installable because they require explicit enablement.
-RESERVED_INSTALL_NAMES = frozenset(
-    CANONICAL_PERSPECTIVE_SKILL_NAMES + CANONICAL_VALIDATION_SKILL_NAMES + CANONICAL_BLIND_SPOTS_SKILL_NAMES
-)
+# Namespaces where PostHog auto-registers and runs a skill under privileged scopes on an enrolled
+# team: Signals scouts on the scout coordinator, ReviewHog's review skills on a team's first PR
+# review. An install landing on one of these names would auto-run a contributor's instructions
+# against the installing team, so the whole prefix is reserved — the canonical skills in each
+# namespace are seeded through their own authorized path and never arrive via install. Reserving by
+# prefix rather than by exact canonical name keeps this module free of a cross-product import
+# (`products.review_hog` already depends on `products.skills`, so the reverse edge is a cycle) and
+# can't drift as either namespace grows. A community skill named in one of these spaces is still
+# installable under a different `new_name`.
+RESERVED_INSTALL_NAME_PREFIXES: dict[str, str] = {
+    "signals-scout-": "PostHog-managed Signals scouts",
+    "review-hog-": "PostHog-managed review skills",
+}
 
 # Provenance keys ReviewHog stamps on the rows it manages. Its prune keys on `seeded_by`, so if a
 # catalog entry carried these they could make a user's freshly installed skill disappear on the next
@@ -104,15 +98,11 @@ def install_community_skill(
     except DRFValidationError as err:
         raise CommunitySkillInvalidPayloadError(_first_error_detail(err)) from err
 
-    if any(target_name.startswith(prefix) for prefix in RESERVED_INSTALL_NAME_PREFIXES):
-        raise CommunitySkillInvalidPayloadError(
-            "That name is reserved for PostHog-managed Signals scouts and can't be used for a community install."
-        )
-
-    if target_name in RESERVED_INSTALL_NAMES:
-        raise CommunitySkillInvalidPayloadError(
-            "That name is reserved for PostHog-managed review skills and can't be used for a community install."
-        )
+    for prefix, owner in RESERVED_INSTALL_NAME_PREFIXES.items():
+        if target_name.startswith(prefix):
+            raise CommunitySkillInvalidPayloadError(
+                f"That name is reserved for {owner} and can't be used for a community install."
+            )
 
     for tool in community_skill.allowed_tools or []:
         try:
