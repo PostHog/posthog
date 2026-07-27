@@ -35,7 +35,7 @@ export function resolveOverlappingGlyphs(
         const centre = (glyph.position / 100) * containerWidthPx
         const naturalLeft = centre - glyph.widthPx / 2
 
-        let left = previousRight === null ? naturalLeft : Math.max(naturalLeft, previousRight + gapPx)
+        let left: number = previousRight === null ? naturalLeft : Math.max(naturalLeft, previousRight + gapPx)
         // never push a glyph out of the seekbar, even if that means it still overlaps
         left = Math.min(left, containerWidthPx - glyph.widthPx)
 
