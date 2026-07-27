@@ -19,9 +19,11 @@ from django.utils import timezone as django_timezone
 
 import jwt
 import requests
+from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
@@ -30,7 +32,11 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade import (
+    api as tasks_facade,
+    cancellation as tasks_cancellation,
+    tasks as facade_tasks,
+)
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
     _gateway_usage_url,
@@ -6791,7 +6797,9 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
     @patch("products.tasks.backend.facade.api.send_cancel")
     @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="workflow_gone")
-    def test_cancel_returns_503_when_workflow_gone_cleanup_fails(self, _mock_signal, _mock_send_cancel, _mock_token):
+    def test_cancel_finalizes_run_when_workflow_gone_cleanup_fails(self, _mock_signal, _mock_send_cancel, _mock_token):
+        # A sandbox that won't tear down still dies on its TTL; a run left non-terminal never
+        # recovers, so cleanup failure must not abort the CANCELLED write.
         task = self.create_task()
         run = self._create_run(task, state={"sandbox_id": "sandbox-123"})
         sandbox = MagicMock()
@@ -6804,16 +6812,18 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
                 return_value=sandbox,
             ),
             patch(
-                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete"
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
+                return_value=True,
             ) as publish_complete,
         ):
             response = self.client.post(self._cancel_url(task, run), {}, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(sandbox.method_calls, [call.stop_agent_server(), call.destroy()])
-        publish_complete.assert_not_called()
+        publish_complete.assert_called_once_with(str(run.id), False)
         run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+        self.assertEqual(run.status, TaskRun.Status.CANCELLED)
+        self.assertFalse(run.state["cancel_fallback_cleanup_complete"])
 
     @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
     @patch("products.tasks.backend.facade.api.send_cancel")
@@ -6843,6 +6853,216 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(publish_complete.call_count, 2)
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.CANCELLED)
+        self.assertFalse(run.state["cancel_fallback_cleanup_complete"])
+
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="signaled")
+    @patch("products.tasks.backend.facade.tasks.verify_task_run_cancelled_task")
+    def test_cancel_arms_verification_deadline_after_signaling(
+        self, mock_verify, _mock_signal, _mock_send_cancel, _mock_token
+    ):
+        task = self.create_task()
+        run = self._create_run(task)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self._cancel_url(task, run), {"reason": "changed my mind"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        mock_verify.apply_async.assert_called_once_with(
+            args=[str(run.id), str(task.id), self.team.id, "changed my mind"],
+            countdown=tasks_cancellation.CANCEL_VERIFICATION_DELAY_SECONDS,
+        )
+
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="signaled")
+    @patch("products.tasks.backend.facade.tasks.verify_task_run_cancelled_task")
+    @patch("products.tasks.backend.facade.cancellation.observe_cancel_enqueue_failed")
+    def test_cancel_counts_a_verification_deadline_the_broker_would_not_take(
+        self, mock_observe, mock_verify, _mock_signal, _mock_send_cancel, _mock_token
+    ):
+        # The callback runs after commit, so the cancellation is already signaled and the response
+        # already decided; the only thing left to do with a broker failure is count it.
+        mock_verify.apply_async.side_effect = Exception("broker unreachable")
+        task = self.create_task()
+        run = self._create_run(task)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        mock_observe.assert_called_once_with(kind="verification")
+
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="workflow_gone")
+    @patch("products.tasks.backend.facade.tasks.verify_task_run_cancelled_task")
+    def test_cancel_does_not_arm_verification_deadline_when_workflow_gone(
+        self, mock_verify, _mock_signal, _mock_send_cancel, _mock_token
+    ):
+        task = self.create_task()
+        run = self._create_run(task)
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
+                return_value=True,
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        mock_verify.apply_async.assert_not_called()
+
+    def test_force_terminalize_cancels_run_the_workflow_never_acted_on(self):
+        task = self.create_task()
+        run = self._create_run(task, state={"cancel_source": "api"})
+        handle = MagicMock()
+        handle.terminate = AsyncMock()
+
+        with (
+            patch("products.tasks.backend.facade.cancellation.sync_connect") as mock_connect,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
+                return_value=True,
+            ) as publish_complete,
+        ):
+            mock_connect.return_value.get_workflow_handle.return_value = handle
+            outcome = tasks_cancellation.force_terminalize_cancelled_run(
+                run.id, task.id, self.team.id, reason="Stopped by user"
+            )
+
+        self.assertEqual(outcome, "terminalized")
+        # Keyword, not positional: a positional arg would land in the termination details and
+        # leave the history event's reason empty.
+        handle.terminate.assert_awaited_once_with(reason="Stopped by user")
+        publish_complete.assert_called_once_with(str(run.id), False)
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.CANCELLED)
+        self.assertEqual(run.error_message, "Stopped by user")
+        self.assertIsNotNone(run.completed_at)
+
+    def test_force_terminalize_leaves_the_run_alone_when_the_workflow_cannot_be_terminated(self):
+        task = self.create_task()
+        run = self._create_run(task, state={"cancel_source": "api", "sandbox_id": "sandbox-1"})
+        handle = MagicMock()
+        handle.terminate = AsyncMock(side_effect=RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""))
+
+        with (
+            patch("products.tasks.backend.facade.cancellation.sync_connect") as mock_connect,
+            patch("products.tasks.backend.facade.cancellation.cleanup_sandbox_now") as mock_cleanup,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
+                return_value=True,
+            ) as publish_complete,
+        ):
+            mock_connect.return_value.get_workflow_handle.return_value = handle
+            outcome = tasks_cancellation.force_terminalize_cancelled_run(
+                run.id, task.id, self.team.id, reason="Stopped by user"
+            )
+
+        # The workflow is still alive and unaware, so tearing down its sandbox or writing
+        # CANCELLED would leave it running against nothing. The celery task retries instead.
+        self.assertEqual(outcome, "unavailable")
+        mock_cleanup.assert_not_called()
+        publish_complete.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+        self.assertIsNone(run.completed_at)
+
+    def test_verify_task_run_cancelled_task_retries_when_the_workflow_is_unreachable(self):
+        with (
+            patch(
+                "products.tasks.backend.facade.cancellation.force_terminalize_cancelled_run",
+                return_value="unavailable",
+            ),
+            patch.object(facade_tasks.verify_task_run_cancelled_task, "retry", side_effect=Retry()) as mock_retry,
+        ):
+            with self.assertRaises(Retry):
+                facade_tasks.verify_task_run_cancelled_task("run-1", "task-1", self.team.id, "Stopped by user")
+
+        self.assertEqual(mock_retry.call_args.kwargs["countdown"], facade_tasks.CANCEL_VERIFICATION_RETRY_DELAY_SECONDS)
+
+    @parameterized.expand([("not_needed",), ("terminalized",)])
+    def test_verify_task_run_cancelled_task_does_not_retry_on_a_settled_run(self, outcome):
+        with (
+            patch(
+                "products.tasks.backend.facade.cancellation.force_terminalize_cancelled_run",
+                return_value=outcome,
+            ),
+            patch.object(facade_tasks.verify_task_run_cancelled_task, "retry", side_effect=Retry()) as mock_retry,
+        ):
+            facade_tasks.verify_task_run_cancelled_task("run-1", "task-1", self.team.id, "Stopped by user")
+
+        mock_retry.assert_not_called()
+
+    @parameterized.expand([(TaskRun.Status.COMPLETED,), (TaskRun.Status.CANCELLED,)])
+    def test_force_terminalize_leaves_a_run_the_workflow_already_finished(self, terminal_status):
+        task = self.create_task()
+        run = self._create_run(task, status=terminal_status, completed_at=django_timezone.now())
+
+        with patch("products.tasks.backend.facade.cancellation.sync_connect") as mock_connect:
+            outcome = tasks_cancellation.force_terminalize_cancelled_run(
+                run.id, task.id, self.team.id, reason="Stopped by user"
+            )
+
+        self.assertEqual(outcome, "not_needed")
+        mock_connect.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, terminal_status)
+
+    def test_force_terminalize_reports_unavailable_when_the_stream_stays_open(self):
+        task = self.create_task()
+        run = self._create_run(task, state={"cancel_source": "api"})
+        handle = MagicMock()
+        handle.terminate = AsyncMock()
+
+        with (
+            patch("products.tasks.backend.facade.cancellation.sync_connect") as mock_connect,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
+                return_value=False,
+            ),
+        ):
+            mock_connect.return_value.get_workflow_handle.return_value = handle
+            outcome = tasks_cancellation.force_terminalize_cancelled_run(
+                run.id, task.id, self.team.id, reason="Stopped by user"
+            )
+
+        # The run is CANCELLED but its stream is still open, so the celery task has to retry.
+        self.assertEqual(outcome, "unavailable")
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.CANCELLED)
+        self.assertTrue(run.state["cancel_fallback_cleanup_complete"])
+
+    def test_force_terminalize_retry_closes_a_stream_left_open_on_a_terminal_run(self):
+        task = self.create_task()
+        run = self._create_run(
+            task,
+            status=TaskRun.Status.CANCELLED,
+            completed_at=django_timezone.now(),
+            state={"cancel_fallback_cleanup_complete": True},
+        )
+
+        with (
+            patch("products.tasks.backend.facade.cancellation.sync_connect") as mock_connect,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
+                return_value=True,
+            ) as publish_complete,
+        ):
+            outcome = tasks_cancellation.force_terminalize_cancelled_run(
+                run.id, task.id, self.team.id, reason="Stopped by user"
+            )
+
+        # Terminal status means the only re-attemptable step left is the stream close, so the
+        # workflow is never touched again.
+        self.assertEqual(outcome, "not_needed")
+        mock_connect.assert_not_called()
+        publish_complete.assert_called_once_with(str(run.id), False)
+        run.refresh_from_db()
         self.assertFalse(run.state["cancel_fallback_cleanup_complete"])
 
     @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")

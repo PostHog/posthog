@@ -178,6 +178,16 @@ TASK_RUN_WIZARD_UNBOUND_TOTAL = Counter(
     labelnames=["status"],
 )
 
+# Enqueues that run inside `transaction.on_commit`: the response has already been decided by
+# then, so a broker failure cannot be reported to the caller and is swallowed. Counting it is
+# the only way the loss shows up, since every one of these tasks is the sole retry path for a
+# cancellation that was already accepted.
+CANCEL_ENQUEUE_FAILED_TOTAL = Counter(
+    "posthog_tasks_cancel_enqueue_failed_total",
+    "Cancellation follow-up tasks that could not be handed to the broker after commit",
+    labelnames=["kind"],
+)
+
 PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
     "posthog_tasks_push_dispatcher_failures_total",
     "Push-notification dispatch attempts that failed and were swallowed by the best-effort dispatcher",
@@ -369,6 +379,10 @@ def observe_followup_delivery_failed(task_run: "TaskRun", *, retryable: bool) ->
         origin_product=origin_product_label(task_run),
         retryable="true" if retryable else "false",
     ).inc()
+
+
+def observe_cancel_enqueue_failed(*, kind: str) -> None:
+    CANCEL_ENQUEUE_FAILED_TOTAL.labels(kind=kind).inc()
 
 
 def observe_loop_fire(*, reason: str) -> None:
