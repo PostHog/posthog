@@ -159,7 +159,6 @@ export interface inboxReportDetailLogicValues {
     isUpdatingReviewers: boolean
     latestCommitArtefact: SignalReportArtefact | null
     optimisticReviewers: EnrichedReviewer[] | null
-    reportCharts: ChartContent[]
     prChecks: readonly PullRequestCheckApi[] | null
     prChecksError: string | null
     prChecksLoading: boolean
@@ -171,6 +170,7 @@ export interface inboxReportDetailLogicValues {
     report: SignalReport | null
     reportArtefacts: SignalReportArtefact[] | null
     reportArtefactsLoading: boolean
+    reportCharts: ChartContent[]
     reportDiff: CommitDiffResponseApi | null
     reportDiffError: string | null
     reportDiffLoading: boolean
@@ -706,7 +706,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 return commits.reduce((latest, a) => (a.created_at > latest.created_at ? a : latest))
             },
         ],
-        reportCharts: [(s) => [s.reportArtefacts], latestChartPerId],
+        // Wrapped rather than passed as a bare reference: kea-typegen infers a selector's types by
+        // reading the function expression here, and silently emits nothing for a named import.
+        reportCharts: [
+            (s) => [s.reportArtefacts],
+            (reportArtefacts: SignalReportArtefact[] | null): ChartContent[] => latestChartPerId(reportArtefacts),
+        ],
         // Rationale behind the priority / actionability judgments, pulled from the already-loaded artefacts.
         priorityExplanation: [
             (s) => [s.reportArtefacts],
