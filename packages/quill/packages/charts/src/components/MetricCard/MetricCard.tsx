@@ -103,6 +103,60 @@ export function MetricCard(props: MetricCardProps): React.ReactElement | null {
     )
 }
 
+// The title plus its trailing icons (info tooltip, drill arrow). For a string title the last word and
+// the icons are kept on one non-wrapping run, so a title that wraps breaks as "Workflows" / "completed ⓘ"
+// rather than dropping the icon onto its own line.
+function MetricCardTitle({
+    title,
+    titleTooltip,
+    clickable,
+    onClickTooltip,
+}: {
+    title: React.ReactNode
+    titleTooltip?: React.ReactNode
+    clickable: boolean
+    onClickTooltip?: string
+}): React.ReactElement {
+    const adornments = (
+        <>
+            {titleTooltip != null && (
+                <HoverTooltip content={titleTooltip} className="ml-1 cursor-help align-middle opacity-50">
+                    <span data-attr="metric-card-title-info" onClick={(e) => e.stopPropagation()}>
+                        <InfoIcon />
+                    </span>
+                </HoverTooltip>
+            )}
+            {clickable && (
+                <HoverTooltip content={onClickTooltip ?? 'View details'} className="ml-1 align-middle opacity-40">
+                    <span data-attr="metric-card-drill">
+                        <ArrowRightIcon />
+                    </span>
+                </HoverTooltip>
+            )}
+        </>
+    )
+    if (typeof title === 'string' && (titleTooltip != null || clickable)) {
+        const words = title.split(' ')
+        const last = words.pop() ?? ''
+        const head = words.join(' ')
+        return (
+            <>
+                {head !== '' && <span>{head} </span>}
+                <span className="whitespace-nowrap">
+                    {last}
+                    {adornments}
+                </span>
+            </>
+        )
+    }
+    return (
+        <>
+            <span>{title}</span>
+            {adornments}
+        </>
+    )
+}
+
 function MetricCardInner({
     title,
     value,
@@ -245,26 +299,13 @@ function MetricCardInner({
             {showHeader && (
                 <div className={`flex items-start gap-2 ${headerJustify}`}>
                     {title != null && (
-                        <div className="flex items-center gap-1 text-sm font-medium">
-                            <span>{title}</span>
-                            {titleTooltip != null && (
-                                <HoverTooltip content={titleTooltip}>
-                                    <span
-                                        className="inline-flex cursor-help opacity-50"
-                                        data-attr="metric-card-title-info"
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        <InfoIcon />
-                                    </span>
-                                </HoverTooltip>
-                            )}
-                            {clickable && (
-                                <HoverTooltip content={onClickTooltip ?? 'View details'}>
-                                    <span className="inline-flex opacity-40" data-attr="metric-card-drill">
-                                        <ArrowRightIcon />
-                                    </span>
-                                </HoverTooltip>
-                            )}
+                        <div className="min-w-0 flex-1 text-sm font-medium">
+                            <MetricCardTitle
+                                title={title}
+                                titleTooltip={titleTooltip}
+                                clickable={clickable}
+                                onClickTooltip={onClickTooltip}
+                            />
                         </div>
                     )}
                     {headerDelta != null && (

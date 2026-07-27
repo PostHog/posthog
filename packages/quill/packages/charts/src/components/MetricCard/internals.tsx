@@ -99,9 +99,11 @@ const TOOLTIP_COLOR = `var(--color-text-primary-inverse, ${TOOLTIP_FALLBACK_COLO
 export function HoverTooltip({
     content,
     children,
+    className,
 }: {
     content: React.ReactNode
     children: React.ReactNode
+    className?: string
 }): React.ReactElement {
     const [open, setOpen] = useState(false)
     const arrowRef = useRef<SVGSVGElement>(null)
@@ -119,7 +121,7 @@ export function HoverTooltip({
 
     return (
         <>
-            <span ref={refs.setReference} {...getReferenceProps()} className="inline-flex">
+            <span ref={refs.setReference} {...getReferenceProps()} className={`inline-flex${className ? ` ${className}` : ''}`}>
                 {children}
             </span>
             {open && (
