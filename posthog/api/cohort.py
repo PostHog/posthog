@@ -1059,12 +1059,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         return raw
 
     def _team_for_warehouse_access_check(self) -> Optional[Team]:
-        # The viewset provides get_team; out-of-viewset constructions (feature flag copy,
-        # experiments) pass "team" or "team_id" instead - resolve all three so the access
-        # check can't be skipped by a context shape.
-        team = self.context.get("get_team", lambda: None)()
-        if team is None:
-            team = self.context.get("team")
+        # Resolve the team from whichever context shape the caller provided so the check can't be
+        # skipped: experiments pass "team", feature flag copy passes "team_id", the viewset passes
+        # the get_team lambda. Prefer an already-materialized object over the lambda, which can
+        # issue a query on cold cache.
+        team = self.context.get("team")
+        if team is None and self.context.get("get_team"):
+            team = self.context["get_team"]()
         if team is None and self.context.get("team_id"):
             team = Team.objects.filter(pk=self.context["team_id"]).first()
         return team
