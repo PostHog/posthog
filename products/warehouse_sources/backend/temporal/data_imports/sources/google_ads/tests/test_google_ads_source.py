@@ -1325,6 +1325,36 @@ class TestGoogleAdsQueryConstruction:
         lower_bounds = [re.search(r">= '(\d{4}-\d{2}-\d{2})'", q).group(1) for q in queries]  # type: ignore[union-attr]
         assert lower_bounds[:4] == ["2026-01-01", "2026-01-08", "2026-01-15", "2026-01-22"]
 
+    def test_lookback_reread_windows_do_not_stall_drain_short_of_today(self):
+        # Regression: the stored cursor arrives already rewound by the lookback (a 30-day rolling
+        # overlap re-read). With data every day, those ~4 re-read windows used to burn almost the
+        # whole 5-window budget, so the run stopped before reaching today and the cursor froze while
+        # the job still reported success. Re-read windows must not count toward the forward-progress
+        # budget, so a run whose real backlog fits the budget always reaches today.
+        thirty_days = 30 * 24 * 60 * 60
+        # The value handed to the source is the stored cursor already shifted back by the lookback.
+        stored_cursor = dt.date(2026, 7, 17)
+        shifted_cursor = stored_cursor - dt.timedelta(seconds=thirty_days)
+        # Data every day: every window (re-read or forward) returns rows.
+        window_rows = {(shifted_cursor + dt.timedelta(days=i)).isoformat(): 1 for i in range(80)}
+
+        with freeze_time("2026-07-27"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                window_rows=window_rows,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=shifted_cursor,
+                db_incremental_field_lookback_seconds=thirty_days,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        # The drain reaches today: the final window's exclusive upper bound is today+1, so today's
+        # rows land and the cursor advances. Before the fix the run stopped five re-read windows in,
+        # well short of today.
+        upper_bounds = [re.search(r"< '(\d{4}-\d{2}-\d{2})'", q).group(1) for q in queries]  # type: ignore[union-attr]
+        assert max(upper_bounds) == "2026-07-28"
+
     def test_dimension_table_query_has_no_order_clause(self):
         _response, queries = self._run_source(_single_row_table())
 

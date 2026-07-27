@@ -492,6 +492,7 @@ def google_ads_source(
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
+    db_incremental_field_lookback_seconds: int | None = None,
 ) -> SourceResponse:
     """A data warehouse Google Ads source.
 
@@ -565,6 +566,13 @@ def google_ads_source(
             start = _incremental_value_as_date(db_incremental_field_last_value)
             # Exclusive upper bound of today+1 keeps today in range, matching the open-ended scan.
             end = dt.date.today() + dt.timedelta(days=1)
+            # `db_incremental_field_last_value` arrives already rewound by the lookback (the rolling
+            # overlap re-read), so `start` sits `lookback` days before the real stored cursor. Windows
+            # ending at or below that cursor only re-read already-synced data — counting them against
+            # the forward-progress budget lets a full-data lookback (e.g. 30 days ≈ 4+ windows) burn
+            # almost the whole budget re-reading, so the run stops before reaching today and the
+            # cursor freezes. Exclude those re-read windows from the budget so a run always advances.
+            resync_boundary = start + dt.timedelta(seconds=db_incremental_field_lookback_seconds or 0)
             windows_with_data = 0
             first_window = True
 
@@ -579,9 +587,11 @@ def google_ads_source(
                     had_data = True
                     yield pa_table
 
-                # Empty windows don't count toward the per-run budget and don't stop the loop, so a
-                # gap in the data is crossed within a single run instead of stalling the cursor on it.
-                if had_data:
+                # Only windows that carry forward progress (extend past the stored cursor) count
+                # toward the per-run budget; a window entirely inside the lookback re-read, and every
+                # empty window, is traversed for free so neither the overlap re-read nor a gap in the
+                # data can stall the drain short of today.
+                if had_data and window_end > resync_boundary:
                     windows_with_data += 1
                 first_window = False
                 start = window_end
