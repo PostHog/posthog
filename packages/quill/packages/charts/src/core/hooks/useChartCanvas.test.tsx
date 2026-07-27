@@ -29,11 +29,7 @@ function renderChart(drawStatic: (args: ChartDrawArgs) => void): HTMLCanvasEleme
             drawHover={() => false}
         />
     )
-    const canvas = container.querySelector('canvas')
-    if (!canvas) {
-        throw new Error('chart rendered no canvas')
-    }
-    return canvas
+    return container.querySelector('canvas')!
 }
 
 describe('useChartCanvas', () => {

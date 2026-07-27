@@ -53,12 +53,12 @@ const series: Series[] = [
 
 Charts fill their container and need a parent with real dimensions — a `0`-height flex child renders nothing. Give the wrapper an explicit height (`h-64`, `flex-1` in a sized column). Sparkline alone takes `height`/`width` props.
 
-A container too small to hold the axis margins leaves the plot area at zero, and the draw loops skip such a frame instead of clearing the canvas and painting nothing — so a chart squeezed to nothing keeps its last drawn frame until the container is usable again, rather than going blank while its DOM axis labels stay put.
+A container too small to hold the axis margins leaves the plot area at zero, and the draw loops skip such a frame instead of clearing the canvas and painting nothing. When the container itself doesn't resize (only `margins` shrinking the plot box) the canvas bitmap is untouched, so the chart keeps its last drawn frame rather than going blank while its DOM axis labels stay put. A container resize is different: `syncCanvasSize` reallocates and wipes the bitmap for the new rect before the draw loop's skip check ever runs, so a chart resized down to zero plot area shows an empty canvas, not its last frame, until it's resized back to something drawable.
 Growing the container back repaints normally.
 
 Overlays (axis labels, axis titles, reference/goal lines, value labels, legend, tooltip) are DOM, positioned from the scales; the grid, axis lines, tick marks, and the series themselves are canvas.
-So "labels and goal lines render but the plot is empty" means the canvas specifically failed, not that the chart is mis-sized — the layout was fine or the overlays wouldn't have placed correctly.
-The two ways that happens are a bitmap discarded without a repaint (a resize wiping `canvas.width`, or a lost-and-restored 2D context) and a draw that painted nothing; both are handled in `useChartCanvas` / `useChartDraw`.
+So "labels and goal lines render but the plot is empty" means the canvas specifically failed or the container was resized below the axis margins — not that the chart is otherwise mis-sized.
+The two ways the canvas can fail while sized correctly are a bitmap discarded without a repaint (a lost-and-restored 2D context) and a draw that painted nothing; both are handled in `useChartCanvas` / `useChartDraw`.
 
 ## Composition
 
