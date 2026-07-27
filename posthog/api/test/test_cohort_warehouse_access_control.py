@@ -108,6 +108,7 @@ class TestCohortSaveWarehouseAccessControl(APIBaseTest):
         response = self._save_cohort()
 
         assert response.status_code == 201, response.content
+        assert Cohort.objects.filter(team=self.team).exists()
 
     def test_denied_member_cannot_activate_static_warehouse_cohort(self):
         # Static cohorts are excluded from periodic recalc, so flipping to dynamic is the only
