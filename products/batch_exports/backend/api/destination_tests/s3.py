@@ -1,3 +1,4 @@
+import uuid
 import collections.abc
 
 from products.batch_exports.backend.api.destination_tests.base import (
@@ -88,6 +89,117 @@ class S3EnsureBucketTestStep(DestinationTestStep):
         return DestinationTestStepResult(status=Status.PASSED)
 
 
+class S3EnsureMultiPartUploadTestStep(DestinationTestStep):
+    """Test whether we can perform a multipart upload to the S3 bucket.
+
+    Batch exports write their files using multipart uploads, so being able to
+    access the bucket (see `S3EnsureBucketTestStep`) is not enough on its own.
+    On some S3-compatible backends, most notably GCS, a set of credentials can
+    pass a `head_bucket` check yet lack the permissions required for multipart
+    uploads. Without this step, such credentials would only surface the problem
+    at run time as a `SignatureDoesNotMatch` error when uploading a part. This
+    step exercises the full `create` -> `upload_part` -> `complete` path so the
+    missing permission surfaces at configuration time instead.
+
+    Attributes:
+        bucket_name: The bucket we are checking.
+        region: Region where the bucket is supposed to be.
+        endpoint_url: Set for S3-compatible destinations.
+        aws_access_key_id: Access key ID for the bucket.
+        aws_secret_access_key: Secret access key for the bucket.
+    """
+
+    name = "Check S3 multipart upload"
+    description = "Ensure we can perform a multipart upload to the configured S3 bucket, as required by batch exports."
+
+    def __init__(
+        self,
+        bucket_name: str | None = None,
+        region: str | None = None,
+        endpoint_url: str | None = None,
+        aws_access_key_id: str | None = None,
+        aws_secret_access_key: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.bucket_name = bucket_name
+        self.region = region
+        self.endpoint_url = endpoint_url
+        self.aws_access_key_id = aws_access_key_id
+        self.aws_secret_access_key = aws_secret_access_key
+
+    def _is_configured(self) -> bool:
+        """Ensure required configuration parameters are set."""
+        if self.bucket_name is None or self.aws_access_key_id is None or self.aws_secret_access_key is None:
+            return False
+        return True
+
+    async def _run_step(self) -> DestinationTestStepResult:
+        """Run this test step."""
+        import aioboto3
+        from botocore.exceptions import ClientError
+
+        assert self.bucket_name is not None
+
+        # A dedicated key that won't collide with exported data, cleaned up below.
+        key = f"__posthog_batch_export_connection_test__/{uuid.uuid4()}"
+
+        session = aioboto3.Session()
+        async with session.client(
+            "s3",
+            region_name=self.region,
+            aws_access_key_id=self.aws_access_key_id,
+            aws_secret_access_key=self.aws_secret_access_key,
+            endpoint_url=self.endpoint_url,
+        ) as client:
+            upload_id: str | None = None
+            completed = False
+            try:
+                response = await client.create_multipart_upload(Bucket=self.bucket_name, Key=key)
+                upload_id = response["UploadId"]
+
+                part = await client.upload_part(
+                    Bucket=self.bucket_name,
+                    Key=key,
+                    PartNumber=1,
+                    UploadId=upload_id,
+                    Body=b"PostHog batch export connection test",
+                )
+
+                await client.complete_multipart_upload(
+                    Bucket=self.bucket_name,
+                    Key=key,
+                    UploadId=upload_id,
+                    MultipartUpload={"Parts": [{"ETag": part["ETag"], "PartNumber": 1}]},
+                )
+                completed = True
+            except ClientError as err:
+                return DestinationTestStepResult(
+                    status=Status.FAILED,
+                    message=(
+                        f"We couldn't perform a multipart upload to bucket '{self.bucket_name}'. "
+                        "Batch exports upload files using multipart uploads, so the provided credentials need "
+                        "multipart-upload permissions (for example, on GCS grant a role such as "
+                        f"'roles/storage.objectAdmin'). The underlying error was: {err}"
+                    ),
+                )
+            finally:
+                await self._cleanup(client, key, upload_id, completed)
+
+        return DestinationTestStepResult(status=Status.PASSED)
+
+    async def _cleanup(self, client, key: str, upload_id: str | None, completed: bool) -> None:
+        """Best-effort cleanup of the test object or in-progress upload."""
+        try:
+            if completed:
+                await client.delete_object(Bucket=self.bucket_name, Key=key)
+            elif upload_id is not None:
+                await client.abort_multipart_upload(Bucket=self.bucket_name, Key=key, UploadId=upload_id)
+        except Exception:
+            # Cleanup is best-effort: a leftover test object or aborted upload must not
+            # fail an otherwise successful test.
+            pass
+
+
 class S3DestinationTest(DestinationTest):
     """A concrete implementation of a `DestinationTest` for S3.
 
@@ -124,5 +236,12 @@ class S3DestinationTest(DestinationTest):
                 endpoint_url=self.endpoint_url,
                 aws_access_key_id=self.aws_access_key_id,
                 aws_secret_access_key=self.aws_secret_access_key,
-            )
+            ),
+            S3EnsureMultiPartUploadTestStep(
+                bucket_name=self.bucket_name,
+                region=self.region,
+                endpoint_url=self.endpoint_url,
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+            ),
         ]

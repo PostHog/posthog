@@ -4,7 +4,11 @@ import pytest
 
 from django.conf import settings
 
-from products.batch_exports.backend.api.destination_tests.s3 import S3EnsureBucketTestStep, Status
+from products.batch_exports.backend.api.destination_tests.s3 import (
+    S3EnsureBucketTestStep,
+    S3EnsureMultiPartUploadTestStep,
+    Status,
+)
 from products.batch_exports.backend.tests.temporal.utils.s3 import create_test_client, delete_all_from_s3
 
 pytestmark = [pytest.mark.asyncio]
@@ -68,7 +72,38 @@ async def test_s3_check_bucket_exists_test_step_without_bucket(minio_client):
     assert result.message == "Bucket 'some-other-bucket' does not exist or we don't have permissions to use it"
 
 
-@pytest.mark.parametrize("step", [S3EnsureBucketTestStep()])
+async def test_s3_multipart_upload_test_step(bucket_name, minio_client):
+    test_step = S3EnsureMultiPartUploadTestStep(
+        bucket_name=bucket_name,
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+    )
+    result = await test_step.run()
+
+    assert result.status == Status.PASSED
+    assert result.message is None
+
+    # The test object should be cleaned up so we don't leave junk in the customer's bucket.
+    listed = await minio_client.list_objects_v2(Bucket=bucket_name)
+    assert listed.get("KeyCount", 0) == 0
+
+
+async def test_s3_multipart_upload_test_step_without_bucket(minio_client):
+    test_step = S3EnsureMultiPartUploadTestStep(
+        bucket_name="some-other-bucket",
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+    )
+    result = await test_step.run()
+
+    assert result.status == Status.FAILED
+    assert result.message is not None
+    assert "multipart upload" in result.message
+
+
+@pytest.mark.parametrize("step", [S3EnsureBucketTestStep(), S3EnsureMultiPartUploadTestStep()])
 async def test_test_steps_fail_if_not_configured(step):
     result = await step.run()
     assert result.status == Status.FAILED
