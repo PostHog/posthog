@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from parameterized import parameterized
 
-from common.alerting.state_machine import (
+from products.alerts.backend.state_machine import (
     LOGS_ALERT_POLICY,
     AlertCheckOutcome,
     AlertPolicy,
