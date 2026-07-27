@@ -6,7 +6,11 @@ from parameterized import parameterized
 from pydantic import BaseModel, ValidationError
 
 from products.signals.backend.artefact_schemas import (
+    _MAX_CHART_QUERY_CHARS,
     ARTEFACT_CONTENT_SCHEMAS,
+    MAX_CHART_CAPTION_LENGTH,
+    MAX_CHART_ID_LENGTH,
+    MAX_CHART_TITLE_LENGTH,
     ArtefactContentValidationError,
     CodeReference,
     Commit,
@@ -236,6 +240,36 @@ class TestValidateArtefactContent(SimpleTestCase):
             # An unknown `size` has no height behind it, so accepting it would store a layout choice
             # the renderer silently ignores rather than telling the author it didn't take.
             ("chart", {"chart_id": "ok", "title": "t", "query": {"kind": "InsightVizNode"}, "size": "huge"}),
+            # The per-chart bounds are what the report-wide budget is built on: the judge is shown
+            # every chart in a call, query bodies included, so the query bound times the per-report
+            # cap is the worst case that prompt can cost. The shape checks beside these are covered;
+            # without these the bounds could stop applying and nothing would fail.
+            ("chart", {"chart_id": "c" * (MAX_CHART_ID_LENGTH + 1), "title": "t", "query": {"kind": "InsightVizNode"}}),
+            ("chart", {"chart_id": "ok", "title": "   ", "query": {"kind": "InsightVizNode"}}),
+            (
+                "chart",
+                {"chart_id": "ok", "title": "t" * (MAX_CHART_TITLE_LENGTH + 1), "query": {"kind": "InsightVizNode"}},
+            ),
+            (
+                "chart",
+                {
+                    "chart_id": "ok",
+                    "title": "t",
+                    "query": {"kind": "InsightVizNode"},
+                    "caption": "c" * (MAX_CHART_CAPTION_LENGTH + 1),
+                },
+            ),
+            (
+                "chart",
+                {
+                    "chart_id": "ok",
+                    "title": "t",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {"kind": "TrendsQuery", "note": "x" * _MAX_CHART_QUERY_CHARS},
+                    },
+                },
+            ),
         ]
     )
     def test_rejects_invalid_content_for_type(self, artefact_type, content):
