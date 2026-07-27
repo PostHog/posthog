@@ -23915,7 +23915,12 @@
                 "Vturb",
                 "Meltwater",
                 "UserCom",
-                "Latitude"
+                "Latitude",
+                "Workato",
+                "SideShift",
+                "DuckLake",
+                "Starburst",
+                "Easybill"
             ],
             "type": "string"
         },
@@ -34785,6 +34790,7 @@
                 "selected connector",
                 "sql editor empty state",
                 "data warehouse sources table",
+                "managed warehouse provisioned",
                 "experiment created",
                 "experiment analyzed",
                 "experiment view recordings",
@@ -34953,6 +34959,7 @@
                 "llm_evaluations",
                 "llm_prompts",
                 "logs",
+                "managed_warehouse",
                 "marketing_analytics",
                 "max",
                 "mcp_analytics",
