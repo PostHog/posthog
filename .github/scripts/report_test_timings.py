@@ -319,20 +319,24 @@ _FLAT_JEST_JUNIT_NAME = re.compile(r"^junit-(?P<segment>.+)-(?P<chunk>\d+)\.xml$
 def flat_shard_info(info: ArtifactInfo, junit_filename: str, runner: Runner) -> ArtifactInfo:
     """Recover Jest shard identity from the JUnit filename when the download landed flat.
 
-    download-artifact extracts a single matching artifact directly into the download path with no
-    per-artifact subdirectory (selective-mode PR runs always produce exactly one Jest artifact), so
-    the directory-derived identity degrades to the download dir name. The workflow names Jest JUnit
-    files `junit-<segment>-<chunk>.xml`, which carries the same identity as the artifact name, so a
-    job key derived here matches the subdirectory layout and a re-run attempt (multi-artifact, hence
-    subdirectories) can join its recovery passes back to these failures. A flat download implies a
-    single artifact and therefore attempt 1, so `attempt` is left alone.
+    download-artifact extracts a single matching artifact directly into the download path on any
+    workflow attempt, so the artifact name cannot provide its job identity or attempt. The JUnit
+    filename supplies the Jest job identity, and the workflow context supplies the attempt. Recover
+    both so re-run filtering and recovery joins use the same identity as subdirectory downloads.
     """
     if not info.flat or runner != "jest":
         return info
     match = _FLAT_JEST_JUNIT_NAME.match(junit_filename)
     if match is None:
         return info
-    return replace(info, suite="frontend", segment=match.group("segment"), group=int(match.group("chunk")), total=None)
+    return replace(
+        info,
+        suite="frontend",
+        segment=match.group("segment"),
+        group=int(match.group("chunk")),
+        total=None,
+        attempt=current_run_attempt(),
+    )
 
 
 def parse_iso_utc(value: str) -> datetime | None:

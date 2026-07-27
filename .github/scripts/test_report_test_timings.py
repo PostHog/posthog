@@ -250,20 +250,25 @@ def test_collect_jest_shard_marks_tolerated_failures_as_quarantined(tmp_path: Pa
 
 
 @pytest.mark.parametrize(
-    "runner,filename,recovered",
+    "runner,filename,run_attempt,recovered,expected_attempt",
     [
         # download-artifact extracts a single matching artifact flat into the download root, so
-        # identity must come from the filename or the job key collapses to the download dir name
-        # and a re-run's recovery passes (subdirectory layout) can never join back to it.
-        ("jest", "junit-EE-1.xml", ("frontend", "EE", 1)),
+        # identity must come from the filename and current workflow attempt.
+        ("jest", "junit-EE-1.xml", 2, ("frontend", "EE", 1), 2),
         # A filename without a `-<chunk>` suffix and non-jest runners keep the directory-derived
         # fallback identity.
-        ("jest", "junit-report.xml", None),
-        ("pytest", "junit-EE-1.xml", None),
+        ("jest", "junit-report.xml", 2, None, 1),
+        ("pytest", "junit-EE-1.xml", 2, None, 1),
     ],
 )
 def test_flat_download_shard_identity(
-    runner: str, filename: str, recovered: tuple[str, str, int] | None, tmp_path: Path
+    runner: str,
+    filename: str,
+    run_attempt: int,
+    recovered: tuple[str, str, int] | None,
+    expected_attempt: int,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _write_shard_xml(
         tmp_path,
@@ -272,11 +277,13 @@ def test_flat_download_shard_identity(
         time="1.0",
         body='<testcase classname="suite flaky" name="suite flaky" time="0.1" file="src/flaky.test.ts"><failure message="x"/></testcase>',
     )
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", str(run_attempt))
 
     shard = report_test_timings.collect_shards(tmp_path, runner)[0]
 
     expected = recovered or report_test_timings.derive_suite_segment_and_group(tmp_path.name)
     assert (shard.info.suite, shard.info.segment, shard.info.group) == expected
+    assert shard.info.attempt == expected_attempt
     if recovered:
         assert report_test_timings.job_trace_key(shard.info) == "frontend:EE:1"
 
