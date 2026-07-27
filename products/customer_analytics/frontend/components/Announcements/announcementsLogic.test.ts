@@ -147,6 +147,21 @@ describe('announcementsLogic', () => {
         expect(logic.values.selectedChannelIds).toEqual(['C1'])
     })
 
+    it('toggles an individual channel on and off', async () => {
+        logic = announcementsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadMemberChannelsSuccess'])
+
+        logic.actions.toggleChannel('C1')
+        expect(logic.values.selectedChannelIds).toEqual(['C1'])
+
+        logic.actions.toggleChannel('C9')
+        expect(logic.values.selectedChannelIds).toEqual(['C1', 'C9'])
+
+        logic.actions.toggleChannel('C1')
+        expect(logic.values.selectedChannelIds).toEqual(['C9'])
+    })
+
     it('treats "my accounts" as the current user and keeps assigned/unassigned mutually exclusive', async () => {
         mockPerformQuery.mockResolvedValue({ columns: ['name', 'slack_channel_id'], results: [] })
         logic = announcementsLogic()

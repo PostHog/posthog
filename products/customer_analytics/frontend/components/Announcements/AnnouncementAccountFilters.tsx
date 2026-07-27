@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconX } from '@posthog/icons'
+import { IconCheck, IconChevronDown, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -8,6 +8,7 @@ import {
     LemonDropdown,
     LemonInput,
     LemonInputSelect,
+    LemonSnack,
 } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
@@ -24,8 +25,9 @@ export function AnnouncementAccountFilters(): JSX.Element {
         allUnassigned,
         assignedToCurrentUser,
         filtersActive,
-        filteredChannelIds,
+        filteredChannels,
         filteredAccountChannelIdsLoading,
+        selectedChannelIds,
     } = useValues(announcementsLogic)
     const {
         setAccountSearch,
@@ -35,6 +37,7 @@ export function AnnouncementAccountFilters(): JSX.Element {
         setMyAccounts,
         clearAccountFilters,
         selectAllFilteredChannels,
+        toggleChannel,
     } = useActions(announcementsLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
 
@@ -48,9 +51,9 @@ export function AnnouncementAccountFilters(): JSX.Element {
             ? 'Assigned to 1 person'
             : `Assigned to ${assignedTo.length} people`
 
-    const selectAllLabel = filteredAccountChannelIdsLoading
-        ? 'Finding channels…'
-        : `Select ${filteredChannelIds.length} filtered ${filteredChannelIds.length === 1 ? 'channel' : 'channels'}`
+    const matchCountLabel = filteredAccountChannelIdsLoading
+        ? 'Finding matching channels…'
+        : `${filteredChannels.length} ${filteredChannels.length === 1 ? 'channel matches' : 'channels match'}`
 
     return (
         <div className="flex flex-col gap-2">
@@ -124,17 +127,44 @@ export function AnnouncementAccountFilters(): JSX.Element {
                 )}
             </div>
             {filtersActive && (
-                <div>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={selectAllFilteredChannels}
-                        loading={filteredAccountChannelIdsLoading}
-                        disabledReason={filteredChannelIds.length === 0 ? 'No matching channels' : undefined}
-                        data-attr="announcement-select-filtered-channels"
-                    >
-                        {selectAllLabel}
-                    </LemonButton>
+                <div className="flex flex-col gap-2 rounded border bg-bg-light p-2">
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">{matchCountLabel}</span>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={selectAllFilteredChannels}
+                            loading={filteredAccountChannelIdsLoading}
+                            disabledReason={filteredChannels.length === 0 ? 'No matching channels' : undefined}
+                            data-attr="announcement-select-filtered-channels"
+                        >
+                            Select all
+                        </LemonButton>
+                    </div>
+                    {!filteredAccountChannelIdsLoading && filteredChannels.length > 0 && (
+                        <div className="flex max-h-32 flex-wrap gap-1 overflow-y-auto">
+                            {filteredChannels.map((channel) => {
+                                const isSelected = selectedChannelIds.includes(channel.key)
+                                return (
+                                    <LemonSnack
+                                        key={channel.key}
+                                        onClick={() => toggleChannel(channel.key)}
+                                        className={isSelected ? 'bg-accent-highlight' : undefined}
+                                        title={isSelected ? 'Click to remove' : 'Click to add'}
+                                        data-attr="announcement-preview-channel"
+                                    >
+                                        <span className="flex items-center gap-1">
+                                            {isSelected && <IconCheck className="text-accent" />}
+                                            {channel.label}
+                                        </span>
+                                    </LemonSnack>
+                                )
+                            })}
+                        </div>
+                    )}
+                    {!filteredAccountChannelIdsLoading && filteredChannels.length === 0 && (
+                        <span className="text-sm text-muted">No channels the bot can post to match these filters.</span>
+                    )}
                 </div>
             )}
         </div>
