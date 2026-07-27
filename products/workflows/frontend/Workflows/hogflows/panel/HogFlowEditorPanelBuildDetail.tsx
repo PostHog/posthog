@@ -165,23 +165,19 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
             {isEmailAction(action) && (
                 <>
                     <LemonDivider className="my-0" />
-                    <div className="flex flex-col px-2 py-1">
-                        <LemonLabel
-                            htmlFor="Track opens and link clicks"
-                            className="flex gap-2 justify-between items-center"
-                            info="Turn this off for emails that should never be tracked, such as transactional messages. When off, no tracking pixel is added and links are not rewritten, so opens and clicks won't appear in the workflow's metrics. Delivery, bounce, and unsubscribe events are still recorded. Marketing emails may additionally be sent untracked based on the email tracking consent setting in your environment settings."
-                        >
-                            <span>Track opens and link clicks</span>
-                            <LemonSwitch
-                                checked={action.config.tracking_enabled !== false}
-                                onChange={(checked) => {
-                                    setWorkflowAction(action.id, {
-                                        ...action,
-                                        config: { ...action.config, tracking_enabled: checked },
-                                    })
-                                }}
-                            />
+                    <div className="flex gap-2 justify-between items-center px-2 py-1">
+                        <LemonLabel info="Turn this off for emails that should never be tracked, such as transactional messages. When off, no tracking pixel is added and links are not rewritten, so opens and clicks won't appear in the workflow's metrics. Delivery, bounce, and unsubscribe events are still recorded. Marketing emails may additionally be sent untracked based on the email tracking consent setting in your environment settings.">
+                            Track opens and link clicks
                         </LemonLabel>
+                        <LemonSwitch
+                            checked={action.config.tracking_enabled !== false}
+                            onChange={(checked) => {
+                                setWorkflowAction(action.id, {
+                                    ...action,
+                                    config: { ...action.config, tracking_enabled: checked },
+                                })
+                            }}
+                        />
                     </div>
                 </>
             )}
