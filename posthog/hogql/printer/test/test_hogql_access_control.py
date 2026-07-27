@@ -353,13 +353,14 @@ class TestDeniedTableError(BaseTest):
         # Verify the table is in denied list
         assert "system.dashboards" in database._denied_tables
 
-        # The other denial sites assert the type; this one also pins what it reports, because the
-        # message is a de-facto contract - accountOpportunitiesLogic.ts matches on it to tell a
-        # denied table from a real failure, until the error carries a machine-readable code.
+        # The other denial sites assert the type; this one pins what it reports to callers. The code
+        # is what API clients should match on; the message is still a de-facto contract while
+        # accountOpportunitiesLogic.ts matches on it.
         with self.assertRaises(TableAccessDeniedError) as cm:
             database.get_table("system.dashboards")
 
         assert cm.exception.table_name == "system.dashboards"
+        assert cm.exception.code_name == "table_access_denied"
         assert str(cm.exception) == "You don't have access to table `system.dashboards`."
 
     def test_unknown_table_still_shows_unknown_error(self):
