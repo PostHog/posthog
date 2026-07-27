@@ -21,9 +21,6 @@ interface UseChartCanvasResult {
     dimensions: ChartDimensions | null
     ctx: CanvasRenderingContext2D | null
     overlayCtx: CanvasRenderingContext2D | null
-    /** Bumped whenever the backing bitmaps were discarded behind our back (a lost-and-restored 2D
-     *  context). The draw loops key on it so a restored surface gets repainted. */
-    surfaceGeneration: number
 }
 
 export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasResult {
@@ -32,7 +29,6 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
     const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null)
     const wrapperRef = useRef<HTMLDivElement | null>(null)
     const [canvasState, setCanvasState] = useState<CanvasState | null>(null)
-    const [surfaceGeneration, setSurfaceGeneration] = useState(0)
 
     // Keep margins behind a ref so the ResizeObserver effect can read the latest values
     // without re-binding when only margins change — re-binding risks a feedback loop with
@@ -93,35 +89,27 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         })
         observer.observe(wrapper)
 
+        // A 2D context can be lost when the browser reclaims canvas memory. Its bitmap comes back
+        // blank on `contextrestored` and nothing repaints on its own, so the canvas stays empty
+        // while every DOM overlay (axis labels, goal lines, tooltip) keeps rendering against valid
+        // dimensions. Zeroing the backing size makes `updateSize` treat it as a real resize, which
+        // repaints. `contextlost` is deliberately not handled: preventing its default tells the
+        // browser we'll restore the context ourselves, and then it never restores.
+        const onContextRestored = (event: Event): void => {
+            ;(event.currentTarget as HTMLCanvasElement).width = 0
+            updateSize()
+        }
+        const canvases = [canvasRef.current, overlayCanvasRef.current]
+        canvases.forEach((canvas) => canvas?.addEventListener('contextrestored', onContextRestored))
+
         return () => {
             observer.disconnect()
+            canvases.forEach((canvas) => canvas?.removeEventListener('contextrestored', onContextRestored))
         }
         // Bind the observer once. `marginsRef` is a ref so `updateSize` always reads the
         // latest margins; depending on `marginsRef.current` here would disconnect and re-run
         // `updateSize` on every margins change. The effect below handles margins-only updates.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
-
-    // A 2D context can be lost when the browser reclaims canvas memory — most likely after a
-    // surface has been remounted many times. The bitmap is reset to transparent black and draws
-    // are ignored until `contextrestored`, and nothing repaints on its own, so the canvas stays
-    // blank forever while every DOM overlay (axis labels, goal lines, tooltip) keeps rendering
-    // against valid dimensions. Bump a generation on restore so the draw loops repaint.
-    // `contextlost` is deliberately not handled: preventing its default would stop the browser
-    // from restoring the context at all.
-    useEffect(() => {
-        const canvas = canvasRef.current
-        const overlayCanvas = overlayCanvasRef.current
-        if (!canvas || !overlayCanvas) {
-            return
-        }
-        const onRestored = (): void => setSurfaceGeneration((generation) => generation + 1)
-        canvas.addEventListener('contextrestored', onRestored)
-        overlayCanvas.addEventListener('contextrestored', onRestored)
-        return () => {
-            canvas.removeEventListener('contextrestored', onRestored)
-            overlayCanvas.removeEventListener('contextrestored', onRestored)
-        }
     }, [])
 
     // When margins change without a resize, recompute dimensions from the cached rect.
@@ -146,6 +134,5 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         dimensions: canvasState?.dimensions ?? null,
         ctx: canvasState?.ctx ?? null,
         overlayCtx: canvasState?.overlayCtx ?? null,
-        surfaceGeneration,
     }
 }
