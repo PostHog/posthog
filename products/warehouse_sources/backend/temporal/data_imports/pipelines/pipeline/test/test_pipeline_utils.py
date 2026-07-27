@@ -1,5 +1,6 @@
 import uuid
 import decimal
+import hashlib
 import datetime
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any, cast
@@ -14,8 +15,12 @@ import structlog
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    NULL_NUMERICAL_PARTITION,
+    BillingLimitsWillBeReachedException,
     SchemaColumnTypeChangedException,
     _get_max_decimal_type,
     _to_list_array,
@@ -85,6 +90,24 @@ def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_e
     assert "revenue" in message
     assert "N/A" in message
     assert "<blank>" in message
+
+
+def test_table_from_py_list_numeric_column_coerces_numeric_string_values():
+    # Numeric columns whose cells arrive as numeric strings (common with JSON-based sources
+    # such as Mixpanel, where a property flips between 570 and "570") must coerce, not fail
+    # the whole sync. Blank cells become null; genuinely non-numeric text still raises.
+    table = table_from_py_list(
+        [{"column": 1.5}, {"column": "570"}, {"column": "  42  "}, {"column": ""}, {"column": None}]
+    )
+
+    assert pa.types.is_decimal(table.schema.field("column").type)
+    assert table.column("column").to_pylist() == [
+        decimal.Decimal("1.5"),
+        decimal.Decimal("570"),
+        decimal.Decimal("42"),
+        None,
+        None,
+    ]
 
 
 @pytest.mark.parametrize(
@@ -1421,3 +1444,43 @@ def test_align_incoming_decimals_to_delta_raises_when_integer_overflows():
 
     with pytest.raises(SchemaColumnTypeChangedException):
         align_incoming_decimals_to_delta(arrow_table, delta_schema)
+
+
+@pytest.mark.parametrize(
+    "mode,partition_count,partition_size,partition_format,expected",
+    [
+        # datetime is the reported crash: a persisted `hs_timestamp`/`_creation_time` key that the
+        # source stopped returning fell into `row[key]` and raised a raw KeyError, failing every sync.
+        ("datetime", None, None, "month", "1970-01"),
+        ("numerical", None, 100, None, NULL_NUMERICAL_PARTITION),
+        ("md5", 4, None, None, str(int(hashlib.md5(b"None").hexdigest(), 16) % 4)),
+    ],
+)
+def test_append_partition_key_missing_column_buckets_into_fallback(
+    mode, partition_count, partition_size, partition_format, expected
+):
+    # A persisted partition mode is reused on later batches without re-running detection, so a source
+    # schema drift that drops the partition key column must bucket rows into a catch-all partition
+    # rather than raise a raw KeyError.
+    table = pa.table({"id": pa.array([1, 2, 3], type=pa.int64())})
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=partition_count,
+        partition_size=partition_size,
+        partition_keys=["dropped_field"],
+        partition_mode=mode,
+        partition_format=partition_format,
+        logger=cast(FilteringBoundLogger, structlog.get_logger()),
+    )
+
+    assert result is not None
+    partitioned_table, resolved_mode, _, _ = result
+    assert resolved_mode == mode
+    assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected, expected, expected]
+
+
+def test_billing_limit_exception_is_non_reportable_error():
+    # Subclassing NonReportableError is what keeps the intentional billing-limit halt out of
+    # error tracking (the activity interceptor re-raises these without capturing them).
+    assert issubclass(BillingLimitsWillBeReachedException, NonReportableError)

@@ -370,6 +370,16 @@ export interface PatchedVisionActionApi {
 }
 
 /**
+ * Async-accepted response for POST /vision/actions/{id}/run/.
+ */
+export interface RunActionResponseApi {
+    /** Temporal workflow id for the run; the resulting run appears under the action's run history. */
+    workflow_id: string
+    /** True when a run for this action was already in progress (scheduled or manual), so this request coalesced onto it rather than starting a second run. */
+    already_running: boolean
+}
+
+/**
  * * `running` - Running
  * * `completed` - Completed
  * * `failed` - Failed
@@ -815,6 +825,8 @@ export interface ReplayScannerApi {
     readonly estimated_monthly_credits: number | null
     /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
     readonly credits_this_month: number
+    /** Succeeded observations this scanner produced in the current billing period. */
+    readonly observations_this_month: number
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
     readonly created_at: string
@@ -907,6 +919,8 @@ export interface PatchedReplayScannerApi {
     readonly estimated_monthly_credits?: number | null
     /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
     readonly credits_this_month?: number
+    /** Succeeded observations this scanner produced in the current billing period. */
+    readonly observations_this_month?: number
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
     readonly created_at?: string

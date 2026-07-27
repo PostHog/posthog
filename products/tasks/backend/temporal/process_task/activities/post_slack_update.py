@@ -87,7 +87,7 @@ class PostSlackUpdateInput:
 def _viewer_has_posthog_code_access(viewer: User | None) -> bool:
     """Fail closed: missing creator or any flag-service error suppresses the link.
 
-    The PostHog Code app is rolled out via cohort + invite redemption; surfacing
+    The PostHog Desktop app is rolled out via cohort + invite redemption; surfacing
     deep links to users who can't open them sends them into an install flow we
     don't want to scale right now. Errors from the flag service therefore default
     to "no access" rather than "show the link anyway".

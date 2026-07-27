@@ -96,29 +96,16 @@ async def test_normalizes_supported_reasoning_effort_for_anthropic_requests(effo
     }
 
 
-@pytest.mark.parametrize(
-    ("edits", "expected_context_management"),
-    [
-        ([{"type": "clear_thinking_20251015", "keep": "all"}], None),
-        (
-            [
-                {"type": "clear_thinking_20251015", "keep": "all"},
-                {"type": "clear_tool_uses_20250919"},
-            ],
-            {"edits": [{"type": "clear_tool_uses_20250919"}]},
-        ),
-    ],
-)
-def test_drops_clear_thinking_when_thinking_is_not_enabled(
-    edits: list[dict[str, str]], expected_context_management: dict[str, Any] | None
-) -> None:
+def test_drops_clear_thinking_when_no_effort_enables_thinking() -> None:
+    # Edit-level rules live in test_anthropic_request.py; this pins that GLM still applies them
+    # once its effort upgrade has had a chance to enable thinking.
     request = {
         "model": GLM_MODEL,
         "messages": [{"role": "user", "content": "hi"}],
-        "context_management": {"edits": edits},
+        "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
     }
 
-    assert normalize_glm_anthropic_request(request).get("context_management") == expected_context_management
+    assert "context_management" not in normalize_glm_anthropic_request(request, product=PRODUCT)
 
 
 async def test_routes_to_modal_when_fraction_one_without_flag_roundtrip() -> None:
@@ -155,9 +142,9 @@ async def test_each_surface_routes_to_its_provider_configs(
     assert handle.call_args.kwargs["provider_config"].endpoint_name == cloudflare_endpoint
 
 
-@pytest.mark.parametrize("product", ["twig", "array"])
+@pytest.mark.parametrize("product", ["twig", "array", "custom_image_scans"])
 async def test_alias_products_ramp_through_canonical_fraction(product: str) -> None:
-    # twig/array requests must follow posthog_code's per-product ramp end to end.
+    # These requests must follow posthog_code's per-product ramp end to end.
     handle = AsyncMock(return_value={"ok": True})
     settings = _settings(glm_modal_product_traffic_fractions={"posthog_code": 1.0})
     _, evaluate = await _send(settings, handle, product=product)

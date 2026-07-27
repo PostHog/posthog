@@ -39,6 +39,7 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     status_reason_detail_for_terminal_user_error,
 )
+from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_hog import (
     build_hog_event_global,
     execute_hog_eval_bytecode,
@@ -57,6 +58,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
 )
+from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome, increment_errors
 from posthog.temporal.ai_observability.run_evaluation import (
     WorkflowResult,
@@ -67,6 +69,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.models.evaluation_configs import (
+    EVALUATION_TEST_LOOKBACK_DAYS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
     TRACE_EVAL_MAX_WINDOW_SECONDS,
 )
@@ -172,13 +175,9 @@ def _count_trace_events(team: Team, trace_id: str, date_from: datetime, date_to:
     return int(result.results[0][0])
 
 
-def fetch_trace_for_evaluation(team_id: int, trace_id: str, window_start: datetime) -> TraceFetchOutcome:
-    """Fetch the full trace from ClickHouse, with a cheap count preflight so degenerate
-    traces are skipped before pulling their payload."""
-    team = Team.objects.get(id=team_id)
-    date_from = window_start - TRACE_EVENTS_LOOKBACK
-    date_to = datetime.now(UTC)
-
+def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: datetime) -> TraceFetchOutcome:
+    """Fetch a single full trace from ClickHouse over an explicit window, with a cheap count
+    preflight so degenerate traces are skipped before pulling their payload."""
     event_count = _count_trace_events(team, trace_id, date_from, date_to)
     if event_count == 0:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=0)
@@ -197,6 +196,183 @@ def fetch_trace_for_evaluation(team_id: int, trace_id: str, window_start: dateti
     if not response.results:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
     return TraceFetchOutcome(trace=response.results[0], skip_reason=None, event_count=event_count)
+
+
+def fetch_trace_for_evaluation(team_id: int, trace_id: str, window_start: datetime) -> TraceFetchOutcome:
+    """Fetch the full trace for an online evaluation run, looking back from the workflow start."""
+    team = Team.objects.get(id=team_id)
+    date_from = window_start - TRACE_EVENTS_LOOKBACK
+    date_to = datetime.now(UTC)
+    return _fetch_trace(team, trace_id, date_from, date_to)
+
+
+@dataclass
+class TraceHogTestResult:
+    """One trace's outcome from `run_hog_eval_over_recent_traces`, shaped for the editor test
+    endpoint and Max's authoring tool rather than for online emission."""
+
+    trace_id: str
+    verdict: bool | None
+    reasoning: str
+    error: str | None
+    input_preview: str
+    output_preview: str
+
+
+@dataclass(frozen=True)
+class TraceHogTestSample:
+    trace_id: str
+    trigger_timestamp: datetime
+
+
+def _coerce_trace_test_timestamp(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        timestamp = value
+    elif isinstance(value, str):
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    else:
+        raise TypeError(f"Unexpected trace sample timestamp type: {type(value).__name__}")
+
+    return timestamp if timestamp.tzinfo is not None else timestamp.replace(tzinfo=UTC)
+
+
+def _sample_recent_traces(
+    team: Team,
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    date_from: datetime,
+    date_to: datetime,
+) -> list[TraceHogTestSample]:
+    """Pick the most recent distinct trace ids whose *triggering* generation matches the
+    evaluation's conditions — mirroring the online scheduler, which starts a trace-eval run
+    from the first matching `$ai_generation`. Historical previews use that event timestamp as
+    the closest available proxy for the workflow start time."""
+    where_exprs: list[ast.Expr] = [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["event"]),
+            right=ast.Constant(value=["$ai_generation"]),
+        ),
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.NotEq,
+            left=ast.Field(chain=["trace_id"]),
+            right=ast.Constant(value=""),
+        ),
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value=date_from),
+        ),
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.LtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value=date_to),
+        ),
+    ]
+    if condition_filter is not None:
+        where_exprs.append(condition_filter)
+
+    query = ast.SelectQuery(
+        select=[
+            ast.Field(chain=["trace_id"]),
+            ast.Alias(alias="trigger_timestamp", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
+            ast.Alias(alias="latest", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
+        ],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
+        where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
+        group_by=[ast.Field(chain=["trace_id"])],
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=["latest"]), order="DESC")],
+        limit=ast.Constant(value=sample_count),
+    )
+    response = query_ai_events(
+        query=query,
+        placeholders={"where_clause": ast.And(exprs=where_exprs)},
+        team=team,
+        query_type="EvaluationTestHogTraceSample",
+        fall_back_to_events=True,
+    )
+    return [
+        TraceHogTestSample(trace_id=str(row[0]), trigger_timestamp=_coerce_trace_test_timestamp(row[1]))
+        for row in (response.results or [])
+    ]
+
+
+def _trace_io_preview(trace: LLMTrace) -> tuple[str, str]:
+    """First non-empty input and last non-empty output across the trace's events, for a compact
+    preview. The Hog body still sees the full trace globals; this is only for display."""
+    input_preview = ""
+    output_preview = ""
+    for event in trace.events or []:
+        input_raw, output_raw = extract_event_io(event.event, event.properties)
+        if not input_preview:
+            input_preview = extract_text_from_messages(input_raw)[:200]
+        output_text = extract_text_from_messages(output_raw)[:200]
+        if output_text:
+            output_preview = output_text
+    return input_preview, output_preview
+
+
+def run_hog_eval_over_recent_traces(
+    *,
+    team: Team,
+    bytecode: list[Any],
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    allows_na: bool,
+    window_seconds: int = TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+    lookback_days: int = EVALUATION_TEST_LOOKBACK_DAYS,
+) -> list[TraceHogTestResult]:
+    """Sample recent traces matching the conditions and run trace-level Hog bytecode against each.
+
+    Shared by the editor `test_hog` endpoint and Max's authoring tool so a trace-target eval is
+    previewed the same way it runs online — whole trace, trace globals — instead of against a
+    single generation.
+    """
+    now = datetime.now(UTC)
+    window = timedelta(seconds=window_seconds)
+    # Only sample triggers whose full aggregation window has elapsed.
+    sample_date_to = now - window
+    sample_date_from = sample_date_to - timedelta(days=lookback_days)
+    trace_samples = _sample_recent_traces(
+        team,
+        condition_filter,
+        sample_count,
+        sample_date_from,
+        sample_date_to,
+    )
+
+    results: list[TraceHogTestResult] = []
+    for sample in trace_samples:
+        trace_date_from = sample.trigger_timestamp - TRACE_EVENTS_LOOKBACK
+        trace_date_to = sample.trigger_timestamp + window
+        outcome = _fetch_trace(team, sample.trace_id, trace_date_from, trace_date_to)
+        if outcome.skip_reason or outcome.trace is None:
+            results.append(
+                TraceHogTestResult(
+                    trace_id=sample.trace_id,
+                    verdict=None,
+                    reasoning="",
+                    error=_SKIP_REASONING.get(outcome.skip_reason or "trace_not_found", "Evaluation skipped."),
+                    input_preview="",
+                    output_preview="",
+                )
+            )
+            continue
+
+        globals_dict = build_trace_hog_globals(outcome.trace, sample.trace_id, bytecode=bytecode)
+        result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na)
+        input_preview, output_preview = _trace_io_preview(outcome.trace)
+        results.append(
+            TraceHogTestResult(
+                trace_id=sample.trace_id,
+                verdict=result["verdict"],
+                reasoning=result["reasoning"],
+                error=result["error"],
+                input_preview=input_preview,
+                output_preview=output_preview,
+            )
+        )
+    return results
 
 
 def _build_trace_skip_result(allows_na: bool, skip_reason: str) -> EvaluationActivityResult:

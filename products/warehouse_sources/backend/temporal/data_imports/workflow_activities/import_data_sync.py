@@ -351,7 +351,9 @@ async def _handle_import_error(
     # on every retry regardless of source — classify it non-retryable by type here rather than
     # relying on each source listing the message in get_non_retryable_errors.
     if isinstance(error, SchemaColumnTypeChangedException):
-        await handle_non_retryable_error(job_inputs, error_msg, logger, error)
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
 
     non_retryable_errors = source_cls.get_non_retryable_errors()
     if any(match in error_msg for match in non_retryable_errors):

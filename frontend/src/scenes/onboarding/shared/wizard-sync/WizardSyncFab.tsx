@@ -6,8 +6,6 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { elapsedSecondsFrom } from 'lib/utils/datetime'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 
 import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
 import { activeCloudRunLogic, CloudRunHandle } from './activeCloudRunLogic'
@@ -27,10 +25,6 @@ import { wizardSyncUiLogic } from './wizardSyncUiLogic'
 // Corner anchor for the collapsed card and the minimized launcher. The dialog is a portal, so it
 // positions itself.
 const CORNER = 'fixed bottom-5 right-5 z-[60]'
-
-export function shouldHideWizardSyncCard(activeSceneId: string | null): boolean {
-    return activeSceneId === Scene.Quickstart
-}
 
 // 1Hz clock for the elapsed timer, scoped to a mounted run so nothing ticks when no run is active.
 // `frozen` stops the interval entirely — a finished run shows its fixed duration, so ticking for it
@@ -90,6 +84,8 @@ function WizardSyncDialog({
     isOpen,
     onClose,
     onClear,
+    onCancel,
+    cancelling = false,
     onDashboardClick,
 }: {
     progress: InstallationProgress
@@ -99,6 +95,8 @@ function WizardSyncDialog({
     isOpen: boolean
     onClose: () => void
     onClear?: () => void
+    onCancel?: () => void
+    cancelling?: boolean
     onDashboardClick?: () => void
 }): JSX.Element {
     const isTerminal = progress.phase === 'completed' || progress.phase === 'error'
@@ -122,6 +120,19 @@ function WizardSyncDialog({
                         Dismiss this run
                     </LemonButton>
                 )}
+                {!isTerminal && onCancel && (
+                    <LemonButton
+                        type="secondary"
+                        status="danger"
+                        onClick={onCancel}
+                        loading={cancelling}
+                        disabledReason={cancelling ? 'Cancelling the run' : undefined}
+                        className="self-end"
+                        data-attr="wizard-sync-cancel-run"
+                    >
+                        Cancel run
+                    </LemonButton>
+                )}
             </div>
         </LemonModal>
     )
@@ -136,7 +147,8 @@ function WizardSyncSurface({
     mode,
     runKey,
     onClear,
-    hideCard = false,
+    onCancel,
+    cancelling = false,
 }: {
     progress: InstallationProgress
     startedAt: string | undefined
@@ -146,7 +158,9 @@ function WizardSyncSurface({
     mode: WizardSyncMode
     runKey: string
     onClear?: () => void
-    hideCard?: boolean
+    /** Cancels the run server-side (cloud runs only) — shown in the dialog while the run is live. */
+    onCancel?: () => void
+    cancelling?: boolean
 }): JSX.Element {
     const { dismissedKey, dialogOpen } = useValues(wizardSyncUiLogic)
     const { dismiss, restore, openDialog, closeDialog } = useActions(wizardSyncUiLogic)
@@ -206,37 +220,35 @@ function WizardSyncSurface({
 
     return (
         <>
-            {!hideCard && (
-                <div className={CORNER}>
-                    {minimized ? (
-                        <WizardSyncLauncher
-                            progress={progress}
-                            elapsedSeconds={elapsedSeconds}
-                            onRestore={() => {
-                                reportWizardSyncRestored(eventProps)
-                                restore()
-                            }}
-                        />
-                    ) : (
-                        <WizardSyncCard
-                            progress={progress}
-                            elapsedSeconds={elapsedSeconds}
-                            mode={mode}
-                            dashboard={dashboard}
-                            onDashboardClick={handleDashboardClick}
-                            onExpand={() => {
-                                reportWizardSyncExpanded(eventProps)
-                                openDialog()
-                            }}
-                            // Mid-run, the X only minimizes — hiding a live run for good would orphan
-                            // it. Once the run is terminal or the PR exists, the user's part is done,
-                            // so the X becomes the real dismissal (the run never leaves on its own).
-                            onDismiss={(isTerminal || prOpened) && handleClear ? handleClear : handleMinimize}
-                            dismissTooltip={(isTerminal || prOpened) && handleClear ? 'Dismiss' : 'Minimize'}
-                        />
-                    )}
-                </div>
-            )}
+            <div className={CORNER}>
+                {minimized ? (
+                    <WizardSyncLauncher
+                        progress={progress}
+                        elapsedSeconds={elapsedSeconds}
+                        onRestore={() => {
+                            reportWizardSyncRestored(eventProps)
+                            restore()
+                        }}
+                    />
+                ) : (
+                    <WizardSyncCard
+                        progress={progress}
+                        elapsedSeconds={elapsedSeconds}
+                        mode={mode}
+                        dashboard={dashboard}
+                        onDashboardClick={handleDashboardClick}
+                        onExpand={() => {
+                            reportWizardSyncExpanded(eventProps)
+                            openDialog()
+                        }}
+                        // Mid-run, the X only minimizes — hiding a live run for good would orphan
+                        // it. Once the run is terminal or the PR exists, the user's part is done,
+                        // so the X becomes the real dismissal (the run never leaves on its own).
+                        onDismiss={(isTerminal || prOpened) && handleClear ? handleClear : handleMinimize}
+                        dismissTooltip={(isTerminal || prOpened) && handleClear ? 'Dismiss' : 'Minimize'}
+                    />
+                )}
+            </div>
             <WizardSyncDialog
                 progress={progress}
                 elapsedSeconds={elapsedSeconds}
@@ -246,17 +258,20 @@ function WizardSyncSurface({
                 isOpen={dialogOpen}
                 onClose={closeDialog}
                 onClear={handleClear}
+                onCancel={onCancel}
+                cancelling={cancelling}
             />
         </>
     )
 }
 
 // A cloud run: the Installation layer streams the pipeline; elapsed comes from the handle's kickoff stamp.
-function WizardSyncCloudFab({ handle, hideCard }: { handle: CloudRunHandle; hideCard: boolean }): JSX.Element {
+function WizardSyncCloudFab({ handle }: { handle: CloudRunHandle }): JSX.Element {
     const { installationProgress, taskRunState } = useValues(
         installationProgressLogic({ mode: 'cloud', runId: handle.runId, taskId: handle.taskId })
     )
-    const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
+    const { cancellingRun } = useValues(activeCloudRunLogic)
+    const { clearActiveCloudRun, cancelActiveCloudRun } = useActions(activeCloudRunLogic)
     const isTerminal = installationProgress.phase === 'completed' || installationProgress.phase === 'error'
     return (
         <WizardSyncSurface
@@ -266,14 +281,15 @@ function WizardSyncCloudFab({ handle, hideCard }: { handle: CloudRunHandle; hide
             mode="cloud"
             runKey={handle.runId}
             onClear={clearActiveCloudRun}
-            hideCard={hideCard}
+            onCancel={cancelActiveCloudRun}
+            cancelling={cancellingRun}
         />
     )
 }
 
 // A finished local run rendered from its persisted snapshot: the session stream gates itself off
 // shortly after a terminal phase (INC-886), but the handoff stays until the user dismisses it.
-function WizardSyncFinishedLocalFab({ hideCard }: { hideCard: boolean }): JSX.Element | null {
+function WizardSyncFinishedLocalFab(): JSX.Element | null {
     const { finishedLocalRun } = useValues(finishedLocalRunLogic)
     const { dismissLocalRun } = useActions(finishedLocalRunLogic)
     if (!finishedLocalRun) {
@@ -287,20 +303,19 @@ function WizardSyncFinishedLocalFab({ hideCard }: { hideCard: boolean }): JSX.El
             mode="local"
             runKey={finishedLocalRun.sessionId}
             onClear={() => dismissLocalRun(finishedLocalRun.sessionId)}
-            hideCard={hideCard}
         />
     )
 }
 
 // A live local run: the wizard session stream is the source; elapsed comes from its started_at.
-function WizardSyncLocalFab({ hideCard }: { hideCard: boolean }): JSX.Element | null {
+function WizardSyncLocalFab(): JSX.Element | null {
     const { installationProgress, latestSession } = useValues(installationProgressLogic({ mode: 'local' }))
     const { dismissedSessionId } = useValues(finishedLocalRunLogic)
     const { dismissLocalRun } = useActions(finishedLocalRunLogic)
     // No session on the stream yet, or the user already dismissed this one — fall back to the
     // persisted finished run (if any) rather than rendering nothing.
     if (!latestSession || latestSession.session_id === dismissedSessionId) {
-        return <WizardSyncFinishedLocalFab hideCard={hideCard} />
+        return <WizardSyncFinishedLocalFab />
     }
     const isTerminal = installationProgress.phase === 'completed' || installationProgress.phase === 'error'
     return (
@@ -311,7 +326,6 @@ function WizardSyncLocalFab({ hideCard }: { hideCard: boolean }): JSX.Element | 
             mode="local"
             runKey={latestSession.session_id}
             onClear={() => dismissLocalRun(latestSession.session_id)}
-            hideCard={hideCard}
         />
     )
 }
@@ -319,13 +333,13 @@ function WizardSyncLocalFab({ hideCard }: { hideCard: boolean }): JSX.Element | 
 // Gate the local SSE behind the cheap detector poll, so a stream is opened only when a run is in
 // flight. Once the detector gates the stream off (terminal grace expired), the persisted finished
 // run keeps the handoff on screen without any stream.
-function WizardSyncLocalGate({ hideCard }: { hideCard: boolean }): JSX.Element | null {
+function WizardSyncLocalGate(): JSX.Element | null {
     useMountedLogic(wizardActiveSessionDetectorLogic)
     const { shouldStream } = useValues(wizardActiveSessionDetectorLogic)
     if (!shouldStream) {
-        return <WizardSyncFinishedLocalFab hideCard={hideCard} />
+        return <WizardSyncFinishedLocalFab />
     }
-    return <WizardSyncLocalFab hideCard={hideCard} />
+    return <WizardSyncLocalFab />
 }
 
 /**
@@ -338,8 +352,6 @@ function WizardSyncLocalGate({ hideCard }: { hideCard: boolean }): JSX.Element |
 export function WizardSyncFab(): JSX.Element | null {
     const syncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
     const { activeCloudRun, panelMounted } = useValues(activeCloudRunLogic)
-    const { activeSceneId } = useValues(sceneLogic)
-    const hideCard = shouldHideWizardSyncCard(activeSceneId)
 
     // An inline install-step progress view is already showing this run, so stay out of its way. The FAB
     // is for after the user moves on from the install step. Both inline views (cloud and local) claim
@@ -351,12 +363,12 @@ export function WizardSyncFab(): JSX.Element | null {
     // while the user was on the test arm, and a mid-experiment flag change must not strand an
     // in-flight run with no surface (and no way to dismiss it). Only STARTING runs is flag-gated.
     if (activeCloudRun) {
-        return <WizardSyncCloudFab handle={activeCloudRun} hideCard={hideCard} />
+        return <WizardSyncCloudFab handle={activeCloudRun} />
     }
     if (syncEnabled) {
-        return <WizardSyncLocalGate hideCard={hideCard} />
+        return <WizardSyncLocalGate />
     }
     // Same reasoning as the cloud handle: a persisted finished run is proof it happened under the
     // test arm, and it must stay dismissible if the flag flips mid-experiment.
-    return <WizardSyncFinishedLocalFab hideCard={hideCard} />
+    return <WizardSyncFinishedLocalFab />
 }

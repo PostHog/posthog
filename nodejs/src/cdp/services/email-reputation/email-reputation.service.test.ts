@@ -8,8 +8,8 @@ import { PostgresUse } from '~/common/utils/db/postgres'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
-import { DEFAULT_THRESHOLDS } from './classifier'
-import { EmailReputationService } from './email-reputation.service'
+import { DEFAULT_THRESHOLDS, ReputationMetrics } from './classifier'
+import { EmailReputationService, representativeVolume } from './email-reputation.service'
 import { HourlyEmailMetricsRow } from './types'
 
 const EVALUATED_AT = '2026-07-10T06:00:00.000Z'
@@ -88,10 +88,13 @@ describe('EmailReputationService', () => {
         const team = await getTeam(hub.postgres, 2)
         teamId = await createTeam(hub.postgres, team!.organization_id)
         mockClickhouse = { query: jest.fn() }
+        // multiplier 1 keeps these tests pinning the pure window-walk mechanics (representative
+        // volume = the fixed target); the multiplier's own sizing behavior has its own block below.
         service = new EmailReputationService(mockClickhouse as any, hub.postgres, {
             targetVolume: 1000,
             minWindowHours: 24,
             lookbackDays: 30,
+            representativeVolumeMultiplier: 1,
             thresholds: DEFAULT_THRESHOLDS,
         })
     })
@@ -261,5 +264,84 @@ describe('EmailReputationService', () => {
         await service.evaluateTeamBatch([teamId], nextRun)
         const teamRows = (await getSnapshots()).filter((r) => r.hog_flow_id === null)
         expect(teamRows.at(-1)).toMatchObject({ state: 'insufficient_data', emails_sent: '0' })
+    })
+
+    describe('representative volume sizing (multiplier 3, the default)', () => {
+        const buckets = (rows: [hoursAgo: number, sent: number][]): Map<number, ReputationMetrics> =>
+            new Map(rows.map(([hoursAgo, sent]) => [HOURS_AGO(hoursAgo), { sent, bounced: 0, complained: 0 }]))
+
+        it.each([
+            ['floor wins for tiny senders', buckets([[2, 200]]), 1000],
+            ['multiplier times the biggest day wins for bigger senders', buckets([[2, 5000]]), 15000],
+            [
+                // Anchoring on the biggest single day (not an average) is what keeps a bursty
+                // sender's window spanning multiple campaigns: this sender's daily average is
+                // well under one batch, and average-based sizing would collapse the window.
+                'bursty sender sizes from the biggest day, not the average',
+                buckets([
+                    [2, 10000],
+                    [26, 100],
+                    [50, 100],
+                ]),
+                30000,
+            ],
+            ['no sends at all falls back to the floor', new Map(), 1000],
+            [
+                'a day of only late-arriving bounces contributes zero volume',
+                new Map([[HOURS_AGO(2), { sent: 0, bounced: 50, complained: 0 }]]),
+                1000,
+            ],
+        ])('%s', (_name, input: Map<number, ReputationMetrics>, expected: number) => {
+            expect(representativeVolume(input, 1000, 3)).toEqual(expected)
+        })
+
+        let scaledService: EmailReputationService
+        beforeEach(() => {
+            scaledService = new EmailReputationService(mockClickhouse as any, hub.postgres, {
+                targetVolume: 1000,
+                minWindowHours: 24,
+                lookbackDays: 30,
+                representativeVolumeMultiplier: 3,
+                thresholds: DEFAULT_THRESHOLDS,
+            })
+        })
+
+        it('one clean campaign cannot wash out yesterday`s disaster', async () => {
+            const flow = await insertEmailFlow()
+            // Yesterday: 1000-send batch at 50% hard bounce. Today: a clean 1000-send batch.
+            // With a fixed 1000-send window today's batch alone would fill it and report 0%
+            // healthy — a false all-clear on the exact signal enforcement decisions use. The
+            // representative volume (3 × the 1000-send max day = 3000) keeps reaching back.
+            mockMetrics([
+                { teamId, appSourceId: flow.id, hourBucket: HOURS_AGO(26), sent: 1000, bounced: 500, complained: 0 },
+                { teamId, appSourceId: flow.id, hourBucket: HOURS_AGO(2), sent: 1000, bounced: 0, complained: 0 },
+            ])
+
+            await scaledService.evaluateTeamBatch([teamId], EVALUATED_AT)
+
+            const teamRow = (await getSnapshots()).find((r) => r.hog_flow_id === null)
+            // 500 bounced / 2000 sent = 25% — still critical, decaying by dilution not amnesia
+            expect(teamRow).toMatchObject({ state: 'critical', emails_sent: '2000' })
+            expect(teamRow.bounce_rate).toBeCloseTo(0.25)
+        })
+
+        it('a weekly batch sender`s window spans its last batches across silent days', async () => {
+            const flow = await insertEmailFlow()
+            // 10k batch last Monday at 6% bounce, clean 10k batch today, nothing in between.
+            // The representative volume is 3 × 10k: sized from the biggest day, the window
+            // reaches across the silent week to the previous batch instead of judging this
+            // sender on today's single clean campaign.
+            mockMetrics([
+                { teamId, appSourceId: flow.id, hourBucket: HOURS_AGO(170), sent: 10000, bounced: 600, complained: 0 },
+                { teamId, appSourceId: flow.id, hourBucket: HOURS_AGO(2), sent: 10000, bounced: 0, complained: 0 },
+            ])
+
+            await scaledService.evaluateTeamBatch([teamId], EVALUATED_AT)
+
+            const teamRow = (await getSnapshots()).find((r) => r.hog_flow_id === null)
+            // 600 / 20000 = 3% — warning: last week's bad batch still counts, diluted by the clean one
+            expect(teamRow).toMatchObject({ state: 'warning', emails_sent: '20000' })
+            expect(teamRow.bounce_rate).toBeCloseTo(0.03)
+        })
     })
 })
