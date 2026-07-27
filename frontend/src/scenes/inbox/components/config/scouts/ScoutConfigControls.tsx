@@ -17,9 +17,12 @@ import type {
 
 import {
     dailyCronToTime,
-    formatRunInterval,
+    DEFAULT_SCOUT_DAILY_TIME,
+    getScoutScheduleMode,
+    getScoutScheduleOptions,
     prettifyScoutSkillName,
-    RUN_INTERVAL_OPTIONS,
+    SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
+    SCOUT_DAILY_AT_SCHEDULE_MODE,
     timeToDailyCron,
 } from '../../../utils/scoutRunsWindow'
 
@@ -35,34 +38,6 @@ interface ScoutConfigFormProps extends ScoutConfigControlsProps {
     deleting?: boolean
     /** True while this scout's config update request is in flight. */
     updating?: boolean
-}
-
-/** Sentinel select values for the scheduled (cron) modes — rolling options use the interval minutes. */
-const DAILY_AT_MODE = 'daily_at'
-const CUSTOM_CRON_MODE = 'custom_cron'
-const DEFAULT_DAILY_TIME = '09:00'
-
-/**
- * The schedule is either a rolling interval OR a cron — one select models that choice.
- * Rolling presets carry the interval minutes; "Daily at a set time" switches to a daily cron
- * (revealing the time picker); a cron the picker can't express shows as a read-only "Custom" mode.
- */
-function scheduleOptions(config: SignalScoutConfig, scheduleMode: string): { value: string; label: string }[] {
-    const options = RUN_INTERVAL_OPTIONS.map((option) => ({
-        value: String(option.minutes),
-        label: option.label,
-    }))
-    if (!RUN_INTERVAL_OPTIONS.some((option) => option.minutes === config.run_interval_minutes)) {
-        options.push({
-            value: String(config.run_interval_minutes),
-            label: formatRunInterval(config.run_interval_minutes),
-        })
-    }
-    options.push({ value: DAILY_AT_MODE, label: 'Daily at a set time' })
-    if (scheduleMode === CUSTOM_CRON_MODE) {
-        options.push({ value: CUSTOM_CRON_MODE, label: `Custom (${config.run_cron_schedule})` })
-    }
-    return options
 }
 
 /** Enable/disable toggle for a scout. Lives on the row, not in the settings form. */
@@ -98,11 +73,7 @@ export function ScoutConfigForm({
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
     const { timezone: projectTimezone } = useValues(teamLogic)
     const dailyTime = dailyCronToTime(config.run_cron_schedule)
-    const scheduleMode = config.run_cron_schedule
-        ? dailyTime !== null
-            ? DAILY_AT_MODE
-            : CUSTOM_CRON_MODE
-        : String(config.run_interval_minutes)
+    const scheduleMode = getScoutScheduleMode(config)
     const controlsDisabledReason = updating
         ? 'Saving scout settings'
         : config.enabled
@@ -115,7 +86,7 @@ export function ScoutConfigForm({
                 <div className="flex flex-col min-w-0">
                     <span className="text-xs text-default">Schedule</span>
                     <span className="text-[11.5px] text-muted">
-                        {scheduleMode === CUSTOM_CRON_MODE
+                        {scheduleMode === SCOUT_CUSTOM_CRON_SCHEDULE_MODE
                             ? 'A cron schedule set via the API'
                             : 'A rolling cadence, or a set time each day'}
                     </span>
@@ -123,15 +94,17 @@ export function ScoutConfigForm({
                 <LemonSelect
                     size="small"
                     value={scheduleMode}
-                    options={scheduleOptions(config, scheduleMode)}
+                    options={getScoutScheduleOptions(config)}
                     disabledReason={controlsDisabledReason}
                     className="w-44"
                     onChange={(value) => {
-                        if (value === scheduleMode || value === CUSTOM_CRON_MODE) {
+                        if (value === scheduleMode || value === SCOUT_CUSTOM_CRON_SCHEDULE_MODE) {
                             return
                         }
-                        if (value === DAILY_AT_MODE) {
-                            onUpdate(config.id, { run_cron_schedule: timeToDailyCron(dailyTime ?? DEFAULT_DAILY_TIME) })
+                        if (value === SCOUT_DAILY_AT_SCHEDULE_MODE) {
+                            onUpdate(config.id, {
+                                run_cron_schedule: timeToDailyCron(dailyTime ?? DEFAULT_SCOUT_DAILY_TIME),
+                            })
                             return
                         }
                         // A rolling cadence replaces any cron — the schedule is one or the other.
@@ -139,7 +112,7 @@ export function ScoutConfigForm({
                     }}
                 />
             </div>
-            {scheduleMode === DAILY_AT_MODE ? (
+            {scheduleMode === SCOUT_DAILY_AT_SCHEDULE_MODE ? (
                 <div className="flex items-center justify-between gap-4">
                     <div className="flex flex-col min-w-0">
                         <span className="text-xs text-default">Run time</span>
@@ -150,7 +123,7 @@ export function ScoutConfigForm({
                         type="time"
                         step={60}
                         size="small"
-                        defaultValue={dailyTime ?? DEFAULT_DAILY_TIME}
+                        defaultValue={dailyTime ?? DEFAULT_SCOUT_DAILY_TIME}
                         disabledReason={controlsDisabledReason}
                         className="w-44"
                         onBlur={(event) => {

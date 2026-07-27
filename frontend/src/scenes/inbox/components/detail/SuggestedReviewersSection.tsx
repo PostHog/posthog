@@ -245,7 +245,8 @@ function ReviewerRow({
     )
 
     return (
-        <div className="group flex items-start gap-2 rounded px-1.5 py-1.5 transition-colors hover:bg-fill-highlight-50">
+        <div className="group flex items-start gap-2 rounded px-1.5 py-1.5">
+            {/* no row hover: the row isn't clickable, only the remove button (revealed on group hover) is */}
             <Tooltip
                 title={
                     reviewer.user

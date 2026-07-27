@@ -19,8 +19,8 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { stripHTTP } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -35,8 +35,8 @@ import {
 } from '~/types'
 
 import { ACTIONS_PER_PAGE, actionsLogic } from '../logics/actionsLogic'
+import { ActionStepConditions, ActionStepSummary } from '../utils/actionStepDescription'
 import { deleteActionWithWarning } from '../utils/deleteAction'
-import { SCREEN_NAME_MATCHING_LABEL, type ScreenNameMatching, isScreenNameFilter } from '../utils/screenName'
 import { NewActionButton } from './NewActionButton'
 
 export function ActionsTable(): JSX.Element {
@@ -108,75 +108,18 @@ export function ActionsTable(): JSX.Element {
             title: 'Type',
             key: 'type',
             render: function RenderType(_, action: ActionType): JSX.Element {
+                if (!action.steps?.length) {
+                    return <i>Empty – set this action up</i>
+                }
                 return (
                     <span>
-                        {action.steps?.length ? (
-                            action.steps.map((step, index) => (
-                                <div key={index}>
-                                    {(() => {
-                                        let url = stripHTTP(step.url || '')
-                                        url = url.slice(0, 40) + (url.length > 40 ? '...' : '')
-                                        switch (step.event) {
-                                            case '$autocapture':
-                                                return 'Autocapture'
-                                            case '$pageview':
-                                                switch (step.url_matching) {
-                                                    case 'regex':
-                                                        return (
-                                                            <>
-                                                                Page view URL matches regex <strong>{url}</strong>
-                                                            </>
-                                                        )
-                                                    case 'exact':
-                                                        return (
-                                                            <>
-                                                                Page view URL matches exactly <strong>{url}</strong>
-                                                            </>
-                                                        )
-                                                    default:
-                                                        return (
-                                                            <>
-                                                                Page view URL contains <strong>{url}</strong>
-                                                            </>
-                                                        )
-                                                }
-                                            case '$screen': {
-                                                const screenFilter = step.properties?.find(isScreenNameFilter)
-                                                if (screenFilter && 'value' in screenFilter && screenFilter.value) {
-                                                    const operator =
-                                                        'operator' in screenFilter
-                                                            ? (screenFilter.operator as ScreenNameMatching)
-                                                            : 'icontains'
-                                                    return (
-                                                        <>
-                                                            Screen name {SCREEN_NAME_MATCHING_LABEL[operator]}{' '}
-                                                            <strong>
-                                                                {Array.isArray(screenFilter.value)
-                                                                    ? screenFilter.value.join(', ')
-                                                                    : String(screenFilter.value)}
-                                                            </strong>
-                                                        </>
-                                                    )
-                                                }
-                                                return 'Mobile screen'
-                                            }
-                                            case '':
-                                            case null:
-                                            case undefined:
-                                                return 'Any event'
-                                            default:
-                                                return (
-                                                    <>
-                                                        Event: <strong>{step.event}</strong>
-                                                    </>
-                                                )
-                                        }
-                                    })()}
+                        {action.steps.map((step, index) => (
+                            <Tooltip key={index} title={<ActionStepConditions step={step} />} placement="right">
+                                <div className="w-fit">
+                                    <ActionStepSummary step={step} />
                                 </div>
-                            ))
-                        ) : (
-                            <i>Empty – set this action up</i>
-                        )}
+                            </Tooltip>
+                        ))}
                     </span>
                 )
             },

@@ -20,6 +20,7 @@ import type {
     LoopPreviewDTOApi,
     LoopPreviewRequestApi,
     LoopRunPageApi,
+    LoopSkillBundlesWriteApi,
     LoopWriteApi,
     LoopsListParams,
     LoopsRunsRetrieveParams,
@@ -114,7 +115,7 @@ export const getCodeInvitesCheckAccessRetrieveUrl = () => {
 }
 
 /**
- * Check whether the authenticated user has access to PostHog Code and to Loops.
+ * Check whether the authenticated user has access to PostHog Desktop and to Loops.
  * @summary Check access
  */
 export const codeInvitesCheckAccessRetrieve = async (options?: RequestInit): Promise<void> => {
@@ -129,7 +130,7 @@ export const getCodeInvitesRedeemCreateUrl = () => {
 }
 
 /**
- * Redeem a PostHog Code invite code to enable access.
+ * Redeem a PostHog Desktop invite code to enable access.
  * @summary Redeem invite code
  */
 export const codeInvitesRedeemCreate = async (
@@ -320,6 +321,28 @@ export const loopsRunsRetrieve = async (
     return apiMutator<LoopRunPageApi>(getLoopsRunsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLoopsSkillBundlesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/skill_bundles/`
+}
+
+/**
+ * Replaces the loop's attached skill bundles wholesale: zipped local skills whose contents are seeded into every fired run's sandbox. Send an empty list to detach every skill. Owner-only on team loops, like other identity-bearing configuration.
+ * @summary Replace a loop's skill bundles
+ */
+export const loopsSkillBundlesUpdate = async (
+    projectId: string,
+    id: string,
+    loopSkillBundlesWriteApi: LoopSkillBundlesWriteApi,
+    options?: RequestInit
+): Promise<LoopDTOApi> => {
+    return apiMutator<LoopDTOApi>(getLoopsSkillBundlesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(loopSkillBundlesWriteApi),
     })
 }
 

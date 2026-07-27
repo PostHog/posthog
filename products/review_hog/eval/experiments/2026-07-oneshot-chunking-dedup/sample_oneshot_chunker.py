@@ -8,7 +8,7 @@ call (~cents, no sandbox), sequential.
     N_SAMPLES=5 OUT_FILE=products/review_hog/eval/experiments/2026-07-oneshot-chunking-dedup/runs/chunker-offline-sample.md \
         python manage.py shell -c "exec(open('products/review_hog/eval/experiments/2026-07-oneshot-chunking-dedup/sample_oneshot_chunker.py').read())"
 
-Gotcha: a PostHog Code desktop-harness shell overrides LLM_GATEWAY_URL to the app's own proxy —
+Gotcha: a PostHog Desktop harness shell overrides LLM_GATEWAY_URL to the app's own proxy —
 prefix the command with LLM_GATEWAY_URL=http://localhost:3308 when driving this from an agent shell.
 """
 
