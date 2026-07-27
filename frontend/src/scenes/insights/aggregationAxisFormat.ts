@@ -92,7 +92,7 @@ export const formatAggregationAxisValue = (
         (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_postfix
     let formattedValue = humanFriendlyNumber(
         value,
-        maxDecimalPlaces ?? significantDecimalPlaces(value),
+        maxDecimalPlaces ?? significantDecimalPlaces(value, minDecimalPlaces),
         minDecimalPlaces
     )
     if (aggregationAxisFormat) {
@@ -107,10 +107,16 @@ export const formatAggregationAxisValue = (
                 formattedValue = formatNanoseconds(value)
                 break
             case 'percentage':
-                formattedValue = percentage(value / 100, maxDecimalPlaces ?? significantDecimalPlaces(value))
+                formattedValue = percentage(
+                    value / 100,
+                    maxDecimalPlaces ?? significantDecimalPlaces(value, minDecimalPlaces)
+                )
                 break
             case 'percentage_scaled':
-                formattedValue = percentage(value, maxDecimalPlaces ?? significantDecimalPlaces(value * 100))
+                formattedValue = percentage(
+                    value,
+                    maxDecimalPlaces ?? significantDecimalPlaces(value * 100, minDecimalPlaces)
+                )
                 break
             case 'currency':
                 // In the rare case where we get an error because we have an invalid currency code

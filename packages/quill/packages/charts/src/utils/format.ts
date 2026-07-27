@@ -21,11 +21,13 @@ function validateFractionDigits(maximumFractionDigits: number, fallback: number)
  *  anything at or above 0.1, and one more for every extra leading zero below that. A flat two
  *  decimals collapses a small-valued axis into repeated labels: ticks over 0–0.012 all round to
  *  "0.01" or "0". */
+const MAX_SIGNIFICANT_DECIMAL_PLACES = 10
+
 export function significantDecimalPlaces(value: number, minimum: number = DEFAULT_DECIMAL_PLACES): number {
     if (!isFinite(value) || value === 0) {
         return minimum
     }
-    return Math.min(Math.max(minimum, 1 - Math.floor(Math.log10(Math.abs(value)))), 100)
+    return Math.min(Math.max(minimum, 1 - Math.floor(Math.log10(Math.abs(value)))), MAX_SIGNIFICANT_DECIMAL_PLACES)
 }
 
 export function humanFriendlyNumber(

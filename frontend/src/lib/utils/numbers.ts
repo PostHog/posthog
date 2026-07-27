@@ -68,11 +68,13 @@ export function formatPercentageDiff(current: number, previous: number): string 
 /** Fraction digits needed to keep two significant digits — {@link DEFAULT_DECIMAL_PLACES} for
  *  anything at or above 0.1, and one more for every extra leading zero below that. A flat two
  *  decimals renders a series of small values as a run of identical "0.01" / "0" labels. */
+const MAX_SIGNIFICANT_DECIMAL_PLACES = 10
+
 export function significantDecimalPlaces(value: number, minimum: number = DEFAULT_DECIMAL_PLACES): number {
     if (!isFinite(value) || value === 0) {
         return minimum
     }
-    return Math.min(Math.max(minimum, 1 - Math.floor(Math.log10(Math.abs(value)))), 100)
+    return Math.min(Math.max(minimum, 1 - Math.floor(Math.log10(Math.abs(value)))), MAX_SIGNIFICANT_DECIMAL_PLACES)
 }
 
 /** Format number with comma as the thousands separator. */
