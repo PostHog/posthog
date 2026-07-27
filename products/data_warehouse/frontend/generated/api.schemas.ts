@@ -2513,6 +2513,7 @@ export interface CredentialApi {
  * * `DuckLake` - DuckLake
  * * `Starburst` - Starburst
  * * `Easybill` - Easybill
+ * * `Excel` - Excel
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3772,6 +3773,7 @@ export const ExternalDataSourceTypeEnumApi = {
     DuckLake: 'DuckLake',
     Starburst: 'Starburst',
     Easybill: 'Easybill',
+    Excel: 'Excel',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -4124,7 +4126,7 @@ export type WarehouseTablesListParams = {
 }
 
 /**
- * How the file will be read when the table is created.
+ * How the file will be read. 'xlsx' is stored for the Excel source to import; the other formats back a self-managed table read in place.
  */
 export type WarehouseTablesUploadFileCreateBodyFileFormat =
     (typeof WarehouseTablesUploadFileCreateBodyFileFormat)[keyof typeof WarehouseTablesUploadFileCreateBodyFileFormat]
@@ -4133,12 +4135,13 @@ export const WarehouseTablesUploadFileCreateBodyFileFormat = {
     Csv: 'csv',
     Json: 'json',
     Parquet: 'parquet',
+    Xlsx: 'xlsx',
 } as const
 
 export type WarehouseTablesUploadFileCreateBody = {
     /** The file to upload. */
     file: Blob
-    /** How the file will be read when the table is created. */
+    /** How the file will be read. 'xlsx' is stored for the Excel source to import; the other formats back a self-managed table read in place. */
     file_format: WarehouseTablesUploadFileCreateBodyFileFormat
 }
 
