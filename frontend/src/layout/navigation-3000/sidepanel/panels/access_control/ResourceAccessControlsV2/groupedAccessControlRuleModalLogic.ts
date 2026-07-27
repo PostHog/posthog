@@ -1988,15 +1988,9 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
                 formResourceLevels: Record<APIScopeObject, FormAccessLevel>
             ) =>
                 (resource: APIScopeObject, resourceLabel: string) => {
-                    const {
-                        access_level,
-                        inherited_access_level,
-                        inherited_access_level_reason,
-                        minimum,
-                        maximum,
-                        available,
-                    } = entry.resources[resource] as EffectiveAccessControlEntry
-                    const levelOptions = getLevelOptionsForResource(available ?? availableResourceLevels, {
+                    const { access_level, inherited_access_level, inherited_access_level_reason, minimum, maximum } =
+                        entry.resources[resource] as EffectiveAccessControlEntry
+                    const levelOptions = getLevelOptionsForResource(availableResourceLevels, {
                         minimum,
                         maximum,
                         inheritedLevel: inherited_access_level,

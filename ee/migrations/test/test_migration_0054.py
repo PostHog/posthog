@@ -43,33 +43,6 @@ class TestBackfillLlmPlaygroundAccessControl(BaseTest):
         assert backfilled is not None
         assert backfilled.access_level == "none"
 
-    @parameterized.expand(
-        [
-            ("none", "none"),
-            ("viewer", "editor"),
-            ("editor", "editor"),
-            ("manager", "editor"),
-        ]
-    )
-    def test_collapses_source_level_into_the_playground_ladder(self, source_level, expected_level):
-        # llm_playground only offers none/editor. Copying "viewer" or "manager" verbatim would write a
-        # level outside the ladder, which the runtime access checks index into.
-        AccessControl.objects.create(
-            team=self.team,
-            resource="llm_analytics",
-            resource_id=None,
-            access_level=source_level,
-            organization_member=self.organization_membership,
-        )
-
-        backfill_llm_playground_access_control(apps, None)
-
-        backfilled = AccessControl.objects.filter(
-            resource="llm_playground", organization_member=self.organization_membership
-        ).first()
-        assert backfilled is not None
-        assert backfilled.access_level == expected_level
-
     def test_does_not_touch_other_resources(self):
         AccessControl.objects.create(
             team=self.team,

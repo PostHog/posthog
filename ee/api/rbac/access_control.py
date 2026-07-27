@@ -478,9 +478,6 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 "access_level": saved_resource_levels.get(r),
                 "minimum": minimum_access_level(r),
                 "maximum": highest_access_level(r),
-                # Most resources offer the full ladder, but some (e.g. llm_playground) omit levels
-                # from the middle, which minimum/maximum alone can't express.
-                "available": list(ordered_access_levels(r)),
             }
             for r in ACCESS_CONTROL_RESOURCES
         }
@@ -565,7 +562,6 @@ class AccessControlViewSetMixin(_GenericViewSet):
                     "inherited_access_level_reason": resource_result.inherited_access_level_reason,
                     "minimum": minimum_access_level(resource),
                     "maximum": highest_access_level(resource),
-                    "available": list(ordered_access_levels(resource)),
                 }
 
             results.append(
@@ -579,7 +575,6 @@ class AccessControlViewSetMixin(_GenericViewSet):
                         "inherited_access_level_reason": project_result.inherited_access_level_reason,
                         "minimum": minimum_access_level("project"),
                         "maximum": highest_access_level("project"),
-                        "available": list(ordered_access_levels("project")),
                     },
                     "resources": resource_entries,
                 }
@@ -709,7 +704,6 @@ class AccessControlViewSetMixin(_GenericViewSet):
                     "inherited_access_level_reason": resource_result.inherited_access_level_reason,
                     "minimum": minimum_access_level(resource),
                     "maximum": highest_access_level(resource),
-                    "available": list(ordered_access_levels(resource)),
                 }
 
             user = membership.user
@@ -730,7 +724,6 @@ class AccessControlViewSetMixin(_GenericViewSet):
                         "inherited_access_level_reason": project_result.inherited_access_level_reason,
                         "minimum": minimum_access_level("project"),
                         "maximum": highest_access_level("project"),
-                        "available": list(ordered_access_levels("project")),
                     },
                     "resources": resource_entries,
                 }

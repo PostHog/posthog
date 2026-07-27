@@ -116,11 +116,6 @@ export const orderedAccessLevels = (resourceType: AccessControlResourceType): Ac
     if (resourceType === AccessControlResourceType.ActivityLog || resourceType === AccessControlResourceType.Toolbar) {
         return [AccessControlLevel.None, AccessControlLevel.Viewer]
     }
-    if (resourceType === AccessControlResourceType.LlmPlayground) {
-        // Mirrors ordered_access_levels in posthog/rbac/user_access_control.py — no viewer or manager,
-        // since the playground is a single stateless page you can either use or not.
-        return [AccessControlLevel.None, AccessControlLevel.Editor]
-    }
     return [AccessControlLevel.None, AccessControlLevel.Viewer, AccessControlLevel.Editor, AccessControlLevel.Manager]
 }
 

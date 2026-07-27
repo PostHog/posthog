@@ -199,24 +199,6 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
             assert res.status_code == status.HTTP_400_BAD_REQUEST, f"Failed for level {level}: {res.json()}"
             assert "cannot be set above the maximum 'viewer'" in res.json()["detail"]
 
-    def test_llm_playground_only_accepts_none_and_editor(self):
-        self._org_membership(OrganizationMembership.Level.ADMIN)
-
-        for level in ["viewer", "manager"]:
-            res = self.client.put(
-                "/api/projects/@current/resource_access_controls",
-                {"resource": "llm_playground", "access_level": level},
-            )
-            assert res.status_code == status.HTTP_400_BAD_REQUEST, f"Failed for level {level}: {res.json()}"
-            assert "Must be one of: none, editor" in res.json()["detail"]
-
-        for level in ["none", "editor"]:
-            res = self.client.put(
-                "/api/projects/@current/resource_access_controls",
-                {"resource": "llm_playground", "access_level": level},
-            )
-            assert res.status_code == status.HTTP_200_OK, f"Failed for level {level}: {res.json()}"
-
     def test_activity_log_access_restricted_for_users_without_access(self):
         """Test that users without access to activity_log cannot access activity log endpoints"""
         self._org_membership(OrganizationMembership.Level.ADMIN)

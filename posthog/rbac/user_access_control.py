@@ -184,10 +184,6 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
 def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
     if resource in ["project", "organization"]:
         return list(ACCESS_CONTROL_LEVELS_MEMBER)
-    if resource in ["llm_playground"]:
-        # The playground is a single stateless page: you can either use it or you can't. There's
-        # nothing to view without editing, and no objects for a manager to share.
-        return ["none", "editor"]
     return list(ACCESS_CONTROL_LEVELS_RESOURCE)
 
 

@@ -753,10 +753,6 @@ class AccessControlPermission(ScopeBasePermission):
         if resource in ["project", "organization"]:
             READ_LEVEL = ordered_access_levels_list[-2]
             WRITE_LEVEL = ordered_access_levels_list[-1]
-        elif len(ordered_access_levels_list) < 4:
-            # A resource can omit levels (e.g. llm_playground offers only none/editor), leaving too few
-            # to carve out a separate read level — the one level that grants access covers both.
-            READ_LEVEL = WRITE_LEVEL = ordered_access_levels_list[-1]
         else:
             READ_LEVEL = ordered_access_levels_list[-3]
             WRITE_LEVEL = ordered_access_levels_list[-2]
