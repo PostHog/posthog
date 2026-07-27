@@ -949,16 +949,15 @@ async def test_run_workflow_revert_materialization(
 
     with (
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
-        unittest.mock.patch(
-            "posthog.temporal.data_modeling.run_workflow.get_query_row_count",
-            new_callable=unittest.mock.AsyncMock,
-            return_value=0,
-        ),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_query_row_count", return_value=0),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_s3_client"),
+        # Reaches object storage before hogql_table runs; left real, an unready bucket fails into
+        # the generic error branch, which satisfies every assertion below without reverting anything.
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow._get_credentials", return_value={}),
         unittest.mock.patch("products.data_modeling.backend.logic.enrich_view_semantics._start_enrichment_workflow"),
         unittest.mock.patch(
             "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"
-        ),
+        ) as mock_delete_schedule,
     ):
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with temporalio.worker.Worker(
@@ -994,6 +993,10 @@ async def test_run_workflow_revert_materialization(
 
     await database_sync_to_async(saved_query.refresh_from_db)()
     assert saved_query.is_materialized is False
+    # Only the revert path clears latest_error and drops the schedule; the assertions above hold
+    # for any failed workflow, so these are what pin the revert.
+    assert saved_query.latest_error is None
+    mock_delete_schedule.assert_called_once()
 
 
 async def test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures(
