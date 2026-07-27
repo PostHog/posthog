@@ -103,6 +103,7 @@ depends_on = [
     "products.event_definitions",
     "products.experiments",
     "products.feature_flags",
+    "products.foundry",
     "products.growth",
     "products.legal_documents",
     "products.links",

@@ -22,6 +22,7 @@ class TestBetEndpoints(APIBaseTest):
     def test_lifecycle_over_http(self):
         bet = self._create()
         assert bet["state"] == "drafted"
+        assert bet["execution_mode"] == "external"
         bet_url = f"/api/projects/{self.team.id}/bets/{bet['id']}"
 
         funded = self.client.post(f"{bet_url}/fund/")
@@ -61,3 +62,22 @@ class TestBetEndpoints(APIBaseTest):
 
         listed = self.client.get(f"/api/projects/{self.team.id}/bets/").json()
         assert [b["id"] for b in listed] == [bet["id"]]
+
+    def test_node_events_wire_up_the_node_tree_endpoint(self):
+        bet = self._create()
+        bet_url = f"/api/projects/{self.team.id}/bets/{bet['id']}"
+        self.client.post(f"{bet_url}/fund/")
+
+        malformed = self.client.post(f"{bet_url}/events/", data={"kind": "node.spawned", "payload": {}}, format="json")
+        assert malformed.status_code == status.HTTP_400_BAD_REQUEST
+
+        spawned = self.client.post(
+            f"{bet_url}/events/",
+            data={"kind": "node.spawned", "payload": {"node_id": "root", "runner": "claude-code"}},
+            format="json",
+        )
+        assert spawned.status_code == status.HTTP_201_CREATED, spawned.json()
+
+        nodes = self.client.get(f"{bet_url}/nodes/").json()
+        assert [n["node_id"] for n in nodes] == ["root"]
+        assert nodes[0]["status"] == "spawned"

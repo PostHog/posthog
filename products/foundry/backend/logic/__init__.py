@@ -121,7 +121,30 @@ def fund_bet(bet: Bet, user: User | None, serializer_context: dict | None = None
         user,
         {"feature_flag_id": experiment.feature_flag_id, "experiment_id": experiment.id},
     )
+    if ExecutionMode(bet.execution_mode) == ExecutionMode.MANAGED:
+        transaction.on_commit(lambda: _start_managed_run(bet))
     return bet
+
+
+def _start_managed_run(bet: Bet) -> None:
+    """Kick off the root node of a managed bet's foundry-run-bet workflow tree.
+
+    Deferred import: the workflow module (and the temporalio workflow sandbox it drags in)
+    stays off this module's import path until a managed bet is actually funded.
+    """
+    from ..temporal.client import execute_foundry_run_bet_workflow  # noqa: PLC0415
+
+    caps = (bet.run_config or {}).get("caps") or {}
+    execute_foundry_run_bet_workflow(
+        bet_id=str(bet.id),
+        team_id=bet.team_id,
+        command=(bet.run_config or {}).get("command", ""),
+        env=(bet.run_config or {}).get("env") or {},
+        memory_repo_url=bet.memory_repo_url,
+        max_depth=caps.get("max_depth"),
+        max_children=caps.get("max_children"),
+        max_cost=caps.get("max_cost"),
+    )
 
 
 def apply_event(bet: Bet, kind: BetEventKind, payload: dict[str, Any], user: User | None) -> BetEvent:

@@ -221,7 +221,8 @@ class CreateBetEventSerializer(serializers.Serializer):
         payload_serializer_cls = _NODE_PAYLOAD_SERIALIZERS.get(BetEventKind(attrs["kind"]))
         if payload_serializer_cls is not None:
             payload_serializer = payload_serializer_cls(data=attrs.get("payload") or {})
-            payload_serializer.is_valid(raise_exception=True)
+            if not payload_serializer.is_valid():
+                raise serializers.ValidationError({"payload": payload_serializer.errors})
             attrs["payload"] = payload_serializer.validated_data
         return attrs
 

@@ -209,6 +209,10 @@ from products.exports.backend.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
+from products.foundry.backend.facade.temporal import (
+    ACTIVITIES as FOUNDRY_ACTIVITIES,
+    WORKFLOWS as FOUNDRY_WORKFLOWS,
+)
 from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
@@ -493,6 +497,11 @@ _task_queue_specs = [
         settings.STAMPHOG_TASK_QUEUE,
         STAMPHOG_WORKFLOWS,
         STAMPHOG_ACTIVITIES,
+    ),
+    (
+        settings.FOUNDRY_TASK_QUEUE,
+        FOUNDRY_WORKFLOWS,
+        FOUNDRY_ACTIVITIES,
     ),
 ]
 
