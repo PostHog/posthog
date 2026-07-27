@@ -45,7 +45,7 @@ function FixOrStatus({ report }: { report: SignalReportApi }): JSX.Element {
         const state = derivePrState(report.status, report.implementation_pr_merged)
         return (
             <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold">{FIX_LABEL[state]}</span>
+                <span className="text-xs font-semibold">{FIX_LABEL[state]}</span>
                 <PrBadge prNumber={prNumber} prUrl={prUrl} state={state} />
             </div>
         )
@@ -70,20 +70,20 @@ function FixOrStatus({ report }: { report: SignalReportApi }): JSX.Element {
  */
 export function ThreadReportEntry({ report }: { report: SignalReportApi }): JSX.Element {
     const headline = deriveHeadline(report.summary)
-    // `mr-10 mb-4` is the geometry a customer-side message uses, so this sits in the same column
-    // rather than spanning wider than everything around it.
+    // Full width, unlike a message: messages are inset because they belong to one side of the
+    // conversation, and this belongs to neither.
     return (
-        <div className="mr-10 mb-4">
+        <div className="mb-4">
             {/* Same header structure as a message: who on the left, then the facts about this entry
                 clustered on the right, so the thread keeps one rhythm down the page. */}
             <div className="flex items-center justify-between w-full gap-2 mb-1">
                 <div className="flex items-center gap-1.5 min-w-0">
                     {/* The PostHog mark rather than an avatar: this is our software acting, not a
                         teammate with a profile. Mono and theme-following so it reads as a byline next to
-                        the name instead of competing with it. Height is set by class because the size
-                        tokens start at 20px, and it's set below a message avatar's 18px so the mark's
-                        wider footprint still occupies about the same space as one. */}
-                    <Logomark variant="mono" color="primary" className="h-3 w-auto shrink-0" />
+                        the name instead of competing with it. Height comes from a class because the size
+                        tokens start at 20px, and it lands just under a message avatar's 18px: small
+                        enough to sit on the same rhythm, big enough to still read as the PostHog mark. */}
+                    <Logomark variant="mono" color="primary" className="h-4 w-auto shrink-0" />
                     <span className="text-sm font-medium">Self-driving</span>
                     <Tooltip title="A PostHog agent that investigates tickets against your codebase. Not a teammate.">
                         <span className="text-xs text-muted-alt">PostHog agent</span>
