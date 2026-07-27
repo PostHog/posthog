@@ -2209,9 +2209,9 @@ snapshots:
     errortracking-volumesparkline--events-before-data-range--light:
         hash: v1.k794b7964.683c24f2509215d174cda4a69fd2aa0f021af91d45f7ccdab742f78755c2e4ca.l0oCDgytHq-3gkB5Nza3SN1Tpmvc_LP_dsSdGCfoXxo
     exporter-funnels--funnel-time-to-convert-insight--dark:
-        hash: v1.k794b7964.df689a0663d5c8465aff7085aafd8a71ff018e3b311bb9cc625bfbdc82fbe411.D4ShgJ5fysJWLIdyxzR19hb47kaQEHUJbeDtTXHPcvw
+        hash: v1.k794b7964.31a385f5b5a985aebeb8cbd538c3402fc02bfebbf632e6aebf2371d19f78b247.y7Y0UzQ4rQRJKVMFIN8Vwnv2F_fg93Ld8tOVLeYlUnQ
     exporter-funnels--funnel-time-to-convert-insight--light:
-        hash: v1.k794b7964.f1729da9a6b27a50180136e94c602c3c63e004093653e7c602ae6609626e19a2.v-HhwgvZ4eFuV-PADE_y_cUFWzt2O2_k5rdjhOivZPU
+        hash: v1.k794b7964.beb4ef7a66e9e0155d079a87b09364badff660b95d23cddca36b8ab7db4b2bd1.nYFm-3qtqbTWpOZyN_xoy9C-Y9Fp6QhQVIyUix0eonU
     exporter-funnels--funnel-top-to-bottom-insight--dark:
         hash: v1.k794b7964.de29e0a4751c337b9e03170399ae123d95e414ee6603c95927ba75832595fc0d.Dm1yLDqoTUl0jdPmKIzu7LPNjt1x2-gxz4JhoXe88io
     exporter-funnels--funnel-top-to-bottom-insight--light:
