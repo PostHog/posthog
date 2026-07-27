@@ -22,7 +22,6 @@ from products.tasks.backend.exceptions import (
     SnapshotTimeoutError,
 )
 from products.tasks.backend.logic.services.local_packages import LocalPackage
-from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     MAX_PROVISION_LOG_EXCERPT_LINES,
     summarize_modal_output,
@@ -449,29 +448,6 @@ class TestModalSandboxAgentServer:
         assert "agentsh exec" not in command
         assert "nohup" in command
 
-    def test_start_agent_server_clears_bundled_skills_before_launch(self, mock_sandbox: Any) -> None:
-        mock_sandbox.config = SandboxConfig(
-            name="test-sandbox",
-            environment_variables={ENV_DISABLE_BUNDLED_SKILLS: "1"},
-        )
-        mock_sandbox.execute = MagicMock(
-            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
-        )
-
-        mock_sandbox.start_agent_server(
-            repository="posthog/posthog",
-            task_id="task-123",
-            run_id="run-456",
-            wait_for_health=False,
-        )
-
-        commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]
-        clear_index = next(
-            index for index, command in enumerate(commands) if "rm -rf" in command and "skills" in command
-        )
-        launch_index = next(index for index, command in enumerate(commands) if "agent-server" in command)
-        assert clear_index < launch_index
-
     def test_start_agent_server_waits_for_repository_before_launch(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
@@ -665,6 +641,8 @@ class TestModalSandboxAgentServer:
         mock_sandbox.execute = MagicMock(
             side_effect=[
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim write (mv)
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim chmod
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # --posthogExecPermissionRegex probe
                 ExecutionResult(stdout="", stderr="", exit_code=1, error=None),
                 ExecutionResult(stdout="some log output", stderr="", exit_code=0, error=None),
@@ -720,6 +698,8 @@ class TestModalSandboxAgentServer:
         mock_sandbox.execute = MagicMock(
             side_effect=[
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim write (mv)
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim chmod
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # --posthogExecPermissionRegex probe
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
                 ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),

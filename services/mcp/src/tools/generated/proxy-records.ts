@@ -1,12 +1,16 @@
 // AUTO-GENERATED from services/mcp/definitions/proxy-records.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
-import { ProxyRecordsCreateBody, ProxyRecordsDestroyParams, ProxyRecordsDiagnoseCreateParams, ProxyRecordsRetrieveParams, ProxyRecordsRetryCreateParams } from '@/generated/proxy-records/api'
+import {
+    ProxyRecordsCreateBody,
+    ProxyRecordsDestroyParams,
+    ProxyRecordsDiagnoseCreateParams,
+    ProxyRecordsRetrieveParams,
+    ProxyRecordsRetryCreateParams,
+} from '@/generated/proxy-records/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ProxyCreateSchema = ProxyRecordsCreateBody
 
@@ -16,7 +20,9 @@ const proxyCreate = (): ToolBase<typeof ProxyCreateSchema, Schemas.ProxyRecord> 
     handler: async (context: Context, params: z.infer<typeof ProxyCreateSchema>) => {
         const orgId = await context.stateManager.getOrgID()
         const body: Record<string, unknown> = {}
-        if (params.domain !== undefined) body["domain"] = params.domain
+        if (params.domain !== undefined) {
+            body['domain'] = params.domain
+        }
         const result = await context.api.request<Schemas.ProxyRecord>({
             method: 'POST',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/proxy_records/`,
@@ -77,7 +83,7 @@ const proxyList = (): ToolBase<typeof ProxyListSchema, WithPostHogUrl<Schemas.Pr
     name: 'proxy-list',
     schema: ProxyListSchema,
     // eslint-disable-next-line no-unused-vars
-handler: async (context: Context, params: z.infer<typeof ProxyListSchema>) => {
+    handler: async (context: Context, params: z.infer<typeof ProxyListSchema>) => {
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.ProxyRecordListResponse[]>({
             method: 'GET',

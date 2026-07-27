@@ -19,7 +19,7 @@ def _get_installations(team: Team, user: User) -> list[dict]:
     """Return the MCP installations available to this user's agent: their
     personal installations plus team-shared ones.
 
-    Per-URL resolution matches the sandbox facade and PostHog Code: a ready
+    Per-URL resolution matches the sandbox facade and PostHog Desktop: a ready
     personal installation wins over a shared one (the agent acts as the user
     rather than through a teammate's shared credential), but a dead personal
     row doesn't shadow a working shared one. Unready shared rows are hidden

@@ -8,11 +8,7 @@ import { type SurveyData, SurveyView } from 'products/surveys/mcp/apps'
 import { AppWrapper } from '../../components/AppWrapper'
 
 function SurveyApp(): JSX.Element {
-    return (
-        <AppWrapper<SurveyData> appName="PostHog Survey">
-            {({ data }) => <SurveyView survey={data!} />}
-        </AppWrapper>
-    )
+    return <AppWrapper<SurveyData> appName="PostHog Survey">{({ data }) => <SurveyView survey={data!} />}</AppWrapper>
 }
 
 const container = document.getElementById('root')

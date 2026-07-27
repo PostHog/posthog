@@ -241,7 +241,7 @@ class GoogleSearchConsoleSource(
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_SEARCH_CONSOLE,
             category=DataWarehouseSourceCategory.ANALYTICS,
-            keywords=["gsc"],
+            keywords=["gsc", "seo", "search analytics", "organic search"],
             label="Google Search Console",
             caption=(
                 "Connect a verified Google Search Console property to sync daily Search Analytics performance data "

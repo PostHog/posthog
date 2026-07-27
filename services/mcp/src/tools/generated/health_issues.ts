@@ -1,12 +1,10 @@
 // AUTO-GENERATED from services/mcp/definitions/health_issues.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
 import { HealthIssuesListQueryParams, HealthIssuesRetrieveParams } from '@/generated/health_issues/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const HealthIssuesGetSchema = HealthIssuesRetrieveParams.omit({ project_id: true })
 
@@ -25,7 +23,10 @@ const healthIssuesGet = (): ToolBase<typeof HealthIssuesGetSchema, Schemas.Healt
 
 const HealthIssuesListSchema = HealthIssuesListQueryParams
 
-const healthIssuesList = (): ToolBase<typeof HealthIssuesListSchema, WithPostHogUrl<Schemas.PaginatedHealthIssueList>> => ({
+const healthIssuesList = (): ToolBase<
+    typeof HealthIssuesListSchema,
+    WithPostHogUrl<Schemas.PaginatedHealthIssueList>
+> => ({
     name: 'health-issues-list',
     schema: HealthIssuesListSchema,
     handler: async (context: Context, params: z.infer<typeof HealthIssuesListSchema>) => {
@@ -52,7 +53,7 @@ const healthIssuesSummary = (): ToolBase<typeof HealthIssuesSummarySchema, Schem
     name: 'health-issues-summary',
     schema: HealthIssuesSummarySchema,
     // eslint-disable-next-line no-unused-vars
-handler: async (context: Context, params: z.infer<typeof HealthIssuesSummarySchema>) => {
+    handler: async (context: Context, params: z.infer<typeof HealthIssuesSummarySchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HealthIssueSummary>({
             method: 'GET',
