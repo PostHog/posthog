@@ -1174,8 +1174,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             actions.loadTicket()
         }
     }),
-    beforeUnmount(({ cache }) => {
-        cache.disposables.disposeAll()
+    beforeUnmount(() => {
         impersonationNoticeLogic.findMounted()?.actions.setTicketContext(null)
     }),
     beforeUnload(({ values, actions }) => ({
