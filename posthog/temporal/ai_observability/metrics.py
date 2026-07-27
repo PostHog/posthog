@@ -143,7 +143,7 @@ def increment_emit_event_outcome(outcome: str) -> None:
     meter = get_metric_meter({"outcome": outcome})
     counter = meter.create_counter(
         "llma_eval_emit_event_outcome",
-        "Outcome of $ai_evaluation event emission (success/failed)",
+        "Outcome of $ai_evaluation event emission (success/failed/dropped_over_quota)",
     )
     counter.add(1)
 
