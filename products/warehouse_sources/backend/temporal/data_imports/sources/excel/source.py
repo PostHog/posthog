@@ -74,7 +74,6 @@ Supports `.xlsx` and `.xlsm`. Re-run the sync after replacing the file to pick u
             # Reuses the committed file-upload icon: apt for an uploaded workbook, and adding a
             # real Excel logo needs a Logo.dev key we don't hold here.
             iconPath="/static/services/file-upload.svg",
-            docsUrl="https://posthog.com/docs/cdp/sources/excel",
             keywords=["excel", "xlsx", "xlsm", "spreadsheet", "workbook", "upload"],
             fields=cast(
                 list[FieldType],
