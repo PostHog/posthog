@@ -11,6 +11,7 @@ endpoint.
 """
 
 import logging
+from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
@@ -472,20 +473,45 @@ def scan_session_for_metric_events(
         if totals is None:
             continue
         event_count, first_timestamp, timestamps = totals
+        # A funnel can list the same event as several steps (an "N-th occurrence" funnel: the same
+        # activation event repeated N times). Those steps share one aggregate group, so reading the
+        # group per step would echo the same events under every step, and a single occurrence would
+        # read as a completed N-step funnel. Assign the group's occurrences positionally instead:
+        # the k-th such step maps to the k-th occurrence, so it fires only once the event has fired
+        # k+1 times. Only funnel steps are positional — a ratio reusing one event on both sides
+        # still legitimately counts it on each side, so its identical sources keep echoing.
+        repeated_step_nodes = Counter(
+            node_key(source) for source in metric_source.sources if source.role == MetricSourceRole.STEP
+        )
+        step_rank: dict[str, int] = {}
         source_hits: list[MetricSourceHit] = []
         for source in metric_source.sources:
             source_totals = read_group((node_key(source),))
             if source_totals is None:
                 continue
+            source_count, source_first, source_timestamps = source_totals
+            node_sig = node_key(source)
+            if repeated_step_nodes[node_sig] > 1:
+                rank = step_rank.get(node_sig, 0)
+                step_rank[node_sig] = rank + 1
+                # A step is reached once the event has fired more times than its rank; drop only the
+                # steps the event never reached (gauge that on the true count, not the seek-point
+                # tuple). Seek points are capped at MAX_METRIC_EVENT_TIMESTAMPS, so a step reached
+                # past the cap (a >cap-step funnel of one event) keeps its place and points at the
+                # last available seek point rather than vanishing.
+                if rank >= source_count:
+                    continue
+                occurrence = source_timestamps[min(rank, len(source_timestamps) - 1)]
+                source_count, source_first, source_timestamps = 1, occurrence, (occurrence,)
             source_hits.append(
                 MetricSourceHit(
                     role=source.role,
                     name=source.name,
                     index=source.index,
                     total=source.total,
-                    event_count=source_totals[0],
-                    first_timestamp=source_totals[1],
-                    timestamps=source_totals[2],
+                    event_count=source_count,
+                    first_timestamp=source_first,
+                    timestamps=source_timestamps,
                 )
             )
         hits.append(
