@@ -26,7 +26,7 @@ low-volume event POSTs rather than the entire SPA.
 
 This is the conversations/SupportHog variant of the general
 [Slack local setup guide](../../../../docs/internal/slack-local-setup-guide.md); that guide covers the
-PostHog Code / notifications Slack app (`SLACK_APP_*`, `/integrations/slack/callback`). Conversations uses
+PostHog Desktop / notifications Slack app (`SLACK_APP_*`, `/integrations/slack/callback`). Conversations uses
 its own `SUPPORT_SLACK_*` credentials and `/api/conversations/v1/slack/*` routes, but the tunnel and
 `SITE_URL` mechanics are identical.
 

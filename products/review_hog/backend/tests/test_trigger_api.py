@@ -15,16 +15,24 @@ TRIGGER_URL = "/api/review_hog/trigger/"
 _START = "products.review_hog.backend.api.trigger.start_review_pr_workflow"
 
 
-@override_settings(REVIEWHOG_TRIGGER_TOKEN="secret-token", REVIEWHOG_TEAM_ID=99, REVIEWHOG_RUN_USER_ID=42)
+@override_settings(REVIEWHOG_TRIGGER_TOKEN="secret-token")
 class TestReviewHogTriggerApi(APIBaseTest):
     def setUp(self):
         super().setUp()
-        # The class-level REVIEWHOG_TEAM_ID=99 / REVIEWHOG_RUN_USER_ID=42 must be a real team and an
-        # active member of its org: the trigger rejects unauthorized run users (their sandbox
-        # credentials 403 and the review hangs).
-        self.trigger_team = Team.objects.create(id=99, organization=self.organization, name="reviewhog trigger")
-        self.run_user = User.objects.create(id=42, email="run-user-42@posthog.com")
+        # Let Postgres auto-assign IDs to avoid collisions with the sequence.
+        self.trigger_team = Team.objects.create(organization=self.organization, name="reviewhog trigger")
+        self.run_user = User.objects.create(email="run-user@posthog.com")
         OrganizationMembership.objects.create(organization=self.organization, user=self.run_user)
+        # Apply dynamic IDs via settings overrides
+        self._settings_ctx = self.settings(
+            REVIEWHOG_TEAM_ID=self.trigger_team.id,
+            REVIEWHOG_RUN_USER_ID=self.run_user.id,
+        )
+        self._settings_ctx.enable()
+
+    def tearDown(self):
+        self._settings_ctx.disable()
+        super().tearDown()
 
     @patch(_START, return_value="wf-1")
     def test_valid_trigger_starts_workflow_and_publishes_by_default(self, mock_start):
@@ -38,8 +46,8 @@ class TestReviewHogTriggerApi(APIBaseTest):
         self.assertEqual(resp.json(), {"workflow_id": "wf-1", "status": "started"})
         mock_start.assert_called_once_with(
             pr_url="https://github.com/PostHog/posthog/pull/123",
-            team_id=99,
-            user_id=42,
+            team_id=self.trigger_team.id,
+            user_id=self.run_user.id,
             publish=True,
             trigger_source="label",
         )
@@ -179,9 +187,9 @@ class TestReviewHogTriggerApi(APIBaseTest):
     @patch(_START, return_value="wf-1")
     def test_unauthorized_configured_run_user_rejected(self, _name, deactivate, mock_start):
         if deactivate:
-            User.objects.filter(id=42).update(is_active=False)
+            User.objects.filter(id=self.run_user.id).update(is_active=False)
         else:
-            OrganizationMembership.objects.filter(user_id=42).delete()
+            OrganizationMembership.objects.filter(user_id=self.run_user.id).delete()
         resp = self.client.post(
             TRIGGER_URL,
             {"repo": "PostHog/posthog", "pr_number": 1},

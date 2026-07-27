@@ -32,8 +32,9 @@ class TestSubscriptionActivityLog(BaseTest):
         return Subscription.objects.create(**params)
 
     def _subscription_logs(self):
-        # freeze_time makes created_at tie, so break the tie on activity ("created" < "updated") to keep [0]/[1] deterministic.
-        return ActivityLog.objects.filter(scope="Subscription").order_by("created_at", "activity")
+        # Every row shares one created_at under freeze_time, leaving order undefined. The UUIDT
+        # id's per-millisecond series counter increments per insert, so id tie-breaks in insertion order.
+        return ActivityLog.objects.filter(scope="Subscription").order_by("created_at", "id")
 
     @parameterized.expand(
         [
