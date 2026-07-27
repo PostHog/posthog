@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
+import useResizeObserver from 'use-resize-observer'
 
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, Spinner } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -19,7 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { HeatmapType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, HeatmapType } from '~/types'
 
 import { HeatmapCreationStep, heatmapCreationLogic } from './heatmapCreationLogic'
 import { heatmapLogic } from './heatmapLogic'
@@ -411,16 +413,53 @@ function ReviewStatus({ warning, children }: { warning?: boolean; children: Reac
     )
 }
 
-function RecordingBackgroundPreview({ html }: { html: string }): JSX.Element {
+function RecordingBackgroundPreview({
+    html,
+    width,
+    height,
+}: {
+    html: string
+    width: number
+    height: number
+}): JSX.Element {
+    const { ref, width: containerWidth = 0 } = useResizeObserver<HTMLDivElement>()
+    const hasDims = width > 0 && height > 0
+    const measured = containerWidth > 0
+    // Scale the natural-size snapshot down to fit the container so the whole recorded viewport is
+    // visible; never scale up past its natural size (a narrow/mobile capture stays crisp).
+    const scale = hasDims && measured ? Math.min(1, containerWidth / width) : 1
+
     return (
-        <div className="overflow-hidden rounded border bg-surface-secondary">
-            <iframe
-                srcDoc={html}
-                title="Selected session recording background"
-                sandbox="allow-same-origin"
-                tabIndex={-1}
-                className="w-full h-96 border-0 bg-white pointer-events-none ph-no-capture"
-            />
+        <div ref={ref} className="overflow-hidden rounded border bg-surface-secondary w-full">
+            {hasDims ? (
+                measured ? (
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <div className="relative" style={{ height: height * scale }}>
+                        <iframe
+                            srcDoc={html}
+                            title="Selected session recording background"
+                            sandbox="allow-same-origin"
+                            tabIndex={-1}
+                            className="absolute top-0 left-0 origin-top-left border-0 bg-white pointer-events-none ph-no-capture"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ width, height, transform: `scale(${scale})` }}
+                        />
+                    </div>
+                ) : (
+                    // Reserve the recording's aspect ratio until the observer reports a width, so a wide
+                    // capture never renders at full size and gets clipped before we can scale it down.
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <div className="w-full" style={{ aspectRatio: `${width} / ${height}` }} />
+                )
+            ) : (
+                <iframe
+                    srcDoc={html}
+                    title="Selected session recording background"
+                    sandbox="allow-same-origin"
+                    tabIndex={-1}
+                    className="w-full h-96 border-0 bg-white pointer-events-none ph-no-capture"
+                />
+            )}
         </div>
     )
 }
@@ -442,7 +481,7 @@ function ReviewStep(): JSX.Element {
     const usesRecordingBackground = pageAccess === 'login' && !!recordingBackgroundData
 
     return (
-        <LemonCard hoverEffect={false} className="max-w-3xl mx-auto">
+        <LemonCard hoverEffect={false} className={cn('mx-auto', usesRecordingBackground ? 'max-w-5xl' : 'max-w-3xl')}>
             <div className="flex flex-col gap-6">
                 <div>
                     <h2 className="mb-1">{usesRecordingBackground ? 'Review background' : 'Review and create'}</h2>
@@ -473,7 +512,13 @@ function ReviewStep(): JSX.Element {
                     </dd>
                 </dl>
 
-                {recordingBackgroundData ? <RecordingBackgroundPreview html={recordingBackgroundData.html} /> : null}
+                {recordingBackgroundData ? (
+                    <RecordingBackgroundPreview
+                        html={recordingBackgroundData.html}
+                        width={recordingBackgroundData.width}
+                        height={recordingBackgroundData.height}
+                    />
+                ) : null}
 
                 <div className="flex flex-col gap-2">
                     <ReviewStatus warning={!captureEnabled}>
@@ -502,15 +547,20 @@ function ReviewStep(): JSX.Element {
                             View heatmap
                         </LemonButton>
                     ) : (
-                        <LemonButton
-                            type="primary"
-                            onClick={() => createHeatmap(creationContext)}
-                            loading={loading}
-                            disabledReason={reviewBlockReason}
-                            data-attr="save-heatmap"
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Heatmap}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            Create heatmap
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={() => createHeatmap(creationContext)}
+                                loading={loading}
+                                disabledReason={reviewBlockReason}
+                                data-attr="save-heatmap"
+                            >
+                                Create heatmap
+                            </LemonButton>
+                        </AccessControlAction>
                     )}
                 </div>
             </div>

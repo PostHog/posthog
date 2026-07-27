@@ -12,10 +12,13 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
+from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
+from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.digest import SCANNER_DIGEST_RRULE
+from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -29,7 +32,7 @@ from products.replay_vision.backend.models.replay_scanner import (
 )
 from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
-from products.replay_vision.backend.quota import _current_period_bounds
+from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
@@ -678,6 +681,58 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             resp = self.client.post(f"{self.scanners_url}{scanner.id}/affected_cohort/", format="json")
         self.assertEqual(resp.status_code, 403, resp.json())
         self.assertIn("cohort", resp.json()["detail"])
+
+
+class TestScannerLifecycleTelemetry(_VisionAPITestCase):
+    def test_create_reports_config_choices(self) -> None:
+        # Launch dashboards read these to see whether the 100%/comprehensive defaults get changed;
+        # dropped properties or a silent non-fire makes that read a lie.
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": "telemetry-create",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "did checkout complete?"},
+                    "model": ScannerModel.GEMINI_3_6_FLASH,
+                    "sampling_rate": 0.25,
+                    "query": {"kind": "RecordingsQuery", "events": [{"id": "$pageview"}]},
+                },
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        report.assert_called_once()
+        event, properties = report.call_args.args[1], report.call_args.args[2]
+        self.assertEqual(event, "replay vision scanner created")
+        self.assertEqual(properties["scanner_type"], ScannerType.MONITOR)
+        self.assertEqual(properties["sampling_rate"], 0.25)
+        self.assertTrue(properties["has_filters"])
+        self.assertEqual(properties["organization_id"], str(self.team.organization_id))
+
+    @parameterized.expand(
+        [
+            ("disable", True, False, "replay vision scanner disabled"),
+            ("enable", False, True, "replay vision scanner enabled"),
+        ]
+    )
+    def test_enabled_transition_reports_once(self, _name: str, before: bool, after: bool, event: str) -> None:
+        scanner = self._create_scanner(enabled=before)
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": after}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        report.assert_called_once()
+        self.assertEqual(report.call_args.args[1], event)
+
+    def test_update_without_enabled_transition_reports_nothing(self) -> None:
+        # A rename must not show up as an enable/disable in the lifecycle funnel.
+        scanner = self._create_scanner(enabled=True)
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        report.assert_not_called()
 
 
 class TestScannerDigestProvisioning(_VisionAPITestCase):
@@ -1422,9 +1477,83 @@ class TestObserveAction(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
         self.scanner = self._create_scanner()
+        # Claims from earlier tests' mocked starts are never released by an activity.
+        get_client().delete(_team_key(self.team.id), _scanner_key(self.scanner.id))
 
     def observe_url(self, scanner_id: str) -> str:
         return f"{self.scanners_url}{scanner_id}/observe/"
+
+    @parameterized.expand(
+        [
+            ("row_persisted_drops_duplicate_claim", True, 0),
+            ("row_not_yet_persisted_keeps_claim", False, 1),
+        ]
+    )
+    def test_already_running_claim_follows_row_existence(
+        self,
+        mock_sync_connect: MagicMock,
+        mock_async_to_sync: MagicMock,
+        _name: str,
+        row_exists: bool,
+        expected_claims: int,
+    ) -> None:
+        # Resubmitting an active session must not mint a phantom claim on top of its persisted row,
+        # but a claim for a run still inside the enqueue gap has to survive.
+        session_id = "sess-running"
+        if row_exists:
+            ReplayObservation.objects.create(
+                scanner=self.scanner,
+                session_id=session_id,
+                scanner_snapshot=_snapshot_for(self.scanner),
+                triggered_by=ObservationTrigger.ON_DEMAND,
+                status=ObservationStatus.PENDING,
+            )
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock(
+            side_effect=WorkflowAlreadyStartedError(
+                workflow_id=build_apply_scanner_workflow_id(self.scanner.id, session_id),
+                workflow_type=APPLY_SCANNER_WORKFLOW_NAME,
+            )
+        )
+
+        _, outcome = start_apply_scanner_workflow(
+            self.scanner, session_id, triggered_by_user_id=self.user.id, trigger=ObservationTrigger.ON_DEMAND
+        )
+
+        assert outcome is WorkflowStartOutcome.ALREADY_RUNNING
+        assert pending_enqueue_claims_for_team(self.team.id) == expected_claims
+
+    def test_stale_row_snapshot_self_corrects_after_claim(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # A row count staler than the claim decay grace must not admit past the cap: the post-claim
+        # validation re-reads rows with the claim already registered.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id="already-running",
+            scanner_snapshot=_snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=ObservationStatus.PENDING,
+        )
+
+        with (
+            patch("products.replay_vision.backend.api.trigger.MAX_IN_FLIGHT_APPLIES_PER_TEAM", 1),
+            patch("products.replay_vision.backend.enqueue_claims.MAX_IN_FLIGHT_APPLIES_PER_TEAM", 1),
+        ):
+            _, outcome = start_apply_scanner_workflow(
+                self.scanner,
+                "sess-stale",
+                triggered_by_user_id=self.user.id,
+                trigger=ObservationTrigger.ON_DEMAND,
+                team_in_flight_rows=0,
+                scanner_in_flight_rows=0,
+            )
+
+        assert outcome is WorkflowStartOutcome.CAPPED
+        start_workflow.assert_not_called()
 
     def test_observe_returns_workflow_id_and_starts_workflow(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -1557,6 +1686,24 @@ class TestObserveAction(_VisionAPITestCase):
         )
         self.assertEqual(resp.status_code, 503, resp.json())
 
+    def test_observe_returns_429_when_the_atomic_claim_is_refused(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The snapshot pre-check can pass while a racing request holds the last slot; the atomic claim
+        # is the authoritative gate, so its refusal must surface as 429 and start no workflow.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        with patch("products.replay_vision.backend.api.trigger.try_claim_enqueue_slot", return_value=False):
+            resp = self.client.post(
+                self.observe_url(str(self.scanner.id)), data={"session_id": "sess-capped"}, format="json"
+            )
+
+        self.assertEqual(resp.status_code, 429, resp.json())
+        start_workflow.assert_not_called()
+        self.assertFalse(ReplayObservation.objects.filter(scanner=self.scanner, session_id="sess-capped").exists())
+
 
 @patch("products.replay_vision.backend.api.trigger.async_to_sync")
 @patch("products.replay_vision.backend.api.trigger.sync_connect")
@@ -1640,6 +1787,27 @@ class TestBulkObserveAction(_VisionAPITestCase):
         body = resp.json()
         self.assertEqual(body["started"], 1)
         self.assertEqual([r["scan_outcome"] for r in body["results"]], ["started", "skipped_quota"])
+
+    def test_concurrent_claim_exhaustion_maps_to_skipped_limit(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The headroom pre-slice passed, but a racing request consumed the remaining slots before we
+        # could start — the atomic claim refuses, and the result must read as the limit, not a failure.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        with patch(
+            "products.replay_vision.backend.api.trigger.try_claim_enqueue_slot", side_effect=[True, False]
+        ) as claim:
+            resp = self.client.post(
+                self.bulk_url(str(self.scanner.id)), data={"session_ids": ["a", "b", "c"]}, format="json"
+            )
+
+        self.assertEqual(resp.status_code, 202, resp.json())
+        body = resp.json()
+        self.assertEqual(body["started"], 1)
+        self.assertEqual([r["scan_outcome"] for r in body["results"]], ["started", "skipped_limit", "skipped_limit"])
+        # The refused claim short-circuits the batch; no third claim attempt is made.
+        self.assertEqual(claim.call_count, 2)
 
     def test_already_running_session_is_a_no_op_and_consumes_no_headroom(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -1796,6 +1964,26 @@ class TestRetryActions(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 503)
         # `detail` is what the frontend toast surfaces; `error` would be silently dropped.
         self.assertIn("was kept", resp.json()["detail"])
+        restored = ReplayObservation.objects.get(id=observation.id)
+        self.assertEqual(restored.status, ObservationStatus.FAILED)
+        self.assertEqual(restored.created_at, original_created_at)
+
+    def test_retry_returns_429_and_restores_row_when_the_atomic_claim_is_refused(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The claim can refuse after the snapshot pre-check passed; the retry must 429 and bring the
+        # failed row back rather than deleting it while no replacement run started.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        observation = self._create_failed("sess-capped")
+        original_created_at = observation.created_at
+
+        with patch("products.replay_vision.backend.api.trigger.try_claim_enqueue_slot", return_value=False):
+            resp = self.client.post(self.retry_url(str(observation.id)))
+
+        self.assertEqual(resp.status_code, 429, resp.json())
+        start_workflow.assert_not_called()
         restored = ReplayObservation.objects.get(id=observation.id)
         self.assertEqual(restored.status, ObservationStatus.FAILED)
         self.assertEqual(restored.created_at, original_created_at)
@@ -2055,9 +2243,9 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         self.assertEqual(body["matched_sessions_in_window"], 3)
         self.assertEqual(body["window_days"], 30)
         self.assertEqual(body["estimated_observations_per_month"], 3)
-        # Defaults to the baseline model when the request names none.
-        self.assertEqual(body["credits_per_observation"], 15)
-        self.assertEqual(body["estimated_credits_per_month"], 45)
+        # Defaults to gemini-3-flash-preview (5 credits) when the request names no model.
+        self.assertEqual(body["credits_per_observation"], 5)
+        self.assertEqual(body["estimated_credits_per_month"], 15)
 
     def test_estimate_prices_credits_at_proposed_model(self) -> None:
         for index in range(3):
@@ -2209,4 +2397,4 @@ class TestCurrentPeriodBounds(SimpleTestCase):
     )
     def test_period_selection(self, _name: str, usage: dict | None, expected: tuple[datetime, datetime]) -> None:
         organization = Organization(usage=usage) if usage is not None else None
-        self.assertEqual(_current_period_bounds(organization, self.NOW), expected)
+        self.assertEqual(_current_period_bounds(organization, self.NOW), BillingPeriod(*expected))

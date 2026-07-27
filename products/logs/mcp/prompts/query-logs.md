@@ -50,9 +50,9 @@ The `value` field accepts a string, number, or array of strings depending on the
 
 ## Filtering logs by a PostHog person
 
-When the user references a person — by `distinct_id`, name, email, or via a prior `persons-retrieve` call — filter logs to that person via a `log_attribute` filter. The attribute key is configurable per project (it defaults to `distinct_id`); read `logs_distinct_id_attribute_key` from the team config (returned on `projects-retrieve` / `environments-retrieve`, or via the `/api/projects/:id/logs_config/` endpoint) and use that as the filter `key`.
+When the user references a person — by `distinct_id`, name, email, or via a prior `persons-retrieve` call — filter logs to that person via `log_attribute` filters. The attribute keys are configurable per project (they default to `["posthogDistinctId"]`); read `logs_distinct_id_attribute_keys` from the `/api/projects/:id/logs_config/` endpoint and use those as the filter `key`s.
 
-If the team has not configured a custom key, use `distinct_id`. If a person has multiple `distinct_ids`, pass the array as the filter `value` with operator `exact` (matches any of them).
+If a person has multiple `distinct_ids`, pass the array as the filter `value` with operator `exact` (matches any of them):
 
 ```json
 {
@@ -60,7 +60,7 @@ If the team has not configured a custom key, use `distinct_id`. If a person has 
     "serviceNames": ["<service>"],
     "filterGroup": [
       {
-        "key": "distinct_id",
+        "key": "posthogDistinctId",
         "operator": "exact",
         "type": "log_attribute",
         "value": ["<distinct_id_1>", "<distinct_id_2>"]
@@ -70,7 +70,9 @@ If the team has not configured a custom key, use `distinct_id`. If a person has 
 }
 ```
 
-Do not invent a different attribute key based on what looks plausible — use the configured key. If the configured key returns zero results, the customer's logs pipeline may not stamp person identity at all; tell the user rather than guessing.
+Entries in the `filterGroup` array are combined with AND, so never put two distinct-id keys in one call — a log only carries one of them. When the team has multiple keys configured, run one query per key and merge the results.
+
+Do not invent a different attribute key based on what looks plausible — use the configured keys. If the configured keys return zero results, the customer's logs pipeline may not stamp person identity at all; tell the user rather than guessing.
 
 ## Time period
 

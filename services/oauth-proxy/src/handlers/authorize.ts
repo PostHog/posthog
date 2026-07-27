@@ -1,5 +1,6 @@
 import { type Region, baseUrlForRegion } from '@/lib/constants'
 import { type ClientMapping, getClientMapping, putCallbackRedirectUri, putRegionSelection } from '@/lib/kv'
+import { type ValidationError, errorResponse } from '@/lib/validation'
 
 import REGION_PICKER_HTML from '../static/region-picker.html'
 
@@ -12,26 +13,17 @@ const REGION_PICKER_HEADERS: Record<string, string> = {
     'Referrer-Policy': 'no-referrer',
 }
 
-// OAuth request parameters MUST NOT be included more than once (RFC 6749 §3.1).
-// We enforce it because the proxy reads these with `.get()` (first value) for KV
-// keying but forwards the last value to the regional server via `.set()`. A
-// duplicated `state` splits those two reads, letting an attacker route a victim's
-// callback to a preloaded redirect URI. `resource` (RFC 8707) is intentionally
-// excluded — it is allowed to repeat.
-const SINGLE_VALUED_PARAMS = [
-    'state',
-    'client_id',
-    'redirect_uri',
-    'response_type',
-    'scope',
-    'code_challenge',
-    'code_challenge_method',
-] as const
-
-function findDuplicatedParam(url: URL): string | null {
-    for (const param of SINGLE_VALUED_PARAMS) {
-        if (url.searchParams.getAll(param).length > 1) {
-            return param
+// Prevent open redirects: for clients registered through the proxy (which have
+// stored redirect_uris), the requested redirect_uri must be one of them. Legacy
+// clients without stored redirect_uris fall through to regional server validation.
+function validateRegisteredRedirectUri(
+    redirectUri: string | null,
+    mapping: ClientMapping | null
+): ValidationError | null {
+    if (mapping?.redirect_uris && redirectUri && !mapping.redirect_uris.includes(redirectUri)) {
+        return {
+            error: 'invalid_request',
+            error_description: 'redirect_uri is not registered for this client',
         }
     }
     return null
@@ -48,17 +40,6 @@ function findDuplicatedParam(url: URL): string | null {
  */
 export async function handleAuthorize(request: Request, kv: KVNamespace): Promise<Response> {
     const url = new URL(request.url)
-
-    const duplicatedParam = findDuplicatedParam(url)
-    if (duplicatedParam) {
-        return new Response(
-            JSON.stringify({
-                error: 'invalid_request',
-                error_description: `Duplicate ${duplicatedParam} parameter is not allowed`,
-            }),
-            { status: 400, headers: { 'Content-Type': 'application/json' } }
-        )
-    }
 
     // If region is already selected (via query param from the picker page),
     // redirect to the regional authorize endpoint
@@ -86,18 +67,9 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
         }
     }
 
-    // Validate redirect_uri against registered URIs to prevent open redirects.
-    // Only enforced for clients registered through the proxy (which have stored redirect_uris).
-    if (mapping?.redirect_uris && originalRedirectUri) {
-        if (!mapping.redirect_uris.includes(originalRedirectUri)) {
-            return new Response(
-                JSON.stringify({
-                    error: 'invalid_request',
-                    error_description: 'redirect_uri is not registered for this client',
-                }),
-                { status: 400, headers: { 'Content-Type': 'application/json' } }
-            )
-        }
+    const redirectUriError = validateRegisteredRedirectUri(originalRedirectUri, mapping)
+    if (redirectUriError) {
+        return errorResponse(redirectUriError)
     }
 
     // Store region selection keyed by both state and client_id.

@@ -106,6 +106,7 @@ The symbol-keyed tables (company profiles, financial statements, historical pric
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = FINANCIAL_MODELLING_ENDPOINTS[endpoint]
@@ -125,7 +126,11 @@ The symbol-keyed tables (company profiles, financial statements, historical pric
         return schemas
 
     def validate_credentials(
-        self, config: FinancialModellingSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FinancialModellingSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_financial_modelling_credentials(config.api_key):
             return True, None

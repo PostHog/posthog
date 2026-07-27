@@ -468,6 +468,12 @@ interface SchemaComposition {
     renamedFields: Record<string, string>
     /** Maps param name → fallback key for optional params with state fallbacks */
     paramFallbacks: Record<string, string>
+    /**
+     * Maps canonical param name → accepted alias keys, from `param_overrides.<param>.aliases`.
+     * `generateToolCode` wraps the composed schema with
+     * `z.preprocess(normalizeParamAliases(...), ...)` when non-empty.
+     */
+    paramAliases: Record<string, string[]>
 }
 
 function composeToolSchema(
@@ -654,10 +660,13 @@ function composeToolSchema(
     //   - description   → wrap the existing Orval-derived field with .describe(...)
     //   - optional+fallback → make param optional and resolve from state when omitted
     //   - cast          → wrap with z.preprocess(...) from @/tools/cast-helpers
+    //   - aliases       → collected here; generateToolCode wraps the finished schema
+    //                     with z.preprocess(normalizeParamAliases(...), ...)
     const toolInputsImports: string[] = []
     const castHelperImports = new Set<string>()
     const schemaRefBlocks: string[] = []
     const paramFallbacks: Record<string, string> = {}
+    const paramAliases: Record<string, string[]> = {}
     // Fields added via param_overrides (input_schema/schema_ref) need to participate in
     // the body builder for write ops — otherwise the override is in the schema but
     // the handler never forwards the value to the API. On PATCH (partial update) the
@@ -671,6 +680,10 @@ function composeToolSchema(
             // Track optional params with state fallbacks
             if (override.optional && override.fallback) {
                 paramFallbacks[paramName] = override.fallback
+            }
+
+            if (override.aliases?.length) {
+                paramAliases[paramName] = override.aliases
             }
 
             // An `optional` override must also surface as optional in the agent-facing
@@ -812,6 +825,7 @@ function composeToolSchema(
         variantSpecificBodyFieldNames,
         renamedFields,
         paramFallbacks,
+        paramAliases,
     }
 }
 
@@ -1028,6 +1042,19 @@ function generateToolCode(
         }
     }
 
+    // `param_overrides.<param>.aliases` — normalize alias keys to the canonical
+    // param before validation. Outermost wrapper so the rename happens before any
+    // field schema or validator runs; zod 4 renders a preprocess as the wrapped
+    // schema in JSON Schema output, so the advertised schema is unchanged.
+    const aliasEntries = Object.entries(composition.paramAliases)
+    if (aliasEntries.length > 0) {
+        composition.castHelperImports.add('normalizeParamAliases')
+        const aliasMapLiteral = `{ ${aliasEntries
+            .map(([canonical, aliases]) => `${canonical}: [${aliases.map((a) => `'${a}'`).join(', ')}]`)
+            .join(', ')} }`
+        schemaExpr = `z.preprocess(normalizeParamAliases(${aliasMapLiteral}), ${schemaExpr})`
+    }
+
     const schemaDecl = `const ${schemaName} = ${schemaExpr}`
 
     const localVarParams = new Set(Object.keys(composition.paramFallbacks))
@@ -1197,6 +1224,7 @@ function generateToolCode(
             resultType,
             needsProjectId,
             needsOrgId,
+            paramFallbacks: composition.paramFallbacks,
         })
         return {
             code: wrapped.code,
@@ -1269,9 +1297,19 @@ function buildConfirmedActionFactories(args: {
     resultType: string
     needsProjectId: boolean
     needsOrgId: boolean
+    paramFallbacks: Record<string, string>
 }): { code: string } {
-    const { toolName, config, schemaName, schemaDecl, originalHandlerBody, resultType, needsProjectId, needsOrgId } =
-        args
+    const {
+        toolName,
+        config,
+        schemaName,
+        schemaDecl,
+        originalHandlerBody,
+        resultType,
+        needsProjectId,
+        needsOrgId,
+        paramFallbacks,
+    } = args
     const baseFactory = toCamelCase(toolName)
     const prepareName = `${toolName}-prepare`
     const executeName = `${toolName}-execute`
@@ -1336,12 +1374,40 @@ function buildConfirmedActionFactories(args: {
         )
     }
 
+    // Optional params with a state fallback (e.g. an omitted org/project `id`
+    // that defaults to the active one) are resolved to a concrete value BEFORE
+    // signing, so the confirmation is bound to the exact target the user saw.
+    // Otherwise the fallback would be re-read at execute time and a
+    // `switch-organization` / `switch-project` between prepare and execute
+    // could retarget the confirmed action at a different entity.
+    const fallbackMethodMap: Record<string, string> = {
+        orgId: 'context.stateManager.getOrgID()',
+        projectId: 'context.stateManager.getProjectId()',
+    }
+    let prepareFallbackBlock = ''
+    const resolvedFallbackNames: string[] = []
+    for (const [paramName, fallbackKey] of Object.entries(paramFallbacks)) {
+        const method = fallbackMethodMap[fallbackKey]
+        if (!method) {
+            continue
+        }
+        const entity = fallbackKey === 'orgId' ? 'organization' : 'project'
+        prepareFallbackBlock += `        const ${paramName} = params.${paramName} ?? await ${method}\n`
+        prepareFallbackBlock += `        if (!${paramName}) {\n`
+        prepareFallbackBlock += `            throw new Error('${paramName} is required. Provide it explicitly or set an active ${entity} first.')\n`
+        prepareFallbackBlock += `        }\n`
+        resolvedFallbackNames.push(paramName)
+    }
+    const prepareArgsExpr =
+        resolvedFallbackNames.length > 0 ? `{ ...params, ${resolvedFallbackNames.join(', ')} }` : 'params'
+
     // Prepare handler: validate args via the base schema (already happens
     // before our handler runs) and call into the runtime. Args are signed
-    // verbatim — bound to user identity + purpose (+ active scope).
+    // (with any state fallbacks resolved) — bound to user identity + purpose
+    // (+ active scope).
     const prepareHandler = `        const __runtime = getConfirmedActionRuntime()
-${scopeResolveBlock}        return await prepareConfirmedAction(context, {
-            args: params,
+${scopeResolveBlock}${prepareFallbackBlock}        return await prepareConfirmedAction(context, {
+            args: ${prepareArgsExpr},
             purpose: ${JSON.stringify(toolName)},
             actionLabel: ${JSON.stringify(actionLabel)},
             messageTemplate: ${JSON.stringify(messageTemplate)},

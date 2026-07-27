@@ -7,7 +7,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { parseScopes, labelsForTitle, loadRules } = require('./label-pr-from-title')
+const { parseScopes, parseType, docsLabelApplies, labelsForTitle, loadRules } = require('./label-pr-from-title')
 
 // Mirrors the rule shape in .github/auto-assign-labels.json so the logic is
 // exercised against the real structure without reading the file.
@@ -71,6 +71,39 @@ test('labelsForTitle', async (t) => {
     for (const { title, expected, description } of LABELS_FOR_TITLE_CASES) {
         await t.test(description, () => {
             assert.deepEqual(labelsForTitle(title, RULES), expected)
+        })
+    }
+})
+
+const PARSE_TYPE_CASES = [
+    { title: 'docs: add guide', expected: 'docs', description: 'type with no scope' },
+    { title: 'docs(internal): x', expected: 'docs', description: 'type with scope' },
+    { title: 'feat(flags): x', expected: 'feat', description: 'non-docs type' },
+    { title: 'chore!: drop thing', expected: 'chore', description: 'breaking-change bang' },
+    { title: 'update the docs please', expected: null, description: 'prose without a CC type -> null' },
+    { title: '', expected: null, description: 'empty title -> null' },
+]
+
+test('parseType', async (t) => {
+    for (const { title, expected, description } of PARSE_TYPE_CASES) {
+        await t.test(description, () => {
+            assert.equal(parseType(title), expected)
+        })
+    }
+})
+
+const DOCS_LABEL_CASES = [
+    { title: 'docs: x', author: 'someuser', expected: true, description: 'docs type applies' },
+    { title: 'docs(cdp): x', author: 'someuser', expected: true, description: 'docs type with scope applies' },
+    { title: 'feat(flags): x', author: 'inkeep[bot]', expected: true, description: 'inkeep author applies on any title' },
+    { title: 'feat(flags): x', author: 'someuser', expected: false, description: 'neither type nor author -> no docs label' },
+    { title: 'chore: tidy up docs', author: 'someuser', expected: false, description: 'docs only in prose does not apply' },
+]
+
+test('docsLabelApplies', async (t) => {
+    for (const { title, author, expected, description } of DOCS_LABEL_CASES) {
+        await t.test(description, () => {
+            assert.equal(docsLabelApplies(title, author), expected)
         })
     }
 })

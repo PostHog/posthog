@@ -13,6 +13,7 @@ from typing import Any
 
 from fastapi.responses import StreamingResponse
 
+from llm_gateway.anthropic_request import drop_orphaned_clear_thinking
 from llm_gateway.api.handler import (
     CLOUDFLARE_ANTHROPIC_CONFIG,
     CLOUDFLARE_OPENAI_CONFIG,
@@ -46,6 +47,20 @@ from llm_gateway.modal import (
 )
 
 LlmCall = Callable[..., Awaitable[Any]]
+
+GLM_REASONING_EFFORTS: frozenset[str] = frozenset({"high", "max"})
+
+
+def normalize_glm_anthropic_request(request_data: dict[str, Any], *, product: str) -> dict[str, Any]:
+    """Make Claude runtime reasoning settings valid for GLM's Anthropic surface."""
+    normalized = dict(request_data)
+    output_config = normalized.get("output_config")
+    effort = output_config.get("effort") if isinstance(output_config, dict) else None
+
+    if effort in GLM_REASONING_EFFORTS:
+        normalized["thinking"] = {"type": "adaptive"}
+
+    return drop_orphaned_clear_thinking(normalized, product=product)
 
 
 async def _route_to_modal(model: str, user: AuthenticatedUser, product: str, settings: Settings) -> bool:
@@ -140,7 +155,7 @@ async def send_glm_anthropic_messages(
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
     return await _send_glm_request(
-        request_data,
+        normalize_glm_anthropic_request(request_data, product=product),
         user,
         is_streaming,
         product,

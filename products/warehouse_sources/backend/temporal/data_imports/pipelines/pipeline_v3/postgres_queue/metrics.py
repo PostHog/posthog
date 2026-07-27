@@ -70,6 +70,12 @@ RUNS_RECONCILED_TOTAL = Counter(
     "was reconciled to Failed by the reconcile sweep",
 )
 
+RUNS_TERMINALIZED_STALE_TOTAL = Counter(
+    "warehouse_pg_consumer_runs_terminalized_stale_total",
+    "Runs the loader abandoned (non-terminal batches, no live lease, no progress past the "
+    "staleness threshold) that the reconcile sweep failed before the retention prune would",
+)
+
 # The loader's data-freshness signal: it rises whenever loading stalls,
 # regardless of why (wedged consumers, claim-query degradation, crashloops).
 # Every pod reports the same queue-wide value, so aggregate with max().

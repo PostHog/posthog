@@ -110,11 +110,16 @@ Both tokens grant read access to the whole agreement; e-conomic has no per-resou
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: EConomicSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: EConomicSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_e_conomic_credentials(config.app_secret_token, config.agreement_grant_token):
             return True, None

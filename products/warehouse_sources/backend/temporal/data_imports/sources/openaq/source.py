@@ -97,6 +97,7 @@ The free tier is limited to 60 requests per minute. The measurement tables fetch
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "sensors":
@@ -125,7 +126,11 @@ The free tier is limited to 60 requests per minute. The measurement tables fetch
         return schemas
 
     def validate_credentials(
-        self, config: OpenAQSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OpenAQSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_openaq_credentials(config.api_key):
             return True, None

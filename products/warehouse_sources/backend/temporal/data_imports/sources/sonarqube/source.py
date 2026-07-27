@@ -104,6 +104,7 @@ Enter your server URL (e.g. `https://sonarqube.yourcompany.com`) and a user toke
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = SONARQUBE_ENDPOINTS[endpoint]
@@ -122,7 +123,11 @@ Enter your server URL (e.g. `https://sonarqube.yourcompany.com`) and a user toke
         return schemas
 
     def validate_credentials(
-        self, config: SonarqubeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SonarqubeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             host_valid, host_error = self.is_database_host_valid(hostname_of(config.host), team_id)

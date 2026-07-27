@@ -20,7 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
 
 logger = structlog.get_logger(__name__)
 
-_INTERNAL_IP_ERROR = "Hosts with internal IP addresses are not allowed"
+_INTERNAL_IP_ERROR = (
+    "This host points to an internal or private IP address, which PostHog can't reach. "
+    "Use a host that's reachable from the public internet."
+)
 _DNS_FAILURE_ERROR = "Host could not be resolved"
 
 
@@ -302,4 +305,9 @@ class ValidateDatabaseHostMixin:
         if using_ssh_tunnel:
             return True, None
 
-        return _is_host_safe(host, team_id)
+        is_valid, error = _is_host_safe(host, team_id)
+        if not is_valid and error == _INTERNAL_IP_ERROR:
+            # Direct (non-tunneled) connection, so reaching a private database through a public
+            # SSH bastion is a genuine workaround worth pointing at.
+            return is_valid, f"{error} If your database isn't publicly reachable, connect through an SSH tunnel."
+        return is_valid, error

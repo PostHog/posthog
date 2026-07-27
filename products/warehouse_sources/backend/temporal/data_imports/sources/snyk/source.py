@@ -121,13 +121,14 @@ Pick the region your Snyk account is hosted on — Snyk's regional stacks are in
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only endpoints with incremental fields (issues) advertise incremental/append; the rest
         # stay full refresh — build_endpoint_schemas derives that from INCREMENTAL_FIELDS.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: SnykSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: SnykSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_snyk_credentials(config.region, config.api_token, config.organization_id)
 

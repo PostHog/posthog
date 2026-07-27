@@ -1,10 +1,13 @@
+import uuid
 import datetime as dt
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team
 
@@ -17,7 +20,10 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     _enrichment_pending,
     _statistics_stale,
+    _verify_v3_lock_still_held,
 )
+
+MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model"
 
 
 def _team() -> Team:
@@ -42,6 +48,42 @@ def _schema(team: Team, table: DataWarehouseTable | None, *, description: str | 
     return ExternalDataSchema.objects.create(
         name="Charge", team=team, source=source, table=table, description=description
     )
+
+
+class TestVerifyV3LockStillHeld:
+    RUN_ID = "run-abc-123"
+    SCHEMA_ID = uuid.uuid4()
+
+    @parameterized.expand(
+        [
+            # Own token still on the lock: the normal healthy path must proceed.
+            ("holder_matches", "run-abc-123", False),
+            # Redis down (or lock vanished): the guard is best-effort — availability must not regress.
+            ("redis_unavailable", None, False),
+            # Another run took the lock during this run's startup window: fail fast
+            # instead of double-writing the Delta table alongside the new holder.
+            ("lock_lost_to_other_run", "run-thief-999", True),
+        ]
+    )
+    @patch(f"{MODULE}.get_v3_pipeline_lock_holder")
+    @patch(f"{MODULE}.activity")
+    def test_lock_guard(
+        self,
+        _name: str,
+        holder: str | None,
+        expect_raise: bool,
+        mock_activity: MagicMock,
+        mock_get_holder: MagicMock,
+    ) -> None:
+        mock_activity.info.return_value.workflow_run_id = self.RUN_ID
+        mock_get_holder.return_value = holder
+
+        if expect_raise:
+            with pytest.raises(ApplicationError) as exc_info:
+                _verify_v3_lock_still_held(1, self.SCHEMA_ID)
+            assert exc_info.value.non_retryable is True
+        else:
+            _verify_v3_lock_still_held(1, self.SCHEMA_ID)
 
 
 @pytest.mark.django_db

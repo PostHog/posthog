@@ -23,6 +23,12 @@ import { HogFunctionTemplateStatus } from '~/types'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { ManualLinkSourceType, UserType } from '../../../../../frontend/src/types'
 import { availableSourcesLogic } from './availableSourcesLogic'
+import {
+    FILE_UPLOAD_FORMATS,
+    FILE_UPLOAD_SOURCE_CONFIG,
+    FILE_UPLOAD_SOURCE_NAME,
+    fileUploadSourceUrl,
+} from './fileUploadSource'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
 // Helps kea-typegen reference the Fuse type without a bad `import { Fuse } from 'fuse.js'`.
@@ -75,6 +81,8 @@ export interface CatalogItem {
     existingSource?: boolean
     /** Self-managed: the user keeps the data in their own bucket, PostHog only links to it. */
     selfManaged?: boolean
+    /** The sources most people connect (Stripe, Postgres, the ad platforms, ...). Led with when browsing. */
+    featured?: boolean
 }
 
 export interface CatalogCategory {
@@ -771,6 +779,7 @@ export interface sourceCatalogLogicMeta {
                       | 'LambdaLabs'
                       | 'Langfuse'
                       | 'LangSmith'
+                      | 'Latitude'
                       | 'Lattice'
                       | 'LaunchDarkly'
                       | 'Lawmatics'
@@ -820,6 +829,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Matomo'
                       | 'Maxio'
                       | 'Meetup'
+                      | 'Meltwater'
                       | 'Mem0'
                       | 'Memberful'
                       | 'Mendeley'
@@ -1025,6 +1035,7 @@ export interface sourceCatalogLogicMeta {
                       | 'PrestaShop'
                       | 'Pretix'
                       | 'Primetric'
+                      | 'Printavo'
                       | 'Printify'
                       | 'Procore'
                       | 'Productboard'
@@ -1300,6 +1311,7 @@ export interface sourceCatalogLogicMeta {
                       | 'UsBls'
                       | 'USCensus'
                       | 'UsEia'
+                      | 'UserCom'
                       | 'Usersnap'
                       | 'Uservoice'
                       | 'UsTreasuryFiscalData'
@@ -1480,7 +1492,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
             ): CatalogItem[] => {
                 const managed = Object.values(availableSources ?? {})
                     .filter((c) => !allowedSources || allowedSources.includes(c.name))
-                    .map((connector: SourceConfig): CatalogItem => {
+                    .flatMap((connector: SourceConfig): CatalogItem[] => {
                         // Mirror nonHogFunctionTemplatesLogic: a declared-but-absent flag reads as
                         // off (featureFlagLogic only exposes truthy flags), so flag-gated sources
                         // render as coming-soon ("Notify me") until the user is in the rollout.
@@ -1494,19 +1506,22 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                                 ? connector.releaseStatus
                                 : undefined
 
-                        return {
-                            name: connector.name,
-                            label: connector.label ?? connector.name,
-                            iconType: connector.name,
-                            iconClassName: connector.iconClassName,
-                            category: connector.category ?? MANUAL_SOURCE_CATEGORY,
-                            keywords: connector.keywords ?? [],
-                            status,
-                            releaseStatus,
-                            url: urls.dataWarehouseSourceNew(connector.name),
-                            disabledReason: connector.disabledReason,
-                            existingSource: connector.existingSource,
-                        }
+                        return [
+                            {
+                                iconType: connector.name,
+                                iconClassName: connector.iconClassName,
+                                category: connector.category ?? MANUAL_SOURCE_CATEGORY,
+                                status,
+                                releaseStatus,
+                                disabledReason: connector.disabledReason,
+                                existingSource: connector.existingSource,
+                                name: connector.name,
+                                label: connector.label ?? connector.name,
+                                keywords: connector.keywords ?? [],
+                                featured: connector.featured,
+                                url: urls.dataWarehouseSourceNew(connector.name),
+                            },
+                        ]
                     })
 
                 const selfManaged = manualConnectors.map(
@@ -1522,7 +1537,24 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     })
                 )
 
-                return [...managed, ...selfManaged]
+                // File upload is self-managed too — the uploaded file becomes an in-place table — but
+                // it isn't a `manualConnector` (those link a user's own bucket). It's one entry with
+                // three tiles, one per format, since users search for "CSV" rather than "File upload".
+                const fileUpload = FILE_UPLOAD_FORMATS.map(
+                    ({ format, label, keywords }): CatalogItem => ({
+                        name: `${FILE_UPLOAD_SOURCE_NAME}-${format}`,
+                        label,
+                        iconType: FILE_UPLOAD_SOURCE_NAME,
+                        category: MANUAL_SOURCE_CATEGORY,
+                        keywords,
+                        status: 'stable',
+                        releaseStatus: FILE_UPLOAD_SOURCE_CONFIG.releaseStatus,
+                        url: fileUploadSourceUrl(format),
+                        selfManaged: true,
+                    })
+                )
+
+                return [...managed, ...selfManaged, ...fileUpload]
             },
             // featureFlags is a broad dependency that changes identity on every flag refresh;
             // keeping the previous array when the derived catalog is unchanged stops the Fuse
@@ -1578,16 +1610,23 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                         ? base
                         : base.filter((item) => item.category === selectedCategory)
                 // Keep fuzzy-search relevance order when searching. When browsing, lead with the
-                // sources the user can connect right now (alphabetically), then "Coming soon" ones,
-                // so the catalog doesn't open on a wall of unavailable tiles.
+                // featured sources people connect most (Stripe, Postgres, the ad platforms, ...),
+                // then the rest of the connectable sources, then "Coming soon" ones — all
+                // alphabetical within a tier — so the catalog doesn't open on a wall of obscure or
+                // unavailable tiles.
                 if (trimmed) {
                     return filtered
                 }
+                const browseRank = (item: CatalogItem): number => {
+                    if (item.status === 'coming_soon') {
+                        return 2
+                    }
+                    return item.featured ? 0 : 1
+                }
                 return [...filtered].sort((a, b) => {
-                    const aComingSoon = a.status === 'coming_soon'
-                    const bComingSoon = b.status === 'coming_soon'
-                    if (aComingSoon !== bComingSoon) {
-                        return aComingSoon ? 1 : -1
+                    const rankDiff = browseRank(a) - browseRank(b)
+                    if (rankDiff !== 0) {
+                        return rankDiff
                     }
                     return a.label.localeCompare(b.label)
                 })

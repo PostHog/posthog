@@ -2,6 +2,7 @@ import type { UserBasicType } from '~/types'
 
 import {
     type SignalReportRefundApi,
+    type SignalScoutRunSummaryApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -290,63 +291,13 @@ export interface SignalRun {
 
 // ── Scouts (backend SignalScoutConfigViewSet / SignalScoutRunViewSet) ─────────
 
-/** Canonical (PostHog-shipped) vs custom (team-authored) scout, resolved server-side. */
-export type ScoutOrigin = 'canonical' | 'custom'
-
-/** Per-(team, skill) scout config. One row per `signals-scout-*` skill. */
-export interface SignalScoutConfig {
-    id: string
-    /** The `signals-scout-*` skill this config controls. Fixed at creation. */
-    skill_name: string
-    /** What this scout investigates, sourced from the skill's `description` metadata. Empty if absent. */
-    description: string
-    /** Where this scout came from, resolved by the backend. Only `custom` scouts are deletable. */
-    scout_origin: ScoutOrigin
-    /** Whether this scout runs on its schedule. */
-    enabled: boolean
-    /** Whether the scout writes findings to the inbox. false = dry-run. */
-    emit: boolean
-    /** Minutes between runs (30–43200). */
-    run_interval_minutes: number
-    /** When the coordinator last dispatched this scout; null if never. */
-    last_run_at: string | null
-    created_at: string
-}
-
-/** Editable subset of a scout config (PATCH `signals/scout/configs/{id}`). */
-export interface SignalScoutConfigUpdate {
-    enabled?: boolean
-    emit?: boolean
-    run_interval_minutes?: number
-}
-
 /** Status from the linked TaskRun behind a scout run. */
-export type SignalScoutRunStatus = 'not_started' | 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
+export type SignalScoutRunStatus = SignalScoutRunSummaryApi['status']
 
-/** Lightweight projection of a scout run row (newest-first list response). */
-export interface SignalScoutRunSummary {
-    run_id: string
-    skill_name: string
-    skill_version: number
-    status: SignalScoutRunStatus
-    /** Bridge-row creation timestamp — the field the runs endpoint filters/orders on (the pagination cursor). */
-    created_at: string
-    started_at: string
-    completed_at: string | null
-    task_id?: string | null
-    task_run_id?: string | null
-    /** Relative deep-link to cloud's Tasks UI, e.g. `/project/{id}/tasks/{task}?runId={run}`. */
-    task_url?: string | null
-    summary: string
-    emitted_count: number
-    emitted_finding_ids: string[]
-    /** Reports this run authored directly via the `emit_report` channel. Distinct from `emitted_count`
-     * (weak `emit_signal` findings): a report-authoring run writes a full report instead of a finding. */
-    emitted_report_ids: string[]
-    /** Reports this run mutated via the `edit_report` channel (retitled/resummarized and/or appended a
-     * note), deduped. Can target any inbox report, so these are generally not reports the run authored. */
-    edited_report_ids: string[]
-}
+/** Lightweight projection of a scout run row (newest-first list response).
+ * An interface extension (not a type alias) so kea-typegen keeps the domain name
+ * instead of inlining `import(...)` references to the generated type. */
+export interface SignalScoutRunSummary extends SignalScoutRunSummaryApi {}
 
 /** One finding a scout run emitted to the inbox. */
 export interface SignalScoutEmission {

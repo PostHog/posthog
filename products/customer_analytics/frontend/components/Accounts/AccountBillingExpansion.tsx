@@ -9,6 +9,7 @@ import { BurningMoneyHog } from 'lib/components/hedgehogs'
 
 import { Query } from '~/queries/Query/Query'
 
+import { AccountBillingChart, canRenderBillingChart } from './AccountBillingChart'
 import { AccountBillingKind, accountBillingLogic } from './accountBillingLogic'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
@@ -65,23 +66,35 @@ export function AccountBillingExpansion({
             />
             {savedInsights.map((insight) => {
                 const queryKey = queryKeyFor(insight.short_id)
+                const variablesOverride = variableOverridesByShortId[insight.short_id] ?? null
                 return (
                     <div key={insight.short_id} className="flex flex-col gap-1">
                         {showTitles && insight.name ? <h4 className="mb-0 text-sm">{insight.name}</h4> : null}
-                        {/* Embedded DataVisualization collapses to a sliver without a fixed-height parent (InsightCard__viz is flex:1, min-height:0). */}
-                        <div className="h-80 flex flex-col overflow-hidden">
-                            <Query
+                        {canRenderBillingChart(insight.query) ? (
+                            <AccountBillingChart
                                 key={queryKey}
-                                uniqueKey={queryKey}
+                                logicProps={{ accountId, externalId, kind }}
+                                shortId={insight.short_id}
                                 query={insight.query}
-                                variablesOverride={variableOverridesByShortId[insight.short_id] ?? null}
-                                readOnly
-                                embedded
-                                // Attach the insight's data logic to accountBillingLogic (mounted at the expanded-row
-                                // root) so the loaded results survive tab switches instead of refetching on return.
-                                attachTo={logic}
+                                queryKey={queryKey}
+                                variablesOverride={variablesOverride}
                             />
-                        </div>
+                        ) : (
+                            /* Embedded DataVisualization collapses to a sliver without a fixed-height parent (InsightCard__viz is flex:1, min-height:0). */
+                            <div className="h-80 flex flex-col overflow-hidden">
+                                <Query
+                                    key={queryKey}
+                                    uniqueKey={queryKey}
+                                    query={insight.query}
+                                    variablesOverride={variablesOverride}
+                                    readOnly
+                                    embedded
+                                    // Attach the insight's data logic to accountBillingLogic (mounted at the expanded-row
+                                    // root) so the loaded results survive tab switches instead of refetching on return.
+                                    attachTo={logic}
+                                />
+                            </div>
+                        )}
                     </div>
                 )
             })}

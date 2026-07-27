@@ -311,6 +311,7 @@ export interface accessControlsLogicActions {
             | 'activity_log'
             | 'agent_approvals'
             | 'agents'
+            | 'ai_observability_clusters'
             | 'alert'
             | 'annotation'
             | 'approvals'
@@ -448,6 +449,7 @@ export interface accessControlsLogicMeta {
                 | 'activity_log'
                 | 'agent_approvals'
                 | 'agents'
+                | 'ai_observability_clusters'
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
@@ -589,6 +591,7 @@ export interface accessControlsLogicMeta {
                 | 'activity_log'
                 | 'agent_approvals'
                 | 'agents'
+                | 'ai_observability_clusters'
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
@@ -703,6 +706,7 @@ export interface accessControlsLogicMeta {
                 | 'activity_log'
                 | 'agent_approvals'
                 | 'agents'
+                | 'ai_observability_clusters'
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
@@ -967,19 +971,21 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 resources: APIScopeObject[],
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): { key: APIScopeObject; label: string }[] => {
-                if (defaults) {
-                    return Object.keys(defaults.resource_access_levels)
-                        .filter((resource) => isResourceRolledOut(resource as AccessControlResourceType, featureFlags))
-                        .map((resource) => ({
-                            key: resource as APIScopeObject,
-                            label: toSentenceCase(pluralizeResource(resource as APIScopeObject)),
-                        }))
-                }
-                // Fallback to list of all resources while loading
-                return resources.map((resource) => ({
-                    key: resource,
-                    label: toSentenceCase(pluralizeResource(resource)),
-                }))
+                const rows = defaults
+                    ? Object.keys(defaults.resource_access_levels)
+                          .filter((resource) =>
+                              isResourceRolledOut(resource as AccessControlResourceType, featureFlags)
+                          )
+                          .map((resource) => ({
+                              key: resource as APIScopeObject,
+                              label: toSentenceCase(pluralizeResource(resource as APIScopeObject)),
+                          }))
+                    : // Fallback to list of all resources while loading
+                      resources.map((resource) => ({
+                          key: resource,
+                          label: toSentenceCase(pluralizeResource(resource)),
+                      }))
+                return rows.sort((a, b) => a.label.localeCompare(b.label))
             },
         ],
 

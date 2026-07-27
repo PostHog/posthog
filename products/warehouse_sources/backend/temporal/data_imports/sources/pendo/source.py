@@ -102,6 +102,7 @@ Create an integration key in Pendo under **Settings > Integrations > Integration
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh: Pendo exposes no server-side timestamp filter for
         # this metadata, so neither incremental nor append would avoid re-reading every row.
@@ -120,7 +121,7 @@ Create an integration key in Pendo under **Settings > Integrations > Integration
         return schemas
 
     def validate_credentials(
-        self, config: PendoSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: PendoSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_pendo_credentials(config.integration_key, config.region)
 

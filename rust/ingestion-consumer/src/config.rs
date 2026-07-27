@@ -121,10 +121,12 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_timeout_ms: u64,
 
-    /// Upper bound on retrying a batch's deferred messages (held because no
-    /// worker was routable) before failing the batch (milliseconds). Bounds how
-    /// long a full worker outage holds offsets before the process exits and
-    /// restarts.
+    /// No-progress bound on flushing a batch's deferred messages
+    /// (milliseconds): the deadline resets whenever any of the batch's
+    /// messages are accepted, so a slow drain keeps going and the batch only
+    /// fails (exiting the process) after a full window with nothing landed —
+    /// e.g. no worker routable at all. Bounds how long a genuine wedge holds
+    /// offsets before the process exits and restarts.
     #[envconfig(default = "60000")]
     pub consumer_deferred_flush_timeout_ms: u64,
 
@@ -132,6 +134,14 @@ pub struct Config {
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
+
+    /// Release a deferring key's next stashed group as soon as the send
+    /// blocking it resolves, instead of waiting for the owning batch to become
+    /// the oldest completed one. Breaks the deferral cascade where a hot key
+    /// re-stashes on every arriving batch faster than completion-paced flushes
+    /// drain it. The completion-time flush remains as backstop either way.
+    #[envconfig(from = "DISPATCHER_EAGER_DEFERRED_FLUSH", default = "false")]
+    pub dispatcher_eager_deferred_flush: bool,
 
     // ---- Debug API ----
     /// Serve the real-time debug API (`/debug/load`, `/debug/state`,

@@ -19,14 +19,19 @@ from __future__ import annotations
 import os
 import re
 import logging
+from datetime import date, datetime
 from typing import TYPE_CHECKING, TypedDict
 from uuid import UUID
 
 import duckdb
 import psycopg
 from psycopg import sql
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 if TYPE_CHECKING:
+    from clickhouse_driver import Client
+
+    from posthog.clickhouse.cluster import ClickhouseCluster
     from posthog.ducklake.models import DuckgresServer
 
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -507,7 +512,7 @@ def validate_duckgres_identifier(identifier: str) -> None:
 
     Only alphanumeric characters and underscores are allowed. Mirrors the
     events/persons duckling DAG's ``_validate_identifier`` so a user-supplied
-    ``DuckgresServerTeam.table_suffix`` is validated identically wherever it is
+    schema name / table suffix is validated identically wherever it is
     interpolated into DuckDB DDL.
     """
     if not identifier or not identifier.replace("_", "").isalnum():
@@ -519,24 +524,22 @@ def duckgres_data_imports_schema(team_id: int) -> str:
 
     A DuckgresServer is org-scoped and hosts many teams, so each team needs its
     own schema. Historically that was ``posthog_data_imports_team_{team_id}``.
-    When a team sets ``DuckgresServerTeam.table_suffix`` (the same field that
-    governs its events/persons tables), the data-import schema uses that suffix
-    so one user-chosen identifier names all of a team's warehouse tables.
+    A team with a control-plane row uses that row's data-imports schema (derived
+    from its schema name — the same identifier that governs its events/persons
+    tables) so one user-chosen identifier names all of a team's warehouse tables.
 
-    Backward-compatible: a NULL/empty suffix keeps the team-id schema, so
-    existing teams are unaffected until a suffix is explicitly set.
+    Backward-compatible: a team without a control-plane row keeps the team-id
+    schema, so legacy teams are unaffected until they onboard.
 
-    NOTE: a suffix CHANGE moves the schema and orphans the old one — callers
+    NOTE: a schema-name CHANGE moves the schema and orphans the old one — callers
     that have already written a team's tables must trigger a re-prime (handled
     by the backfill state machine), not silently switch.
     """
-    from posthog.ducklake.models import DuckgresServerTeam
+    # Deferred: team_state imports this module at the top level, so a module-level
+    # import back would be circular.
+    from posthog.ducklake import team_state  # noqa: PLC0415
 
-    suffix = DuckgresServerTeam.objects.filter(team_id=team_id).values_list("table_suffix", flat=True).first()
-    if not suffix:
-        return f"posthog_data_imports_team_{team_id}"
-    validate_duckgres_identifier(suffix)
-    return f"posthog_data_imports_{suffix}"
+    return team_state.data_imports_schema(team_id)
 
 
 def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
@@ -560,30 +563,17 @@ def duckgres_data_modeling_schema(team_id: int) -> str:
 
 
 TABLE_SUFFIX_MAX_LENGTH = 63
-# The table name the user supplies is used verbatim as the suffix in `events_<suffix>` /
-# `persons_<suffix>`, so it must already be a safe SQL identifier — lowercase letters,
-# numbers, and underscores. We validate rather than silently rewrite, so what the user
-# types is exactly what they get.
+# A schema name doubles as the suffix in `events_<suffix>` / `persons_<suffix>`, so it must
+# already be a safe SQL identifier — lowercase letters, numbers, and underscores. We validate
+# rather than silently rewrite, so what the user types is exactly what they get.
 TABLE_SUFFIX_PATTERN = re.compile(r"^[a-z0-9_]+$")
-
-
-def validate_table_suffix(name: str | None) -> str | None:
-    """Return a human-readable error if `name` isn't a valid table suffix, else None."""
-    if not name:
-        return "table_name is required"
-    if len(name) > TABLE_SUFFIX_MAX_LENGTH:
-        return f"Table name must be at most {TABLE_SUFFIX_MAX_LENGTH} characters"
-    if not TABLE_SUFFIX_PATTERN.match(name):
-        return "Table name must use only lowercase letters, numbers, and underscores"
-    return None
 
 
 def validate_schema_name(name: str | None) -> str | None:
     """Return a human-readable error if `name` isn't a valid duckgres schema name, else None.
 
-    A team's schema name shares the table-suffix constraints (it doubles as the
-    table suffix on the Django side): lowercase letters, numbers, and underscores,
-    at most 63 characters.
+    A team's schema name doubles as its warehouse table suffix: lowercase letters,
+    numbers, and underscores, at most 63 characters.
     """
     if not name:
         return "schema_name is required"
@@ -594,108 +584,6 @@ def validate_schema_name(name: str | None) -> str | None:
     return None
 
 
-class DucklingBackfillEnableError(Exception):
-    """Raised when a team's warehouse backfill cannot be enabled (no server, name collision)."""
-
-
-def check_team_backfill_enable(*, team_id: int, organization_id: str | UUID, table_name: str) -> bool:
-    """Run every ``enable_team_backfill`` guard without writing anything.
-
-    Returns True when the team already has a row with this exact suffix (an idempotent
-    no-op for the caller), False when a new row would be created. Raises
-    DucklingBackfillEnableError with a user-facing message otherwise. Lets dual-write
-    callers reject bad input before touching the duckgres control plane.
-    """
-    from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
-
-    error = validate_table_suffix(table_name)
-    if error:
-        raise DucklingBackfillEnableError(error)
-    suffix = table_name
-
-    if not DuckgresServer.objects.filter(organization_id=organization_id).exists():
-        raise DucklingBackfillEnableError(
-            "No managed warehouse is provisioned for this organization. Provision one first."
-        )
-
-    existing = DuckgresServerTeam.objects.filter(team_id=team_id).first()
-    if existing is not None:
-        if existing.table_suffix == suffix:
-            # Same name — already set up; idempotent no-op.
-            return True
-        current = f"events_{existing.table_suffix}" if existing.table_suffix else "the shared tables"
-        raise DucklingBackfillEnableError(
-            f"This project already writes to {current}, and its warehouse table can't be changed — "
-            "that would split its existing data across two tables."
-        )
-
-    collision = (
-        DuckgresServerTeam.objects.filter(team__organization_id=organization_id, table_suffix=suffix)
-        .exclude(team_id=team_id)
-        .exists()
-    )
-    if collision:
-        raise DucklingBackfillEnableError(
-            f"The name '{suffix}' is already used by another environment in this organization."
-        )
-    return False
-
-
-def enable_team_backfill(*, team_id: int, organization_id: str | UUID, table_name: str) -> str:
-    """Enable a team's warehouse backfill with a dedicated set of per-environment tables.
-
-    The user-supplied ``table_name`` is used verbatim as the table suffix (validated, not
-    rewritten). Records the team↔duckling membership and the backfill suffix on a single
-    DuckgresServerTeam row so the Dagster backfill writes to ``events_<suffix>`` /
-    ``persons_<suffix>`` instead of the shared tables.
-
-    **Write-once.** The suffix is fixed when the backfill is first created and cannot be changed
-    afterward — including switching a legacy NULL suffix (shared tables) to a real name. Changing
-    it would make the Dagster job write to a different table and split the team's existing data
-    across two tables. Re-calling with the team's current name is an idempotent no-op.
-
-    The org must already have a provisioned DuckgresServer, the name must be a valid identifier,
-    and the suffix must be unique among the org's environments. Returns the suffix, or raises
-    DucklingBackfillEnableError with a user-facing message.
-    """
-    from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
-
-    already_enabled = check_team_backfill_enable(
-        team_id=team_id, organization_id=organization_id, table_name=table_name
-    )
-    suffix = table_name
-    if already_enabled:
-        existing = DuckgresServerTeam.objects.get(team_id=team_id)
-        if not existing.backfill_enabled:
-            existing.backfill_enabled = True
-            existing.save(update_fields=["backfill_enabled", "updated_at"])
-        _ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
-        return suffix
-
-    server = DuckgresServer.objects.get(organization_id=organization_id)
-    DuckgresServerTeam.objects.create(server=server, team_id=team_id, backfill_enabled=True, table_suffix=suffix)
-    _ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
-    return suffix
-
-
-def _ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str | UUID) -> None:
-    """Best-effort: register the org's managed warehouse as a restricted query connection.
-
-    A managed warehouse speaks the Postgres wire protocol, so each member team gets an
-    ExternalDataSource pointed at the org server. Duckgres scopes its credential to the project
-    and enforces read-only SQL. Isolated from backfill enablement: a failure here must never block
-    a team from joining the warehouse.
-    """
-    try:
-        # Lazy import: keep the data_warehouse/warehouse_sources stack off this module's import
-        # path (it's loaded by the API and by Dagster, which don't need it).
-        from products.data_warehouse.backend.facade.api import ensure_managed_warehouse_direct_source  # noqa: PLC0415
-
-        ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
-    except Exception:
-        logger.exception("Failed to register managed warehouse query source for team %s", team_id)
-
-
 def get_team_backfill_state(team_id: int) -> dict[str, object]:
     """Return the team's duckling backfill state for the warehouse-status UI.
 
@@ -703,23 +591,107 @@ def get_team_backfill_state(team_id: int) -> dict[str, object]:
     safe to show) from one already backfilling (a row exists → show read-only, since the table is
     immutable). ``table_suffix`` is None for legacy teams still on the shared tables.
     """
-    from posthog.ducklake.models import DuckgresServerTeam
+    # Deferred: team_state imports this module at the top level, so a module-level
+    # import back would be circular.
+    from posthog.ducklake import team_state  # noqa: PLC0415
 
-    backfill = DuckgresServerTeam.objects.filter(team_id=team_id).values("table_suffix").first()
-    if backfill is None:
-        return {"has_backfill": False, "table_suffix": None}
-    return {"has_backfill": True, "table_suffix": backfill["table_suffix"]}
+    return team_state.team_backfill_state(team_id)
+
+
+# Ignore events before this date — pre-2015 data is typically junk timestamps.
+EARLIEST_BACKFILL_DATE = datetime(2015, 1, 1)
+
+# Stored on the team's duckgres control-plane row for a team with no events, so callers
+# cache "nothing to backfill" instead of re-querying ClickHouse. Far enough in the future
+# that any generated backfill months range is always empty.
+NO_HISTORY_SENTINEL = date(9999, 12, 31)
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(5),
+    retry=retry_if_exception_type((TimeoutError, OSError)),
+    reraise=True,
+)
+def _get_clickhouse_cluster() -> ClickhouseCluster:
+    """get_cluster() with retry for transient bootstrap timeouts.
+
+    Retries the cluster discovery query only — does not affect subsequent per-host
+    query execution, avoiding stacked retries with callers' own retry decorators.
+    """
+    # Deferred: this module stays importable without Django settings configured (see module
+    # docstring); the cluster helpers pull posthog.settings in at import.
+    from posthog.clickhouse.cluster import get_cluster  # noqa: PLC0415
+
+    return get_cluster()
+
+
+def get_earliest_event_date_for_team(team_id: int) -> datetime | None:
+    """Query ClickHouse to find the earliest event date for a team.
+
+    This is used to determine the historical range of data a duckling backfill covers
+    (by the Dagster full-backfill sensor and the provisioning-time sync task).
+
+    Returns:
+        The date of the earliest event, or None if no events exist for this team.
+    """
+    # Deferred for the same Django-less-import reason as _get_clickhouse_cluster.
+    from posthog.clickhouse.client.connection import NodeRole, Workload  # noqa: PLC0415
+    from posthog.cloud_utils import is_cloud  # noqa: PLC0415
+
+    cluster = _get_clickhouse_cluster()
+    workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
+
+    def query_earliest(client: Client) -> datetime | None:
+        # Filter timestamp >= '1970-01-01' to avoid toDate() overflow on pre-epoch timestamps.
+        # ClickHouse's Date type is UInt16 (days since 1970-01-01), so negative timestamps
+        # overflow to the max date (2149-06-06), breaking the backfill sensor logic.
+        result = client.execute(
+            """
+            SELECT toDate(min(timestamp)) as earliest_date
+            FROM events
+            WHERE team_id = %(team_id)s
+              AND timestamp >= '1970-01-01'
+            """,
+            {"team_id": team_id},
+        )
+        if result and result[0][0]:
+            # ClickHouse returns a date object, convert to datetime
+            date_val = result[0][0]
+            if isinstance(date_val, datetime):
+                return date_val
+            return datetime.combine(date_val, datetime.min.time())
+        return None
+
+    return cluster.any_host_by_role(
+        fn=query_earliest,
+        workload=workload,
+        node_role=NodeRole.DATA,
+    ).result()
+
+
+def resolve_team_earliest_event_date(team_id: int) -> date:
+    """Resolve the date a team's historical duckling backfill should start from.
+
+    Clamps to EARLIEST_BACKFILL_DATE and returns NO_HISTORY_SENTINEL for a team with no
+    events, so callers can cache the result and never re-query ClickHouse for the team.
+    """
+    earliest_dt = get_earliest_event_date_for_team(team_id)
+    if earliest_dt is None:
+        return NO_HISTORY_SENTINEL
+    return max(earliest_dt, EARLIEST_BACKFILL_DATE).date()
 
 
 __all__ = [
-    "DucklingBackfillEnableError",
+    "EARLIEST_BACKFILL_DATE",
+    "NO_HISTORY_SENTINEL",
     "attach_catalog",
-    "check_team_backfill_enable",
     "default_bucket_region",
+    "get_earliest_event_date_for_team",
+    "resolve_team_earliest_event_date",
     "duckgres_data_imports_schema",
     "duckgres_data_imports_table_name",
     "duckgres_data_modeling_schema",
-    "enable_team_backfill",
     "escape",
     "get_config",
     "get_ducklake_connection_string",
@@ -740,5 +712,4 @@ __all__ = [
     "sanitize_ducklake_identifier",
     "validate_duckgres_identifier",
     "validate_schema_name",
-    "validate_table_suffix",
 ]
