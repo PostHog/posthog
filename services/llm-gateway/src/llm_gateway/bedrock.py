@@ -66,6 +66,10 @@ ANTHROPIC_TO_BEDROCK_MODEL_MAP: Final[dict[str, dict[str, str]]] = {
         "us": "us.anthropic.claude-opus-4-8",
         "eu": "eu.anthropic.claude-opus-4-8",
     },
+    "claude-opus-5": {
+        "us": "us.anthropic.claude-opus-5",
+        "eu": "eu.anthropic.claude-opus-5",
+    },
     "claude-fable-5": {
         "us": "us.anthropic.claude-fable-5",
         "eu": "global.anthropic.claude-fable-5",
@@ -349,6 +353,7 @@ def _strip_regional_inference_prefix(model: str) -> str:
 BEDROCK_RUNTIME_COUNT_TOKENS_UNSUPPORTED: Final[frozenset[str]] = frozenset(
     {
         "anthropic.claude-opus-4-8",
+        "anthropic.claude-opus-5",
         "anthropic.claude-fable-5",
     }
 )
