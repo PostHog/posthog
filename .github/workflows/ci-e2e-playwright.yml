@@ -1123,7 +1123,16 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         needs: [playwright]
-        if: needs.playwright.outputs.vr_run_id != '' && needs.playwright.result == 'success'
+        # !cancelled() is load-bearing. select-specs is skipped on every full-run event (push to
+        # master, PR opened/reopened/ready_for_review), and GitHub propagates a skip down the whole
+        # needs chain — only a status-check function breaks the inheritance. The playwright job has
+        # its own !cancelled() so it runs, but this job inherited the skip anyway, leaving the VR run
+        # it created stuck pending and its commit status pending forever. The explicit result check
+        # restores the implicit success() that !cancelled() drops. Mirrors ci-storybook.yml.
+        if: |
+            !cancelled()
+            && needs.playwright.result == 'success'
+            && needs.playwright.outputs.vr_run_id != ''
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -1146,6 +1155,10 @@ jobs:
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Complete Visual Review run
+              # On master pushes the run was created with --purpose observe (tracking-only), but
+              # `vr run complete` still exits 1 whenever visual changes are detected. Treat that as
+              # informational on push; PRs still gate. Mirrors ci-storybook.yml.
+              continue-on-error: ${{ github.event_name == 'push' }}
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |

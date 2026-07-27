@@ -9,6 +9,10 @@ Keep this file in sync as sources are added, implemented, or migrated. The [impl
 skill](/.agents/skills/implementing-warehouse-sources/SKILL.md) instructs agents to update it as part of any
 new source / vendor-SDK / migration PR.
 
+This file tracks _whether_ a source is implemented. For endpoints a source is missing relative to its
+vendor's API, see [COVERAGE_GAPS.md](COVERAGE_GAPS.md), refreshed by the
+[auditing-warehouse-source-coverage skill](/.agents/skills/auditing-warehouse-source-coverage/SKILL.md).
+
 ## Status legend
 
 | Status          | Meaning                                                                                                                   |

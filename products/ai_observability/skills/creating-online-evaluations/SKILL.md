@@ -75,9 +75,18 @@ Reach for `hog` first, escalate to `llm_judge` if there is no deterministic way 
 | `generation` | Runs once for each matching `$ai_generation`, immediately after ingestion. This is the default.                    |
 | `trace`      | Runs once for the whole trace after the first matching generation and a configurable wait for the trace to finish. |
 
-For a trace target, send `"target": "trace"` and
-`"target_config": { "window_seconds": 1800 }`. The wait must be between 10 seconds and 2 hours and defaults
-to 30 minutes. Conditions still match the generation that triggers the run; the evaluator itself receives
+For a trace target, send `"target": "trace"` plus a settle config that controls when the trace is
+evaluated, discriminated on `strategy`:
+
+- `{ "strategy": "fixed_window", "window_seconds": 1800 }` — evaluate a fixed wait after the first
+  matching generation. Between 10 seconds and 2 hours, defaults to 30 minutes. A `target_config`
+  without a `strategy` key means this.
+- `{ "strategy": "inactivity", "quiet_period_seconds": 300, "max_age_seconds": 7200 }` — evaluate once
+  the trace has had no new activity for the quiet period (10 seconds to 30 minutes,
+  defaults to 5 minutes). `max_age_seconds` caps the total wait from the first matching generation
+  (1 minute to 2 hours, defaults to 2 hours, must be at least the quiet period).
+
+Conditions still match the generation that triggers the run; the evaluator itself receives
 the complete trace. Sentiment evaluations support only the generation target.
 
 New Hog source should use the globals shared by both targets:
