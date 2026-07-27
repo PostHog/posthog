@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.i
     IntercomSearchPaginator,
     _build_paginator,
     _build_search_body,
+    _coerce_fields_to_str,
     _company_segments_generator,
     _conversation_parts_generator,
     _drain_company_ids,
@@ -30,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.i
     _iter_companies,
     _make_intercom_session,
     _rate_limit_backoff_seconds,
+    _substream_items,
     get_resource,
     intercom_source,
     validate_credentials,
@@ -257,6 +259,69 @@ class TestGetResource:
         assert resource["name"] == name
         assert resource["table_name"] == name
         assert resource["table_format"] == "delta"
+
+
+class TestCoerceStringFields:
+    @pytest.mark.parametrize(
+        "item,fields,expected",
+        [
+            # int -> str: the owner_id / waiting_since int64-vs-string flip that broke the merge.
+            ({"owner_id": 42}, ["owner_id"], {"owner_id": "42"}),
+            # An already-string value is unchanged.
+            ({"owner_id": "42"}, ["owner_id"], {"owner_id": "42"}),
+            # None is preserved so the column stays nullable.
+            ({"owner_id": None}, ["owner_id"], {"owner_id": None}),
+            # A missing field is a no-op.
+            ({"name": "x"}, ["owner_id"], {"name": "x"}),
+            # Only configured fields are touched.
+            ({"owner_id": 1, "count": 2}, ["owner_id"], {"owner_id": "1", "count": 2}),
+        ],
+    )
+    def test_coerce_fields_to_str(self, item: dict[str, Any], fields: list[str], expected: dict[str, Any]):
+        assert _coerce_fields_to_str(item, fields) == expected
+
+    def test_contacts_data_map_coerces_owner_id(self):
+        # REST-path wiring: contacts declares owner_id in coerce_string_fields, so
+        # get_resource must attach a data_map that stringifies it before rows hit Arrow.
+        resource = get_resource(
+            "contacts", should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
+        )
+        data_map = resource.get("data_map")
+        assert data_map is not None
+        assert data_map({"owner_id": 7, "id": "c1"}) == {"owner_id": "7", "id": "c1"}
+
+    def test_endpoint_without_coerce_fields_has_no_data_map(self):
+        # Only endpoints declaring coerce_string_fields get a data_map — others stay untouched.
+        resource = get_resource(
+            "admins", should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
+        )
+        assert "data_map" not in resource
+
+    def test_conversation_parts_substream_coerces_waiting_since(self):
+        # Substream-path wiring: conversation_parts bypasses the framework's data_map,
+        # so _substream_items must coerce waiting_since itself. Mixed int/str/None across
+        # parts previously produced int64-vs-string Arrow batches that failed to merge.
+        mock_session = mock.MagicMock()
+        mock_session.post.side_effect = [
+            _make_response({"conversations": [{"id": "c1"}], "pages": {}}),
+        ]
+        mock_session.get.side_effect = [
+            _make_response(
+                {
+                    "conversation_parts": {
+                        "conversation_parts": [
+                            {"id": "p1", "waiting_since": 1700000000},
+                            {"id": "p2", "waiting_since": "1700000001"},
+                            {"id": "p3", "waiting_since": None},
+                        ]
+                    }
+                }
+            ),
+        ]
+
+        parts = list(_substream_items(mock_session, "conversation_parts", "updated_at", None))
+
+        assert [p["waiting_since"] for p in parts] == ["1700000000", "1700000001", None]
 
 
 class TestSubstreamGenerators:
