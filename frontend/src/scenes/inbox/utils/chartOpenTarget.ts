@@ -8,6 +8,10 @@ export interface ChartOpenTarget {
     label: string
 }
 
+// nginx accepts an 8 KiB request line by default, and that is the first thing in front of the app to
+// refuse an over-long one. Sized against that rather than the browser's own much higher ceiling.
+const MAX_OPEN_URL_LENGTH = 8000
+
 /**
  * Where a report chart's open control points, and what to call it. `null` when there is nowhere to
  * send the reader, which is the caller's cue to drop the control rather than offer a dead link.
@@ -30,8 +34,16 @@ export function chartOpenTarget(query: Node): ChartOpenTarget | null {
         const { shortId } = query as SavedInsightNode
         return shortId ? { url: urls.insightView(shortId), label: 'Open insight' } : null
     }
-    if (isDataVisualizationNode(query) && isHogQLQuery(query.source)) {
-        return { url: urls.insightNew({ query }), label: 'Open in SQL editor' }
+    // Both forms carry the whole node in the query string, and the control opens a new tab, so the
+    // URL goes out as a real request line. A chart near the 20,000-character query bound encodes to
+    // several times that, past what a proxy in front of the app will accept, and the reader gets a
+    // 414 from a chart that drew fine. Nothing here can shorten it, so the control is dropped.
+    const url = urls.insightNew({ query })
+    if (url.length > MAX_OPEN_URL_LENGTH) {
+        return null
     }
-    return { url: urls.insightNew({ query }), label: 'Open as new insight' }
+    if (isDataVisualizationNode(query) && isHogQLQuery(query.source)) {
+        return { url, label: 'Open in SQL editor' }
+    }
+    return { url, label: 'Open as new insight' }
 }

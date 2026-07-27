@@ -44,4 +44,15 @@ describe('chartOpenTarget', () => {
     it('sends a SQL chart to the SQL editor, where its query is editable', () => {
         expect(chartOpenTarget(sqlChart)?.url).toContain('/sql')
     })
+
+    it('offers nowhere to go for a query too large to survive the request line', () => {
+        // The whole node rides in the query string and the control opens a new tab, so a chart near
+        // the 20,000-character bound the backend allows would hand the reader a 414.
+        const hugeChart = {
+            kind: NodeKind.DataVisualizationNode,
+            source: { kind: NodeKind.HogQLQuery, query: `select ${'a'.repeat(20000)}` },
+        } as unknown as Node
+
+        expect(chartOpenTarget(hugeChart)).toBeNull()
+    })
 })

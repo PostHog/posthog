@@ -464,20 +464,28 @@ def _executable_payload(value: Any) -> str | None:
 
     A chart is a picture of a query, not a program, so all three are refused wherever they sit rather
     than only at the paths known today.
+
+    Walks an explicit stack rather than recursing: the query is caller-supplied and only bounded by
+    its serialized size, so a few hundred nested objects fit well inside that bound while a recursive
+    scan would raise `RecursionError` — an uncaught 500 out of a validator whose whole job is to
+    answer with a 400.
     """
-    if isinstance(value, dict):
-        if any(key == "bytecode" and item for key, item in value.items()):
-            return "`bytecode`"
-        if value.get("sendRawQuery"):
-            return "`sendRawQuery`"
-        kind = value.get("kind")
-        # `kind` is caller-supplied JSON and can be unhashable; check it's a string before the
-        # membership test so a bad write stays a 400 rather than a TypeError out of the validator.
-        if isinstance(kind, str) and kind in _EXECUTABLE_QUERY_KINDS:
-            return f"a nested `{kind}`"
-        return next((found for item in value.values() if (found := _executable_payload(item))), None)
-    if isinstance(value, list):
-        return next((found for item in value if (found := _executable_payload(item))), None)
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, dict):
+            if any(key == "bytecode" and nested for key, nested in item.items()):
+                return "`bytecode`"
+            if item.get("sendRawQuery"):
+                return "`sendRawQuery`"
+            kind = item.get("kind")
+            # `kind` is caller-supplied JSON and can be unhashable; check it's a string before the
+            # membership test so a bad write stays a 400 rather than a TypeError out of the validator.
+            if isinstance(kind, str) and kind in _EXECUTABLE_QUERY_KINDS:
+                return f"a nested `{kind}`"
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
     return None
 
 

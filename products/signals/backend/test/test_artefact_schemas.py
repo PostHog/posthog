@@ -242,6 +242,20 @@ class TestValidateArtefactContent(SimpleTestCase):
         with self.assertRaises(ArtefactContentValidationError):
             parse_artefact_content(artefact_type, content)
 
+    def test_a_deeply_nested_chart_query_is_rejected_rather_than_blowing_the_stack(self):
+        # 1,500 levels serialize to ~18,000 characters, inside the size bound and past Python's
+        # recursion limit, so this reaches the scan rather than being turned away by the length check
+        # first. Scanning it recursively raises RecursionError, which nothing on the write path
+        # turns into a 400.
+        nested: dict = {"kind": "HogQuery", "code": "while (true) {}"}
+        for _ in range(1_500):
+            nested = {"source": nested}
+
+        with self.assertRaises(ArtefactContentValidationError):
+            parse_artefact_content(
+                "chart", {"chart_id": "ok", "title": "t", "query": {"kind": "InsightVizNode", **nested}}
+            )
+
     def test_parsing_normalizes_to_the_schema(self):
         # Parsing into the typed model is the boundary: unknown keys are not persisted, and
         # omitted optional fields are stored with their defaults.
