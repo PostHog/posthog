@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -58,6 +59,22 @@ describe('announcementsLogic', () => {
                 memberChannels: [{ id: 'C1', name: 'acme', is_member: true, customer_name: 'Acme' }],
                 channelOptions: [{ key: 'C1', label: 'Acme (#acme)' }],
             })
+    })
+
+    it('loads channels when Slack connects after mount, not only at mount time', async () => {
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, conversations_settings: { slack_enabled: false } })
+        logic = announcementsLogic()
+        logic.mount()
+        await expectLogic(logic).toMatchValues({ slackConnected: false })
+        expect(logic.values.memberChannels).toEqual([])
+
+        await expectLogic(logic, () => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                conversations_settings: { slack_enabled: true },
+            })
+        }).toDispatchActions(['loadMemberChannels', 'loadMemberChannelsSuccess'])
+        expect(logic.values.memberChannels).toHaveLength(1)
     })
 
     it('blocks submit with an empty message', async () => {
@@ -123,6 +140,7 @@ describe('announcementsLogic', () => {
         // Only member channels whose account matched survive: C3 (member, unmatched)
         // and C2 (matched, non-member) both drop.
         expect(logic.values.filteredChannelIds).toEqual(['C1'])
+        expect(logic.values.filteredChannels).toEqual([{ key: 'C1', label: 'Acme (#acme)' }])
         expect(logic.values.channelOptions).toEqual([{ key: 'C1', label: 'Acme (#acme)' }])
 
         logic.actions.selectAllFilteredChannels()
