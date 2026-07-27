@@ -155,6 +155,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
+    '/foundry': ['Foundry', 'foundry'],
+    '/foundry/:id': ['FoundryBet', 'foundryBet'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/identity-matching': ['IdentityMatching', 'identityMatching'],
@@ -633,6 +635,13 @@ export const productConfiguration: Record<string, any> = {
     ErrorTrackingFingerprint: { projectBased: true, name: 'Error tracking fingerprint' },
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     FeatureFlagsStaffTools: { instanceLevel: true, name: 'Flags staff tools' },
+    Foundry: {
+        name: 'Foundry',
+        projectBased: true,
+        description: 'A portfolio of bets: hypotheses shipped behind flags and verified by the market.',
+        iconType: 'experiment',
+    },
+    FoundryBet: { name: 'Bet', projectBased: true },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
     IdentityMatching: {
@@ -1161,6 +1170,8 @@ export const productUrls = {
         }
         return `/feature_flags/new?${params.toString()}`
     },
+    foundry: (): string => '/foundry',
+    foundryBet: (id: string): string => `/foundry/${id}`,
     game368hedgehogs: (): string => `/games/368hedgehogs`,
     flappyHog: (): string => `/games/flappyhog`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
@@ -1942,6 +1953,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.featureFlags(),
         sceneKey: 'FeatureFlags',
         sceneKeys: ['FeatureFlags', 'FeatureFlag'],
+    },
+    {
+        path: 'Foundry',
+        intents: [ProductKey.FOUNDRY],
+        category: ProductItemCategory.UNRELEASED,
+        href: urls.foundry(),
+        tags: ['alpha'],
+        iconType: 'experiment',
+        sceneKey: 'Foundry',
+        sceneKeys: ['Foundry', 'FoundryBet'],
     },
     {
         path: 'Heatmaps',

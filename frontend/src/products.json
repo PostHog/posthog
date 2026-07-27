@@ -147,6 +147,7 @@
             "type": "feature_flag",
             "intents": ["feature_flags", "experiments", "early_access_features"]
         },
+        { "path": "Foundry", "category": "Unreleased", "iconType": "experiment", "type": null, "intents": ["foundry"] },
         {
             "path": "Identity matching",
             "category": "Unreleased",

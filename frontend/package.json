@@ -101,6 +101,7 @@
         "@posthog/products-experiments": "workspace:*",
         "@posthog/products-exports": "workspace:*",
         "@posthog/products-feature-flags": "workspace:*",
+        "@posthog/products-foundry": "workspace:*",
         "@posthog/products-games": "workspace:*",
         "@posthog/products-groups": "workspace:*",
         "@posthog/products-growth": "workspace:*",

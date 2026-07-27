@@ -34947,6 +34947,7 @@
                 "history",
                 "ingestion_warnings",
                 "integrations",
+                "foundry",
                 "links",
                 "live_debugger",
                 "llm_clusters",

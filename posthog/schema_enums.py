@@ -3394,6 +3394,7 @@ class ProductKey(StrEnum):
     HISTORY = "history"
     INGESTION_WARNINGS = "ingestion_warnings"
     INTEGRATIONS = "integrations"
+    FOUNDRY = "foundry"
     LINKS = "links"
     LIVE_DEBUGGER = "live_debugger"
     LLM_CLUSTERS = "llm_clusters"

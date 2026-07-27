@@ -93,6 +93,8 @@ export enum Scene {
     LegacyPlugin = 'LegacyPlugin',
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
+    Foundry = 'Foundry',
+    FoundryBet = 'FoundryBet',
     Link = 'Link',
     Links = 'Links',
     LiveDebugger = 'LiveDebugger',

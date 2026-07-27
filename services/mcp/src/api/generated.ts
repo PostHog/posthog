@@ -12577,6 +12577,146 @@ export namespace Schemas {
       explicit_datetime_to?: string | null;
     }
 
+    /**
+     * How the bet should be rolled out once gated (free-form, consumed by the orchestrator).
+     */
+    export type BetDTOExposurePlan = { [key: string]: unknown };
+
+    export interface SuccessMetric {
+      /** Human-readable name of the metric the bet is judged on. */
+      name: string;
+      /** Target for the metric, e.g. '+10%' or '>= 0.42'. Free-form; the experiment carries the formal definition. */
+      target?: string;
+      /** Optional longer description of how the metric is measured. */
+      description?: string;
+    }
+
+    export interface Guardrail {
+      /** Name of the guardrail metric that must not regress. */
+      name: string;
+      /** Constraint the guardrail enforces, e.g. 'error rate must not rise'. */
+      constraint?: string;
+    }
+
+    export interface Budget {
+      /** Maximum spend for the bet's execution, in USD. */
+      usd?: number;
+      /** Wall-clock budget for the bet, in hours. */
+      time_hours?: number;
+      /** Maximum number of build iterations before the bet expires. */
+      iterations?: number;
+    }
+
+    export interface SourceRef {
+      /** Short label for the lineage source, e.g. 'signal: checkout error spike'. */
+      label: string;
+      /** Link to the originating signal or report. */
+      url?: string;
+    }
+
+    /**
+     * * `drafted` - DRAFTED
+     * * `funded` - FUNDED
+     * * `building` - BUILDING
+     * * `gated` - GATED
+     * * `exposed` - EXPOSED
+     * * `archived` - ARCHIVED
+     */
+    export type BetDTOStateEnum = typeof BetDTOStateEnum[keyof typeof BetDTOStateEnum];
+
+
+    export const BetDTOStateEnum = {
+      Drafted: 'drafted',
+      Funded: 'funded',
+      Building: 'building',
+      Gated: 'gated',
+      Exposed: 'exposed',
+      Archived: 'archived',
+    } as const;
+
+    /**
+     * * `promoted` - PROMOTED
+     * * `rolled_back` - ROLLED_BACK
+     * * `iterate` - ITERATE
+     */
+    export type BetDTOVerdictEnum = typeof BetDTOVerdictEnum[keyof typeof BetDTOVerdictEnum];
+
+
+    export const BetDTOVerdictEnum = {
+      Promoted: 'promoted',
+      RolledBack: 'rolled_back',
+      Iterate: 'iterate',
+    } as const;
+
+    export interface BetDTO {
+      /** The single metric that decides whether the bet wins. */
+      success_metric: SuccessMetric;
+      /** Metrics that must not regress while the bet is exposed. */
+      guardrails: Guardrail[];
+      /** Resource ceiling for autonomous execution. */
+      budget: Budget;
+      /** How the bet should be rolled out once gated (free-form, consumed by the orchestrator). */
+      exposure_plan: BetDTOExposurePlan;
+      /** Lineage references to the signals/reports that motivated the bet. */
+      sources: SourceRef[];
+      id: string;
+      slug: string;
+      hypothesis: string;
+      /** @nullable */
+      ttl: string | null;
+      state: BetDTOStateEnum;
+      verdict: BetDTOVerdictEnum | null;
+      iteration: number;
+      /** @nullable */
+      feature_flag_id: number | null;
+      /** @nullable */
+      feature_flag_key: string | null;
+      /** @nullable */
+      experiment_id: number | null;
+      created_at: string;
+      updated_at: string;
+    }
+
+    /**
+     * Event payload as reported by the orchestrator.
+     */
+    export type BetEventDTOPayload = { [key: string]: unknown };
+
+    /**
+     * * `run.started` - RUN_STARTED
+     * * `run.finished` - RUN_FINISHED
+     * * `node.spawned` - NODE_SPAWNED
+     * * `artifact.ready` - ARTIFACT_READY
+     * * `gate.result` - GATE_RESULT
+     * * `exposure.started` - EXPOSURE_STARTED
+     * * `verdict.proposed` - VERDICT_PROPOSED
+     * * `note` - NOTE
+     * * `state.changed` - STATE_CHANGED
+     */
+    export type BetEventDTOKindEnum = typeof BetEventDTOKindEnum[keyof typeof BetEventDTOKindEnum];
+
+
+    export const BetEventDTOKindEnum = {
+      Runstarted: 'run.started',
+      Runfinished: 'run.finished',
+      Nodespawned: 'node.spawned',
+      Artifactready: 'artifact.ready',
+      Gateresult: 'gate.result',
+      Exposurestarted: 'exposure.started',
+      Verdictproposed: 'verdict.proposed',
+      Note: 'note',
+      Statechanged: 'state.changed',
+    } as const;
+
+    export interface BetEventDTO {
+      /** Event payload as reported by the orchestrator. */
+      payload: BetEventDTOPayload;
+      id: string;
+      bet_id: string;
+      kind: BetEventDTOKindEnum;
+      created_at: string;
+    }
+
     export interface BiasRisk {
       /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
       multiple_variant_percentage: number;
@@ -15626,6 +15766,82 @@ export namespace Schemas {
       cpu_cores?: number;
       /** Memory in GB allocated to the sandbox. */
       memory_gb?: number;
+    }
+
+    /**
+     * How the bet should be rolled out once gated (free-form, consumed by the orchestrator).
+     */
+    export type CreateBetExposurePlan = { [key: string]: unknown };
+
+    export interface CreateBet {
+      /**
+         * Unique-per-project identifier; also seeds the feature flag key ('bet-<slug>').
+         * @maxLength 200
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug: string;
+      /** The falsifiable statement this bet exists to test. */
+      hypothesis: string;
+      /** The single metric that decides whether the bet wins. */
+      success_metric: SuccessMetric;
+      /** Metrics that must not regress while the bet is exposed. */
+      guardrails?: Guardrail[];
+      /** Resource ceiling for autonomous execution. */
+      budget?: Budget;
+      /** How the bet should be rolled out once gated (free-form, consumed by the orchestrator). */
+      exposure_plan?: CreateBetExposurePlan;
+      /** Lineage references to the signals/reports that motivated the bet. */
+      sources?: SourceRef[];
+      /**
+         * When the bet expires if unresolved.
+         * @nullable
+         */
+      ttl?: string | null;
+    }
+
+    /**
+     * Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}.
+     */
+    export type CreateBetEventPayload = { [key: string]: unknown };
+
+    /**
+     * * `run.started` - run.started
+     * * `run.finished` - run.finished
+     * * `node.spawned` - node.spawned
+     * * `artifact.ready` - artifact.ready
+     * * `gate.result` - gate.result
+     * * `exposure.started` - exposure.started
+     * * `verdict.proposed` - verdict.proposed
+     * * `note` - note
+     */
+    export type CreateBetEventKindEnum = typeof CreateBetEventKindEnum[keyof typeof CreateBetEventKindEnum];
+
+
+    export const CreateBetEventKindEnum = {
+      Runstarted: 'run.started',
+      Runfinished: 'run.finished',
+      Nodespawned: 'node.spawned',
+      Artifactready: 'artifact.ready',
+      Gateresult: 'gate.result',
+      Exposurestarted: 'exposure.started',
+      Verdictproposed: 'verdict.proposed',
+      Note: 'note',
+    } as const;
+
+    export interface CreateBetEvent {
+      /** Typed event kind reported by the orchestrator. 'gate.result' with payload {pass: true} advances building → gated.
+       *
+       * * `run.started` - run.started
+       * * `run.finished` - run.finished
+       * * `node.spawned` - node.spawned
+       * * `artifact.ready` - artifact.ready
+       * * `gate.result` - gate.result
+       * * `exposure.started` - exposure.started
+       * * `verdict.proposed` - verdict.proposed
+       * * `note` - note */
+      kind: CreateBetEventKindEnum;
+      /** Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. */
+      payload?: CreateBetEventPayload;
     }
 
     /**
@@ -59010,6 +59226,29 @@ export namespace Schemas {
     export interface RecordInteractionResponse {
       /** True once the interaction has been counted for the user. */
       recorded: boolean;
+    }
+
+    /**
+     * * `promoted` - promoted
+     * * `rolled_back` - rolled_back
+     * * `iterate` - iterate
+     */
+    export type RecordVerdictVerdictEnum = typeof RecordVerdictVerdictEnum[keyof typeof RecordVerdictVerdictEnum];
+
+
+    export const RecordVerdictVerdictEnum = {
+      Promoted: 'promoted',
+      RolledBack: 'rolled_back',
+      Iterate: 'iterate',
+    } as const;
+
+    export interface RecordVerdict {
+      /** 'promoted' or 'rolled_back' archives the bet; 'iterate' sends it back to building with an incremented iteration counter.
+       *
+       * * `promoted` - promoted
+       * * `rolled_back` - rolled_back
+       * * `iterate` - iterate */
+      verdict: RecordVerdictVerdictEnum;
     }
 
     export interface RecordVisitResponse {

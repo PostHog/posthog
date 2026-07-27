@@ -1,0 +1,17 @@
+{
+    "name": "@posthog/products-foundry",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "catalog:",
+        "@types/react": "*",
+        "react": "*"
+    }
+}

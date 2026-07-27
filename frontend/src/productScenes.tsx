@@ -85,6 +85,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintScene/ErrorTrackingFingerprintScene'),
     FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
     FeatureFlagsStaffTools: () => import('../../products/feature_flags/frontend/staff/FeatureFlagsStaffToolsScene'),
+    Foundry: () => import('../../products/foundry/frontend/FoundryScene'),
+    FoundryBet: () => import('../../products/foundry/frontend/FoundryBetScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
     IdentityMatching: () => import('../../products/growth/frontend/IdentityMatchingScene'),

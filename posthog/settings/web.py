@@ -44,6 +44,7 @@ PRODUCTS_APPS = [
     "products.tasks.backend.apps.TasksConfig",
     "products.stamphog.backend.apps.StamphogConfig",
     "products.links.backend.apps.LinksConfig",
+    "products.foundry.backend.apps.FoundryConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",

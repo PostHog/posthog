@@ -1128,3 +1128,17 @@ expose = [
 from = [
     "products.data_catalog",
 ]
+
+[[modules]]
+path = "products.foundry"
+depends_on = ["posthog", "products.experiments"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.foundry",
+]

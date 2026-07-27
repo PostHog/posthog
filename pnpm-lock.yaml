@@ -695,6 +695,9 @@ importers:
       '@posthog/products-feature-flags':
         specifier: workspace:*
         version: link:../products/feature_flags
+      '@posthog/products-foundry':
+        specifier: workspace:*
+        version: link:../products/foundry
       '@posthog/products-games':
         specifier: workspace:*
         version: link:../products/games
@@ -3450,6 +3453,27 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
 
   products/field_notes: {}
+
+  products/foundry:
+    dependencies:
+      '@posthog/icons':
+        specifier: 'catalog:'
+        version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.6(react@18.3.1)
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
 
   products/games:
     dependencies:
