@@ -10,13 +10,14 @@ variant — same syntax, same ``is_dataclass()`` compatibility (so
 validation on construction.
 """
 
+from dataclasses import field
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import BetEventKind, BetState, BetVerdict
+from .enums import BetEventKind, BetState, BetVerdict, ExecutionMode, NodeStatus
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,9 @@ class BetDTO:
     state: BetState
     verdict: BetVerdict | None
     iteration: int
+    execution_mode: ExecutionMode
+    run_config: dict[str, Any]
+    memory_repo_url: str | None
     feature_flag_id: int | None
     feature_flag_key: str | None
     experiment_id: int | None
@@ -50,6 +54,24 @@ class BetEventDTO:
 
 
 @dataclass(frozen=True)
+class BetNodeDTO:
+    id: UUID
+    bet_id: UUID
+    parent_id: UUID | None
+    node_id: str
+    status: NodeStatus
+    runner: str
+    depth: int
+    max_cost: float | None
+    max_depth: int | None
+    max_children: int | None
+    cost_so_far: float
+    sandbox_external_id: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
 class CreateBetInput:
     team_id: int
     slug: str
@@ -60,3 +82,6 @@ class CreateBetInput:
     exposure_plan: dict[str, Any]
     sources: list[dict[str, Any]]
     ttl: datetime | None = None
+    execution_mode: ExecutionMode = ExecutionMode.EXTERNAL
+    run_config: dict[str, Any] = field(default_factory=dict)
+    memory_repo_url: str | None = None

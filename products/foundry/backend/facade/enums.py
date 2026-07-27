@@ -24,14 +24,34 @@ class BetVerdict(StrEnum):
     ITERATE = "iterate"
 
 
+class ExecutionMode(StrEnum):
+    """external: any orchestrator POSTs events, Foundry is passive (the default).
+    managed: Foundry drives the run itself via the foundry-run-bet Temporal workflow."""
+
+    EXTERNAL = "external"
+    MANAGED = "managed"
+
+
+class NodeStatus(StrEnum):
+    SPAWNED = "spawned"
+    RUNNING = "running"
+    FINISHED = "finished"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 class BetEventKind(StrEnum):
     RUN_STARTED = "run.started"
     RUN_FINISHED = "run.finished"
     NODE_SPAWNED = "node.spawned"
+    NODE_FINISHED = "node.finished"
+    NODE_FAILED = "node.failed"
     ARTIFACT_READY = "artifact.ready"
     GATE_RESULT = "gate.result"
     EXPOSURE_STARTED = "exposure.started"
     VERDICT_PROPOSED = "verdict.proposed"
+    BUDGET_EXCEEDED = "budget.exceeded"
+    KNOWLEDGE_PUBLISHED = "knowledge.published"
     NOTE = "note"
     # System-emitted on every state transition; not accepted from external writers.
     STATE_CHANGED = "state.changed"

@@ -13,7 +13,7 @@ from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 
-from .facade.enums import BetEventKind, BetState, BetVerdict
+from .facade.enums import BetEventKind, BetState, BetVerdict, ExecutionMode, NodeStatus
 
 
 class Bet(TeamScopedRootMixin):
@@ -46,6 +46,22 @@ class Bet(TeamScopedRootMixin):
         blank=True,
     )
     iteration = models.PositiveIntegerField(default=1)
+    execution_mode = models.CharField(
+        max_length=16,
+        choices=[(m.value, m.value) for m in ExecutionMode],
+        default=ExecutionMode.EXTERNAL,
+    )
+    run_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Managed-mode execution config: {image/template, command, env allowlist, caps}.",
+    )
+    memory_repo_url = models.CharField(
+        max_length=500,
+        null=True,
+        blank=True,
+        help_text="Git-backed memory repo (e.g. Gitea) cloned into managed nodes' sandboxes at a conventional path.",
+    )
     feature_flag = models.ForeignKey(
         "feature_flags.FeatureFlag",
         null=True,
@@ -108,3 +124,50 @@ class BetEvent(TeamScopedRootMixin):
 
     def __str__(self) -> str:
         return f"{self.bet_id}:{self.kind}"
+
+
+class BetNode(TeamScopedRootMixin):
+    """A queryable registry of a managed or external run's node tree.
+
+    Projected from BetEvents (node.spawned / node.finished / node.failed / budget.exceeded) —
+    events remain the source of truth; this table exists so the tree can be queried and
+    rendered without replaying the whole event log.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    bet = models.ForeignKey(Bet, on_delete=models.CASCADE, related_name="nodes")
+    parent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="children",
+    )
+    node_id = models.CharField(max_length=200, help_text="Orchestrator-supplied identifier, unique per bet.")
+    status = models.CharField(
+        max_length=16,
+        choices=[(s.value, s.value) for s in NodeStatus],
+        default=NodeStatus.SPAWNED,
+    )
+    runner = models.CharField(max_length=200, blank=True, help_text="Free-form label, e.g. 'claude-code'.")
+    depth = models.PositiveIntegerField(default=0)
+    max_cost = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    max_depth = models.PositiveIntegerField(null=True, blank=True)
+    max_children = models.PositiveIntegerField(null=True, blank=True)
+    cost_so_far = models.DecimalField(max_digits=12, decimal_places=4, default=0)
+    sandbox_external_id = models.CharField(max_length=200, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["bet", "node_id"], name="unique_betnode_node_id_per_bet"),
+        ]
+        indexes = [
+            models.Index(fields=["bet", "depth"], name="foundry_betnode_bet_depth"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.bet_id}:{self.node_id}"

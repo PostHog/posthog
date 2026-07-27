@@ -798,7 +798,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|review_hog|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -1131,7 +1131,7 @@ from = [
 
 [[modules]]
 path = "products.foundry"
-depends_on = ["posthog", "products.experiments"]
+depends_on = ["posthog", "products.experiments", "products.tasks", "products.review_hog"]
 layer = "modules"
 
 [[interfaces]]

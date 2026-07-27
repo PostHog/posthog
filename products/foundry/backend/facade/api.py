@@ -14,9 +14,9 @@ from uuid import UUID
 from posthog.models.team import Team
 
 from .. import logic
-from ..models import Bet, BetEvent
+from ..models import Bet, BetEvent, BetNode
 from . import contracts
-from .enums import BetEventKind, BetState, BetVerdict
+from .enums import BetEventKind, BetState, BetVerdict, ExecutionMode, NodeStatus
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -42,6 +42,9 @@ def _to_dto(bet: Bet) -> contracts.BetDTO:
         state=BetState(bet.state),
         verdict=BetVerdict(bet.verdict) if bet.verdict else None,
         iteration=bet.iteration,
+        execution_mode=ExecutionMode(bet.execution_mode),
+        run_config=bet.run_config,
+        memory_repo_url=bet.memory_repo_url,
         feature_flag_id=bet.feature_flag_id,
         feature_flag_key=bet.feature_flag.key if bet.feature_flag_id else None,
         experiment_id=bet.experiment_id,
@@ -57,6 +60,25 @@ def _to_event_dto(event: BetEvent) -> contracts.BetEventDTO:
         kind=BetEventKind(event.kind),
         payload=event.payload,
         created_at=event.created_at,
+    )
+
+
+def _to_node_dto(node: BetNode) -> contracts.BetNodeDTO:
+    return contracts.BetNodeDTO(
+        id=node.id,
+        bet_id=node.bet_id,
+        parent_id=node.parent_id,
+        node_id=node.node_id,
+        status=NodeStatus(node.status),
+        runner=node.runner,
+        depth=node.depth,
+        max_cost=float(node.max_cost) if node.max_cost is not None else None,
+        max_depth=node.max_depth,
+        max_children=node.max_children,
+        cost_so_far=float(node.cost_so_far),
+        sandbox_external_id=node.sandbox_external_id,
+        created_at=node.created_at,
+        updated_at=node.updated_at,
     )
 
 
@@ -79,6 +101,9 @@ def create_bet(input: contracts.CreateBetInput, *, user: User | None = None) -> 
         exposure_plan=input.exposure_plan,
         sources=input.sources,
         ttl=input.ttl,
+        execution_mode=input.execution_mode,
+        run_config=input.run_config,
+        memory_repo_url=input.memory_repo_url,
     )
     return _to_dto(bet)
 
@@ -131,3 +156,8 @@ def record_verdict(
 def list_events(team_id: int, bet_id: UUID | str) -> list[contracts.BetEventDTO]:
     bet = _get_bet(team_id, bet_id)
     return [_to_event_dto(event) for event in bet.events.all()]
+
+
+def list_nodes(team_id: int, bet_id: UUID | str) -> list[contracts.BetNodeDTO]:
+    bet = _get_bet(team_id, bet_id)
+    return [_to_node_dto(node) for node in bet.nodes.all()]

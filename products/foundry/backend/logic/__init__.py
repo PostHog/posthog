@@ -8,7 +8,7 @@ from django.db import transaction
 
 from products.experiments.backend.facade import CreateExperimentInput, create_experiment
 
-from ..facade.enums import BetEventKind, BetState, BetVerdict
+from ..facade.enums import BetEventKind, BetState, BetVerdict, ExecutionMode
 from ..models import Bet, BetEvent
 
 if TYPE_CHECKING:
@@ -66,6 +66,9 @@ def create_bet(
     exposure_plan: dict[str, Any],
     sources: list[dict[str, Any]],
     ttl: Any = None,
+    execution_mode: ExecutionMode = ExecutionMode.EXTERNAL,
+    run_config: dict[str, Any] | None = None,
+    memory_repo_url: str | None = None,
 ) -> Bet:
     return Bet.objects.create(
         team=team,
@@ -78,6 +81,9 @@ def create_bet(
         exposure_plan=exposure_plan,
         sources=sources,
         ttl=ttl,
+        execution_mode=execution_mode,
+        run_config=run_config or {},
+        memory_repo_url=memory_repo_url,
     )
 
 

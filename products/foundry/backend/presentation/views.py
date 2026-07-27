@@ -17,6 +17,7 @@ from ..facade import api, contracts
 from ..facade.enums import BetEventKind, BetVerdict
 from .serializers import (
     BetEventSerializer,
+    BetNodeSerializer,
     BetSerializer,
     CreateBetEventSerializer,
     CreateBetSerializer,
@@ -130,3 +131,12 @@ class BetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.BetStateError as e:
             raise exceptions.ValidationError(str(e))
         return Response(BetEventSerializer(event).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        responses={200: BetNodeSerializer(many=True)},
+        description="List the bet's node tree, as projected from node.spawned/node.finished/node.failed events.",
+    )
+    @action(detail=True, methods=["get"], pagination_class=None)
+    def nodes(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        self._get(pk)
+        return Response(BetNodeSerializer(api.list_nodes(self.team_id, pk), many=True).data)

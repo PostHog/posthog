@@ -8,6 +8,7 @@ heavy docker/modal dependencies stay off the light data-surface import path.
 """
 
 from products.tasks.backend.logic.services.sandbox import (
+    ExecutionResult,
     SandboxBase,
     SandboxClass,
     SandboxConfig,
@@ -20,6 +21,7 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 
 __all__ = [
+    "ExecutionResult",
     "SandboxBase",
     "SandboxClass",
     "SandboxConfig",
