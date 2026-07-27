@@ -530,7 +530,7 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
     // uploads it and writes the reference into the payload; the rest of the wizard is standard, so
     // the user still gets the normal sheet and column pickers.
     if (selectedConnector?.name === EXCEL_SOURCE_NAME) {
-        return <ExcelSourceForm />
+        return <ExcelSourceForm sourceWizardLogicProps={sourceWizardLogicProps} />
     }
 
     return selectedConnector ? (

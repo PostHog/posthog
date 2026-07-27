@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { IconUpload } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -41,14 +42,16 @@ export function ExcelConfigurationForm(): JSX.Element {
                     multiple={false}
                     accept={EXCEL_UPLOAD_ACCEPT}
                     value={[]}
-                    loading={excelWorkbookUploading}
                     disabledReason={excelWorkbookUploading ? 'Uploading the new workbook' : undefined}
                     onChange={(files) => files[0] && uploadNewExcelWorkbook(files[0])}
                     callToAction={
-                        <div className="flex items-center gap-2">
-                            {excelWorkbookUploading ? <Spinner /> : null}
-                            <span>{excelWorkbookUploading ? 'Uploading…' : 'Upload a new version'}</span>
-                        </div>
+                        <LemonButton
+                            icon={excelWorkbookUploading ? <Spinner /> : <IconUpload />}
+                            type="secondary"
+                            disabledReason={excelWorkbookUploading ? 'Uploading the new workbook' : undefined}
+                        >
+                            {excelWorkbookUploading ? 'Uploading…' : 'Upload a new version (.xlsx, .xlsm)'}
+                        </LemonButton>
                     }
                 />
             </div>
