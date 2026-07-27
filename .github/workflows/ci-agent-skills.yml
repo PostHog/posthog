@@ -45,6 +45,14 @@ jobs:
                         - 'products/posthog_ai/**'
                         - '.github/workflows/ci-agent-skills.yml'
                         - 'services/mcp/schema/**'
+                        # check-skills boots Postgres, migrates, and runs
+                        # `hogli build:skills`, which reads products/*/skills/* (see
+                        # build.py's affected-path map). posthog_ai's React frontend is
+                        # its largest subtree and cannot change that ZIP, so keep the
+                        # broad product include above from dragging it in. Scoped to
+                        # posthog_ai rather than 'products/*/frontend/**' so a future
+                        # deliberate frontend include here isn't silently vetoed.
+                        - '!products/posthog_ai/frontend/**'
 
     check-skills:
         name: Check agent skills
