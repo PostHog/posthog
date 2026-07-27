@@ -1,6 +1,5 @@
 import { latestChartPerId } from '../logics/inboxReportDetailLogic'
 import { SignalReportArtefact } from '../types'
-import { referencedChartIds } from './reportPresentation'
 
 describe('report chart presentation', () => {
     function chartArtefact(chartId: string, title: string, createdAt: string): SignalReportArtefact {
@@ -11,22 +10,6 @@ describe('report chart presentation', () => {
             content: { chart_id: chartId, title, query: { kind: 'InsightVizNode' } },
         } as unknown as SignalReportArtefact
     }
-
-    describe('referencedChartIds', () => {
-        it('finds every id the summary places inline', () => {
-            const summary = 'Signups fell.\n\n[Daily signups](chart:signups-drop)\n\nAnd:\n\n[Retention](chart:ret_7d)'
-
-            expect(referencedChartIds(summary)).toEqual(new Set(['signups-drop', 'ret_7d']))
-        })
-
-        it.each([
-            ['no summary', null],
-            ['an empty summary', ''],
-            ['a summary with no chart links', 'Signups fell. See [the dashboard](https://example.com).'],
-        ])('returns nothing for %s', (_label, summary) => {
-            expect(referencedChartIds(summary)).toEqual(new Set())
-        })
-    })
 
     describe('latestChartPerId', () => {
         it('keeps the newest version of a re-supplied id, at the position it first appeared', () => {

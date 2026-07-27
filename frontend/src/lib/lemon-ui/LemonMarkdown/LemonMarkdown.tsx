@@ -31,6 +31,24 @@ function chartRefId(href: unknown): string | null {
     return typeof href === 'string' ? (CHART_REF_TARGET.exec(href)?.[1] ?? null) : null
 }
 
+/** Whether a paragraph's child node is a chart reference. */
+function isChartRefNode(node: any): boolean {
+    return node?.tagName === 'a' && chartRefId(node.properties?.href) !== null
+}
+
+/** Whether a paragraph's child node carries nothing a reader sees — whitespace or a line break. */
+function isBlankNode(node: any): boolean {
+    if (node?.type === 'text') {
+        return !String(node.value ?? '').trim()
+    }
+    return node?.tagName === 'br'
+}
+
+/** The rendered counterpart of `isBlankNode`: what survives into a side-by-side chart row. */
+function isChartRowChild(child: React.ReactNode): boolean {
+    return typeof child !== 'string' && (child as React.ReactElement)?.type !== 'br'
+}
+
 interface LemonMarkdownContainerProps {
     children: React.ReactNode
     className?: string
@@ -65,12 +83,14 @@ export interface LemonMarkdownProps {
      */
     renderMermaid?: (code: string) => React.ReactNode
     /**
-     * Optional renderer for `chart:<id>` link targets (see `CHART_REF_PREFIX`). Returning null or
-     * undefined renders the link's own label as plain text, which is the fallback for an id the
-     * caller has no chart for. Omitting this prop leaves chart targets to the ordinary link path,
-     * where the URL sanitizer strips the unrecognized scheme.
+     * Optional renderer for `chart:<id>` link targets (see `CHART_REF_PREFIX`). `sourceOffset` is
+     * where the reference starts in the markdown, so a caller that resolved placement from its own
+     * parse can tell one reference to an id from another. Returning null or undefined renders the
+     * link's own label as plain text, which is the fallback for an id the caller has no chart for.
+     * Omitting this prop leaves chart targets to the ordinary link path, where the URL sanitizer
+     * strips the unrecognized scheme.
      */
-    renderChartRef?: (chartId: string) => React.ReactNode
+    renderChartRef?: (chartId: string, sourceOffset?: number) => React.ReactNode
 }
 
 const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const
@@ -113,13 +133,14 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
 }: LemonMarkdownProps): JSX.Element {
     const components = useMemo(
         () => ({
-            a: ({ href, children }: any): JSX.Element => {
+            a: ({ href, children, node }: any): JSX.Element => {
                 const chartId = renderChartRef ? chartRefId(href) : null
                 if (chartId !== null) {
-                    // An id with no chart behind it (a typo, or one deleted since the summary was
-                    // written) falls back to its own label as plain text. Linking it instead would
-                    // point the reader at a scheme no browser can follow.
-                    return <>{renderChartRef?.(chartId) ?? children}</>
+                    // An id with no chart behind it (a typo, one deleted since the summary was
+                    // written, a repeat of a reference already drawn) falls back to its own label as
+                    // plain text. Linking it instead would point the reader at a scheme no browser
+                    // can follow.
+                    return <>{renderChartRef?.(chartId, node?.position?.start?.offset) ?? children}</>
                 }
                 return (
                     <Link to={href} target="_blank" targetBlankIcon disableDocsPanel={disableDocsRedirect}>
@@ -156,13 +177,28 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
             ...(renderChartRef
                 ? {
                       p: ({ children, node }: any): JSX.Element => {
+                          const siblings: any[] = node?.children ?? []
+                          const chartRefs = siblings.filter(isChartRefNode)
+                          if (chartRefs.length === 0) {
+                              return <p>{children}</p>
+                          }
+                          // A paragraph that is nothing but chart references reads as "these belong
+                          // together", so lay them out as a row that wraps back to a column once the
+                          // column is too narrow to give each one a readable width.
+                          if (chartRefs.length > 1 && siblings.every((n) => isChartRefNode(n) || isBlankNode(n))) {
+                              return (
+                                  // Top-aligned rather than stretched: charts in a row can be
+                                  // different heights, and stretching pads the shorter one with a
+                                  // block of empty card.
+                                  <div className="flex flex-wrap items-start gap-3 [&>*]:flex-1 [&>*]:basis-64 [&>*]:min-w-0">
+                                      {React.Children.toArray(children).filter(isChartRowChild)}
+                                  </div>
+                              )
+                          }
                           // A rendered chart is block-level, and a paragraph containing one would put a
                           // <div> inside a <p>, which the browser closes early and reparents. Drop the
                           // <p> for those paragraphs; the chart brings its own block spacing.
-                          const hasChartRef = node?.children?.some(
-                              (child: any) => child.tagName === 'a' && chartRefId(child.properties?.href) !== null
-                          )
-                          return hasChartRef ? <>{children}</> : <p>{children}</p>
+                          return <>{children}</>
                       },
                   }
                 : {}),

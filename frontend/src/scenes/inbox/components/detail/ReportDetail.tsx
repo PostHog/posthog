@@ -16,11 +16,11 @@ import { urls } from 'scenes/urls'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
+import { resolveChartPlacements } from '../../utils/chartPlacement'
 import {
     displayConventionalCommitTitle,
     parseConventionalCommitTitle,
     parsePrUrlParts,
-    referencedChartIds,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
@@ -319,18 +319,27 @@ export function InboxDetailFrame({
 
     const chartsById = useMemo(() => new Map(charts.map((chart) => [chart.chart_id, chart])), [charts])
     // A `chart:` link places its chart at that point in the prose; every other chart follows the
-    // summary. The reference decides where a chart goes, not whether it shows at all.
+    // summary. The reference decides where a chart goes, not whether it shows at all — so a
+    // reference the placement pass rejected (a repeat, one inside a table cell) reads as its label
+    // here and its chart is picked up below.
+    const placements = useMemo(
+        () => resolveChartPlacements(report.summary, chartsById.keys()),
+        [report.summary, chartsById]
+    )
     const renderChartRef = useCallback(
-        (chartId: string): ReactNode => {
+        (chartId: string, sourceOffset?: number): ReactNode => {
+            if (sourceOffset === undefined || placements.inlineByOffset.get(sourceOffset) !== chartId) {
+                return null
+            }
             const chart = chartsById.get(chartId)
             return chart ? <ReportChart chart={chart} /> : null
         },
-        [chartsById]
+        [chartsById, placements]
     )
-    const trailingCharts = useMemo(() => {
-        const referenced = referencedChartIds(report.summary)
-        return charts.filter((chart) => !referenced.has(chart.chart_id))
-    }, [charts, report.summary])
+    const trailingCharts = useMemo(
+        () => charts.filter((chart) => !placements.inlineIds.has(chart.chart_id)),
+        [charts, placements]
+    )
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
