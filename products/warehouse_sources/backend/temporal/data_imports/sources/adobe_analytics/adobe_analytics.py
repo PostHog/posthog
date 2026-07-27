@@ -35,6 +35,9 @@ MIN_REQUEST_INTERVAL_SECONDS = 0.5
 # Adobe restates recent report data, so each incremental run re-pulls a trailing window.
 INCREMENTAL_LOOKBACK_DAYS = 1
 DEFAULT_BACKFILL_DAYS = 90
+# The report stream walks one day per request, so an unbounded start date would issue
+# hundreds of thousands of sequential calls. Cap the earliest day we'll backfill.
+MAX_BACKFILL_DAYS = 365 * 3
 # Guard against a report whose paging never signals completion.
 MAX_REPORT_PAGES = 200
 
@@ -189,7 +192,9 @@ def parse_date(value: Any) -> Optional[date]:
 def parse_metrics(raw: Optional[str]) -> list[str]:
     metrics = [metric.strip() for metric in (raw or DEFAULT_REPORT_METRICS).split(",")]
     metrics = [metric for metric in metrics if metric]
-    return metrics or [metric.strip() for metric in DEFAULT_REPORT_METRICS.split(",")]
+    if metrics:
+        return metrics
+    return [metric.strip() for metric in DEFAULT_REPORT_METRICS.split(",")]
 
 
 def metric_column_names(metric_ids: list[str]) -> list[str]:
@@ -210,14 +215,16 @@ def resolve_window(
     db_incremental_field_last_value: Any,
     today: date,
 ) -> tuple[date, date]:
+    earliest = today - timedelta(days=MAX_BACKFILL_DAYS)
+
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         last_value = parse_date(db_incremental_field_last_value)
         if last_value is not None:
-            return min(last_value - timedelta(days=INCREMENTAL_LOOKBACK_DAYS), today), today
+            return max(min(last_value - timedelta(days=INCREMENTAL_LOOKBACK_DAYS), today), earliest), today
 
     configured = parse_date(start_date)
     if configured is not None:
-        return min(configured, today), today
+        return max(min(configured, today), earliest), today
 
     return today - timedelta(days=DEFAULT_BACKFILL_DAYS), today
 

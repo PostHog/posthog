@@ -1,6 +1,6 @@
 import contextlib
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -191,6 +191,10 @@ class TestResolveWindow:
             (None, False, None, date(2023, 12, 7)),
             # A start date in the future must not produce an inverted window.
             ("2099-01-01", False, None, date(2024, 3, 6)),
+            # An ancient start date is clamped to the maximum backfill window so we
+            # don't issue hundreds of thousands of sequential day requests.
+            ("0001-01-01", False, None, date(2024, 3, 6) - timedelta(days=365 * 3)),
+            ("0001-01-01", True, "0001-01-02", date(2024, 3, 6) - timedelta(days=365 * 3)),
         ],
     )
     def test_resolve_window(
