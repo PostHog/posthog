@@ -19,13 +19,14 @@
 //! + topics) rather than deep copies of limiter state.
 use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
+use crate::pipeline::{resolve, KeyPolicy, Lane, LaneDecision, LaneEffect, Pipeline};
 use crate::serialization::{Format, Serializer};
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 #[cfg(test)]
 pub(crate) use crate::sinks::registry::test_topics;
 use crate::sinks::registry::{OutputRegistry, Outputs};
 use crate::sinks::Event;
-use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
+use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
 use metrics::{counter, gauge, histogram};
 use rdkafka::producer::{FutureProducer, Producer};
@@ -173,303 +174,26 @@ impl rdkafka::ClientContext for KafkaContext {
     }
 }
 
-/// How the sink derives the Kafka partition key. Resolved against the event key
-/// / session id by the sink, which owns those values; `route` only decides the
-/// policy from metadata.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum KeyPolicy {
-    /// Partition on the event's `token:distinct_id` key.
-    EventKey,
-    /// No partition key — round-robin; person locality is intentionally dropped.
-    Null,
-    /// Partition on the replay `session_id` (missing id is a sink-level reject).
-    SessionId,
-}
-
-/// Header / metric side effects the routing decision implies. Applied by the
-/// sink so `route` stays pure (no counter emission, no timestamp generation).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RouteEffect {
-    /// Normal per-datatype / overflow route: no extra headers or counters.
-    Standard,
-    /// Event-restriction DLQ redirect: stamp DLQ headers + fire the DLQ counter.
-    Dlq,
-    /// Event-restriction custom-topic redirect: fire the custom-topic counter.
-    CustomTopic,
-    /// Force-limited overflow: disable person processing downstream. Redundant
-    /// with the generic `skip_person_processing` path (the pipeline stamps
-    /// `skip_person_processing = true` alongside `OverflowReason::ForceLimited`),
-    /// but kept as defense against a future caller that stamps the reason without
-    /// the side effect.
-    ForceDisablePersonProcessing,
-}
-
-/// The pure routing decision for a single event: which topic, which partition
-/// key policy, and which header/metric effect. Depends only on
-/// [`ProcessedEventMetadata`] (stamped upstream by the pipeline).
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Route<'a> {
-    target: Outputs<'a>,
-    key_policy: KeyPolicy,
-    effect: RouteEffect,
-}
-
-/// Partition key policy shared by the AnalyticsMain default and force-overflow
-/// paths: null the key when person processing is skipped, otherwise partition on
-/// the event key.
-fn person_key_policy(skip_person_processing: bool) -> KeyPolicy {
-    if skip_person_processing {
-        KeyPolicy::Null
-    } else {
-        KeyPolicy::EventKey
-    }
-}
-
-/// Pure routing decision lifted out of `prepare_record`. DLQ and custom-topic
-/// redirects take priority over per-datatype and overflow routing, matching the
-/// pre-refactor ordering. Consulted by the sink, which resolves the target to a
-/// topic string, the key policy to a partition key, and applies the effect.
-fn route(metadata: &ProcessedEventMetadata) -> Route<'_> {
-    // redirect_to_dlq takes priority over all other routing.
-    if metadata.redirect_to_dlq {
-        return Route {
-            target: Outputs::Dlq,
-            key_policy: KeyPolicy::EventKey,
-            effect: RouteEffect::Dlq,
-        };
-    }
-
-    if let Some(ref topic) = metadata.redirect_to_topic {
-        return Route {
-            target: Outputs::Custom(topic),
-            key_policy: KeyPolicy::EventKey,
-            effect: RouteEffect::CustomTopic,
-        };
-    }
-
-    match metadata.data_type {
-        DataType::AnalyticsHistorical => Route {
-            // Historical events never overflow — force_overflow and
-            // overflow_reason are deliberately ignored here.
-            target: Outputs::Historical,
-            key_policy: KeyPolicy::EventKey,
-            effect: RouteEffect::Standard,
-        },
-        DataType::AnalyticsMain => {
-            // Precedence: force_overflow (restrictions) -> overflow_reason
-            // (pipeline-stamped) -> default main-topic routing.
-            if metadata.force_overflow {
-                Route {
-                    target: Outputs::Overflow,
-                    key_policy: person_key_policy(metadata.skip_person_processing),
-                    effect: RouteEffect::Standard,
-                }
-            } else {
-                match &metadata.overflow_reason {
-                    Some(OverflowReason::ForceLimited) => Route {
-                        target: Outputs::Overflow,
-                        key_policy: KeyPolicy::Null,
-                        effect: RouteEffect::ForceDisablePersonProcessing,
-                    },
-                    Some(OverflowReason::RateLimited {
-                        preserve_locality: true,
-                    }) => Route {
-                        target: Outputs::Overflow,
-                        key_policy: KeyPolicy::EventKey,
-                        effect: RouteEffect::Standard,
-                    },
-                    Some(OverflowReason::RateLimited {
-                        preserve_locality: false,
-                    }) => Route {
-                        target: Outputs::Overflow,
-                        key_policy: KeyPolicy::Null,
-                        effect: RouteEffect::Standard,
-                    },
-                    // ReplayLimited never applies to AnalyticsMain; fall through to main.
-                    Some(OverflowReason::ReplayLimited) | None => Route {
-                        target: Outputs::Main,
-                        key_policy: person_key_policy(metadata.skip_person_processing),
-                        effect: RouteEffect::Standard,
-                    },
-                }
-            }
-        }
-        DataType::ClientIngestionWarning => Route {
-            target: Outputs::ClientIngestionWarning,
-            key_policy: KeyPolicy::EventKey,
-            effect: RouteEffect::Standard,
-        },
-        DataType::HeatmapMain => Route {
-            target: Outputs::Heatmaps,
-            key_policy: KeyPolicy::EventKey,
-            effect: RouteEffect::Standard,
-        },
-        DataType::ExceptionErrorTracking => Route {
-            target: Outputs::ErrorTracking,
-            key_policy: KeyPolicy::EventKey,
-            effect: RouteEffect::Standard,
-        },
-        DataType::SnapshotMain => {
-            // Precedence: force_overflow (restrictions) -> overflow_reason
-            // (pipeline-stamped ReplayLimited) -> default main-topic routing.
-            // Partition key is always session_id for replay to keep per-session
-            // ordering on the overflow topic.
-            let target = if metadata.force_overflow
-                || matches!(
-                    metadata.overflow_reason,
-                    Some(OverflowReason::ReplayLimited)
-                ) {
-                Outputs::ReplayOverflow
-            } else {
-                Outputs::Main
-            };
-            Route {
-                target,
-                key_policy: KeyPolicy::SessionId,
-                effect: RouteEffect::Standard,
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod route_tests {
-    use super::*;
-
-    fn meta(data_type: DataType) -> ProcessedEventMetadata {
-        ProcessedEventMetadata {
-            data_type,
-            session_id: Some("session123".to_string()),
-            computed_timestamp: None,
-            event_name: "test_event".to_string(),
-            force_overflow: false,
-            skip_person_processing: false,
-            redirect_to_dlq: false,
-            redirect_to_topic: None,
-            skip_heatmap_processing: false,
-            overflow_reason: None,
-        }
-    }
-
-    #[test]
-    fn dlq_wins_over_custom_topic_and_datatype() {
-        // redirect_to_dlq set alongside redirect_to_topic and an overflow
-        // reason: DLQ still wins, keyed on the event key, with the DLQ effect.
-        let mut m = meta(DataType::AnalyticsMain);
-        m.redirect_to_dlq = true;
-        m.redirect_to_topic = Some("custom".to_string());
-        m.force_overflow = true;
-        assert_eq!(
-            route(&m),
-            Route {
-                target: Outputs::Dlq,
-                key_policy: KeyPolicy::EventKey,
-                effect: RouteEffect::Dlq,
-            }
-        );
-    }
-
-    #[test]
-    fn custom_topic_wins_over_datatype() {
-        // Custom-topic redirect beats per-datatype/overflow routing (but not DLQ).
-        let mut m = meta(DataType::AnalyticsMain);
-        m.redirect_to_topic = Some("my_topic".to_string());
-        m.force_overflow = true;
-        assert_eq!(
-            route(&m),
-            Route {
-                target: Outputs::Custom("my_topic"),
-                key_policy: KeyPolicy::EventKey,
-                effect: RouteEffect::CustomTopic,
-            }
-        );
-    }
-
-    #[test]
-    fn per_datatype_targets() {
-        for (dt, target) in [
-            (DataType::AnalyticsMain, Outputs::Main),
-            (DataType::AnalyticsHistorical, Outputs::Historical),
-            (
-                DataType::ClientIngestionWarning,
-                Outputs::ClientIngestionWarning,
-            ),
-            (DataType::HeatmapMain, Outputs::Heatmaps),
-            (DataType::ExceptionErrorTracking, Outputs::ErrorTracking),
-            (DataType::SnapshotMain, Outputs::Main),
-        ] {
-            let m = meta(dt);
-            let r = route(&m);
-            assert_eq!(r.target, target, "wrong target for {dt:?}");
-            assert_eq!(r.effect, RouteEffect::Standard, "wrong effect for {dt:?}");
-        }
-    }
-
-    #[test]
-    fn analytics_main_overflow_key_policy() {
-        // force_overflow -> overflow topic; key policy follows skip_person.
-        let mut m = meta(DataType::AnalyticsMain);
-        m.force_overflow = true;
-        assert_eq!(route(&m).key_policy, KeyPolicy::EventKey);
-        m.skip_person_processing = true;
-        assert_eq!(route(&m).key_policy, KeyPolicy::Null);
-        assert_eq!(route(&m).target, Outputs::Overflow);
-    }
-
-    #[test]
-    fn analytics_main_overflow_reason_precedence() {
-        let base = meta(DataType::AnalyticsMain);
-
-        let mut force_limited = base.clone();
-        force_limited.overflow_reason = Some(OverflowReason::ForceLimited);
-        assert_eq!(
-            route(&force_limited),
-            Route {
-                target: Outputs::Overflow,
-                key_policy: KeyPolicy::Null,
-                effect: RouteEffect::ForceDisablePersonProcessing,
-            }
-        );
-
-        let mut preserve = base.clone();
-        preserve.overflow_reason = Some(OverflowReason::RateLimited {
-            preserve_locality: true,
-        });
-        assert_eq!(route(&preserve).key_policy, KeyPolicy::EventKey);
-        assert_eq!(route(&preserve).target, Outputs::Overflow);
-
-        let mut no_preserve = base.clone();
-        no_preserve.overflow_reason = Some(OverflowReason::RateLimited {
-            preserve_locality: false,
-        });
-        assert_eq!(route(&no_preserve).key_policy, KeyPolicy::Null);
-        assert_eq!(route(&no_preserve).target, Outputs::Overflow);
-
-        // ReplayLimited never applies to AnalyticsMain: falls through to main.
-        let mut replay = base;
-        replay.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(route(&replay).target, Outputs::Main);
-    }
-
-    #[test]
-    fn snapshot_routing_uses_session_id_key() {
-        let mut m = meta(DataType::SnapshotMain);
-        assert_eq!(
-            route(&m),
-            Route {
-                target: Outputs::Main,
-                key_policy: KeyPolicy::SessionId,
-                effect: RouteEffect::Standard,
-            }
-        );
-
-        m.force_overflow = true;
-        assert_eq!(route(&m).target, Outputs::ReplayOverflow);
-        assert_eq!(route(&m).key_policy, KeyPolicy::SessionId);
-
-        m.force_overflow = false;
-        m.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(route(&m).target, Outputs::ReplayOverflow);
+/// Bridge from a resolved `(pipeline, lane)` address to the sink's output
+/// vocabulary, which the [`OutputRegistry`] resolves to a topic. Lives sink-side
+/// so the pipeline layer stays free of sink types; moves into the outputs layer
+/// when it exists.
+///
+/// `unreachable!` arms are lane/pipeline pairs [`pipeline::resolve`] — the sole
+/// `LaneDecision` constructor — never produces, pinned by its unit tests.
+fn output_for<'a>(decision: &'a LaneDecision<'a>) -> Outputs<'a> {
+    match (decision.pipeline, &decision.lane) {
+        (_, Lane::Dlq) => Outputs::Dlq,
+        (_, Lane::Custom(topic)) => Outputs::Custom(topic),
+        (Pipeline::Analytics, Lane::Main) => Outputs::Main,
+        (Pipeline::Analytics, Lane::Overflow) => Outputs::Overflow,
+        (Pipeline::Analytics, Lane::Historical) => Outputs::Historical,
+        (Pipeline::Heatmaps, Lane::Main) => Outputs::Heatmaps,
+        (Pipeline::Warnings, Lane::Main) => Outputs::ClientIngestionWarning,
+        (Pipeline::ErrorTracking, Lane::Main) => Outputs::ErrorTracking,
+        (Pipeline::Replay, Lane::Main) => Outputs::Main,
+        (Pipeline::Replay, Lane::Overflow) => Outputs::ReplayOverflow,
+        (pipeline, lane) => unreachable!("lane {lane:?} is not reachable for {pipeline:?}"),
     }
 }
 
@@ -676,12 +400,12 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         }
     }
 
-    /// The payload encoding for an event's destination. Replay has its own
+    /// The payload encoding for an event's pipeline. Replay has its own
     /// (envelope-compressed) contract with its consumers; everything else is
     /// plain json. Becomes per-output configuration once outputs exist.
-    fn serializer_for(&self, data_type: DataType) -> Serializer {
-        match data_type {
-            DataType::SnapshotMain => self.replay_serializer,
+    fn serializer_for(&self, pipeline: Pipeline) -> Serializer {
+        match pipeline {
+            Pipeline::Replay => self.replay_serializer,
             _ => self.default_serializer,
         }
     }
@@ -692,10 +416,10 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// enforces per-partition ordering by calling `enqueue_record` serially
     /// in the original event order.
     ///
-    /// Routing policy is read from `ProcessedEventMetadata` (stamped upstream
-    /// by the pipeline). This function does not consult any limiter — it is
-    /// pure mechanism. DLQ and custom-topic redirects take priority over
-    /// overflow routing, matching the pre-refactor ordering.
+    /// The lane decision is [`pipeline::resolve`] — pure policy over the
+    /// metadata stamped upstream. This function only applies it: serializer
+    /// choice, header stamps, counters, topic and partition key resolution.
+    /// It consults no limiter and decides nothing.
     ///
     /// Not `async`: post-refactor there are no await points, and keeping it
     /// synchronous lets `send_batch`'s serial fast path call it inline without
@@ -703,7 +427,8 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     fn prepare_record(&self, event: ProcessedEvent) -> Result<ProduceRecord, CaptureError> {
         let (event, metadata) = (event.event, event.metadata);
 
-        let serializer = self.serializer_for(metadata.data_type);
+        let decision = resolve(&metadata);
+        let serializer = self.serializer_for(decision.pipeline);
         let payload = serializer.serialize(&event)?;
 
         let event_key = event.key();
@@ -713,8 +438,8 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
 
         drop(event); // Events can be EXTREMELY memory hungry
 
-        // Generic metadata-driven header stamps, independent of the routing
-        // target: applied to every event before the routing decision.
+        // Generic metadata-driven header stamps, independent of the lane
+        // decision: applied to every event.
         if metadata.skip_person_processing {
             headers.set_force_disable_person_processing(true);
         }
@@ -722,14 +447,9 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             headers.set_skip_heatmap_processing(true);
         }
 
-        // Routing is a pure decision over metadata; the sink resolves the target
-        // to a topic string, the key policy to a partition key, and applies the
-        // header / metric effect.
-        let route = route(&metadata);
-
-        match route.effect {
-            RouteEffect::Standard => {}
-            RouteEffect::Dlq => {
+        match decision.effect {
+            LaneEffect::Standard => {}
+            LaneEffect::Dlq => {
                 counter!(
                     "capture_events_rerouted_dlq",
                     &[("reason", "event_restriction")]
@@ -745,23 +465,24 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                 );
             }
-            RouteEffect::CustomTopic => {
+            LaneEffect::CustomTopic => {
                 counter!(
                     "capture_events_rerouted_custom_topic",
                     &[("reason", "event_restriction")]
                 )
                 .increment(1);
             }
-            RouteEffect::ForceDisablePersonProcessing => {
+            LaneEffect::ForceDisablePersonProcessing => {
                 headers.set_force_disable_person_processing(true);
             }
         }
 
         // Single output→topic resolution point: the registry owns the wiring,
         // and `Custom` returns its inline admin-supplied topic.
-        let topic: &str = self.topics.topic_for(&route.target);
+        let output = output_for(&decision);
+        let topic: &str = self.topics.topic_for(&output);
 
-        let partition_key: Option<String> = match route.key_policy {
+        let partition_key: Option<String> = match decision.key_policy {
             KeyPolicy::EventKey => Some(event_key),
             KeyPolicy::Null => None,
             KeyPolicy::SessionId => Some(

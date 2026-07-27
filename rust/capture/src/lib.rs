@@ -10,6 +10,7 @@ pub mod log_util;
 pub mod metrics_middleware;
 pub mod otel;
 pub mod payload;
+pub mod pipeline;
 pub mod prometheus;
 pub mod quota_limiters;
 pub mod router;

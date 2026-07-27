@@ -154,35 +154,30 @@ where `(Pipeline, Lane)` makes the per-mode reachable set explicit.
 - **Risk / rollback.** Low — mechanical hoist. Revert.
 - **Size.** M.
 
-#### Step 5 · `Pipeline` + `Lane`; lane resolution at pipeline end
+#### Step 5 · `Pipeline` + `Lane`; the lane decision becomes pipeline-layer code
 
-- **Goal.** Introduce the address pair and move the decision up:
-  - `Pipeline { Analytics, Heatmaps, Warnings, ErrorTracking, Replay }`,
-    stamped where `DataType` is classified today
-    (`DataType::from_event_name`, replay's separate ingress).
-  - `Lane { Main, Overflow, Historical, Dlq, Custom(String) }`.
-  - `resolve_lane(&ProcessedEventMetadata) -> LaneDecision { lane, key_policy, effects }`
-    — Step-2's `route()` hoisted out of the sink and renamed, precedence
-    unchanged (dlq > custom > historical > overflow > main). Runs as the last
-    step of each pipeline (`events/analytics.rs` after overflow stamping,
-    `ai_endpoint`, `otel`, `events/recordings.rs`); the DLQ/custom-topic
-    header stamps and counters move with it.
-  - `ProcessedEventMetadata` carries the resolved `(pipeline, lane, key_policy)`;
-    the intent flags (`force_overflow`, `overflow_reason`, `redirect_to_dlq`,
-    `redirect_to_topic`) become inputs to resolution and are no longer read
-    below it. `DataType` stays only as the classification input and the v1
-    bridge; the sink stops reading it.
-- **Files.** `rust/capture/src/pipeline/` (new: types + `resolve_lane`);
-  `rust/capture/src/v0_request.rs` (metadata);
-  `rust/capture/src/events/analytics.rs`, `rust/capture/src/ai_endpoint.rs`,
-  `rust/capture/src/otel/mod.rs`, `rust/capture/src/events/recordings.rs`;
-  `rust/capture/src/sinks/kafka.rs` (consumes `LaneDecision`, drops `route()`).
-- **Parity proof.** Step-1 goldens unmodified (the oracle asserts through the
-  public produce path, which now spans resolution + sink). `route()`'s direct
-  precedence tests become `resolve_lane` tests unchanged.
-- **Risk / rollback.** Medium — touches every pipeline, but each move is a hoist.
-  Revert.
-- **Size.** L.
+- **Goal.** Introduce the address pair and relocate the decision logic:
+  - `Pipeline { Analytics, Heatmaps, Warnings, ErrorTracking, Replay }`
+    (`Pipeline::from_data_type` extracts the pipeline half of `DataType`).
+  - `Lane { Main, Overflow, Historical, Dlq, Custom(&str) }`.
+  - `pipeline::resolve(&ProcessedEventMetadata) -> LaneDecision { pipeline, lane, key_policy, effect }`
+    — Step-2's `route()` moved out of the sink module wholesale, precedence
+    unchanged (dlq > custom > historical > overflow > main), pure (no
+    counters, no headers, no I/O). `KeyPolicy` and the effect enum move with
+    it as decision *data*.
+  - The sink keeps a private `output_for((pipeline, lane)) -> Outputs` bridge
+    and still *invokes* `resolve` from its prep path — the invocation site
+    moves up in Step 7 when the outputs layer exists to own it. This keeps
+    the commit a pure relocation: no metadata changes, no call-site changes,
+    goldens byte-identical.
+- **Files.** `rust/capture/src/pipeline.rs` (new);
+  `rust/capture/src/sinks/kafka.rs` (drops `route()`/`Route`/`KeyPolicy`/
+  `RouteEffect`, gains the `output_for` bridge); `rust/capture/src/lib.rs`.
+- **Parity proof.** Step-1 goldens unmodified. `route()`'s precedence tests
+  move to `pipeline::tests` with assertions preserved, plus a pipeline
+  classification test.
+- **Risk / rollback.** Low-medium — mechanical relocation. Revert.
+- **Size.** M/L.
 
 ### Stage C — sinks become mechanism, outputs become the API
 
@@ -321,7 +316,7 @@ No `--no-verify` — pre-commit hooks must pass.
 | 2 · Pure `route()` | done | `refactor(capture): extract pure route() from prepare_record` |
 | 3 · `OutputRegistry` + completeness | done | `refactor(capture): output registry with startup completeness check` |
 | 4 · Serialization layer | done | `refactor(capture): serialization layer — format and envelope behind one seam` |
-| 5 · `Pipeline` + `Lane`; lane resolution | pending | `refactor(capture): pipeline and lane address; lane resolution at pipeline end` |
+| 5 · `Pipeline` + `Lane`; lane resolution | done | `refactor(capture): pipeline and lane address; lane decision moves to the pipeline layer` |
 | 6 · Sinks → backend mechanism | pending | `refactor(capture): narrow sinks to backend mechanism over prepared payloads` |
 | 7 · Outputs layer; analytics migrates | pending | `feat(capture): outputs layer with (pipeline, lane) table; analytics on outputs` |
 | 8 · AI + OTEL migrate | pending | `refactor(capture): ai and otel publish through outputs` |
