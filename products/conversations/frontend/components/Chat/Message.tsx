@@ -64,7 +64,7 @@ export function Message({
 
     return (
         <div className={`flex ${isCustomer ? 'mr-10' : 'flex-row-reverse ml-10'} mb-4`}>
-            <div className="flex gap-2">
+            <div className="flex gap-2 min-w-0">
                 <div className="flex flex-col min-w-0 items-start">
                     <div className="flex items-center justify-between w-full gap-2 mb-1">
                         <ProfilePicture

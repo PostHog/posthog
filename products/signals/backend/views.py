@@ -2,7 +2,7 @@ import json
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, timedelta
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -49,7 +49,8 @@ from posthog.api.integration import github_rate_limited_response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -83,8 +84,12 @@ from products.signals.backend.billing import (
     refund_ineligibility_reason,
     report_pr_is_merged,
 )
+from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.facade.api import emit_signal
-from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
+from products.signals.backend.implementation_pr import (
+    fetch_implementation_pr_state_for_reports,
+    fetch_implementation_pr_urls_for_reports,
+)
 from products.signals.backend.models import (
     ArtefactAttribution,
     AutonomyPriority,
@@ -105,6 +110,8 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    PullRequestChecksResponseSerializer,
+    PullRequestCommentsResponseSerializer,
     ReportSignalsResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
@@ -154,6 +161,7 @@ tracer = trace.get_tracer(__name__)
 # signal that it's time to add real pagination, rather than silently truncating the list (the
 # old behaviour, which capped at 100 and dropped everyone alphabetically after ~"M").
 REVIEWER_PAGINATION_THRESHOLD = 1200
+PR_GITHUB_CACHE_SECONDS = 15
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -1653,7 +1661,40 @@ class SignalReportViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        self._forward_dismissal_note(
+            reports=[report],
+            dismissal_reason=data.get("dismissal_reason"),
+            dismissal_note=data.get("dismissal_note"),
+        )
+
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    def _forward_dismissal_note(
+        self,
+        *,
+        # `Sequence`, not `list`: this class defines a `list` action, which shadows the builtin for
+        # annotations evaluated in the class body at import time.
+        reports: Sequence[SignalReport],
+        dismissal_reason: str | None,
+        dismissal_note: str | None,
+    ) -> None:
+        """Leave the caller's dismissal note where scout runs actually read it.
+
+        Called once per request with every report that transitioned, so one note applied to a bulk
+        dismissal reaches each affected scout once instead of once per report. Runs after the
+        transitions have committed, because the note is derived context and the `dismissal` artefact
+        written alongside each transition remains the record of the feedback. Forwarding resolves
+        the reports' resulting status itself, drops the transitions this channel has nothing to say
+        about, and authorizes the caller against the scout-note write gates, so this call site only
+        hands it the request's principal.
+        """
+        forward_dismissal_note(
+            team=self.team,
+            reports=reports,
+            reason=dismissal_reason,
+            note=dismissal_note,
+            request=self.request,
+        )
 
     def _request_attribution(self) -> ArtefactAttribution:
         """Attribution for this request, resolved once and reused.
@@ -1834,6 +1875,7 @@ class SignalReportViewSet(
 
         results: list[dict] = []
         counts: dict[str, int] = {outcome.value: 0 for outcome in SignalReportBulkStateOutcome}
+        transitioned: list[SignalReport] = []
         for report_id in ordered_ids:
             report = reports_by_id.get(report_id)
             if report is None:
@@ -1849,6 +1891,8 @@ class SignalReportViewSet(
                     snooze_for=snooze_for,
                 )
                 report_status = report.status if outcome == SignalReportBulkStateOutcome.TRANSITIONED else None
+                if outcome == SignalReportBulkStateOutcome.TRANSITIONED:
+                    transitioned.append(report)
             results.append(
                 {
                     "id": report_id,
@@ -1858,6 +1902,12 @@ class SignalReportViewSet(
                 }
             )
             counts[outcome.value] += 1
+
+        self._forward_dismissal_note(
+            reports=transitioned,
+            dismissal_reason=dismissal_reason,
+            dismissal_note=dismissal_note,
+        )
 
         return Response(
             {
@@ -2125,6 +2175,168 @@ class SignalReportViewSet(
             )
 
         return Response({"status": "reingestion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
+
+    def _resolve_report_pr_reference(self, report: SignalReport) -> tuple[str, int] | None:
+        """Resolve a report's implementation PR to ``(owner/repo, pr_number)``, or None if it has none
+        (or the stored URL isn't a parseable GitHub PR URL)."""
+        pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
+        if not pr_url:
+            return None
+        parsed = GitHubIntegration.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return None
+        owner, repo, pr_number = parsed
+        return f"{owner}/{repo}", pr_number
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=PullRequestChecksResponseSerializer,
+                description="The CI checks on the report's implementation pull request.",
+            ),
+            404: OpenApiResponse(
+                description="Report has no implementation PR, or no GitHub integration can access it."
+            ),
+            502: OpenApiResponse(description="GitHub could not return the checks."),
+            503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
+        },
+        summary="Fetch CI checks for a report's implementation PR",
+        description=(
+            "Fetch the CI status (GitHub Actions check runs and legacy commit statuses) of the pull "
+            "request the report's implementation task opened, via the team's GitHub integration."
+        ),
+        operation_id="signals_report_pr_checks",
+    )
+    @action(detail=True, methods=["get"], url_path="pr_checks", required_scopes=["task:read"])
+    def pr_checks(self, request: Request, *args, **kwargs) -> Response:
+        return self._pr_github_passthrough(
+            cast(SignalReport, self.get_object()), "get_pull_request_checks", "checks", "checks"
+        )
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=PullRequestCommentsResponseSerializer,
+                description="Conversation and review comments on the report's implementation pull request.",
+            ),
+            404: OpenApiResponse(
+                description="Report has no implementation PR, or no GitHub integration can access it."
+            ),
+            502: OpenApiResponse(description="GitHub could not return the comments."),
+            503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
+        },
+        summary="Fetch comments for a report's implementation PR",
+        description=(
+            "Fetch the pull request's conversation comments and inline review comments, merged "
+            "chronologically, via the team's GitHub integration."
+        ),
+        operation_id="signals_report_pr_comments",
+    )
+    @action(detail=True, methods=["get"], url_path="pr_comments", required_scopes=["task:read"])
+    def pr_comments(self, request: Request, *args, **kwargs) -> Response:
+        return self._pr_github_passthrough(
+            cast(SignalReport, self.get_object()), "get_pull_request_comments", "comments", "comments"
+        )
+
+    def _pr_github_passthrough(self, report: SignalReport, fetch_name: str, key: str, noun: str) -> Response:
+        """Shared body for the ``pr_checks`` / ``pr_comments`` actions: resolve the report's PR and the
+        GitHub integration that can read it, call ``fetch_name`` on the client, and return ``{key: ...}``.
+        A missing PR/integration maps to 404, a rate limit to its response, and any other upstream GitHub
+        failure to 502 — an upstream hiccup never 500s the endpoint."""
+        reference = self._resolve_report_pr_reference(report)
+        if reference is None:
+            return Response(
+                {"error": "This report has no implementation pull request."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        repository, pr_number = reference
+        cache_key = f"signals:pr-github:{self.team.id}:{repository}:{pr_number}:{fetch_name}"
+        cached_result = cache.get(cache_key)
+        if isinstance(cached_result, dict) and key in cached_result:
+            return Response({key: cached_result[key]})
+
+        github, repository, pr_number, error = self._github_for_report_pr(report, reference=reference)
+        if error is not None:
+            return error
+        assert github is not None  # `error is None` guarantees a resolved integration
+        try:
+            result: dict[str, Any] = getattr(github, fetch_name)(repository, pr_number)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        except GitHubEgressBudgetExhausted:
+            return Response(
+                {"error": "GitHub is temporarily busy. Try again shortly."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
+            logger.warning(f"signals pr {noun} fetch errored", repository=repository, pr_number=pr_number)
+            return Response(
+                {"error": f"GitHub could not return the {noun} for this pull request."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        if not result.get("success"):
+            return Response(
+                {"error": result.get("error") or f"GitHub could not return the {noun} for this pull request."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        cache.set(cache_key, result, timeout=PR_GITHUB_CACHE_SECONDS)
+        return Response({key: result[key]})
+
+    def _github_for_report_pr(
+        self,
+        report: SignalReport,
+        *,
+        reference: tuple[str, int] | None = None,
+    ) -> tuple[GitHubIntegration | None, str, int, Response | None]:
+        """Resolve the report's implementation PR and the GitHub integration that can read it.
+
+        Returns ``(github, repository, pr_number, error_response)`` — on any failure ``error_response``
+        is set (and should be returned as-is) and ``github`` is None. Mirrors the connection-boundary
+        scoping of the artefact `diff` action: access is bounded to repos the team's installation can
+        reach, not to a single per-report repository.
+        """
+        reference = reference or self._resolve_report_pr_reference(report)
+        if reference is None:
+            return (
+                None,
+                "",
+                0,
+                Response(
+                    {"error": "This report has no implementation pull request."},
+                    status=status.HTTP_404_NOT_FOUND,
+                ),
+            )
+        repository, pr_number = reference
+        try:
+            github = GitHubIntegration.first_for_team_repository(
+                self.team.id,
+                repository,
+                source="signals_pr_detail",
+                priority=Priority.NORMAL,
+            )
+        except GitHubRateLimitError as e:
+            return None, repository, pr_number, github_rate_limited_response(e)
+        except GitHubEgressBudgetExhausted:
+            return (
+                None,
+                repository,
+                pr_number,
+                Response(
+                    {"error": "GitHub is temporarily busy. Try again shortly."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                ),
+            )
+        if github is None:
+            return (
+                None,
+                repository,
+                pr_number,
+                Response(
+                    {"error": f"No GitHub integration can access '{repository}'."},
+                    status=status.HTTP_404_NOT_FOUND,
+                ),
+            )
+        return github, repository, pr_number, None
 
 
 # `report_id` addresses a report's UUID primary key. Agents whose prompt only carries a

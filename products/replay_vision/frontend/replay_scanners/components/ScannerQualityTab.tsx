@@ -405,7 +405,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                         : quota?.exhausted && quota.credit_limit !== null
                                           ? `Monthly Replay Vision budget of ${formatCredits(quota.credit_limit)} reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
                                           : quota && quota.remaining !== null && plannedTestCredits > quota.remaining
-                                            ? `Only ${formatCredits(quota.remaining)} of budget left this month. Lower the test session count.`
+                                            ? `Only ${formatCredits(quota.remaining)} of budget left this period. Lower the test session count.`
                                             : undefined)
                                 }
                                 tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying. Each tested session is charged like a normal observation. Pick how many below."
@@ -463,7 +463,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                             {Math.min(evaluationSessionCap, ratedCount) === 1 ? '' : 's'}, charging{' '}
                             {formatCredits(plannedTestCredits)}
                             {quota && quota.remaining !== null && quota.credit_limit !== null
-                                ? ` (${formatCredits(quota.remaining)} of ${formatCredits(quota.credit_limit)} left this month)`
+                                ? ` (${formatCredits(quota.remaining)} of ${formatCredits(quota.credit_limit)} left this period)`
                                 : ''}
                             .
                         </span>

@@ -7702,6 +7702,7 @@ dependencies = [
  "k8s-awareness",
  "k8s-openapi",
  "kube",
+ "metrics",
  "serde",
  "serde_json",
  "serial_test",
@@ -7871,6 +7872,8 @@ dependencies = [
  "futures",
  "hdrhistogram",
  "humantime",
+ "k8s-openapi",
+ "kube",
  "metrics",
  "personhog-common",
  "personhog-coordination",
@@ -8213,7 +8216,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
