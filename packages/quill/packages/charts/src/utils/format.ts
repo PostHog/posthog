@@ -17,6 +17,17 @@ function validateFractionDigits(maximumFractionDigits: number, fallback: number)
     return maximumFractionDigits
 }
 
+/** Fraction digits needed to keep two significant digits — {@link DEFAULT_DECIMAL_PLACES} for
+ *  anything at or above 0.1, and one more for every extra leading zero below that. A flat two
+ *  decimals collapses a small-valued axis into repeated labels: ticks over 0–0.012 all round to
+ *  "0.01" or "0". */
+export function significantDecimalPlaces(value: number, minimum: number = DEFAULT_DECIMAL_PLACES): number {
+    if (!isFinite(value) || value === 0) {
+        return minimum
+    }
+    return Math.min(Math.max(minimum, 1 - Math.floor(Math.log10(Math.abs(value)))), 100)
+}
+
 export function humanFriendlyNumber(
     d: number,
     maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,

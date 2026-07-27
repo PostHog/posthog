@@ -84,6 +84,13 @@ describe('formatAggregationAxisValue', () => {
         { candidate: 0.8709423, filters: { decimalPlaces: 3 }, expected: '0.871' },
         { candidate: 0.8709423, filters: { decimal_places: 9 }, expected: '0.8709423' },
         { candidate: 0.8709423, filters: { decimal_places: -1 }, expected: '0.87' }, // Fall back to default for unsupported values
+        // Two decimals aren't enough for small values — 0.012 and 0.002 both used to render as "0.01" / "0"
+        { candidate: 0.012, filters: {}, expected: '0.012' },
+        { candidate: 0.002, filters: {}, expected: '0.002' },
+        { candidate: 0.00012345, filters: {}, expected: '0.00012' },
+        { candidate: 0.012, filters: { decimal_places: 2 }, expected: '0.01' }, // An explicit setting still wins
+        { candidate: 0.005, filters: { aggregation_axis_format: 'percentage' }, expected: '0.005%' },
+        { candidate: 0.00005, filters: { aggregation_axis_format: 'percentage_scaled' }, expected: '0.005%' },
     ]
 
     formatTestcases.forEach((testcase) => {
