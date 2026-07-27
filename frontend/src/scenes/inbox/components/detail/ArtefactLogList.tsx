@@ -10,10 +10,13 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { Node } from '~/queries/schema/schema-general'
+
 import { Task } from 'products/posthog_ai/frontend/types/taskTypes'
 import type { ReportChartApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { EnrichedReviewer, SignalReportActionability, SignalReportPriority, SignalReportArtefact } from '../../types'
+import { chartOpenTarget } from '../../utils/chartOpenTarget'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { ArtefactCommit } from './ArtefactCommit'
@@ -383,9 +386,27 @@ function ArtefactBody({
             // Named rather than drawn. The log keeps every version a refresh appended, so drawing
             // them all would fire far more queries than the per-report chart cap exists to bound.
             // The current version of each chart is drawn alongside the summary instead.
+            //
+            // The link is built from this row's own query, so it opens the chart as it was when this
+            // version was appended. That is the only route to a superseded version, since the summary
+            // draws the newest one for each id.
+            const openTarget = c.query && typeof c.query === 'object' ? chartOpenTarget(c.query as Node) : null
             return (
                 <div className="flex flex-col gap-1">
-                    <span className="text-secondary text-xs">{c.title}</span>
+                    <div className="flex items-center gap-2">
+                        <span className="truncate text-secondary text-xs">{c.title}</span>
+                        {openTarget ? (
+                            <Link
+                                to={openTarget.url}
+                                target="_blank"
+                                className="ml-auto flex shrink-0 items-center gap-0.5 text-tertiary text-[11px]"
+                                title={openTarget.label}
+                                aria-label={openTarget.label}
+                            >
+                                <IconExternal />
+                            </Link>
+                        ) : null}
+                    </div>
                     <RelevanceNote note={c.caption ?? undefined} />
                 </div>
             )

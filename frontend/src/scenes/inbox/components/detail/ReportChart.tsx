@@ -1,6 +1,9 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconExternal } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -10,6 +13,8 @@ import { isDataVisualizationNode, isInsightVizNode, isSavedInsightNode } from '~
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import type { ReportChartApi, SizeEnumApi } from 'products/signals/frontend/generated/api.schemas'
+
+import { chartOpenTarget } from '../../utils/chartOpenTarget'
 
 /**
  * Strip the chrome a query node carries for the insight scene (filter bar, header, results table)
@@ -106,13 +111,16 @@ function SavedInsightChartBody({ query, uniqueKey }: { query: SavedInsightNode; 
 export function ReportChart({ chart }: { chart: ReportChartApi }): JSX.Element | null {
     // `query` is `unknown` on the serializer, and the rows behind it are older stored JSON, so this is
     // where it becomes a node: anything that isn't an object has no `kind` for `Query` to draw.
-    const query = useMemo(
-        () =>
-            chart.query && typeof chart.query === 'object' ? asEmbeddedChart(chart.query as Record<string, any>) : null,
+    const authoredQuery = useMemo(
+        () => (chart.query && typeof chart.query === 'object' ? (chart.query as Node) : null),
         [chart.query]
     )
+    const query = useMemo(
+        () => (authoredQuery ? asEmbeddedChart(authoredQuery as Record<string, any>) : null),
+        [authoredQuery]
+    )
 
-    if (!query) {
+    if (!query || !authoredQuery) {
         return null
     }
 
@@ -130,13 +138,27 @@ export function ReportChart({ chart }: { chart: ReportChartApi }): JSX.Element |
     // (dataVisualizationLogic.presetChartHeight). Without it a graphical SQL chart renders at 60vh
     // and swallows the report, which is why NotebookNodeSQLV2 prefixes its key the same way.
     const uniqueKey = `SQLEditor-report-chart-${chart.chart_id}`
+    const openTarget = chartOpenTarget(authoredQuery)
 
     return (
         <div
             className="flex flex-col gap-2 rounded border border-primary bg-surface-primary p-3"
             data-attr="report-chart"
         >
-            <h4 className="m-0 text-sm font-semibold text-primary">{chart.title}</h4>
+            <div className="flex items-start justify-between gap-2">
+                <h4 className="m-0 text-sm font-semibold text-primary">{chart.title}</h4>
+                <LemonButton
+                    to={openTarget.url}
+                    targetBlank
+                    hideExternalLinkIcon
+                    icon={<IconExternal />}
+                    size="xsmall"
+                    type="tertiary"
+                    tooltip={openTarget.label}
+                    aria-label={openTarget.label}
+                    data-attr="report-chart-open"
+                />
+            </div>
             <div className={bodyClass}>
                 {isSavedInsightNode(query) ? (
                     <SavedInsightChartBody query={query} uniqueKey={uniqueKey} />
