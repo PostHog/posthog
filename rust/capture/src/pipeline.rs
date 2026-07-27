@@ -109,7 +109,7 @@ pub enum BasicLane {
 /// valid pairs exist; [`resolve`] is the sole constructor on the produce
 /// path.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Address<'a> {
+pub enum Address {
     Analytics(AnalyticsLane),
     Ai(AiLane),
     Heatmaps(BasicLane),
@@ -123,11 +123,11 @@ pub enum Address<'a> {
     /// envelope) follows the pipeline even on a redirect.
     Custom {
         pipeline: Pipeline,
-        topic: &'a str,
+        topic: String,
     },
 }
 
-impl Address<'_> {
+impl Address {
     /// The pipeline this address belongs to. Total — a custom redirect
     /// carries its provenance.
     pub fn pipeline(&self) -> Pipeline {
@@ -178,8 +178,8 @@ pub enum LaneEffect {
 /// The resolved address of an event plus the key policy and effects that come
 /// with it. Everything the publisher needs; nothing it may second-guess.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LaneDecision<'a> {
-    pub address: Address<'a>,
+pub struct LaneDecision {
+    pub address: Address,
     pub key_policy: KeyPolicy,
     pub effect: LaneEffect,
 }
@@ -196,7 +196,7 @@ fn person_key_policy(skip_person_processing: bool) -> KeyPolicy {
 }
 
 /// Every pipeline's dlq lane, in its own lane type.
-fn dlq_address(pipeline: Pipeline) -> Address<'static> {
+fn dlq_address(pipeline: Pipeline) -> Address {
     match pipeline {
         Pipeline::Analytics => Address::Analytics(AnalyticsLane::Dlq),
         Pipeline::Ai => Address::Ai(AiLane::Dlq),
@@ -209,7 +209,7 @@ fn dlq_address(pipeline: Pipeline) -> Address<'static> {
 
 /// The analytics data types carry two pipelines (analytics and AI); route a
 /// lane to whichever the event classified into.
-fn analytics_family(pipeline: Pipeline, lane: AnalyticsLane) -> Address<'static> {
+fn analytics_family(pipeline: Pipeline, lane: AnalyticsLane) -> Address {
     match pipeline {
         Pipeline::Ai => Address::Ai(match lane {
             AnalyticsLane::Main => AiLane::Main,
@@ -224,7 +224,7 @@ fn analytics_family(pipeline: Pipeline, lane: AnalyticsLane) -> Address<'static>
 /// The lane decision: one precedence chain over the intent flags stamped
 /// upstream. DLQ and custom-topic redirects take priority over per-pipeline
 /// and overflow routing.
-pub fn resolve(metadata: &ProcessedEventMetadata) -> LaneDecision<'_> {
+pub fn resolve(metadata: &ProcessedEventMetadata) -> LaneDecision {
     let pipeline = Pipeline::from_metadata(metadata);
 
     // redirect_to_dlq takes priority over all other routing.
@@ -238,7 +238,10 @@ pub fn resolve(metadata: &ProcessedEventMetadata) -> LaneDecision<'_> {
 
     if let Some(ref topic) = metadata.redirect_to_topic {
         return LaneDecision {
-            address: Address::Custom { pipeline, topic },
+            address: Address::Custom {
+                pipeline,
+                topic: topic.clone(),
+            },
             key_policy: KeyPolicy::EventKey,
             effect: LaneEffect::CustomTopic,
         };
@@ -388,7 +391,7 @@ mod tests {
             resolve(&m).address,
             Address::Custom {
                 pipeline: Pipeline::Ai,
-                topic: "warpstream_topic",
+                topic: "warpstream_topic".to_string(),
             }
         );
         m.redirect_to_topic = None;
@@ -414,7 +417,7 @@ mod tests {
             (
                 Address::Custom {
                     pipeline: Pipeline::Replay,
-                    topic: "t",
+                    topic: "t".to_string(),
                 },
                 Pipeline::Replay,
             ),
@@ -485,7 +488,7 @@ mod tests {
             LaneDecision {
                 address: Address::Custom {
                     pipeline: Pipeline::Analytics,
-                    topic: "my_topic",
+                    topic: "my_topic".to_string(),
                 },
                 key_policy: KeyPolicy::EventKey,
                 effect: LaneEffect::CustomTopic,

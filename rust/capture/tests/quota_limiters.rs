@@ -21,18 +21,18 @@ use capture::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
 };
 use capture::router::router;
-use capture::sinks::sink::{PreparedPayload, Sink, SinkResult};
+use capture::sinks::sink::{AddressedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
 use chrono::{DateTime, Utc};
 
 #[derive(Default, Clone)]
 struct MemorySink {
-    events: Arc<Mutex<Vec<PreparedPayload>>>,
+    events: Arc<Mutex<Vec<AddressedPayload>>>,
 }
 
 #[async_trait]
 impl Sink for MemorySink {
-    async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
+    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
         let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
         self.events.lock().unwrap().extend(prepared);
         results
@@ -40,13 +40,13 @@ impl Sink for MemorySink {
 }
 
 impl MemorySink {
-    fn events(&self) -> Vec<PreparedPayload> {
+    fn events(&self) -> Vec<AddressedPayload> {
         self.events.lock().unwrap().clone()
     }
 
     /// Deserialize a captured payload back into the event it carries.
-    fn captured(p: &PreparedPayload) -> serde_json::Value {
-        serde_json::from_slice(&p.record.payload).expect("payload must deserialize")
+    fn captured(p: &AddressedPayload) -> serde_json::Value {
+        serde_json::from_slice(&p.payload).expect("payload must deserialize")
     }
 }
 
@@ -190,7 +190,7 @@ fn create_batch_payload_with_token(events: &[&str], token: &str) -> String {
     }
 }
 
-fn extract_captured_event_names(events: &[PreparedPayload]) -> Vec<String> {
+fn extract_captured_event_names(events: &[AddressedPayload]) -> Vec<String> {
     events
         .iter()
         .map(|e| {

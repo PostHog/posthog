@@ -14,7 +14,7 @@ impl NoOpSink {
 impl crate::sinks::sink::Sink for NoOpSink {
     async fn publish(
         &self,
-        prepared: Vec<crate::sinks::sink::PreparedPayload>,
+        prepared: Vec<crate::sinks::sink::AddressedPayload>,
     ) -> Vec<crate::sinks::sink::SinkResult> {
         counter!("capture_events_ingested_total").increment(prepared.len() as u64);
         prepared

@@ -9,16 +9,13 @@ pub struct PrintSink {}
 impl crate::sinks::sink::Sink for PrintSink {
     async fn publish(
         &self,
-        prepared: Vec<crate::sinks::sink::PreparedPayload>,
+        prepared: Vec<crate::sinks::sink::AddressedPayload>,
     ) -> Vec<crate::sinks::sink::SinkResult> {
         counter!("capture_events_ingested_total").increment(prepared.len() as u64);
         prepared
             .into_iter()
             .map(|p| {
-                info!(
-                    "event payload: {}",
-                    String::from_utf8_lossy(&p.record.payload)
-                );
+                info!("event payload: {}", String::from_utf8_lossy(&p.payload));
                 crate::sinks::sink::SinkResult::ok(p.uuid)
             })
             .collect()

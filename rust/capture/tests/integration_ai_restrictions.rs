@@ -15,7 +15,7 @@ use capture::outputs::PrepSpec;
 use capture::outputs::{Output, OutputTable};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
-use capture::sinks::sink::{PreparedPayload, Sink, SinkResult};
+use capture::sinks::sink::{AddressedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
 use capture::v0_request::DataType;
 use chrono::{DateTime, Utc};
@@ -52,7 +52,7 @@ impl TimeSource for FixedTime {
 
 #[derive(Clone)]
 struct CapturingSink {
-    events: Arc<tokio::sync::Mutex<Vec<PreparedPayload>>>,
+    events: Arc<tokio::sync::Mutex<Vec<AddressedPayload>>>,
 }
 
 impl CapturingSink {
@@ -62,14 +62,14 @@ impl CapturingSink {
         }
     }
 
-    async fn get_events(&self) -> Vec<PreparedPayload> {
+    async fn get_events(&self) -> Vec<AddressedPayload> {
         self.events.lock().await.clone()
     }
 }
 
 #[async_trait]
 impl Sink for CapturingSink {
-    async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
+    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
         let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
         self.events.lock().await.extend(prepared);
         results
@@ -216,10 +216,10 @@ struct ExpectedEvent<'a> {
     expected_properties: Option<Value>,
 }
 
-fn assert_event(payload: &PreparedPayload, expected: &ExpectedEvent) {
+fn assert_event(payload: &AddressedPayload, expected: &ExpectedEvent) {
     // Assert event content by deserializing the payload back.
     let event: Value =
-        serde_json::from_slice(&payload.record.payload).expect("payload should be valid JSON");
+        serde_json::from_slice(&payload.payload).expect("payload should be valid JSON");
     assert_eq!(event["token"], expected.token, "token mismatch");
     assert_eq!(
         event["distinct_id"], expected.distinct_id,
@@ -240,30 +240,47 @@ fn assert_event(payload: &PreparedPayload, expected: &ExpectedEvent) {
     // Assert the routing outcome the declarative expectations imply: the
     // record's topic and person-processing header carry what used to be
     // metadata stamps.
-    use capture::outputs::registry::{OutputRegistry, Outputs};
-    let registry = OutputRegistry::from(&DEFAULT_CONFIG.kafka);
-    let expected_output = if expected.redirect_to_dlq {
-        Outputs::Dlq
+    use capture::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, Pipeline as CapPipeline};
+    let ai = expected.event_name.starts_with("$ai_");
+    let expected_address = if expected.redirect_to_dlq {
+        if ai {
+            Address::Ai(AiLane::Dlq)
+        } else {
+            Address::Analytics(AnalyticsLane::Dlq)
+        }
     } else if let Some(topic) = &expected.redirect_to_topic {
-        Outputs::Custom(topic)
+        Address::Custom {
+            pipeline: if ai {
+                CapPipeline::Ai
+            } else {
+                CapPipeline::Analytics
+            },
+            topic: topic.clone(),
+        }
     } else if expected.force_overflow {
-        Outputs::Overflow
+        if ai {
+            Address::Ai(AiLane::Overflow)
+        } else {
+            Address::Analytics(AnalyticsLane::Overflow)
+        }
     } else {
         match expected.data_type {
-            DataType::AnalyticsMain | DataType::SnapshotMain => Outputs::Main,
-            DataType::AnalyticsHistorical => Outputs::Historical,
-            DataType::HeatmapMain => Outputs::Heatmaps,
-            DataType::ClientIngestionWarning => Outputs::ClientIngestionWarning,
-            DataType::ExceptionErrorTracking => Outputs::ErrorTracking,
+            DataType::AnalyticsMain | DataType::SnapshotMain => {
+                if ai {
+                    Address::Ai(AiLane::Main)
+                } else {
+                    Address::Analytics(AnalyticsLane::Main)
+                }
+            }
+            DataType::AnalyticsHistorical => Address::Analytics(AnalyticsLane::Historical),
+            DataType::HeatmapMain => Address::Heatmaps(BasicLane::Main),
+            DataType::ClientIngestionWarning => Address::Warnings(BasicLane::Main),
+            DataType::ExceptionErrorTracking => Address::ErrorTracking(BasicLane::Main),
         }
     };
+    assert_eq!(payload.address, expected_address, "address mismatch");
     assert_eq!(
-        payload.record.topic,
-        registry.topic_for(&expected_output),
-        "topic mismatch"
-    );
-    assert_eq!(
-        payload.record.headers.force_disable_person_processing,
+        payload.headers.force_disable_person_processing,
         if expected.skip_person_processing {
             Some(true)
         } else {

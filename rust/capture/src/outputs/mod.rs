@@ -41,14 +41,9 @@ use tracing::{info_span, Instrument};
 use crate::api::CaptureError;
 use crate::config::{AiRouting, EnvelopeCompression, KafkaConfig};
 use crate::failover::{AttemptOutcome, FailoverController, Route as FailoverRoute};
-use crate::outputs::registry::{OutputRegistry, Outputs};
-use crate::pipeline::AiLane;
-use crate::pipeline::{
-    resolve, Address, AnalyticsLane, BasicLane, KeyPolicy, LaneEffect, Pipeline, ReplayLane,
-};
+use crate::pipeline::{resolve, KeyPolicy, LaneEffect, Pipeline};
 use crate::serialization::{Format, Serializer};
-use crate::sinks::producer::ProduceRecord;
-use crate::sinks::sink::{fold_results, PreparedPayload, Sink};
+use crate::sinks::sink::{fold_results, AddressedPayload, Sink};
 use crate::v0_request::ProcessedEvent;
 
 /// One target's payload-assembly configuration: the output→topic wiring and
@@ -57,20 +52,15 @@ use crate::v0_request::ProcessedEvent;
 /// partition key — and hands the sink ready-to-publish payloads. Cheap to
 /// clone (an `Arc` and two `Copy` serializers), which matters in the
 /// scatter-gather prep path where it is cloned once per spawned task.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct PrepSpec {
-    registry: Arc<OutputRegistry>,
     default_serializer: Serializer,
     replay_serializer: Serializer,
 }
 
 impl PrepSpec {
-    pub fn new(
-        registry: Arc<OutputRegistry>,
-        replay_envelope_compression: EnvelopeCompression,
-    ) -> Self {
+    pub fn new(replay_envelope_compression: EnvelopeCompression) -> Self {
         Self {
-            registry,
             default_serializer: Serializer::json(),
             replay_serializer: Serializer::new(Format::Json, replay_envelope_compression.into()),
         }
@@ -89,38 +79,7 @@ impl PrepSpec {
 
 impl From<&KafkaConfig> for PrepSpec {
     fn from(config: &KafkaConfig) -> Self {
-        Self::new(
-            Arc::new(OutputRegistry::from(config)),
-            config.kafka_replay_envelope_compression,
-        )
-    }
-}
-
-/// Bridge from a resolved [`Address`] to the registry's output vocabulary,
-/// which resolves to a topic. Total — lanes are typed per pipeline, so there
-/// is no invalid pair to reject. The AI pipeline maps onto the analytics
-/// topics today; giving it its own outputs is a registry change, not a
-/// routing change.
-fn output_for<'a>(address: &'a Address<'a>) -> Outputs<'a> {
-    match address {
-        Address::Custom { topic, .. } => Outputs::Custom(topic),
-        Address::Analytics(AnalyticsLane::Main) => Outputs::Main,
-        Address::Analytics(AnalyticsLane::Overflow) => Outputs::Overflow,
-        Address::Analytics(AnalyticsLane::Historical) => Outputs::Historical,
-        Address::Analytics(AnalyticsLane::Dlq) => Outputs::Dlq,
-        Address::Ai(AiLane::Main) => Outputs::Main,
-        Address::Ai(AiLane::Overflow) => Outputs::Overflow,
-        Address::Ai(AiLane::Historical) => Outputs::Historical,
-        Address::Ai(AiLane::Dlq) => Outputs::Dlq,
-        Address::Heatmaps(BasicLane::Main) => Outputs::Heatmaps,
-        Address::Heatmaps(BasicLane::Dlq) => Outputs::Dlq,
-        Address::Warnings(BasicLane::Main) => Outputs::ClientIngestionWarning,
-        Address::Warnings(BasicLane::Dlq) => Outputs::Dlq,
-        Address::ErrorTracking(BasicLane::Main) => Outputs::ErrorTracking,
-        Address::ErrorTracking(BasicLane::Dlq) => Outputs::Dlq,
-        Address::Replay(ReplayLane::Main) => Outputs::Main,
-        Address::Replay(ReplayLane::Overflow) => Outputs::ReplayOverflow,
-        Address::Replay(ReplayLane::Dlq) => Outputs::Dlq,
+        Self::new(config.kafka_replay_envelope_compression)
     }
 }
 
@@ -136,7 +95,7 @@ fn output_for<'a>(address: &'a Address<'a>) -> Outputs<'a> {
 fn prepare_payload(
     spec: &PrepSpec,
     event: ProcessedEvent,
-) -> Result<PreparedPayload, CaptureError> {
+) -> Result<AddressedPayload, CaptureError> {
     let (event, metadata) = (event.event, event.metadata);
 
     let decision = resolve(&metadata);
@@ -192,11 +151,6 @@ fn prepare_payload(
         }
     }
 
-    // Single output→topic resolution point: the registry owns the wiring,
-    // and `Custom` returns its inline admin-supplied topic.
-    let output = output_for(&decision.address);
-    let topic: &str = spec.registry.topic_for(&output);
-
     let partition_key: Option<String> = match decision.key_policy {
         KeyPolicy::EventKey => Some(event_key),
         KeyPolicy::Null => None,
@@ -214,14 +168,14 @@ fn prepare_payload(
         headers.set_content_encoding(encoding.to_string());
     }
 
-    Ok(PreparedPayload {
+    // The address stays abstract: each sink realizes it in its own namespace
+    // (Kafka resolves it against its per-cluster topic table at publish time).
+    Ok(AddressedPayload {
         uuid,
-        record: ProduceRecord {
-            topic: topic.to_string(),
-            key: partition_key,
-            payload,
-            headers,
-        },
+        address: decision.address,
+        payload,
+        headers,
+        key: partition_key,
     })
 }
 
@@ -234,7 +188,7 @@ fn prepare_payload(
 pub(crate) const SCATTER_GATHER_MIN_BATCH: usize = 8;
 
 /// Prep phase for a whole batch: turn `ProcessedEvent`s into ready-to-publish
-/// [`PreparedPayload`]s in the original event order. Fail-fast: any single
+/// [`AddressedPayload`]s in the original event order. Fail-fast: any single
 /// prep error aborts the whole batch and produces zero records.
 ///
 /// Small batches prep serially; batches at or above
@@ -245,14 +199,14 @@ pub(crate) const SCATTER_GATHER_MIN_BATCH: usize = 8;
 pub(crate) async fn prepare_batch(
     spec: &PrepSpec,
     events: Vec<ProcessedEvent>,
-) -> Result<Vec<PreparedPayload>, CaptureError> {
+) -> Result<Vec<AddressedPayload>, CaptureError> {
     let batch_size = events.len();
 
     // Small-batch fast path: the JoinSet spawn overhead dominates any
     // parallel-prep win, so stay single-threaded.
     if batch_size < SCATTER_GATHER_MIN_BATCH {
         let prep_start = Instant::now();
-        let mut prepared: Vec<PreparedPayload> = Vec::with_capacity(batch_size);
+        let mut prepared: Vec<AddressedPayload> = Vec::with_capacity(batch_size);
         for event in events {
             match prepare_payload(spec, event) {
                 Ok(payload) => prepared.push(payload),
@@ -274,9 +228,9 @@ pub(crate) async fn prepare_batch(
     // + header build run concurrently on up to N worker threads, rather
     // than sequentially on a single task.
     let prep_start = Instant::now();
-    let mut prep_set: JoinSet<(usize, Result<PreparedPayload, CaptureError>)> = JoinSet::new();
+    let mut prep_set: JoinSet<(usize, Result<AddressedPayload, CaptureError>)> = JoinSet::new();
     for (idx, event) in events.into_iter().enumerate() {
-        let spec = spec.clone();
+        let spec = *spec;
         prep_set.spawn(
             async move { (idx, prepare_payload(&spec, event)) }
                 .instrument(info_span!("prepare_payload")),
@@ -290,7 +244,7 @@ pub(crate) async fn prepare_batch(
     // below, invoked only from an already-errored branch, so any
     // `JoinError` observed during normal drain implies a panic inside
     // `prepare_payload` — counted separately so it's alertable.
-    let mut prepared: Vec<(usize, PreparedPayload)> = Vec::with_capacity(batch_size);
+    let mut prepared: Vec<(usize, AddressedPayload)> = Vec::with_capacity(batch_size);
     while let Some(join_result) = prep_set.join_next().await {
         let (idx, result) = match join_result {
             Err(err) => {
@@ -674,10 +628,7 @@ mod tests {
     }
 
     fn spec() -> PrepSpec {
-        PrepSpec::new(
-            Arc::new(crate::outputs::registry::test_topics()),
-            EnvelopeCompression::None,
-        )
+        PrepSpec::new(EnvelopeCompression::None)
     }
 
     fn tokens(sink: &MockSink) -> Vec<String> {
@@ -819,7 +770,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Sink for ProgrammableSink {
-        async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
+        async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             let fail = self.fail.load(Ordering::SeqCst);
             prepared

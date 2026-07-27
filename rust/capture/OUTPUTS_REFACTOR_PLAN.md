@@ -354,9 +354,13 @@ All steps are complete. The five strata are landed:
 - **Serialization is a seam.** Format × envelope per destination, with
   content headers carrying encoding coexistence (the lz4 replay design,
   generalized); a protobuf cutover is an output-level config change.
-- **Sinks are mechanism.** Kafka/S3/print/noop take prepared payloads and
-  ack them — nothing else. Payload assembly lives in the outputs layer
-  (`PrepSpec`); the Kafka sink is producer + enqueue + ack drain.
+- **Sinks are mechanism, and own their namespace.** Payloads carry the
+  abstract `Address`; each sink realizes it in its own namespace at publish
+  time (Kafka: its per-cluster topic table — the swappable seam a
+  repartitioning coordinator plugs into; S3: the buffer path; print/noop:
+  trivially). Sinks make no routing decisions; a failover pair can share one
+  prepared batch because payloads are target-agnostic. Serialization stays
+  output-level (a consumer contract, shared across targets).
 - **Breaker failover is dark-launched** behind `CAPTURE_FAILOVER_ENABLED`,
   ported intact from `-sinks-v1` as the failover output's autonomous mode.
 - **v1 resolves topics through the shared `OutputRegistry`** via
@@ -382,3 +386,4 @@ All steps are complete. The five strata are landed:
 | 11 · v1 convergence | done | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
 | 12 · Prep hoist; `Prepare` retired | done | `refactor(capture): hoist prep into outputs; sinks take prepared payloads only` |
 | 13 · Typed addresses; AI pipeline | done | `refactor(capture): typed per-pipeline lanes; custom redirects and the ai stream become addresses` |
+| 14 · Sinks realize namespaces | done | `refactor(capture): payloads carry addresses; sinks realize them in their own namespace` |

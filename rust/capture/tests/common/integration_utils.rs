@@ -8,12 +8,12 @@ use std::time::Duration;
 use capture::{
     api::{CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
-    outputs::registry::{OutputRegistry, Outputs},
     outputs::PrepSpec,
     outputs::{Output, OutputTable},
+    pipeline::{Address, AnalyticsLane, BasicLane, ReplayLane},
     quota_limiters::CaptureQuotaLimiter,
     router::router,
-    sinks::sink::{PreparedPayload, Sink, SinkResult},
+    sinks::sink::{AddressedPayload, Sink, SinkResult},
     time::TimeSource,
 };
 use chrono::{DateTime, Utc};
@@ -336,7 +336,7 @@ pub async fn expect_response_fail(title: &str, res: TestResponse) {
 }
 
 // utility to validate tests/fixtures/single_event_payload.json
-pub fn validate_single_event_payload(title: &str, got_events: Vec<PreparedPayload>) {
+pub fn validate_single_event_payload(title: &str, got_events: Vec<AddressedPayload>) {
     let expected_event_count = 1;
     let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
 
@@ -354,9 +354,9 @@ pub fn validate_single_event_payload(title: &str, got_events: Vec<PreparedPayloa
 
     // introspect on the routing outcome
     assert_eq!(
-        topic_for(&Outputs::Main),
-        got.record.topic,
-        "mismatched Kafka topic assignment in case: {title}",
+        Address::Analytics(AnalyticsLane::Main),
+        got.address,
+        "mismatched address in case: {title}",
     );
 
     // introspect on extracted event attributes
@@ -453,7 +453,7 @@ pub fn validate_single_event_payload(title: &str, got_events: Vec<PreparedPayloa
 }
 
 // utility to validate tests/fixtures/single_engage_event_payload.json
-pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<PreparedPayload>) {
+pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<AddressedPayload>) {
     let expected_event_count = 1;
     let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
 
@@ -469,9 +469,9 @@ pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<Prepare
 
     // introspect on the routing outcome
     assert_eq!(
-        topic_for(&Outputs::Main),
-        got.record.topic,
-        "mismatched Kafka topic assignment in case: {title}",
+        Address::Analytics(AnalyticsLane::Main),
+        got.address,
+        "mismatched address in case: {title}",
     );
 
     // introspect on extracted event attributes
@@ -556,7 +556,7 @@ pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<Prepare
 }
 
 // utility to validate tests/fixtures/single_replay_event_payload.json
-pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<PreparedPayload>) {
+pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<AddressedPayload>) {
     let expected_event_count = 1;
     let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
 
@@ -572,13 +572,13 @@ pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<Prepare
 
     // introspect on the routing outcome
     assert_eq!(
-        topic_for(&Outputs::Main),
-        got.record.topic,
-        "mismatched Kafka topic assignment in case: {title}",
+        Address::Replay(ReplayLane::Main),
+        got.address,
+        "mismatched address in case: {title}",
     );
     assert_eq!(
         Some("01983d9b-8639-78fa-ac26-b9e7bf716521".to_string()),
-        got.record.key,
+        got.key,
         "wrong session partition key in case: {title}",
     );
 
@@ -683,7 +683,7 @@ pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<Prepare
 }
 
 // utility to validate tests/fixtures/batch_events_payload.json
-pub fn validate_batch_events_payload(title: &str, got_events: Vec<PreparedPayload>) {
+pub fn validate_batch_events_payload(title: &str, got_events: Vec<AddressedPayload>) {
     let expected_event_count = 2;
     let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
 
@@ -699,9 +699,9 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<PreparedPayloa
 
     // introspect on the routing outcome
     assert_eq!(
-        topic_for(&Outputs::Main),
-        pageview.record.topic,
-        "mismatched Kafka topic assignment in case: {title}",
+        Address::Analytics(AnalyticsLane::Main),
+        pageview.address,
+        "mismatched address in case: {title}",
     );
 
     // introspect on extracted event attributes
@@ -815,9 +815,9 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<PreparedPayloa
 
     // introspect on the routing outcome
     assert_eq!(
-        topic_for(&Outputs::Main),
-        pageleave.record.topic,
-        "mismatched Kafka topic assignment in case: {title}",
+        Address::Analytics(AnalyticsLane::Main),
+        pageleave.address,
+        "mismatched address in case: {title}",
     );
 
     // introspect on extracted event attributes
@@ -921,7 +921,7 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<PreparedPayloa
 // produce a third event — a `$$heatmap` redirect — alongside the original two.
 // The original $pageleave gets `skip_heatmap_processing: true` so the events
 // pipeline does not also extract heatmap data downstream.
-pub fn validate_batch_events_with_heatmap_payload(title: &str, got_events: Vec<PreparedPayload>) {
+pub fn validate_batch_events_with_heatmap_payload(title: &str, got_events: Vec<AddressedPayload>) {
     assert_eq!(
         3,
         got_events.len(),
@@ -936,7 +936,7 @@ pub fn validate_batch_events_with_heatmap_payload(title: &str, got_events: Vec<P
         "first event should be $pageview in case: {title}",
     );
     assert_eq!(
-        pageview.record.headers.skip_heatmap_processing, None,
+        pageview.headers.skip_heatmap_processing, None,
         "$pageview carries no heatmap data, must not be flagged in case: {title}",
     );
 
@@ -947,7 +947,7 @@ pub fn validate_batch_events_with_heatmap_payload(title: &str, got_events: Vec<P
         "second event should be $pageleave in case: {title}",
     );
     assert_eq!(
-        pageleave.record.headers.skip_heatmap_processing,
+        pageleave.headers.skip_heatmap_processing,
         Some(true),
         "$pageleave carries scroll-depth heatmap data, must be flagged in case: {title}",
     );
@@ -968,16 +968,16 @@ pub fn validate_batch_events_with_heatmap_payload(title: &str, got_events: Vec<P
     let redirect = &got_events[2];
     let redirect_event = captured_event(redirect, title);
     assert_eq!(
-        redirect.record.topic,
-        topic_for(&Outputs::Heatmaps),
-        "redirect must be routed to the heatmaps topic in case: {title}",
+        redirect.address,
+        Address::Heatmaps(BasicLane::Main),
+        "redirect must be routed to the heatmaps pipeline in case: {title}",
     );
     assert_eq!(
         redirect_event.event, "$$heatmap",
         "redirect event name must be $$heatmap in case: {title}",
     );
     assert_eq!(
-        redirect.record.headers.skip_heatmap_processing, None,
+        redirect.headers.skip_heatmap_processing, None,
         "redirect must NOT be flagged — the heatmaps pipeline is its consumer in case: {title}",
     );
     assert_ne!(
@@ -1019,31 +1019,25 @@ impl TimeSource for FixedTime {
 }
 
 /// Deserialize a captured payload back into the event it carries.
-fn captured_event(p: &PreparedPayload, title: &str) -> common_types::CapturedEvent {
-    serde_json::from_slice(&p.record.payload)
+fn captured_event(p: &AddressedPayload, title: &str) -> common_types::CapturedEvent {
+    serde_json::from_slice(&p.payload)
         .unwrap_or_else(|_| panic!("payload must deserialize in case: {title}"))
-}
-
-fn topic_for(output: &Outputs) -> String {
-    OutputRegistry::from(&DEFAULT_CONFIG.kafka)
-        .topic_for(output)
-        .to_string()
 }
 
 #[derive(Clone, Default)]
 struct MemorySink {
-    events: Arc<Mutex<Vec<PreparedPayload>>>,
+    events: Arc<Mutex<Vec<AddressedPayload>>>,
 }
 
 impl MemorySink {
-    pub fn events(&self) -> Vec<PreparedPayload> {
+    pub fn events(&self) -> Vec<AddressedPayload> {
         self.events.lock().unwrap().clone()
     }
 }
 
 #[async_trait]
 impl Sink for MemorySink {
-    async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
+    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
         let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
         self.events.lock().unwrap().extend_from_slice(&prepared);
         results

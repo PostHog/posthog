@@ -14,9 +14,8 @@ use capture::outputs::PrepSpec;
 use capture::outputs::{Output, OutputTable};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
-use capture::sinks::sink::{PreparedPayload, Sink, SinkResult};
+use capture::sinks::sink::{AddressedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
-use capture::v0_request::DataType;
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
 use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG, DEFAULT_TEST_TIME};
@@ -38,7 +37,7 @@ impl TimeSource for FixedTime {
 
 #[derive(Clone)]
 struct CapturingSink {
-    events: Arc<tokio::sync::Mutex<Vec<PreparedPayload>>>,
+    events: Arc<tokio::sync::Mutex<Vec<AddressedPayload>>>,
 }
 
 impl CapturingSink {
@@ -48,14 +47,14 @@ impl CapturingSink {
         }
     }
 
-    async fn get_events(&self) -> Vec<PreparedPayload> {
+    async fn get_events(&self) -> Vec<AddressedPayload> {
         self.events.lock().await.clone()
     }
 }
 
 #[async_trait]
 impl Sink for CapturingSink {
-    async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
+    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
         let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
         self.events.lock().await.extend(prepared);
         results
@@ -158,8 +157,7 @@ struct ExpectedEvent<'a> {
     distinct_id: &'a str,
     event_name: &'a str,
     session_id: &'a str,
-    // ProcessedEventMetadata fields
-    data_type: DataType,
+    // Routing expectations
     force_overflow: bool,
     skip_person_processing: bool,
     redirect_to_dlq: bool,
@@ -168,10 +166,10 @@ struct ExpectedEvent<'a> {
     expected_properties: Option<Value>,
 }
 
-fn assert_event(payload: &PreparedPayload, expected: &ExpectedEvent) {
+fn assert_event(payload: &AddressedPayload, expected: &ExpectedEvent) {
     // Assert event content by deserializing the payload back.
     let event: Value =
-        serde_json::from_slice(&payload.record.payload).expect("payload should be valid JSON");
+        serde_json::from_slice(&payload.payload).expect("payload should be valid JSON");
     assert_eq!(event["token"], expected.token, "token mismatch");
     assert_eq!(
         event["distinct_id"], expected.distinct_id,
@@ -193,7 +191,7 @@ fn assert_event(payload: &PreparedPayload, expected: &ExpectedEvent) {
     // topic), which partition on the event key like every other pipeline.
     if !expected.redirect_to_dlq && expected.redirect_to_topic.is_none() {
         assert_eq!(
-            payload.record.key.as_deref(),
+            payload.key.as_deref(),
             Some(expected.session_id),
             "session partition key mismatch"
         );
@@ -202,30 +200,22 @@ fn assert_event(payload: &PreparedPayload, expected: &ExpectedEvent) {
     // Assert the routing outcome the declarative expectations imply: the
     // record's topic and person-processing header carry what used to be
     // metadata stamps.
-    use capture::outputs::registry::{OutputRegistry, Outputs};
-    let registry = OutputRegistry::from(&DEFAULT_CONFIG.kafka);
-    let expected_output = if expected.redirect_to_dlq {
-        Outputs::Dlq
+    use capture::pipeline::{Address, Pipeline as CapPipeline, ReplayLane};
+    let expected_address = if expected.redirect_to_dlq {
+        Address::Replay(ReplayLane::Dlq)
     } else if let Some(topic) = &expected.redirect_to_topic {
-        Outputs::Custom(topic)
-    } else if expected.force_overflow {
-        Outputs::ReplayOverflow
-    } else {
-        match expected.data_type {
-            DataType::AnalyticsMain | DataType::SnapshotMain => Outputs::Main,
-            DataType::AnalyticsHistorical => Outputs::Historical,
-            DataType::HeatmapMain => Outputs::Heatmaps,
-            DataType::ClientIngestionWarning => Outputs::ClientIngestionWarning,
-            DataType::ExceptionErrorTracking => Outputs::ErrorTracking,
+        Address::Custom {
+            pipeline: CapPipeline::Replay,
+            topic: topic.clone(),
         }
+    } else if expected.force_overflow {
+        Address::Replay(ReplayLane::Overflow)
+    } else {
+        Address::Replay(ReplayLane::Main)
     };
+    assert_eq!(payload.address, expected_address, "address mismatch");
     assert_eq!(
-        payload.record.topic,
-        registry.topic_for(&expected_output),
-        "topic mismatch"
-    );
-    assert_eq!(
-        payload.record.headers.force_disable_person_processing,
+        payload.headers.force_disable_person_processing,
         if expected.skip_person_processing {
             Some(true)
         } else {
@@ -306,7 +296,6 @@ async fn test_recordings_redirect_to_dlq_restriction() {
             distinct_id: "test_user",
             event_name: "$snapshot_items",
             session_id: &session_id,
-            data_type: DataType::SnapshotMain,
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: true,
@@ -348,7 +337,6 @@ async fn test_recordings_force_overflow_restriction() {
             distinct_id: "test_user",
             event_name: "$snapshot_items",
             session_id: &session_id,
-            data_type: DataType::SnapshotMain,
             force_overflow: true,
             skip_person_processing: false,
             redirect_to_dlq: false,
@@ -392,7 +380,6 @@ async fn test_recordings_skip_person_processing_restriction() {
             distinct_id: "test_user",
             event_name: "$snapshot_items",
             session_id: &session_id,
-            data_type: DataType::SnapshotMain,
             force_overflow: false,
             skip_person_processing: true,
             redirect_to_dlq: false,
@@ -438,7 +425,6 @@ async fn test_recordings_restriction_does_not_apply_to_other_tokens() {
             distinct_id: "test_user",
             event_name: "$snapshot_items",
             session_id: &session_id,
-            data_type: DataType::SnapshotMain,
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: false,
@@ -555,7 +541,6 @@ async fn test_recordings_redirect_to_topic_restriction() {
             distinct_id: "test_user",
             event_name: "$snapshot_items",
             session_id: &session_id,
-            data_type: DataType::SnapshotMain,
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: false,

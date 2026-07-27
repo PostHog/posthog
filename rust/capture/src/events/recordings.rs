@@ -557,6 +557,7 @@ mod tests {
         EventRestrictionService, Restriction, RestrictionManager, RestrictionScope,
     };
     use crate::outputs::{Output, OutputTable};
+    use crate::pipeline::{Address, ReplayLane};
     use crate::sinks::test_sink::MockSink;
     use common_redis::MockRedisClient;
     use limiters::redis::{QuotaResource, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
@@ -578,10 +579,7 @@ mod tests {
     }
 
     fn test_spec() -> crate::outputs::PrepSpec {
-        crate::outputs::PrepSpec::new(
-            Arc::new(crate::outputs::registry::test_topics()),
-            crate::config::EnvelopeCompression::None,
-        )
+        crate::outputs::PrepSpec::new(crate::config::EnvelopeCompression::None)
     }
 
     fn create_test_context() -> crate::v0_request::ProcessingContext {
@@ -672,7 +670,7 @@ mod tests {
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, "events_plugin_ingestion_dlq");
+        assert_eq!(captured[0].address, Address::Replay(ReplayLane::Dlq));
     }
 
     #[tokio::test]
@@ -711,7 +709,7 @@ mod tests {
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, "replay_overflow");
+        assert_eq!(captured[0].address, Address::Replay(ReplayLane::Overflow));
     }
 
     #[tokio::test]
@@ -751,7 +749,7 @@ mod tests {
         let captured = events_captured.lock().unwrap();
         assert_eq!(captured.len(), 1);
         assert_eq!(
-            captured[0].record.headers.force_disable_person_processing,
+            captured[0].headers.force_disable_person_processing,
             Some(true)
         );
     }
@@ -774,11 +772,8 @@ mod tests {
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, "events_plugin_ingestion");
-        assert_eq!(
-            captured[0].record.headers.force_disable_person_processing,
-            None
-        );
+        assert_eq!(captured[0].address, Address::Replay(ReplayLane::Main));
+        assert_eq!(captured[0].headers.force_disable_person_processing, None);
     }
 
     #[tokio::test]
@@ -809,7 +804,7 @@ mod tests {
 
             let captured = events_captured.lock().unwrap();
             let event: common_types::CapturedEvent =
-                serde_json::from_slice(&captured[0].record.payload).unwrap();
+                serde_json::from_slice(&captured[0].payload).unwrap();
             let data: Value = serde_json::from_str(&event.data).unwrap();
             assert_eq!(
                 data["properties"].get("$snapshot_host"),
@@ -905,7 +900,7 @@ mod tests {
 
         let captured = events_captured.lock().unwrap();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, "events_plugin_ingestion");
+        assert_eq!(captured[0].address, Address::Replay(ReplayLane::Main));
     }
 
     #[tokio::test]
@@ -928,8 +923,8 @@ mod tests {
 
         let captured = events_captured.lock().unwrap();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, "replay_overflow");
-        assert!(captured[0].record.key.is_some());
+        assert_eq!(captured[0].address, Address::Replay(ReplayLane::Overflow));
+        assert!(captured[0].key.is_some());
     }
 
     #[tokio::test]
@@ -952,7 +947,7 @@ mod tests {
 
         let captured = events_captured.lock().unwrap();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, "events_plugin_ingestion");
+        assert_eq!(captured[0].address, Address::Replay(ReplayLane::Main));
     }
 
     #[tokio::test]
@@ -1001,7 +996,7 @@ mod tests {
 
         let captured = events_captured.lock().unwrap();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, "replay_overflow");
+        assert_eq!(captured[0].address, Address::Replay(ReplayLane::Overflow));
     }
 
     #[tokio::test]
@@ -1031,8 +1026,8 @@ mod tests {
             1,
             "batch of snapshots must collapse to a single CapturedEvent"
         );
-        assert_eq!(captured[0].record.topic, "replay_overflow");
-        assert!(captured[0].record.key.is_some());
+        assert_eq!(captured[0].address, Address::Replay(ReplayLane::Overflow));
+        assert!(captured[0].key.is_some());
     }
 
     // ============ replay overflow histogram tests ============
@@ -1220,7 +1215,10 @@ mod tests {
     async fn e2e_replay_limited_pipeline_to_sink_routes_to_replay_overflow_with_session_key() {
         let producer = MockKafkaProducer::new();
         let sink = Arc::new(OutputTable::new(Output::single(
-            Arc::new(KafkaSinkBase::with_producer(producer.clone())),
+            Arc::new(KafkaSinkBase::with_producer(
+                producer.clone(),
+                crate::outputs::registry::test_topics(),
+            )),
             test_spec(),
         )));
 

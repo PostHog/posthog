@@ -273,7 +273,7 @@ impl crate::sinks::sink::Sink for S3Sink {
     #[instrument(skip_all)]
     async fn publish(
         &self,
-        prepared: Vec<crate::sinks::sink::PreparedPayload>,
+        prepared: Vec<crate::sinks::sink::AddressedPayload>,
     ) -> Vec<crate::sinks::sink::SinkResult> {
         use crate::sinks::sink::SinkResult;
 
@@ -281,9 +281,7 @@ impl crate::sinks::sink::Sink for S3Sink {
 
         let mut buffer = self.inner.buffer.lock().await;
         for payload in prepared {
-            buffer
-                .event_bytes
-                .extend_from_slice(&payload.record.payload);
+            buffer.event_bytes.extend_from_slice(&payload.payload);
             buffer.event_bytes.push(b'\n');
             buffer.event_count += 1;
         }
@@ -379,19 +377,18 @@ mod tests {
         }
 
         async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-            use crate::sinks::sink::{fold_results, PreparedPayload, Sink};
+            use crate::pipeline::{Address, AnalyticsLane};
+            use crate::sinks::sink::{fold_results, AddressedPayload, Sink};
             let serializer = crate::serialization::Serializer::json();
             let prepared = events
                 .iter()
                 .map(|event| {
-                    Ok(PreparedPayload {
+                    Ok(AddressedPayload {
                         uuid: event.event.uuid,
-                        record: crate::sinks::producer::ProduceRecord {
-                            topic: String::new(),
-                            key: None,
-                            payload: serializer.serialize(&event.event)?,
-                            headers: event.event.to_headers(),
-                        },
+                        address: Address::Analytics(AnalyticsLane::Main),
+                        payload: serializer.serialize(&event.event)?,
+                        headers: event.event.to_headers(),
+                        key: None,
                     })
                 })
                 .collect::<Result<Vec<_>, CaptureError>>()?;

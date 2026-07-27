@@ -663,26 +663,15 @@ mod tests {
     /// Wrap a test sink in the outputs surface `process_events` publishes
     /// through: real prep against the test topics, capture at publish.
     fn table<S: Sink + 'static>(sink: &Arc<S>) -> Arc<OutputTable> {
-        let spec = PrepSpec::new(
-            Arc::new(test_topics()),
-            crate::config::EnvelopeCompression::None,
-        );
+        let spec = PrepSpec::new(crate::config::EnvelopeCompression::None);
         Arc::new(OutputTable::new(Output::single(sink.clone(), spec)))
     }
 
-    // Wire-level views of the test topics; assertions on routing outcomes
-    // compare against these instead of the retired metadata stamps.
-    const TOPIC_MAIN: &str = "events_plugin_ingestion";
-    const TOPIC_OVERFLOW: &str = "events_plugin_ingestion_overflow";
-    const TOPIC_HISTORICAL: &str = "events_plugin_ingestion_historical";
-    const TOPIC_DLQ: &str = "events_plugin_ingestion_dlq";
-    const TOPIC_HEATMAPS: &str = "heatmaps";
-    const TOPIC_WARNINGS: &str = "client_ingestion_warning";
-    const TOPIC_ERROR_TRACKING: &str = "error_tracking_events";
+    use crate::pipeline::{Address, AnalyticsLane, BasicLane};
 
     /// Deserialize a captured payload back into the event it carries.
-    fn event_of(p: &crate::sinks::PreparedPayload) -> common_types::CapturedEvent {
-        serde_json::from_slice(&p.record.payload).expect("payload must be json")
+    fn event_of(p: &crate::sinks::AddressedPayload) -> common_types::CapturedEvent {
+        serde_json::from_slice(&p.payload).expect("payload must be json")
     }
     use rstest::rstest;
     use std::time::Duration;
@@ -781,7 +770,10 @@ mod tests {
         assert!(result.is_ok());
         let captured = sink.get_payloads();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, TOPIC_OVERFLOW);
+        assert_eq!(
+            captured[0].address,
+            Address::Analytics(AnalyticsLane::Overflow)
+        );
     }
 
     #[tokio::test]
@@ -831,10 +823,10 @@ mod tests {
         let captured = sink.get_payloads();
         assert_eq!(captured.len(), 1);
         assert_eq!(
-            captured[0].record.headers.force_disable_person_processing,
+            captured[0].headers.force_disable_person_processing,
             Some(true)
         );
-        assert!(captured[0].record.key.is_none());
+        assert!(captured[0].key.is_none());
     }
 
     #[tokio::test]
@@ -883,7 +875,7 @@ mod tests {
         assert!(result.is_ok());
         let captured = sink.get_payloads();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, TOPIC_DLQ);
+        assert_eq!(captured[0].address, Address::Analytics(AnalyticsLane::Dlq));
     }
 
     #[tokio::test]
@@ -939,10 +931,13 @@ mod tests {
         assert!(result.is_ok());
         let captured = sink.get_payloads();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, TOPIC_OVERFLOW);
-        assert!(captured[0].record.key.is_none());
         assert_eq!(
-            captured[0].record.headers.force_disable_person_processing,
+            captured[0].address,
+            Address::Analytics(AnalyticsLane::Overflow)
+        );
+        assert!(captured[0].key.is_none());
+        assert_eq!(
+            captured[0].headers.force_disable_person_processing,
             Some(true)
         );
     }
@@ -979,12 +974,9 @@ mod tests {
         assert!(result.is_ok());
         let captured = sink.get_payloads();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, TOPIC_MAIN);
-        assert!(captured[0].record.key.is_some());
-        assert_eq!(
-            captured[0].record.headers.force_disable_person_processing,
-            None
-        );
+        assert_eq!(captured[0].address, Address::Analytics(AnalyticsLane::Main));
+        assert!(captured[0].key.is_some());
+        assert_eq!(captured[0].headers.force_disable_person_processing, None);
     }
 
     #[tokio::test]
@@ -1083,7 +1075,13 @@ mod tests {
         assert!(result.is_ok());
         let captured = sink.get_payloads();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, "custom_events_topic");
+        assert_eq!(
+            captured[0].address,
+            Address::Custom {
+                pipeline: crate::pipeline::Pipeline::Analytics,
+                topic: "custom_events_topic".to_string(),
+            }
+        );
     }
 
     // ============ non-analytics data types bypass restrictions ============
@@ -1095,7 +1093,7 @@ mod tests {
 
     async fn process_single_with_drop_restriction(
         event_name: &str,
-    ) -> Vec<crate::sinks::PreparedPayload> {
+    ) -> Vec<crate::sinks::AddressedPayload> {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -1142,17 +1140,17 @@ mod tests {
     }
 
     #[rstest]
-    #[case("$exception", TOPIC_ERROR_TRACKING)]
-    #[case("$$heatmap", TOPIC_HEATMAPS)]
-    #[case("$$client_ingestion_warning", TOPIC_WARNINGS)]
+    #[case("$exception", Address::ErrorTracking(BasicLane::Main))]
+    #[case("$$heatmap", Address::Heatmaps(BasicLane::Main))]
+    #[case("$$client_ingestion_warning", Address::Warnings(BasicLane::Main))]
     #[tokio::test]
     async fn test_non_analytics_events_bypass_drop_restriction(
         #[case] event_name: &str,
-        #[case] expected_topic: &str,
+        #[case] expected_address: Address,
     ) {
         let captured = process_single_with_drop_restriction(event_name).await;
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, expected_topic);
+        assert_eq!(captured[0].address, expected_address);
     }
 
     #[tokio::test]
@@ -1213,12 +1211,9 @@ mod tests {
 
         let captured = sink.get_payloads();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, TOPIC_ERROR_TRACKING);
-        assert!(captured[0].record.key.is_some());
-        assert_eq!(
-            captured[0].record.headers.force_disable_person_processing,
-            None
-        );
+        assert_eq!(captured[0].address, Address::ErrorTracking(BasicLane::Main));
+        assert!(captured[0].key.is_some());
+        assert_eq!(captured[0].headers.force_disable_person_processing, None);
     }
 
     /// With an errortracking service configured, `$exception` events should be
@@ -1287,7 +1282,7 @@ mod tests {
             1,
             "exception should be dropped, pageview kept"
         );
-        assert_eq!(captured[0].record.topic, TOPIC_MAIN);
+        assert_eq!(captured[0].address, Address::Analytics(AnalyticsLane::Main));
         assert_eq!(event_of(&captured[0]).event, "$pageview");
     }
 
@@ -1354,7 +1349,7 @@ mod tests {
             1,
             "pageview should be dropped, exception kept"
         );
-        assert_eq!(captured[0].record.topic, TOPIC_ERROR_TRACKING);
+        assert_eq!(captured[0].address, Address::ErrorTracking(BasicLane::Main));
         assert_eq!(event_of(&captured[0]).event, "$exception");
     }
 
@@ -1459,7 +1454,7 @@ mod tests {
 
         let captured = sink.get_payloads();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, TOPIC_MAIN);
+        assert_eq!(captured[0].address, Address::Analytics(AnalyticsLane::Main));
     }
 
     #[tokio::test]
@@ -1495,8 +1490,11 @@ mod tests {
 
         let captured = sink.get_payloads();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, TOPIC_OVERFLOW);
-        assert!(captured[0].record.key.is_none());
+        assert_eq!(
+            captured[0].address,
+            Address::Analytics(AnalyticsLane::Overflow)
+        );
+        assert!(captured[0].key.is_none());
     }
 
     #[tokio::test]
@@ -1531,9 +1529,12 @@ mod tests {
 
         let captured = sink.get_payloads();
         assert_eq!(captured.len(), 2);
-        assert_eq!(captured[0].record.topic, TOPIC_MAIN);
-        assert_eq!(captured[1].record.topic, TOPIC_OVERFLOW);
-        assert!(captured[1].record.key.is_some());
+        assert_eq!(captured[0].address, Address::Analytics(AnalyticsLane::Main));
+        assert_eq!(
+            captured[1].address,
+            Address::Analytics(AnalyticsLane::Overflow)
+        );
+        assert!(captured[1].key.is_some());
     }
 
     #[tokio::test]
@@ -1566,8 +1567,11 @@ mod tests {
         .unwrap();
 
         let captured = sink.get_payloads();
-        assert_eq!(captured[1].record.topic, TOPIC_OVERFLOW);
-        assert!(captured[1].record.key.is_none());
+        assert_eq!(
+            captured[1].address,
+            Address::Analytics(AnalyticsLane::Overflow)
+        );
+        assert!(captured[1].key.is_none());
     }
 
     #[tokio::test]
@@ -1620,7 +1624,10 @@ mod tests {
 
         let captured = sink.get_payloads();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, TOPIC_OVERFLOW);
+        assert_eq!(
+            captured[0].address,
+            Address::Analytics(AnalyticsLane::Overflow)
+        );
     }
 
     #[tokio::test]
@@ -1658,7 +1665,10 @@ mod tests {
 
         let captured = sink.get_payloads();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.topic, TOPIC_HISTORICAL);
+        assert_eq!(
+            captured[0].address,
+            Address::Analytics(AnalyticsLane::Historical)
+        );
     }
 
     // ============ global rate limiter x overflow limiter interplay ============
@@ -1709,28 +1719,30 @@ mod tests {
         // event[0]: global RL stamps skip_person_processing + ForceLimited; within
         // the overflow limiter's burst, so the ForceLimited stamp survives.
         assert_eq!(
-            captured[0].record.headers.force_disable_person_processing,
+            captured[0].headers.force_disable_person_processing,
             Some(true),
             "event[0]: global RL should disable person processing"
         );
         assert_eq!(
-            captured[0].record.topic, TOPIC_OVERFLOW,
+            captured[0].address,
+            Address::Analytics(AnalyticsLane::Overflow),
             "event[0]: global RL reroutes the hot key to overflow via ForceLimited"
         );
-        assert!(captured[0].record.key.is_none());
+        assert!(captured[0].key.is_none());
 
         // event[1]: BOTH stamps fire. skip_person_processing from global RL,
         // overflow_reason=RateLimited{preserve_locality: true} from OverflowLimiter.
         assert_eq!(
-            captured[1].record.headers.force_disable_person_processing,
+            captured[1].headers.force_disable_person_processing,
             Some(true),
             "event[1]: global RL should disable person processing"
         );
         assert_eq!(
-            captured[1].record.topic, TOPIC_OVERFLOW,
+            captured[1].address,
+            Address::Analytics(AnalyticsLane::Overflow),
             "event[1]: overflow limiter should reroute to overflow, preserving locality"
         );
-        assert!(captured[1].record.key.is_some());
+        assert!(captured[1].key.is_some());
     }
 
     #[tokio::test]
@@ -1769,12 +1781,13 @@ mod tests {
         let captured = sink.get_payloads();
         assert_eq!(captured.len(), 1);
         assert_eq!(
-            captured[0].record.topic, TOPIC_OVERFLOW,
+            captured[0].address,
+            Address::Analytics(AnalyticsLane::Overflow),
             "globally limited AnalyticsMain should be rerouted to overflow"
         );
-        assert!(captured[0].record.key.is_none());
+        assert!(captured[0].key.is_none());
         assert_eq!(
-            captured[0].record.headers.force_disable_person_processing,
+            captured[0].headers.force_disable_person_processing,
             Some(true)
         );
     }
@@ -1816,11 +1829,14 @@ mod tests {
         assert_eq!(captured.len(), 1);
         // Person processing disabled...
         assert_eq!(
-            captured[0].record.headers.force_disable_person_processing,
+            captured[0].headers.force_disable_person_processing,
             Some(true)
         );
         // ...but NOT rerouted to overflow.
-        assert_eq!(captured[0].record.topic, TOPIC_HISTORICAL);
+        assert_eq!(
+            captured[0].address,
+            Address::Analytics(AnalyticsLane::Historical)
+        );
     }
 
     // ============ end-to-end pipeline -> real KafkaSinkBase tests ============
@@ -1844,7 +1860,10 @@ mod tests {
         )];
 
         let producer = MockKafkaProducer::new();
-        let sink = Arc::new(KafkaSinkBase::with_producer(producer.clone()));
+        let sink = Arc::new(KafkaSinkBase::with_producer(
+            producer.clone(),
+            test_topics(),
+        ));
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
         // test_token in reroute list -> ForceLimited stamped in pipeline.
@@ -1892,7 +1911,10 @@ mod tests {
         ];
 
         let producer = MockKafkaProducer::new();
-        let sink = Arc::new(KafkaSinkBase::with_producer(producer.clone()));
+        let sink = Arc::new(KafkaSinkBase::with_producer(
+            producer.clone(),
+            test_topics(),
+        ));
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
         // burst=1, preserve_locality=true => event[1] stamped RateLimited{preserve_locality: true}.
@@ -1943,7 +1965,10 @@ mod tests {
         ];
 
         let producer = MockKafkaProducer::new();
-        let sink = Arc::new(KafkaSinkBase::with_producer(producer.clone()));
+        let sink = Arc::new(KafkaSinkBase::with_producer(
+            producer.clone(),
+            test_topics(),
+        ));
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
         // burst=1, preserve_locality=false => event[1] stamped RateLimited{preserve_locality: false}.
@@ -2212,7 +2237,7 @@ mod tests {
 
         let original = &captured[0];
         assert_eq!(event_of(original).event, "$pageview");
-        assert_eq!(original.record.headers.skip_heatmap_processing, Some(true));
+        assert_eq!(original.headers.skip_heatmap_processing, Some(true));
         let orig_data: RawEvent = serde_json::from_str(&event_of(original).data).unwrap();
         assert!(
             !orig_data.properties.contains_key("$heatmap_data"),
@@ -2225,8 +2250,8 @@ mod tests {
 
         let redirect = &captured[1];
         assert_eq!(event_of(redirect).event, "$$heatmap");
-        assert_eq!(redirect.record.topic, TOPIC_HEATMAPS);
-        assert_eq!(redirect.record.headers.skip_heatmap_processing, None);
+        assert_eq!(redirect.address, Address::Heatmaps(BasicLane::Main));
+        assert_eq!(redirect.headers.skip_heatmap_processing, None);
     }
 
     #[tokio::test]
@@ -2261,8 +2286,8 @@ mod tests {
             1,
             "$$heatmap events should not produce a redirect"
         );
-        assert_eq!(captured[0].record.topic, TOPIC_HEATMAPS);
-        assert_eq!(captured[0].record.headers.skip_heatmap_processing, None);
+        assert_eq!(captured[0].address, Address::Heatmaps(BasicLane::Main));
+        assert_eq!(captured[0].headers.skip_heatmap_processing, None);
     }
 
     #[tokio::test]
@@ -2294,7 +2319,7 @@ mod tests {
 
         let captured = sink.get_payloads();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].record.headers.skip_heatmap_processing, None);
+        assert_eq!(captured[0].headers.skip_heatmap_processing, None);
     }
 
     /// End-to-end pipeline-to-kafka contract for the heatmap redirect: a
@@ -2317,7 +2342,10 @@ mod tests {
         let events = vec![event];
 
         let producer = MockKafkaProducer::new();
-        let sink = Arc::new(KafkaSinkBase::with_producer(producer.clone()));
+        let sink = Arc::new(KafkaSinkBase::with_producer(
+            producer.clone(),
+            test_topics(),
+        ));
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 

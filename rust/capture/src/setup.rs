@@ -302,10 +302,7 @@ pub async fn build_components(
         secondary_registry
             .check_complete(config.capture_mode)
             .expect("AI secondary Kafka topics incomplete");
-        let secondary_prep = PrepSpec::new(
-            secondary_registry,
-            secondary_kafka.kafka_replay_envelope_compression,
-        );
+        let secondary_prep = PrepSpec::new(secondary_kafka.kafka_replay_envelope_compression);
         let secondary = Output::single(
             Arc::new(
                 KafkaSink::new(secondary_kafka, secondary_handle)
@@ -543,7 +540,6 @@ async fn create_output(
         let registry = Arc::new(OutputRegistry::from(&config.kafka));
         registry.check_complete(config.capture_mode)?;
         Ok(PrepSpec::new(
-            registry,
             config.kafka.kafka_replay_envelope_compression,
         ))
     };
@@ -587,14 +583,14 @@ async fn create_output(
             // breaker driving autonomous switchover and recovery probing.
             info!("Breaker-driven failover enabled (dark launch)");
             Ok(Output::failover_with_breaker(
-                Output::single(Arc::new(kafka_sink), prep.clone()),
+                Output::single(Arc::new(kafka_sink), prep),
                 Output::single(Arc::new(s3_sink), prep),
                 kafka_handle,
                 Arc::new(FailoverController::new()),
             ))
         } else {
             Ok(Output::failover(
-                Output::single(Arc::new(kafka_sink), prep.clone()),
+                Output::single(Arc::new(kafka_sink), prep),
                 Output::single(Arc::new(s3_sink), prep),
                 kafka_handle,
             ))

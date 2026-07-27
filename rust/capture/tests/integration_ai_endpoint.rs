@@ -9,9 +9,10 @@ use capture::ai_s3::{BlobStorage, MockBlobStorage};
 use capture::config::CaptureMode;
 use capture::outputs::PrepSpec;
 use capture::outputs::{Output, OutputTable};
+use capture::pipeline::{Address, AiLane};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
-use capture::sinks::sink::{PreparedPayload, Sink, SinkResult};
+use capture::sinks::sink::{AddressedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
 use chrono::{DateTime, TimeZone, Utc};
 use common_redis::MockRedisClient;
@@ -53,19 +54,13 @@ impl TimeSource for FixedTime {
 struct TestSink;
 
 /// Deserialize a captured payload back into the event it carries.
-fn captured(p: &PreparedPayload) -> common_types::CapturedEvent {
-    serde_json::from_slice(&p.record.payload).expect("payload must deserialize")
-}
-
-fn topic(output: &capture::outputs::registry::Outputs) -> String {
-    capture::outputs::registry::OutputRegistry::from(&DEFAULT_CONFIG.kafka)
-        .topic_for(output)
-        .to_string()
+fn captured(p: &AddressedPayload) -> common_types::CapturedEvent {
+    serde_json::from_slice(&p.payload).expect("payload must deserialize")
 }
 
 #[async_trait]
 impl Sink for TestSink {
-    async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
+    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
         prepared
             .into_iter()
             .map(|p| SinkResult::ok(p.uuid))
@@ -76,7 +71,7 @@ impl Sink for TestSink {
 // Capturing sink for Kafka tests - stores events in memory
 #[derive(Clone)]
 struct CapturingSink {
-    events: Arc<tokio::sync::Mutex<Vec<PreparedPayload>>>,
+    events: Arc<tokio::sync::Mutex<Vec<AddressedPayload>>>,
 }
 
 impl CapturingSink {
@@ -86,14 +81,14 @@ impl CapturingSink {
         }
     }
 
-    async fn get_events(&self) -> Vec<PreparedPayload> {
+    async fn get_events(&self) -> Vec<AddressedPayload> {
         self.events.lock().await.clone()
     }
 }
 
 #[async_trait]
 impl Sink for CapturingSink {
-    async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
+    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
         let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
         self.events.lock().await.extend(prepared);
         results
@@ -3002,12 +2997,12 @@ async fn test_ai_event_with_hot_key_stamps_force_limited_reason() {
 
     let event = &events[0];
     assert_eq!(
-        event.record.topic,
-        topic(&capture::outputs::registry::Outputs::Overflow),
+        event.address,
+        Address::Ai(AiLane::Overflow),
         "hot key must be rerouted to overflow (ForceLimited)"
     );
     assert_eq!(
-        event.record.headers.force_disable_person_processing,
+        event.headers.force_disable_person_processing,
         Some(true),
         "ForceLimited implies person processing disabled via header"
     );
@@ -3035,14 +3030,8 @@ async fn test_ai_event_with_cold_key_leaves_overflow_reason_none() {
 
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
-    assert_eq!(
-        events[0].record.topic,
-        topic(&capture::outputs::registry::Outputs::Main)
-    );
-    assert_eq!(
-        events[0].record.headers.force_disable_person_processing,
-        None
-    );
+    assert_eq!(events[0].address, Address::Ai(AiLane::Main));
+    assert_eq!(events[0].headers.force_disable_person_processing, None);
 }
 
 #[tokio::test]
@@ -3061,10 +3050,7 @@ async fn test_ai_endpoint_without_overflow_limiter_is_parity_with_pre_refactor()
 
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
-    assert_eq!(
-        events[0].record.topic,
-        topic(&capture::outputs::registry::Outputs::Main)
-    );
+    assert_eq!(events[0].address, Address::Ai(AiLane::Main));
 }
 
 // ============================================================================

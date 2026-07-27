@@ -7,4 +7,4 @@ pub mod sink;
 #[cfg(test)]
 pub(crate) mod test_sink;
 
-pub use sink::{fold_results, Outcome, PreparedPayload, Sink, SinkResult};
+pub use sink::{fold_results, AddressedPayload, Outcome, Sink, SinkResult};

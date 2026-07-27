@@ -13,19 +13,26 @@
 //! and failover over unhealthy targets is an outputs-layer policy.
 
 use async_trait::async_trait;
+use common_types::CapturedEventHeaders;
 use uuid::Uuid;
 
 use crate::api::CaptureError;
-use crate::sinks::producer::ProduceRecord;
+use crate::pipeline::Address;
 
 /// A serialized, addressed, ready-to-publish payload plus the correlation
 /// UUID of the event it came from. Everything above the sink is already
-/// decided: the payload bytes (serialization layer), the topic and partition
-/// key (lane decision), and the headers.
+/// decided: the payload bytes (serialization layer), the address and
+/// partition key (lane decision), and the headers. The address is abstract on
+/// purpose — each sink realizes it in its own namespace (Kafka: a topic via
+/// its per-cluster table; S3: an object path; print/noop: trivially), so the
+/// same payload can be handed to any target of a failover pair.
 #[derive(Debug, Clone)]
-pub struct PreparedPayload {
+pub struct AddressedPayload {
     pub uuid: Uuid,
-    pub record: ProduceRecord,
+    pub address: Address,
+    pub payload: Vec<u8>,
+    pub headers: CapturedEventHeaders,
+    pub key: Option<String>,
 }
 
 /// Classification of a single publish attempt; lets a caller reason about
@@ -79,10 +86,12 @@ impl SinkResult {
 /// The sink mechanism: publish an already-prepared batch, one [`SinkResult`]
 /// per payload attempted. The batch is *consumed* (owned `Vec`) so the
 /// mechanism can move each payload straight into its producer without
-/// re-encoding.
+/// re-encoding. Sinks make no routing decisions — the address is decided
+/// upstream and never second-guessed — but each sink owns realizing that
+/// address within its backend's namespace.
 #[async_trait]
 pub trait Sink: Send + Sync {
-    async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult>;
+    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult>;
 
     /// Flush any buffered/pending data before shutdown. Default is a no-op.
     fn flush(&self) -> Result<(), anyhow::Error> {

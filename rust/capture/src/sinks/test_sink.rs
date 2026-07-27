@@ -1,5 +1,5 @@
 //! Shared `MockSink` test helper for pipeline-level tests across the capture
-//! crate. Captures every [`PreparedPayload`] published through it in an
+//! crate. Captures every [`AddressedPayload`] published through it in an
 //! `Arc<Mutex<Vec<_>>>` so tests can assert on the wire outcome the pipeline
 //! produced: topic, partition key, headers, and the payload bytes
 //! (deserializable back to the [`CapturedEvent`] via [`MockSink::captured_events`]).
@@ -7,14 +7,14 @@
 //! `OutputTable::new(Output::single(Arc::new(mock), spec))`.
 
 use crate::api::CaptureError;
-use crate::sinks::sink::{PreparedPayload, Sink, SinkResult};
+use crate::sinks::sink::{AddressedPayload, Sink, SinkResult};
 use async_trait::async_trait;
 use common_types::CapturedEvent;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Default)]
 pub(crate) struct MockSink {
-    pub payloads: Arc<Mutex<Vec<PreparedPayload>>>,
+    pub payloads: Arc<Mutex<Vec<AddressedPayload>>>,
 }
 
 impl MockSink {
@@ -22,7 +22,7 @@ impl MockSink {
         Self::default()
     }
 
-    pub fn get_payloads(&self) -> Vec<PreparedPayload> {
+    pub fn get_payloads(&self) -> Vec<AddressedPayload> {
         self.payloads.lock().unwrap().clone()
     }
 
@@ -33,7 +33,7 @@ impl MockSink {
         self.get_payloads()
             .iter()
             .map(|p| {
-                serde_json::from_slice(&p.record.payload)
+                serde_json::from_slice(&p.payload)
                     .expect("captured payload must be json-deserializable")
             })
             .collect()
@@ -42,7 +42,7 @@ impl MockSink {
 
 #[async_trait]
 impl Sink for MockSink {
-    async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
+    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
         let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
         self.payloads.lock().unwrap().extend(prepared);
         results
@@ -55,7 +55,7 @@ pub(crate) struct FailSink(pub CaptureError);
 
 #[async_trait]
 impl Sink for FailSink {
-    async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
+    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
         prepared
             .into_iter()
             .map(|p| SinkResult::err(p.uuid, self.0.clone()))

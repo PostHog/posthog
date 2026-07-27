@@ -11,9 +11,10 @@ use capture::event_restrictions::{
 };
 use capture::outputs::PrepSpec;
 use capture::outputs::{Output, OutputTable};
+use capture::pipeline::{Address, AiLane};
 use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
 use capture::router::router;
-use capture::sinks::sink::{PreparedPayload, Sink, SinkResult};
+use capture::sinks::sink::{AddressedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
@@ -46,7 +47,7 @@ impl TimeSource for FixedTime {
 
 #[derive(Clone)]
 struct CapturingSink {
-    events: Arc<tokio::sync::Mutex<Vec<PreparedPayload>>>,
+    events: Arc<tokio::sync::Mutex<Vec<AddressedPayload>>>,
 }
 
 impl CapturingSink {
@@ -56,14 +57,14 @@ impl CapturingSink {
         }
     }
 
-    async fn get_events(&self) -> Vec<PreparedPayload> {
+    async fn get_events(&self) -> Vec<AddressedPayload> {
         self.events.lock().await.clone()
     }
 }
 
 #[async_trait]
 impl Sink for CapturingSink {
-    async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
+    async fn publish(&self, prepared: Vec<AddressedPayload>) -> Vec<SinkResult> {
         let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
         self.events.lock().await.extend(prepared);
         results
@@ -223,17 +224,11 @@ async fn send_request_with_client(client: &TestClient, request: &ExportTraceServ
     resp.status().as_u16()
 }
 
-fn captured(p: &PreparedPayload) -> common_types::CapturedEvent {
-    serde_json::from_slice(&p.record.payload).expect("payload must deserialize")
+fn captured(p: &AddressedPayload) -> common_types::CapturedEvent {
+    serde_json::from_slice(&p.payload).expect("payload must deserialize")
 }
 
-fn topic(output: &capture::outputs::registry::Outputs) -> String {
-    capture::outputs::registry::OutputRegistry::from(&DEFAULT_CONFIG.kafka)
-        .topic_for(output)
-        .to_string()
-}
-
-fn parse_event_data(event: &PreparedPayload) -> serde_json::Value {
+fn parse_event_data(event: &AddressedPayload) -> serde_json::Value {
     serde_json::from_str(&captured(event).data).expect("event data is valid JSON")
 }
 
@@ -334,10 +329,7 @@ async fn test_single_span_produces_one_event() {
     assert_eq!(cap.token, TOKEN);
     assert_eq!(cap.event, "$ai_generation");
     assert_eq!(cap.distinct_id, "user-1");
-    assert_eq!(
-        event.record.topic,
-        topic(&capture::outputs::registry::Outputs::Main)
-    );
+    assert_eq!(event.address, Address::Ai(AiLane::Main));
 
     let data = parse_event_data(event);
     assert_eq!(
@@ -970,7 +962,7 @@ async fn test_restriction_types() {
         restriction_type: RestrictionType,
         args: Option<serde_json::Value>,
         expected_status: u16,
-        check: fn(&[PreparedPayload]) -> bool,
+        check: fn(&[AddressedPayload]) -> bool,
     }
 
     let cases = [
@@ -986,11 +978,7 @@ async fn test_restriction_types() {
             restriction_type: RestrictionType::ForceOverflow,
             args: None,
             expected_status: 200,
-            check: |events| {
-                events.len() == 1
-                    && events[0].record.topic
-                        == topic(&capture::outputs::registry::Outputs::Overflow)
-            },
+            check: |events| events.len() == 1 && events[0].address == Address::Ai(AiLane::Overflow),
         },
         Case {
             name: "skip_person_processing",
@@ -998,8 +986,7 @@ async fn test_restriction_types() {
             args: None,
             expected_status: 200,
             check: |events| {
-                events.len() == 1
-                    && events[0].record.headers.force_disable_person_processing == Some(true)
+                events.len() == 1 && events[0].headers.force_disable_person_processing == Some(true)
             },
         },
         Case {
@@ -1007,17 +994,21 @@ async fn test_restriction_types() {
             restriction_type: RestrictionType::RedirectToDlq,
             args: None,
             expected_status: 200,
-            check: |events| {
-                events.len() == 1
-                    && events[0].record.topic == topic(&capture::outputs::registry::Outputs::Dlq)
-            },
+            check: |events| events.len() == 1 && events[0].address == Address::Ai(AiLane::Dlq),
         },
         Case {
             name: "redirect_to_topic",
             restriction_type: RestrictionType::RedirectToTopic,
             args: Some(json!({"topic": "custom_topic"})),
             expected_status: 200,
-            check: |events| events.len() == 1 && events[0].record.topic == "custom_topic",
+            check: |events| {
+                events.len() == 1
+                    && events[0].address
+                        == Address::Custom {
+                            pipeline: capture::pipeline::Pipeline::Ai,
+                            topic: "custom_topic".to_string(),
+                        }
+            },
         },
     ];
 
@@ -1179,16 +1170,16 @@ async fn test_otel_batch_with_hot_token_stamps_force_limited_on_every_span() {
 
     for (i, event) in events.iter().enumerate() {
         assert_eq!(
-            event.record.topic,
-            topic(&capture::outputs::registry::Outputs::Overflow),
+            event.address,
+            Address::Ai(AiLane::Overflow),
             "span[{i}] must be rerouted to overflow (ForceLimited)"
         );
         assert!(
-            event.record.key.is_none(),
+            event.key.is_none(),
             "span[{i}] ForceLimited drops the partition key"
         );
         assert_eq!(
-            event.record.headers.force_disable_person_processing,
+            event.headers.force_disable_person_processing,
             Some(true),
             "span[{i}] ForceLimited implies person processing disabled"
         );
@@ -1225,22 +1216,22 @@ async fn test_otel_batch_rate_limited_key_stamps_overbudget_spans() {
     assert_eq!(events.len(), 3);
 
     assert_eq!(
-        events[0].record.topic,
-        topic(&capture::outputs::registry::Outputs::Main),
+        events[0].address,
+        Address::Ai(AiLane::Main),
         "first span fits within the burst"
     );
     for (i, event) in events.iter().enumerate().skip(1) {
         assert_eq!(
-            event.record.topic,
-            topic(&capture::outputs::registry::Outputs::Overflow),
+            event.address,
+            Address::Ai(AiLane::Overflow),
             "span[{i}] must be rerouted to overflow (RateLimited)"
         );
         assert!(
-            event.record.key.is_some(),
+            event.key.is_some(),
             "span[{i}] preserve_locality keeps the partition key"
         );
         assert_eq!(
-            event.record.headers.force_disable_person_processing, None,
+            event.headers.force_disable_person_processing, None,
             "span[{i}] RateLimited does NOT disable person processing"
         );
     }
@@ -1260,10 +1251,7 @@ async fn test_otel_batch_without_overflow_limiter_leaves_reason_none() {
     let events = sink.get_events().await;
     assert_eq!(events.len(), 3);
     for event in &events {
-        assert_eq!(
-            event.record.topic,
-            topic(&capture::outputs::registry::Outputs::Main)
-        );
-        assert_eq!(event.record.headers.force_disable_person_processing, None);
+        assert_eq!(event.address, Address::Ai(AiLane::Main));
+        assert_eq!(event.headers.force_disable_person_processing, None);
     }
 }

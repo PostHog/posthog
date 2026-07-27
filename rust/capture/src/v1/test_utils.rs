@@ -831,12 +831,7 @@ impl TestStateBuilder {
         let legacy_outputs = Arc::new(crate::outputs::OutputTable::new(
             crate::outputs::Output::single(
                 Arc::new(crate::sinks::noop::NoOpSink::new()),
-                crate::outputs::PrepSpec::new(
-                    Arc::new(crate::outputs::registry::OutputRegistry::from(
-                        &test_kafka_config(),
-                    )),
-                    crate::config::EnvelopeCompression::None,
-                ),
+                crate::outputs::PrepSpec::new(crate::config::EnvelopeCompression::None),
             ),
         ));
 
