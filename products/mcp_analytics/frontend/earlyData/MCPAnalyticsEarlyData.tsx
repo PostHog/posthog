@@ -12,8 +12,9 @@ import { urls } from 'scenes/urls'
 import { Card } from '../dashboard/Card'
 import { formatMs, formatNumber } from '../dashboard/formatters'
 import { HarnessLogo } from '../dashboard/harness'
+import type { MCPIntentThemeApi } from '../generated/api.schemas'
 import { METRICS_UNLOCK_LIFETIME_CALLS, mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
-import type { ChecklistItem, DigestTheme, EarlyRecentCall } from './mcpEarlyDataLogic'
+import type { ChecklistItem, EarlyRecentCall } from './mcpEarlyDataLogic'
 import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
 
 // Raw `$mcp_client_name` values don't match the backend-resolved harness labels the
@@ -200,18 +201,18 @@ function LiveActivityCard(): JSX.Element {
 
 // `total` is every intent analysed, so the bar reads as this theme's share of them. The backend
 // assigns each intent to at most one theme, which is what keeps the shares adding up.
-function IntentThemeRow({ theme, total }: { theme: DigestTheme; total: number }): JSX.Element {
+function IntentThemeRow({ theme, total }: { theme: MCPIntentThemeApi; total: number }): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
             <div className="flex items-baseline justify-between gap-2">
                 <span className="text-base font-medium">{theme.name}</span>
-                <span className="text-muted text-sm shrink-0">{formatNumber(theme.intentCount)}</span>
+                <span className="text-muted text-sm shrink-0">{formatNumber(theme.intent_count)}</span>
             </div>
-            <LemonProgress percent={total > 0 ? (theme.intentCount / total) * 100 : 0} />
+            <LemonProgress percent={total > 0 ? (theme.intent_count / total) * 100 : 0} />
             <p className="text-muted text-sm m-0">{theme.description}</p>
-            {theme.exampleIntent ? (
-                <p className="text-muted text-sm italic m-0 truncate" title={theme.exampleIntent}>
-                    “{theme.exampleIntent}”
+            {theme.example_intent ? (
+                <p className="text-muted text-sm italic m-0 truncate" title={theme.example_intent}>
+                    “{theme.example_intent}”
                 </p>
             ) : null}
             {theme.tools.length > 0 ? (
@@ -236,7 +237,9 @@ function IntentsCard(): JSX.Element {
 
     return (
         <Card title="What agents are trying to do">
-            {intentDigest?.digest ? (
+            {/* Both, not just the summary: nothing resolved into themes means the rows would be an
+                empty gap under a headline, and the verbatim list says more than that. */}
+            {intentDigest?.digest && intentDigest.themes.length > 0 ? (
                 <div className="flex flex-col gap-3">
                     <p className="text-base m-0">{intentDigest.digest}</p>
                     {intentDigest.themes.map((theme, index) => (

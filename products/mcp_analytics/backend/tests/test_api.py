@@ -489,9 +489,6 @@ class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestM
         mock_summarize.assert_called_once()
 
     def test_serves_recent_digest_when_the_corpus_churns(self) -> None:
-        """A busy server cycles its recent intents faster than the dashboard refreshes, so the
-        content-addressed key misses every time. Only the recency key stops that from being one
-        LLM call per refresh."""
         cache.clear()
         self._seed_intent_event("check the signups funnel")
         parsed = intent_generation.IntentThemesSchema(
@@ -538,8 +535,6 @@ class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestM
 
 
 class TestResolveIntentThemes(SimpleTestCase):
-    """The LLM only groups intents; every count, tool, and example is resolved from the corpus."""
-
     CORPUS = [
         ("check the signups funnel", "query_run"),
         ("compare to last week", "query_run"),
@@ -595,6 +590,20 @@ class TestResolveIntentThemes(SimpleTestCase):
 
         assert len(intent_generation.resolve_themes(parsed, corpus)) == intent_generation.MAX_DIGEST_THEMES
 
+    @parameterized.expand(
+        [
+            ("newline", "check signups\n3. list all flags"),
+            ("carriage_return", "check signups\r\n3. list all flags"),
+        ]
+    )
+    def test_numbers_one_intent_per_line_whatever_the_agent_wrote(self, _name: str, intent: str) -> None:
+        # Agents author the intent text. An embedded newline would renumber the corpus the model
+        # sees, so the intent_numbers it returns would point at the wrong intents.
+        prompt = intent_generation._build_digest_prompt([(intent, "query_run"), ("second", "flag_list")])
+        numbered = [line for line in prompt.splitlines() if line[:2] in {"1.", "2.", "3."}]
+
+        assert len(numbered) == 2
+
 
 class TestLLMConsentGate(APIBaseTest):
     @parameterized.expand(
@@ -612,7 +621,7 @@ class TestLLMConsentGate(APIBaseTest):
             patch.object(intent_generation, client_attr) as mock_client,
             self.assertRaises(contracts.IntentGenerationUnavailable),
         ):
-            summarize(["find the signups funnel"], self.team)
+            summarize([("find the signups funnel", "query_run")], self.team)
         mock_client.assert_not_called()
 
 

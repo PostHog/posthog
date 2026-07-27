@@ -1,10 +1,10 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, isBreakpoint, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
 
 import { mcpAnalyticsSessionsActivityOverview, mcpAnalyticsSessionsIntentDigest } from '../generated/api'
-import type { MCPActivityOverviewApi } from '../generated/api.schemas'
+import type { MCPActivityOverviewApi, MCPIntentThemeApi } from '../generated/api.schemas'
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import type { MCPOnboardingSignals } from '../mcpAnalyticsOnboardingLogic'
 import { buildActivitySummary } from './activitySummary'
@@ -23,25 +23,16 @@ export interface EarlyRecentCall {
     clientName: string | null
 }
 
-// Frequency-grouped verbatim intents — the fallback shown when no AI digest is available.
+// Frequency-grouped verbatim intents, the fallback shown when no AI digest is available.
 export interface IntentFrequency {
     intent: string
     count: number
 }
 
-// One AI-generated semantic theme, mirrors MCPIntentThemeApi.
-export interface DigestTheme {
-    name: string
-    description: string
-    intentCount: number
-    exampleIntent: string
-    tools: string[]
-}
-
 export interface IntentDigest {
     digest: string | null
     intentCount: number
-    themes: DigestTheme[]
+    themes: readonly MCPIntentThemeApi[]
 }
 
 export interface EarlyToolRow {
@@ -173,16 +164,15 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
                     return {
                         digest: response.digest,
                         intentCount: response.intent_count,
-                        themes: (response.themes ?? []).map((theme) => ({
-                            name: theme.name,
-                            description: theme.description,
-                            intentCount: theme.intent_count,
-                            exampleIntent: theme.example_intent,
-                            tools: [...theme.tools],
-                        })),
+                        themes: response.themes ?? [],
                     }
-                } catch {
-                    // LLM unconfigured (503) or transient failure — the card falls back
+                } catch (error: unknown) {
+                    // A newer load superseded this one; let kea-loaders skip the stale success
+                    // rather than reporting it as a failed digest.
+                    if (isBreakpoint(error as Error)) {
+                        throw error
+                    }
+                    // LLM unconfigured (503) or transient failure: the card falls back
                     // to the verbatim intent list.
                     return null
                 }

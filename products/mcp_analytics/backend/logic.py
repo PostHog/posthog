@@ -341,7 +341,7 @@ INTENT_DIGEST_CACHE_TTL = 60 * 60
 # Floor on how often a project can trigger a fresh generation. The corpus hash alone cannot bound
 # this: a busy server cycles its hundred most recent intents in well under a minute, so every
 # dashboard refresh would miss the content-addressed key and call the LLM again. Serving the
-# previous digest for a few minutes costs nothing — the card answers "what are agents working on
+# previous digest for a few minutes costs nothing: the card answers "what are agents working on
 # lately", not "what happened in the last thirty seconds".
 INTENT_DIGEST_MIN_REGENERATE_SECONDS = 10 * 60
 
@@ -357,6 +357,10 @@ def _cached_digest(cached: object) -> contracts.IntentDigest | None:
     try:
         themes = [contracts.IntentTheme(**theme) for theme in cached["themes"]]
     except TypeError:
+        return None
+    # Frozen dataclasses don't validate, so a payload with the right keys and wrong value types
+    # would construct here and only fail later in the serializer, past the 503 handler.
+    if any(not isinstance(theme.intent_count, int) or not isinstance(theme.tools, list) for theme in themes):
         return None
     return contracts.IntentDigest(
         digest=cached.get("summary"), intent_count=cached.get("intent_count", 0), themes=themes
@@ -382,9 +386,9 @@ def generate_intent_digest(team: Team) -> contracts.IntentDigest:
     """
     intents = intent_generation.fetch_recent_project_intents(team)
     if not intents:
-        return contracts.IntentDigest(digest=None, intent_count=0, themes=[])
+        return contracts.IntentDigest(digest=None, intent_count=0)
 
-    corpus_hash = hashlib.sha256("\n".join(intent for intent, _ in intents).encode()).hexdigest()
+    corpus_hash = hashlib.sha256("\x00".join(f"{intent}\x01{tool}" for intent, tool in intents).encode()).hexdigest()
     corpus_key = generate_cache_key(team.pk, f"mcp_intent_digest_v3/{corpus_hash}")
     recent_key = generate_cache_key(team.pk, "mcp_intent_digest_v3/recent")
     for key in (corpus_key, recent_key):

@@ -452,7 +452,7 @@ export interface MCPIntentThemeApi {
     readonly description: string
     /** How many of the analysed intents the LLM assigned to this theme, counted from the corpus rather than reported by the LLM. Each intent belongs to at most one theme, so these never sum to more than the digest's intent_count. */
     readonly intent_count: number
-    /** The first recorded intent in this theme, verbatim from the corpus. */
+    /** One of this theme's intents, verbatim from the corpus. */
     readonly example_intent: string
     /** The MCP tool names recorded alongside this theme's intents, sorted, taken from the corpus. */
     readonly tools: readonly string[]
@@ -466,7 +466,7 @@ export interface MCPIntentDigestApi {
     readonly digest: string | null
     /** How many recorded intents (the most recent, capped at 100) the digest was derived from. */
     readonly intent_count: number
-    /** Up to 5 semantic groupings of the analysed intents, largest first. Empty when digest is null. */
+    /** Up to 5 semantic groupings of the analysed intents, largest first. May be empty when the digest is null, or when none of the LLM's groupings resolved to recorded intents. */
     readonly themes: readonly MCPIntentThemeApi[]
 }
 

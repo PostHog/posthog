@@ -318,7 +318,7 @@ class MCPIntentThemeSerializer(serializers.Serializer):
     )
     example_intent = serializers.CharField(
         read_only=True,
-        help_text="The first recorded intent in this theme, verbatim from the corpus.",
+        help_text="One of this theme's intents, verbatim from the corpus.",
     )
     tools = serializers.ListField(
         child=serializers.CharField(),
@@ -344,7 +344,10 @@ class MCPIntentDigestSerializer(serializers.Serializer):
     themes = MCPIntentThemeSerializer(
         many=True,
         read_only=True,
-        help_text="Up to 5 semantic groupings of the analysed intents, largest first. Empty when digest is null.",
+        help_text=(
+            "Up to 5 semantic groupings of the analysed intents, largest first. May be empty when the digest "
+            "is null, or when none of the LLM's groupings resolved to recorded intents."
+        ),
     )
 
 
