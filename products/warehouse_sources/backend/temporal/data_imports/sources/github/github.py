@@ -1,5 +1,6 @@
 import re
 import random
+import asyncio
 import dataclasses
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -104,6 +105,12 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
+# Endpoints whose list API ignores state/sort/direction and always returns newest-first by
+# created_at. They take a minimal paged read (below) and must report sort_mode=desc on every sync,
+# including the first (see _resolve_sort_mode) — the two must stay in lockstep, hence one set.
+_ALWAYS_NEWEST_FIRST_ENDPOINTS = ("workflow_runs", "deployments")
+
+
 def _build_initial_params(
     config: GithubEndpointConfig,
     endpoint: str,
@@ -111,14 +118,12 @@ def _build_initial_params(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    # workflow_runs has a different param surface: it accepts neither
-    # state/sort/direction nor `since`, and always returns newest-first by
-    # created_at. We intentionally send no time filter either — its `created`
-    # filter would cap the result set to GitHub's 1,000-result search limit and
-    # silently drop rows on busy repos. Incremental sync is handled instead by
-    # paginating newest-first and stopping at the cursor (see get_rows), so the
-    # request stays a plain paged read regardless of incremental state.
-    if endpoint == "workflow_runs":
+    # These endpoints accept neither state/sort/direction nor `since`. We intentionally send no
+    # time filter either — a `created` filter would cap the result set to GitHub's 1,000-result
+    # search limit and silently drop rows on busy repos. Incremental sync is handled instead by
+    # paginating newest-first and stopping at the cursor (see get_rows), so the request stays a
+    # plain paged read regardless of incremental state.
+    if endpoint in _ALWAYS_NEWEST_FIRST_ENDPOINTS:
         return {"per_page": config.page_size}
 
     params: dict[str, Any] = {
@@ -175,15 +180,16 @@ def _resolve_sort_mode(
 
     Most endpoints emit asc on the first sync / full refresh (stable offset
     pagination via sort=created&direction=asc) and only flip to their
-    configured sort once a cutoff exists. workflow_runs is different: it ignores
-    sort/direction and always returns newest-first, so it emits desc on every
-    sync, including the first. Fan-out children inherit the parent walk's order
-    on every sync too, first incremental sync included: the initial_lookback_days
-    floor gives that sync a cutoff, which makes the parent walk descend. Reporting
-    asc for it would let the pipeline persist the cursor per batch and, on an
+    configured sort once a cutoff exists. The _ALWAYS_NEWEST_FIRST_ENDPOINTS
+    (workflow_runs, deployments) are different: they ignore sort/direction and
+    always return newest-first, so they emit desc on every sync, including the
+    first. Fan-out children inherit the parent walk's order on every sync too,
+    first incremental sync included: the initial_lookback_days floor gives that
+    sync a cutoff, which makes the parent walk descend. Reporting asc for any of
+    these would let the pipeline persist the cursor per batch and, on an
     interrupted backfill, strand every row older than the batches that flushed.
     """
-    if endpoint == "workflow_runs" or config.fan_out_parent is not None:
+    if endpoint in _ALWAYS_NEWEST_FIRST_ENDPOINTS or config.fan_out_parent is not None:
         return config.sort_mode
     if should_use_incremental_field and db_incremental_field_last_value:
         return config.sort_mode
@@ -639,6 +645,7 @@ def _fan_out_get_rows(
     db_incremental_field_last_value: Any,
     egress_identity: GithubEgressIdentity | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
+    parent_cutoff_override: datetime | None = None,
 ) -> Iterator[Any]:
     """Single-hop parent->child fan-out: walk the parent endpoint and emit every child row for each
     parent, substituting the parent's field into the child path (workflow_jobs -> {run_id},
@@ -680,11 +687,16 @@ def _fan_out_get_rows(
         db_incremental_field_last_value if (should_use_incremental_field and parent_is_incremental) else None
     )
 
+    # A reconciliation pass re-walks a fixed recent window regardless of the watermark (which is
+    # newer and would stop the walk too early), so an explicit override beats both the watermark
+    # and the first-sync floor below.
+    if parent_cutoff_override is not None:
+        parent_cutoff = parent_cutoff_override
     # First incremental sync (watermark set up, but nothing synced yet): floor the
     # backfill at a recent window instead of fanning out over the parent's entire
     # history. Scoped to the incremental first run on purpose — an explicit full
     # refresh still pulls everything, and later syncs advance from their watermark.
-    if (
+    elif (
         parent_is_incremental
         and should_use_incremental_field
         and db_incremental_field_last_value is None
@@ -692,6 +704,19 @@ def _fan_out_get_rows(
     ):
         parent_cutoff = _now_utc() - timedelta(days=child_config.initial_lookback_days)
         logger.debug(f"Github: flooring {endpoint} first-sync fan-out at {parent_cutoff.isoformat()}")
+
+    # Parents whose recency field (bumped by any new child) predates the child watermark hold no
+    # unseen children, so their child fetch is skipped. The watermark is pulled back one second
+    # because _is_older_than_cutoff is inclusive and GitHub timestamps are second-coarse: a parent
+    # whose recency equals the watermark may hold a child from that same second, so it re-fans.
+    parent_recency_field = child_config.fan_out_parent_recency_field
+    parent_recency_cutoff: datetime | None = None
+    if (
+        parent_recency_field is not None
+        and should_use_incremental_field
+        and isinstance(db_incremental_field_last_value, datetime)
+    ):
+        parent_recency_cutoff = db_incremental_field_last_value - timedelta(seconds=1)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
@@ -734,6 +759,12 @@ def _fan_out_get_rows(
             # Only fan out parents at/above the watermark; older ones were synced before.
             if parent_cutoff is not None and _is_older_than_cutoff(parent.get(parent_cursor_field), parent_cutoff):
                 continue
+            if (
+                parent_recency_field is not None
+                and parent_recency_cutoff is not None
+                and _is_older_than_cutoff(parent.get(parent_recency_field), parent_recency_cutoff)
+            ):
+                continue
             inject = (
                 _make_parent_field_injector(parent, child_config.fan_out_include_parent_fields)
                 if child_config.fan_out_include_parent_fields
@@ -767,6 +798,7 @@ def get_rows(
     incremental_field: str | None = None,
     egress_identity: GithubEgressIdentity | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
+    parent_cutoff_override: datetime | None = None,
 ) -> Iterator[Any]:
     config = GITHUB_ENDPOINTS[endpoint]
     if config.fan_out_parent is not None:
@@ -780,6 +812,7 @@ def get_rows(
             db_incremental_field_last_value=db_incremental_field_last_value,
             egress_identity=egress_identity,
             api_version=api_version,
+            parent_cutoff_override=parent_cutoff_override,
         )
         return
 
@@ -911,6 +944,28 @@ def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) 
     return transform
 
 
+async def _chain_webhook_items_with_reconciliation(
+    webhook_items: AsyncIterator[pa.Table],
+    make_reconcile_rows: Callable[[], Iterator[Any]],
+) -> AsyncIterator[Any]:
+    """Drain the webhook files, then run the bounded reconciliation poll. The poll is a blocking
+    requests-based generator, so each step runs in a worker thread to keep the event loop (and
+    the async S3 client the drain used) responsive."""
+    async for table in webhook_items:
+        yield table
+    reconcile_rows = make_reconcile_rows()
+    done = object()
+
+    def next_or_done() -> Any:
+        return next(reconcile_rows, done)
+
+    while True:
+        table = await asyncio.to_thread(next_or_done)
+        if table is done:
+            return
+        yield table
+
+
 def github_source(
     personal_access_token: str,
     repository: str,
@@ -991,7 +1046,32 @@ def github_source(
                 if endpoint_config.version_keys
                 else None
             )
-            return webhook_source_manager.get_items(table_transformer=transformer)
+            webhook_items = webhook_source_manager.get_items(table_transformer=transformer)
+            reconcile_days = endpoint_config.webhook_reconcile_lookback_days
+            if reconcile_days is None:
+                return webhook_items
+            # GitHub never fires a deployment_status webhook for the inactive state, so a pure
+            # webhook drain would miss rollback/auto_inactive transitions; chase the drain with a
+            # bounded fan-out over recent parents so those rows still arrive from the list API.
+            # should_use_incremental_field is forced on so the fan-out applies the parent recency
+            # skip against the real child watermark; the window override below, not the watermark,
+            # bounds the parent walk either way.
+            return _chain_webhook_items_with_reconciliation(
+                webhook_items,
+                lambda: get_rows(
+                    personal_access_token=personal_access_token,
+                    repository=repository,
+                    endpoint=endpoint,
+                    logger=logger,
+                    resumable_source_manager=resumable_source_manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=db_incremental_field_last_value,
+                    incremental_field=incremental_field,
+                    egress_identity=egress_identity,
+                    api_version=api_version,
+                    parent_cutoff_override=_now_utc() - timedelta(days=reconcile_days),
+                ),
+            )
 
         if webhook_only_poll_noop:
             return iter([])
