@@ -731,6 +731,7 @@ impl Coordinator {
             .collect();
 
         let now = util::now_seconds();
+        let now_ms = util::now_millis();
         let handoff_objects: Vec<HandoffState> = plan
             .handoffs
             .iter()
@@ -746,6 +747,8 @@ impl Coordinator {
                 started_at: now,
                 handoff_id: util::new_handoff_id(),
                 freeze_quorum: Some(freeze_quorum.clone()),
+                created_at_ms: now_ms,
+                phase_entered_at_ms: now_ms,
             })
             .collect();
 
@@ -1011,30 +1014,97 @@ fn phase_label(phase: HandoffPhase) -> &'static str {
 /// the pod side's warm and drain histograms carry the precise
 /// per-operation cost.
 fn record_phase_advance(handoff: &HandoffState, to: HandoffPhase) {
+    // Moves drain and warm; fresh assignments only warm — two different
+    // duration distributions, split rather than muddled.
+    let kind = if handoff.old_owner.is_some() {
+        "move"
+    } else {
+        "fresh"
+    };
     counter!(
         "personhog_coordination_handoff_transitions_total",
         "from" => phase_label(handoff.phase),
         "to" => phase_label(to),
     )
     .increment(1);
-    let elapsed = util::now_seconds().saturating_sub(handoff.started_at);
-    histogram!(
-        "personhog_coordination_handoff_phase_reached_ms",
-        "phase" => phase_label(to),
-    )
-    .record((elapsed * 1000) as f64);
+    let now_ms = util::now_millis();
+    // Cumulative creation→phase, millisecond-precise when the record
+    // carries `created_at_ms`; pre-upgrade records fall back to the
+    // second-resolution `started_at`.
+    // Clamped at zero: a phase stamped by one coordinator can be
+    // observed by its successor, and millisecond resolution makes even
+    // small clock skew visible — a negative observation would distort
+    // the histogram, incrementing every bucket.
+    let reached_ms = if handoff.created_at_ms > 0 {
+        Some(now_ms.saturating_sub(handoff.created_at_ms).max(0))
+    } else if handoff.started_at > 0 {
+        Some(util::now_seconds().saturating_sub(handoff.started_at) * 1000)
+    } else {
+        None
+    };
+    if let Some(reached_ms) = reached_ms {
+        histogram!(
+            "personhog_coordination_handoff_phase_reached_ms",
+            "phase" => phase_label(to),
+            "kind" => kind,
+        )
+        .record(reached_ms as f64);
+    }
+    // Time spent in the phase being exited. Phases are sequential and
+    // non-overlapping, so these are additive components of the total —
+    // the handoff waterfall. Zero means a pre-upgrade record with no
+    // phase clock; recording an epoch-sized value would be worse than
+    // recording nothing.
+    if handoff.phase_entered_at_ms > 0 {
+        histogram!(
+            "personhog_coordination_handoff_phase_duration_ms",
+            "phase" => phase_label(handoff.phase),
+            "kind" => kind,
+        )
+        .record(now_ms.saturating_sub(handoff.phase_entered_at_ms).max(0) as f64);
+    }
 }
 
 /// Refresh the coordinator's view-of-the-cluster gauges. Driven from the
 /// reconcile tick, so only the elected coordinator exports live values;
 /// `reset_coordinator_gauges` zeroes them when leadership ends.
 fn record_cluster_gauges(handoffs: &[HandoffState], pods: &[RegisteredPod], routers: usize) {
+    let now_ms = util::now_millis();
+    let now_s = util::now_seconds();
     for phase in [
         HandoffPhase::Freezing,
         HandoffPhase::Draining,
         HandoffPhase::Warming,
         HandoffPhase::Complete,
     ] {
+        // Oldest time-in-current-phase: the stuck-handoff signal,
+        // phase-localized. `phase_reached`/`phase_duration` sample only
+        // handoffs that advance, so a wedged one is invisible there —
+        // this gauge is its complement, and the one to alert on (age
+        // approaching the cancellation deadline means a participant is
+        // not acking). Falls back to total age for pre-upgrade records;
+        // zero when the phase is empty, which also resets it when
+        // leadership ends.
+        let max_age_secs = handoffs
+            .iter()
+            .filter(|h| h.phase == phase)
+            .map(|h| {
+                if h.phase_entered_at_ms > 0 {
+                    now_ms.saturating_sub(h.phase_entered_at_ms) / 1000
+                } else if h.started_at > 0 {
+                    now_s.saturating_sub(h.started_at)
+                } else {
+                    0
+                }
+            })
+            .max()
+            .unwrap_or(0)
+            .max(0);
+        gauge!(
+            "personhog_coordination_handoff_phase_age_seconds",
+            "phase" => phase_label(phase),
+        )
+        .set(max_age_secs as f64);
         let count = handoffs.iter().filter(|h| h.phase == phase).count();
         gauge!("personhog_coordination_handoffs_in_flight", "phase" => phase_label(phase))
             .set(count as f64);
