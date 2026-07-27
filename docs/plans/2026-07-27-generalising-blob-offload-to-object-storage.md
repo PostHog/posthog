@@ -91,19 +91,19 @@ So of three candidate customers, one already has it, and two would be worse off.
 
 ## What is actually duplicated
 
-| Concern | Replay | AIO | Shared? |
-| --- | --- | --- | --- |
-| S3 client construction, endpoint and credential config | own builder | own builder | yes, trivially |
-| Timeouts, retriable vs poison error classification | own | own (`BlobStoreError.isRetriable`) | yes, real duplication |
-| Startup healthcheck before serving traffic | `checkHealth()` | PUT/HEAD/COPY sentinel | yes, real duplication |
-| Prometheus metric shape (op duration, bytes, errors) | own | own | yes, real duplication |
-| Versioned handle encode and parse | ad-hoc `s3://...?range=` string | proper `phaiblob://v1/...` module | yes, and AIO's is better |
-| TTL and lifecycle coupling to row retention | tier prefixes | touch plus 31d lifecycle | same problem, different answers |
-| Per-tenant read authz | recording-api plus Django | Django viewset scope | yes |
-| Range-GET read client | yes | n/a | partial |
-| Compression | snappy per session | none | no |
-| Per-item encryption and crypto-shred | KMS plus DynamoDB | none | no |
-| Batch buffering with durability-before-ack | yes | n/a | no |
+| Concern                                                | Replay                          | AIO                                | Shared?                         |
+| ------------------------------------------------------ | ------------------------------- | ---------------------------------- | ------------------------------- |
+| S3 client construction, endpoint and credential config | own builder                     | own builder                        | yes, trivially                  |
+| Timeouts, retriable vs poison error classification     | own                             | own (`BlobStoreError.isRetriable`) | yes, real duplication           |
+| Startup healthcheck before serving traffic             | `checkHealth()`                 | PUT/HEAD/COPY sentinel             | yes, real duplication           |
+| Prometheus metric shape (op duration, bytes, errors)   | own                             | own                                | yes, real duplication           |
+| Versioned handle encode and parse                      | ad-hoc `s3://...?range=` string | proper `phaiblob://v1/...` module  | yes, and AIO's is better        |
+| TTL and lifecycle coupling to row retention            | tier prefixes                   | touch plus 31d lifecycle           | same problem, different answers |
+| Per-tenant read authz                                  | recording-api plus Django       | Django viewset scope               | yes                             |
+| Range-GET read client                                  | yes                             | n/a                                | partial                         |
+| Compression                                            | snappy per session              | none                               | no                              |
+| Per-item encryption and crypto-shred                   | KMS plus DynamoDB               | none                               | no                              |
+| Batch buffering with durability-before-ack             | yes                             | n/a                                | no                              |
 
 The duplication is real but shallow.
 It is the boring 200-line envelope around S3.
@@ -196,7 +196,7 @@ Does this product write a very large number of individually small objects?
   Batching is correct there.
 - AIO: less so.
   The offload floor is around 15KB decoded, the per-event cap is 50 blobs, and dedup collapses repeats.
-  Note that dedup is *already* a request-cost optimisation, since a HEAD that hits an existing object is charged at GET rate rather than PUT rate.
+  Note that dedup is _already_ a request-cost optimisation, since a HEAD that hits an existing object is charged at GET rate rather than PUT rate.
 
 Two things follow.
 
