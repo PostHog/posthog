@@ -5,6 +5,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, Mock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from posthog.temporal.ai_observability.eval_reports.activities import (
@@ -14,14 +15,39 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
     _find_nth_eval_timestamp,
     _load_evaluation_target,
     _period_for_scheduled_report,
+    _update_next_delivery_date,
     run_eval_report_agent_activity,
     store_report_run_activity,
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent, EvalReportMetrics
-from posthog.temporal.ai_observability.eval_reports.types import RunEvalReportAgentInput, StoreReportRunInput
+from posthog.temporal.ai_observability.eval_reports.types import (
+    RunEvalReportAgentInput,
+    StoreReportRunInput,
+    UpdateNextDeliveryDateInput,
+)
 
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.ai_observability.backend.models.evaluations import Evaluation
+
+
+class TestUpdateNextDeliveryDate(SimpleTestCase):
+    @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects.get")
+    def test_unavailable_metrics_keep_last_successful_period_for_retry(self, get_report) -> None:
+        last_delivered = timezone.now() - dt.timedelta(hours=2)
+        report = MagicMock(last_delivered_at=last_delivered)
+        get_report.return_value = report
+
+        _update_next_delivery_date(
+            UpdateNextDeliveryDateInput(
+                report_id="report-id",
+                period_end=timezone.now().isoformat(),
+                metrics_available=False,
+            )
+        )
+
+        self.assertEqual(report.last_delivered_at, last_delivered)
+        report.set_next_delivery_date.assert_called_once_with()
+        report.save.assert_called_once_with(update_fields=["next_delivery_date"])
 
 
 class TestEvaluationTargetLoading(BaseTest):
@@ -89,6 +115,7 @@ async def test_run_agent_activity_loads_target_and_forwards_output_type(
 
     assert result.content["metrics"]["output_type"] == output_type
     assert result.content["evaluation_target"] == evaluation_target
+    assert result.metrics_available
     assert run_agent.call_args.kwargs["output_type"] == output_type
     assert run_agent.call_args.kwargs["evaluation_target"] == evaluation_target
     load_target.assert_called_once_with(inputs.team_id, inputs.evaluation_id)

@@ -405,6 +405,7 @@ async def run_eval_report_agent_activity(
             content=content.to_dict(),
             period_start=inputs.period_start,
             period_end=inputs.period_end,
+            metrics_available=content.metrics.metrics_available,
         )
 
 
@@ -529,27 +530,28 @@ async def deliver_report_activity(
         await deliver()
 
 
+def _update_next_delivery_date(inputs: UpdateNextDeliveryDateInput) -> None:
+    from products.ai_observability.backend.models.evaluation_reports import (  # noqa: PLC0415 -- keeps product model loading inside activity execution
+        EvaluationReport,
+    )
+
+    report = EvaluationReport.objects.get(id=inputs.report_id)
+    update_fields = ["next_delivery_date"]
+    if inputs.metrics_available:
+        report.last_delivered_at = dt.datetime.fromisoformat(inputs.period_end)
+        update_fields.append("last_delivered_at")
+    report.set_next_delivery_date()
+    report.save(update_fields=update_fields)
+
+
 @temporalio.activity.defn
 async def update_next_delivery_date_activity(
     inputs: UpdateNextDeliveryDateInput,
 ) -> None:
-    """Update the report's next_delivery_date and last_delivered_at.
-
-    last_delivered_at is set to the report's period_end (captured at the start of
-    this run) rather than the current wall-clock time. This guarantees that the
-    next run's period_start picks up exactly where this run's period_end left off,
-    so any time spent generating/delivering does not create a coverage gap.
-    """
+    """Schedule the next run and advance the period pointer after successful metrics."""
 
     @database_sync_to_async(thread_sensitive=False)
-    def update():
-        import datetime as dt_mod
-
-        from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
-
-        report = EvaluationReport.objects.get(id=inputs.report_id)
-        report.last_delivered_at = dt_mod.datetime.fromisoformat(inputs.period_end)
-        report.set_next_delivery_date()
-        report.save(update_fields=["last_delivered_at", "next_delivery_date"])
+    def update() -> None:
+        _update_next_delivery_date(inputs)
 
     await update()

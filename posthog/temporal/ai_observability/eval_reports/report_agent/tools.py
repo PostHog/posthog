@@ -191,7 +191,7 @@ def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
 # Transient ClickHouse failures (capacity pressure, scheduling contention, read-only
 # replicas) are expected under load and safe to retry. Without backoff the agent's
 # query tools fail one-by-one and whole analyses silently drop out of the report.
-_RETRIABLE_CH_ERRORS = (ClickHouseAtCapacity, *CH_TRANSIENT_ERRORS)
+RETRIABLE_CH_ERRORS = (ClickHouseAtCapacity, *CH_TRANSIENT_ERRORS)
 _CH_QUERY_MAX_RETRIES = 3
 _CH_QUERY_BASE_DELAY_SECONDS = 8.0
 
@@ -215,10 +215,10 @@ def _execute_ch_query_with_retry(
     for attempt in range(max_retries + 1):
         try:
             return run_query()
-        except _RETRIABLE_CH_ERRORS as error:
+        except RETRIABLE_CH_ERRORS as error:
             if attempt >= max_retries:
                 raise
-            # Full jitter over an exponentially growing window to avoid a thundering herd.
+            # Jitter prevents concurrent report workers from retrying together.
             max_delay = base_delay * (2**attempt)
             delay = random.uniform(max_delay / 2, max_delay)
             logger.warning(

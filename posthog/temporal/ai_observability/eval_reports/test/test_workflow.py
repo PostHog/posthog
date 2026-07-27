@@ -8,6 +8,7 @@ from posthog.temporal.ai_observability.eval_reports.types import (
     RunEvalReportAgentInput,
     RunEvalReportAgentOutput,
     StoreReportRunOutput,
+    UpdateNextDeliveryDateInput,
 )
 from posthog.temporal.ai_observability.eval_reports.workflow import (
     GenerateAndDeliverEvalReportWorkflow,
@@ -65,6 +66,67 @@ async def test_generate_workflow_forwards_sentiment_output_type() -> None:
     agent_input = activity_inputs[1]
     assert isinstance(agent_input, RunEvalReportAgentInput)
     assert agent_input.output_type == "sentiment"
+
+
+@pytest.mark.parametrize(
+    ("preserve_patch_enabled", "expected_metrics_available"),
+    [(True, False), (False, True)],
+)
+@pytest.mark.asyncio
+async def test_generate_workflow_forwards_unavailable_metrics_to_schedule(
+    preserve_patch_enabled: bool, expected_metrics_available: bool
+) -> None:
+    activity_inputs: list[object] = []
+    responses = iter(
+        [
+            PrepareReportContextOutput(
+                report_id="report-id",
+                team_id=1,
+                evaluation_id="evaluation-id",
+                evaluation_name="Evaluation",
+                evaluation_description="",
+                evaluation_prompt="",
+                evaluation_type="llm_judge",
+                period_start="2026-07-01T00:00:00+00:00",
+                period_end="2026-07-02T00:00:00+00:00",
+                previous_period_start="2026-06-30T00:00:00+00:00",
+            ),
+            RunEvalReportAgentOutput(
+                report_id="report-id",
+                content={"metrics": {"metrics_available": False}},
+                period_start="2026-07-01T00:00:00+00:00",
+                period_end="2026-07-02T00:00:00+00:00",
+                metrics_available=False,
+            ),
+            StoreReportRunOutput(report_run_id="run-id"),
+            None,
+            None,
+        ]
+    )
+
+    async def fake_execute_activity(_activity, inputs, **_kwargs):
+        activity_inputs.append(inputs)
+        return next(responses)
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
+            side_effect=lambda patch_id: (
+                preserve_patch_enabled and patch_id == "eval-report-preserve-unavailable-period-2026-07"
+            ),
+        ),
+    ):
+        await GenerateAndDeliverEvalReportWorkflow().run(
+            GenerateAndDeliverEvalReportWorkflowInput(report_id="report-id")
+        )
+
+    schedule_input = activity_inputs[4]
+    assert isinstance(schedule_input, UpdateNextDeliveryDateInput)
+    assert schedule_input.metrics_available is expected_metrics_available
 
 
 @pytest.mark.asyncio

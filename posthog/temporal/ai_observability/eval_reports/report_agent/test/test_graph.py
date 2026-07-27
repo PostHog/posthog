@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.temporal.ai_observability.eval_reports.report_agent import graph
 from posthog.temporal.ai_observability.eval_reports.report_agent.graph import (
     _append_references_section,
@@ -90,9 +91,8 @@ class TestComputeMetrics(SimpleTestCase):
         self.assertTrue(metrics.metrics_available)
 
     @patch.object(graph, "_fetch_period_summary")
-    def test_query_failure_flags_metrics_unavailable_not_zero_runs(self, mock_fetch):
-        # A failed query must not be reported as a genuine 0-run period.
-        mock_fetch.side_effect = Exception("ClickHouseAtCapacity")
+    def test_transient_query_failure_flags_metrics_unavailable_not_zero_runs(self, mock_fetch):
+        mock_fetch.side_effect = ClickHouseAtCapacity()
 
         metrics = graph._compute_metrics(
             team_id=1,
@@ -104,6 +104,19 @@ class TestComputeMetrics(SimpleTestCase):
 
         self.assertFalse(metrics.metrics_available)
         self.assertEqual(metrics.total_runs, 0)
+
+    @patch.object(graph, "_fetch_period_summary")
+    def test_non_transient_query_failure_propagates(self, mock_fetch):
+        mock_fetch.side_effect = ValueError("invalid query result")
+
+        with self.assertRaisesRegex(ValueError, "invalid query result"):
+            graph._compute_metrics(
+                team_id=1,
+                evaluation_id="eval-id",
+                period_start="2026-04-08T14:00:00+00:00",
+                period_end="2026-04-08T15:00:00+00:00",
+                previous_period_start="2026-04-08T13:00:00+00:00",
+            )
 
 
 class TestFallbackContent(SimpleTestCase):
@@ -122,7 +135,6 @@ class TestFallbackContent(SimpleTestCase):
         self.assertEqual(content.metrics, metrics)
 
     def test_unavailable_metrics_do_not_claim_no_runs(self):
-        # total_runs is 0 here, but the query failed rather than the period being empty.
         metrics = EvalReportMetrics(total_runs=0, metrics_available=False)
 
         content = _fallback_content("Relevance", metrics, "metrics query failed after retries")
@@ -131,6 +143,7 @@ class TestFallbackContent(SimpleTestCase):
         self.assertNotIn("No evaluation runs", body)
         self.assertIn("could not be computed", body)
         self.assertIn("does not mean no evaluations ran", body)
+        self.assertIn("next time this report runs", body)
 
     def test_trace_zero_runs_uses_trace_specific_ingestion_hint(self):
         metrics = EvalReportMetrics(total_runs=0)
@@ -354,12 +367,6 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
 
 
 class TestRunEvalReportAgentMetricsUnavailable(SimpleTestCase):
-    """When metrics can't be computed, skip the agent and return an honest fallback.
-
-    Running the agent would burn an expensive LLM loop on query tools that fail the
-    same way, and could produce a narrative built on missing data.
-    """
-
     @patch.object(graph, "posthoganalytics")
     @patch.object(graph, "build_langchain_chat_client")
     @patch.object(graph, "create_react_agent")

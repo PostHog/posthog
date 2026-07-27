@@ -23,6 +23,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.state import EvalReportAgentState
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
+    RETRIABLE_CH_ERRORS,
     _ch_ts,
     _fetch_period_summary,
     get_eval_report_tools,
@@ -44,12 +45,9 @@ def _compute_metrics(
 ) -> EvalReportMetrics:
     """Compute report metrics directly via HogQL (independent of agent state).
 
-    Always returns a valid EvalReportMetrics. On query failure (e.g. ClickHouse
-    at capacity, which the query helpers already retry with backoff before giving
-    up) it returns one flagged `metrics_available=False` and logs the exception —
-    a failed query must never be reported as a genuine "0 runs" period. The agent
-    cannot fabricate numbers because this function is the sole source of truth for
-    `content.metrics`.
+    Returns metrics flagged `metrics_available=False` when a transient ClickHouse
+    failure exhausts the query helper's retries. Other exceptions propagate so
+    deterministic application errors do not become successful fallback reports.
     """
     unavailable = EvalReportMetrics(
         output_type=output_type,
@@ -80,7 +78,7 @@ def _compute_metrics(
             previous_total_runs=previous_total,
             previous_result_counts=previous_result_counts,
         )
-    except Exception:
+    except RETRIABLE_CH_ERRORS:
         logger.exception("llma_eval_reports_metrics_computation_failed")
         return unavailable
 
@@ -98,11 +96,10 @@ def _fallback_content(
     went wrong at the agent level so the user isn't left staring at an empty UI.
     """
     if not metrics.metrics_available:
-        # A failed metrics query must not masquerade as a real "0 runs" period.
         summary = (
             f"Metrics for **{evaluation_name}** could not be computed for this period because the "
-            "analytics store was temporarily unavailable. This does not mean no evaluations ran — "
-            "the numbers will be picked up on the next scheduled report once load subsides."
+            "analytics store was temporarily unavailable. This does not mean no evaluations ran. "
+            "Metrics will be retried the next time this report runs."
         )
     elif metrics.total_runs == 0:
         ingestion_hint = (
@@ -241,10 +238,8 @@ def run_eval_report_agent(
 
     from posthog.temporal.ai_observability.eval_reports.metrics import increment_errors, increment_report_generated
 
-    # If the metrics query failed even after retries, ClickHouse is under sustained
-    # load — the agent's own query tools would fail the same way and produce a
-    # narrative built on missing data. Skip the (expensive) agent run and return a
-    # fallback that says metrics are unavailable rather than reporting a false "0 runs".
+    # The agent's query tools would fail under the same sustained ClickHouse load,
+    # which could produce a narrative built on missing data.
     if not metrics.metrics_available:
         increment_report_generated("fallback_metrics_unavailable")
         logger.warning(
