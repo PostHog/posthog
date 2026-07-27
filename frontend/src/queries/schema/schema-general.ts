@@ -8106,6 +8106,11 @@ export const externalDataSources = [
     'Meltwater',
     'UserCom',
     'Latitude',
+    'Workato',
+    'SideShift',
+    'DuckLake',
+    'Starburst',
+    'Easybill',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
