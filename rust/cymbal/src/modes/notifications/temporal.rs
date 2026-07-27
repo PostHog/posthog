@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use chrono::{DateTime, Utc};
 use common_temporal::{
     StartWorkflowOptions, StartWorkflowOutcome, TemporalClientConfig, TemporalWorkflowClient,
 };
@@ -7,7 +8,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::core::error::UnhandledError;
-use crate::core::types::notification::{IssueCreated, IssueReopened, IssueSnapshot};
+use crate::core::types::notification::{IssueCreated, IssueReopened, IssueSnapshot, IssueSpiking};
 use crate::modes::notifications::config::NotificationsConfig;
 
 #[derive(Clone, Copy)]
@@ -21,6 +22,7 @@ struct WorkflowDefinition {
 enum IssueLifecycleKind {
     Created,
     Reopened,
+    Spiking,
 }
 
 impl IssueLifecycleKind {
@@ -36,12 +38,18 @@ impl IssueLifecycleKind {
                 starts_metric: "cymbal_issue_reopened_workflow_starts_total",
                 routes_metric: "cymbal_issue_reopened_workflow_routes_total",
             },
+            Self::Spiking => WorkflowDefinition {
+                name: "error-tracking-issue-spiking",
+                starts_metric: "cymbal_issue_spiking_workflow_starts_total",
+                routes_metric: "cymbal_issue_spiking_workflow_routes_total",
+            },
         }
     }
 }
 
 const ISSUE_CREATED_WORKFLOW: WorkflowDefinition = IssueLifecycleKind::Created.workflow();
 const ISSUE_REOPENED_WORKFLOW: WorkflowDefinition = IssueLifecycleKind::Reopened.workflow();
+const ISSUE_SPIKING_WORKFLOW: WorkflowDefinition = IssueLifecycleKind::Spiking.workflow();
 
 #[derive(Clone)]
 struct LifecycleWorkflowRoute {
@@ -62,6 +70,7 @@ pub struct IssueLifecycleWorkflowStarters {
     task_queue: String,
     created: Option<LifecycleWorkflowRoute>,
     reopened: Option<LifecycleWorkflowRoute>,
+    spiking: Option<LifecycleWorkflowRoute>,
 }
 
 impl IssueLifecycleWorkflowStarters {
@@ -79,7 +88,12 @@ impl IssueLifecycleWorkflowStarters {
             &config.issue_reopened_workflow_team_ids,
             "ERROR_TRACKING_ISSUE_REOPENED_WORKFLOW_TEAM_IDS",
         )?;
-        if (created.is_some() || reopened.is_some()) && client.is_none() {
+        let spiking = build_route(
+            config.issue_spiking_workflow_enabled,
+            &config.issue_spiking_workflow_team_ids,
+            "ERROR_TRACKING_ISSUE_SPIKING_WORKFLOW_TEAM_IDS",
+        )?;
+        if (created.is_some() || reopened.is_some() || spiking.is_some()) && client.is_none() {
             return Err(UnhandledError::Other(
                 "Temporal client missing for enabled lifecycle workflow".to_string(),
             ));
@@ -90,6 +104,7 @@ impl IssueLifecycleWorkflowStarters {
             task_queue: config.error_tracking_lifecycle_task_queue.clone(),
             created,
             reopened,
+            spiking,
         })
     }
 
@@ -141,6 +156,32 @@ impl IssueLifecycleWorkflowStarters {
         Ok(true)
     }
 
+    pub async fn start_spiking_if_enabled(
+        &self,
+        notification: &IssueSpiking,
+    ) -> Result<bool, UnhandledError> {
+        if !has_event_reference(notification.event_uuid, &notification.event_timestamp) {
+            record_route(ISSUE_SPIKING_WORKFLOW, "legacy_missing_event_reference");
+            return Ok(false);
+        }
+        if !route_is_enabled(
+            &self.spiking,
+            notification.meta.team_id,
+            ISSUE_SPIKING_WORKFLOW,
+        ) {
+            return Ok(false);
+        }
+
+        self.start(
+            notification.meta.notification_id,
+            &IssueSpikingWorkflowInput::from(notification),
+            ISSUE_SPIKING_WORKFLOW,
+        )
+        .await?;
+        record_route(ISSUE_SPIKING_WORKFLOW, "temporal");
+        Ok(true)
+    }
+
     async fn start<T: Serialize>(
         &self,
         notification_id: Uuid,
@@ -177,7 +218,10 @@ impl IssueLifecycleWorkflowStarters {
 pub async fn build_issue_lifecycle_temporal_client(
     config: &NotificationsConfig,
 ) -> Result<Option<TemporalWorkflowClient>, UnhandledError> {
-    if !config.issue_created_workflow_enabled && !config.issue_reopened_workflow_enabled {
+    if !config.issue_created_workflow_enabled
+        && !config.issue_reopened_workflow_enabled
+        && !config.issue_spiking_workflow_enabled
+    {
         return Ok(None);
     }
 
@@ -303,6 +347,49 @@ impl<'a> From<&'a IssueReopened> for IssueReopenedWorkflowInput<'a> {
     }
 }
 
+#[derive(Serialize)]
+struct IssueSpikingWorkflowInput<'a> {
+    notification_id: Uuid,
+    team_id: i32,
+    issue_id: Uuid,
+    issue: &'a IssueSnapshot,
+    fingerprint: &'a str,
+    event_uuid: Uuid,
+    event_timestamp: &'a str,
+    detected_at: DateTime<Utc>,
+    computed_baseline: f64,
+    current_bucket_value: f64,
+    assignee: Option<&'a str>,
+}
+
+impl<'a> From<&'a IssueSpiking> for IssueSpikingWorkflowInput<'a> {
+    fn from(notification: &'a IssueSpiking) -> Self {
+        Self {
+            notification_id: notification.meta.notification_id,
+            team_id: notification.meta.team_id,
+            issue_id: notification.issue.issue_id,
+            issue: &notification.issue.issue,
+            fingerprint: notification.issue.event_properties.fingerprint(),
+            event_uuid: notification.event_uuid,
+            event_timestamp: &notification.event_timestamp,
+            detected_at: notification_time(notification.meta.notification_id),
+            computed_baseline: notification.computed_baseline,
+            current_bucket_value: notification.current_bucket_value,
+            assignee: notification.assignee.as_deref(),
+        }
+    }
+}
+
+fn notification_time(notification_id: Uuid) -> DateTime<Utc> {
+    notification_id
+        .get_timestamp()
+        .and_then(|timestamp| {
+            let (seconds, nanos) = timestamp.to_unix();
+            DateTime::from_timestamp(seconds as i64, nanos)
+        })
+        .unwrap_or_else(Utc::now)
+}
+
 fn parse_team_ids(
     raw: &str,
     env_var: &'static str,
@@ -386,11 +473,27 @@ mod tests {
         }
     }
 
+    fn issue_spiking() -> IssueSpiking {
+        IssueSpiking {
+            meta: NotificationMeta {
+                notification_id: notification_id(),
+                team_id: 42,
+            },
+            issue: issue_context(),
+            event_uuid: Uuid::now_v7(),
+            event_timestamp: "2026-07-21T12:00:00Z".to_string(),
+            computed_baseline: 2.0,
+            current_bucket_value: 20.0,
+            assignee: None,
+        }
+    }
+
     #[test]
     fn workflow_inputs_exclude_event_properties() {
         let values = [
             serde_json::to_value(IssueCreatedWorkflowInput::from(&issue_created())).unwrap(),
             serde_json::to_value(IssueReopenedWorkflowInput::from(&issue_reopened())).unwrap(),
+            serde_json::to_value(IssueSpikingWorkflowInput::from(&issue_spiking())).unwrap(),
         ];
 
         for value in values {
@@ -402,7 +505,11 @@ mod tests {
 
     #[test]
     fn start_options_are_idempotent_and_target_the_lifecycle_queue() {
-        for workflow in [ISSUE_CREATED_WORKFLOW, ISSUE_REOPENED_WORKFLOW] {
+        for workflow in [
+            ISSUE_CREATED_WORKFLOW,
+            ISSUE_REOPENED_WORKFLOW,
+            ISSUE_SPIKING_WORKFLOW,
+        ] {
             let options = start_options(
                 notification_id(),
                 "error-tracking-lifecycle-task-queue",
@@ -442,7 +549,7 @@ mod tests {
     }
 
     #[test]
-    fn reopened_requires_event_references() {
+    fn reopened_and_spiking_require_event_references() {
         assert!(has_event_reference(Uuid::now_v7(), "2026-07-21T12:00:00Z"));
         assert!(!has_event_reference(Uuid::nil(), "2026-07-21T12:00:00Z"));
         assert!(!has_event_reference(Uuid::now_v7(), ""));
