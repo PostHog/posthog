@@ -70,6 +70,7 @@ class TeachableSource(ResumableSource[TeachableSourceConfig, TeachableResumeConf
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
         for schema in schemas:
@@ -80,7 +81,11 @@ class TeachableSource(ResumableSource[TeachableSourceConfig, TeachableResumeConf
         return schemas
 
     def validate_credentials(
-        self, config: TeachableSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TeachableSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_teachable_credentials(config.api_key)
 

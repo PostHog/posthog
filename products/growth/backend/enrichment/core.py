@@ -128,6 +128,7 @@ async def enrich_organization(
     pha_client: Client,
     is_recheck: bool = False,
     role_at_organization: Optional[str] = None,
+    geoip_country_code: Optional[str] = None,
     distinct_id: Optional[str] = None,
 ) -> Optional[EnrichmentFields]:
     """Look up enrichment for a domain, archive the raw response, and persist the live stores.
@@ -164,6 +165,12 @@ async def enrich_organization(
         fields = await sync_to_async(_reconstruct_fields_from_record)(organization_id)
         if fields is None:
             return None
+
+    if fields.country is None and geoip_country_code:
+        # The incumbent icp_country was a merge — provider country first, signup GeoIP as
+        # fallback — so the score and all three stores see the merged value here. replace()
+        # keeps the returned lookup.fields provider-verbatim for the at-signup snapshot.
+        fields = dataclasses.replace(fields, country=geoip_country_code)
 
     icp_score, mirror_distinct_id = await sync_to_async(_score_and_mirror)(
         organization_id=organization_id,

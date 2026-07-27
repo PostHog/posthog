@@ -19,14 +19,19 @@ from __future__ import annotations
 import os
 import re
 import logging
+from datetime import date, datetime
 from typing import TYPE_CHECKING, TypedDict
 from uuid import UUID
 
 import duckdb
 import psycopg
 from psycopg import sql
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 if TYPE_CHECKING:
+    from clickhouse_driver import Client
+
+    from posthog.clickhouse.cluster import ClickhouseCluster
     from posthog.ducklake.models import DuckgresServer
 
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -530,13 +535,11 @@ def duckgres_data_imports_schema(team_id: int) -> str:
     that have already written a team's tables must trigger a re-prime (handled
     by the backfill state machine), not silently switch.
     """
-    from posthog.ducklake.models import DuckgresServerTeam
+    # Deferred: team_state imports this module at the top level, so a module-level
+    # import back would be circular.
+    from posthog.ducklake import team_state  # noqa: PLC0415
 
-    suffix = DuckgresServerTeam.objects.filter(team_id=team_id).values_list("table_suffix", flat=True).first()
-    if not suffix:
-        return f"posthog_data_imports_team_{team_id}"
-    validate_duckgres_identifier(suffix)
-    return f"posthog_data_imports_{suffix}"
+    return team_state.data_imports_schema(team_id)
 
 
 def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
@@ -703,19 +706,107 @@ def get_team_backfill_state(team_id: int) -> dict[str, object]:
     safe to show) from one already backfilling (a row exists → show read-only, since the table is
     immutable). ``table_suffix`` is None for legacy teams still on the shared tables.
     """
-    from posthog.ducklake.models import DuckgresServerTeam
+    # Deferred: team_state imports this module at the top level, so a module-level
+    # import back would be circular.
+    from posthog.ducklake import team_state  # noqa: PLC0415
 
-    backfill = DuckgresServerTeam.objects.filter(team_id=team_id).values("table_suffix").first()
-    if backfill is None:
-        return {"has_backfill": False, "table_suffix": None}
-    return {"has_backfill": True, "table_suffix": backfill["table_suffix"]}
+    return team_state.team_backfill_state(team_id)
+
+
+# Ignore events before this date — pre-2015 data is typically junk timestamps.
+EARLIEST_BACKFILL_DATE = datetime(2015, 1, 1)
+
+# Stored in DuckgresServerTeam.earliest_event_date (and mirrored to the duckgres control
+# plane) for a team with no events, so callers cache "nothing to backfill" instead of
+# re-querying ClickHouse. Far enough in the future that any generated backfill months
+# range is always empty.
+NO_HISTORY_SENTINEL = date(9999, 12, 31)
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(5),
+    retry=retry_if_exception_type((TimeoutError, OSError)),
+    reraise=True,
+)
+def _get_clickhouse_cluster() -> ClickhouseCluster:
+    """get_cluster() with retry for transient bootstrap timeouts.
+
+    Retries the cluster discovery query only — does not affect subsequent per-host
+    query execution, avoiding stacked retries with callers' own retry decorators.
+    """
+    # Deferred: this module stays importable without Django settings configured (see module
+    # docstring); the cluster helpers pull posthog.settings in at import.
+    from posthog.clickhouse.cluster import get_cluster  # noqa: PLC0415
+
+    return get_cluster()
+
+
+def get_earliest_event_date_for_team(team_id: int) -> datetime | None:
+    """Query ClickHouse to find the earliest event date for a team.
+
+    This is used to determine the historical range of data a duckling backfill covers
+    (by the Dagster full-backfill sensor and the provisioning-time sync task).
+
+    Returns:
+        The date of the earliest event, or None if no events exist for this team.
+    """
+    # Deferred for the same Django-less-import reason as _get_clickhouse_cluster.
+    from posthog.clickhouse.client.connection import NodeRole, Workload  # noqa: PLC0415
+    from posthog.cloud_utils import is_cloud  # noqa: PLC0415
+
+    cluster = _get_clickhouse_cluster()
+    workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
+
+    def query_earliest(client: Client) -> datetime | None:
+        # Filter timestamp >= '1970-01-01' to avoid toDate() overflow on pre-epoch timestamps.
+        # ClickHouse's Date type is UInt16 (days since 1970-01-01), so negative timestamps
+        # overflow to the max date (2149-06-06), breaking the backfill sensor logic.
+        result = client.execute(
+            """
+            SELECT toDate(min(timestamp)) as earliest_date
+            FROM events
+            WHERE team_id = %(team_id)s
+              AND timestamp >= '1970-01-01'
+            """,
+            {"team_id": team_id},
+        )
+        if result and result[0][0]:
+            # ClickHouse returns a date object, convert to datetime
+            date_val = result[0][0]
+            if isinstance(date_val, datetime):
+                return date_val
+            return datetime.combine(date_val, datetime.min.time())
+        return None
+
+    return cluster.any_host_by_role(
+        fn=query_earliest,
+        workload=workload,
+        node_role=NodeRole.DATA,
+    ).result()
+
+
+def resolve_team_earliest_event_date(team_id: int) -> date:
+    """Resolve the date a team's historical duckling backfill should start from.
+
+    Clamps to EARLIEST_BACKFILL_DATE and returns NO_HISTORY_SENTINEL for a team with no
+    events, so callers can cache the result and never re-query ClickHouse for the team.
+    """
+    earliest_dt = get_earliest_event_date_for_team(team_id)
+    if earliest_dt is None:
+        return NO_HISTORY_SENTINEL
+    return max(earliest_dt, EARLIEST_BACKFILL_DATE).date()
 
 
 __all__ = [
+    "EARLIEST_BACKFILL_DATE",
+    "NO_HISTORY_SENTINEL",
     "DucklingBackfillEnableError",
     "attach_catalog",
     "check_team_backfill_enable",
     "default_bucket_region",
+    "get_earliest_event_date_for_team",
+    "resolve_team_earliest_event_date",
     "duckgres_data_imports_schema",
     "duckgres_data_imports_table_name",
     "duckgres_data_modeling_schema",

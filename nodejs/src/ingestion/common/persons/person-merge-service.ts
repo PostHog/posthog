@@ -3,6 +3,7 @@ import { Counter, Histogram } from 'prom-client'
 
 import { personMergeFailureCounter } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
+import { isDistinctIdIllegal } from '~/common/persons/person-utils'
 import { timeoutGuard } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
@@ -61,53 +62,24 @@ export const mergeFoldSizeHistogram = new Histogram({
     buckets: [2, 5, 10, 25, 50, 100, 250, 500],
 })
 
-// used to prevent identify from being used with generic IDs
-// that we can safely assume stem from a bug or mistake
-const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
-    'anonymous',
-    'guest',
-    'distinctid',
-    'distinct_id',
-    'id',
-    'not_authenticated',
-    'email',
-    'undefined',
-    'true',
-    'false',
-]
-
-const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
-
-// we have seen illegal ids received but wrapped in double quotes
-// to protect ourselves from this we'll add the single- and double-quoted versions of the illegal ids
-const singleQuoteIds = (ids: string[]) => ids.map((id) => `'${id}'`)
-const doubleQuoteIds = (ids: string[]) => ids.map((id) => `"${id}"`)
-
-// some ids are illegal regardless of casing
-// while others are illegal only when cased
-// so, for example, we want to forbid `NaN` but not `nan`
-// but, we will forbid `uNdEfInEd` and `undefined`
-const CASE_INSENSITIVE_ILLEGAL_IDS = new Set(
-    BARE_CASE_INSENSITIVE_ILLEGAL_IDS.concat(singleQuoteIds(BARE_CASE_INSENSITIVE_ILLEGAL_IDS)).concat(
-        doubleQuoteIds(BARE_CASE_INSENSITIVE_ILLEGAL_IDS)
-    )
-)
-
-const CASE_SENSITIVE_ILLEGAL_IDS = new Set(
-    BARE_CASE_SENSITIVE_ILLEGAL_IDS.concat(singleQuoteIds(BARE_CASE_SENSITIVE_ILLEGAL_IDS)).concat(
-        doubleQuoteIds(BARE_CASE_SENSITIVE_ILLEGAL_IDS)
-    )
-)
-
 /** Thrown inside the fold transaction to roll it back when merge-mode move bounds would be exceeded. */
 class MergeFoldLimitError extends Error {}
 
 /** Thrown inside the fold transaction to roll it back when a concurrent merge invalidated the fetched sources. */
 class MergeFoldConflictError extends Error {}
 
-export const isDistinctIdIllegal = (id: string): boolean => {
-    const trimmed = id.trim()
-    return trimmed === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
+/** Maps a fold failure to the fallback counter's reason label. */
+function foldFallbackReason(error: unknown): 'limit' | 'conflict' | 'deadlock' | 'error' {
+    if (error instanceof MergeFoldLimitError) {
+        return 'limit'
+    }
+    if (error instanceof MergeFoldConflictError) {
+        return 'conflict'
+    }
+    if ((error as { code?: string })?.code === '40P01') {
+        return 'deadlock'
+    }
+    return 'error'
 }
 
 /**
@@ -408,12 +380,7 @@ export class PersonMergeService {
             // re-runs its own merge (a no-op if the fold partially landed), and
             // later events in the run process individually with full retries.
             plan.status = 'abandoned'
-            const reason =
-                error instanceof MergeFoldLimitError
-                    ? 'limit'
-                    : error instanceof MergeFoldConflictError
-                      ? 'conflict'
-                      : 'error'
+            const reason = foldFallbackReason(error)
             mergeFoldFallbackCounter.labels({ reason }).inc()
             // The batch store's caches were updated optimistically inside the
             // rolled-back transaction (distinct id → target mappings); purge

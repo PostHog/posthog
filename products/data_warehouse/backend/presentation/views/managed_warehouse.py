@@ -11,10 +11,12 @@ per organization (not per team).
 """
 
 import re
+from datetime import date
 from typing import TypedDict, cast
 from uuid import UUID
 
 from django.conf import settings
+from django.db import transaction
 
 import requests as http_requests
 import structlog
@@ -196,9 +198,17 @@ def _get_project_team_row(*, organization_id: UUID | str, team_id: int) -> dict 
     if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
         raise RuntimeError("Failed to read the organization's managed warehouse team rows")
     for row in resp.data.get("teams") or []:
-        if isinstance(row, dict) and row.get("team_id") == team_id:
+        if isinstance(row, dict) and _row_team_id(row) == team_id:
             return row
     return None
+
+
+def _row_team_id(row: dict) -> int | None:
+    """A control-plane row's team id as int, tolerating a string serialization."""
+    try:
+        return int(row["team_id"])
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def configure_project_reader(
@@ -310,12 +320,44 @@ def provision(
     )
     if status.is_success(resp.status_code) and isinstance(resp.data, dict):
         _persist_duckgres_server(organization_id, database_name, resp.data)
+        # Complete the row BEFORE registering the team: registration kicks off the
+        # SQL-editor reader handshake, whose namespace grants derive from this row.
+        _complete_provisioning_team_row(organization_id, team_id, schema_name, require_enabled=require_enabled)
         _register_provisioning_team(organization_id, team_id, schema_name)
         # The bucket is internal infra detail, persisted above and consumed by the
         # backfill via cp_bucket_for — not part of the UI-facing ProvisionWarehouseResponse
         # schema. Strip it so the response matches its OpenAPI contract.
         _strip_bucket_fields(resp.data)
     return resp
+
+
+def _complete_provisioning_team_row(
+    organization_id: UUID | str, team_id: int, schema_name: str, *, require_enabled: bool
+) -> None:
+    """Pin the first team's legacy table names onto the row duckgres just created.
+
+    The provision body cannot carry them, and without them the team's SQL-editor reader is
+    granted only the derived schemas no data lands in yet (see onboard_team). Best-effort:
+    the warehouse is already provisioned, so a transient failure must not fail the provision —
+    re-running onboarding (or the grandfather upsert) completes the row later.
+    """
+    legacy = _grandfathered_team_fields(team_id, schema_name)
+    resp = create_team(
+        organization_id,
+        team_id,
+        schema_name,
+        events_table_name=legacy["events_table_name"],
+        persons_table_name=legacy["persons_table_name"],
+        schema_data_imports_name=legacy["schema_data_imports_name"],
+        require_enabled=require_enabled,
+    )
+    if not status.is_success(resp.status_code):
+        logger.warning(
+            "Provisioned warehouse team row could not be completed with legacy table names",
+            organization_id=str(organization_id),
+            team_id=team_id,
+            status_code=resp.status_code,
+        )
 
 
 def _strip_bucket_fields(body: dict) -> None:
@@ -358,6 +400,7 @@ def _register_provisioning_team(organization_id: UUID | str, team_id: int, schem
 
     try:
         enable_team_backfill(team_id=team_id, organization_id=organization_id, table_name=schema_name)
+        _schedule_earliest_event_date_sync(team_id)
     except Exception:
         logger.exception("Failed to register provisioning team after provision", team_id=team_id)
 
@@ -410,6 +453,15 @@ def list_teams(organization_id: UUID | str, require_enabled: bool = True) -> Res
     return _request("GET", organization_id, "/teams", require_enabled=require_enabled)
 
 
+def list_all_teams() -> Response:
+    """List every duckgres team row across orgs (global internal endpoint).
+
+    Backend-only: feeds the cp-mode sensor enumeration in posthog.ducklake.cp_teams,
+    which is why the feature-flag gate is bypassed.
+    """
+    return _request("GET", "", "teams", require_enabled=False)
+
+
 def create_team(
     organization_id: UUID | str,
     team_id: int,
@@ -442,6 +494,74 @@ def create_team(
     }
     body.update({key: value for key, value in optional_fields.items() if value is not None})
     return _request("POST", organization_id, "/teams", json_body=body, require_enabled=require_enabled)
+
+
+def update_team(
+    organization_id: UUID | str,
+    team_id: int,
+    *,
+    require_enabled: bool = True,
+    **fields: object,
+) -> Response:
+    """Update fields on an existing duckgres team row via the admin PUT endpoint.
+
+    Presence-aware on the duckgres side: only the fields present in the body change, so
+    callers pass exactly what they want written (e.g. just ``earliest_event_date``).
+    """
+    return _request(
+        "PUT", organization_id, f"/teams/{team_id}", json_body=dict(fields), require_enabled=require_enabled
+    )
+
+
+def push_team_earliest_event_date(organization_id: UUID | str, team_id: int, earliest: date | None) -> bool:
+    """Best-effort mirror of a team's cached earliest event date onto its duckgres team row.
+
+    Part of the dual-write moving per-team backfill state into the control plane: the
+    Django ``DuckgresServerTeam.earliest_event_date`` (including the no-history sentinel)
+    stays the read source for now, so a failure here is logged and swallowed — a later
+    push (the provisioning-time task or the full-backfill sensor) converges the CP row.
+    Returns True when the control plane accepted the value.
+    """
+    if earliest is None:
+        return False
+    try:
+        resp = update_team(organization_id, team_id, require_enabled=False, earliest_event_date=earliest.isoformat())
+    except Exception:
+        logger.exception(
+            "Failed to push earliest event date to duckgres",
+            organization_id=str(organization_id),
+            team_id=team_id,
+        )
+        return False
+    if not status.is_success(resp.status_code):
+        logger.warning(
+            "Duckgres rejected earliest event date push",
+            organization_id=str(organization_id),
+            team_id=team_id,
+            status_code=resp.status_code,
+        )
+        return False
+    return True
+
+
+def _schedule_earliest_event_date_sync(team_id: int) -> None:
+    """Dispatch the earliest-event-date resolution task once the membership row commits.
+
+    ``transaction.on_commit`` so the task never races a rollback of the row it reads (it
+    runs immediately in autocommit). Best-effort: a dispatch failure is logged, not
+    raised — the full-backfill sensor resolves the date lazily regardless.
+    """
+    # Keep the Celery task module (and its import graph) off the API import path; the
+    # facade is the allowed boundary for presentation -> tasks.
+    from products.data_warehouse.backend.facade.tasks import sync_team_earliest_event_date  # noqa: PLC0415
+
+    def dispatch() -> None:
+        try:
+            sync_team_earliest_event_date.delay(team_id)
+        except Exception:
+            logger.exception("Failed to schedule earliest event date sync", team_id=team_id)
+
+    transaction.on_commit(dispatch)
 
 
 def delete_team(organization_id: UUID | str, team_id: int, require_enabled: bool = True) -> Response:
@@ -485,7 +605,21 @@ def onboard_team(
     except DucklingBackfillEnableError as exc:
         return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-    resp = create_team(organization_id, team_id, schema_name, require_enabled=require_enabled)
+    # Pin the legacy table names the duckling DAG writes today (posthog.events_<suffix>,
+    # posthog_data_imports_<suffix>): the suffix for a newly onboarded team IS its schema
+    # name. A row without them describes the derived layout no data lands in yet, which
+    # grants the project's SQL-editor reader nothing (the EU placeholder-row bug). Drop
+    # this once the duckling DAG writes the derived <schema_name>.events layout for real.
+    legacy = _grandfathered_team_fields(team_id, schema_name)
+    resp = create_team(
+        organization_id,
+        team_id,
+        schema_name,
+        events_table_name=legacy["events_table_name"],
+        persons_table_name=legacy["persons_table_name"],
+        schema_data_imports_name=legacy["schema_data_imports_name"],
+        require_enabled=require_enabled,
+    )
     if resp.status_code == status.HTTP_409_CONFLICT:
         return Response(
             {"error": f"The schema name '{schema_name}' is already used by another project in this organization."},
@@ -501,6 +635,7 @@ def onboard_team(
         # duckgres upsert is idempotent, so a retry after the user picks another name is safe.
         return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
+    _schedule_earliest_event_date_sync(team_id)
     return Response({"onboarded": True, "schema_name": suffix}, status=status.HTTP_200_OK)
 
 
@@ -567,7 +702,7 @@ def team_onboarding_state(organization_id: UUID | str, team_id: int) -> dict:
     try:
         teams = _teams_from_response(list_teams(organization_id, require_enabled=False))
         if teams is not None:
-            duckgres_team = next((row for row in teams if row.get("team_id") == team_id), None)
+            duckgres_team = next((row for row in teams if _row_team_id(row) == team_id), None)
             if duckgres_team is None and has_django_row:
                 duckgres_team = _push_grandfathered_team(organization_id, team_id, table_suffix)
             elif duckgres_team is not None and not has_django_row:
@@ -696,7 +831,10 @@ def block_team_deletion(team_id: int, organization_id: UUID | str) -> str | None
     the deletion is blocked with a retry error rather than silently orphaning the duckgres row.
     """
     # Keep ducklake.models off the core API import path.
-    from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam  # noqa: PLC0415
+    # Keep ducklake.team_state (and via it ducklake.common's duckdb dependency) off the
+    # API import path.
+    from posthog.ducklake import team_state  # noqa: PLC0415
+    from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
 
     if not DuckgresServer.objects.filter(organization_id=organization_id).exists():
         return None
@@ -710,9 +848,9 @@ def block_team_deletion(team_id: int, organization_id: UUID | str) -> str | None
             "Deprovision the managed warehouse in Data ops settings, or delete the organization, "
             "before deleting this project."
         )
-    if DuckgresServerTeam.objects.filter(team_id=team_id).exists():
+    if team_state.backfill_row_exists(team_id, str(organization_id)):
         return "Could not remove this project from your organization's managed warehouse. Try again in a few minutes."
-    # Org has a warehouse but this team has no Django backfill row: almost certainly not
+    # Org has a warehouse but this team has no membership row: almost certainly not
     # onboarded, so a control-plane hiccup must not block its deletion. If a duckgres-only
     # row does exist it is orphaned here, which the control plane tolerates.
     logger.warning(

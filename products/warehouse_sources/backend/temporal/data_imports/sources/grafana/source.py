@@ -168,6 +168,7 @@ Self-hosted Grafana OSS can alternatively authenticate with a username and passw
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "annotations":
@@ -199,12 +200,16 @@ Self-hosted Grafana OSS can alternatively authenticate with a username and passw
         return schemas
 
     def validate_credentials(
-        self, config: GrafanaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GrafanaSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_grafana_credentials(config.host, self._build_auth(config), config.org_id, team_id, schema_name)
 
     def get_endpoint_permissions(
-        self, config: GrafanaSourceConfig, team_id: int, endpoints: list[str]
+        self, config: GrafanaSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         return get_grafana_endpoint_permissions(
             config.host, self._build_auth(config), config.org_id, team_id, endpoints

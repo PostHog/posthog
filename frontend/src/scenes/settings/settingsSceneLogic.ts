@@ -27,6 +27,7 @@ const LEGACY_SETTINGS_SECTIONS: Record<string, SettingSectionId> = {
 // section (docs, CDP filter warnings, bookmarks) redirect to the setting's current home.
 const MOVED_SETTINGS: Record<string, SettingSectionId> = {
     'internal-user-filtering': 'project-customization',
+    'warehouse-person-properties': 'environment-customer-analytics',
 }
 
 const hasHashParam = (hashParams: Params, key: string): boolean => Object.prototype.hasOwnProperty.call(hashParams, key)

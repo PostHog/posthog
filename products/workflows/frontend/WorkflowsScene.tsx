@@ -121,13 +121,6 @@ export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
                 let possibleTab: WorkflowsSceneTab = (tab as WorkflowsSceneTab) ?? 'workflows'
                 possibleTab = WORKFLOW_SCENE_TABS.includes(possibleTab) ? possibleTab : 'workflows'
 
-                // The suppression tab is only rendered when its feature flag is on. Without this
-                // guard, a flag-off user deep-linking to /workflows/suppression would set currentTab
-                // to a tab that isn't in the tabs list — LemonTabs would show no active tab and no
-                // content. Fall back to 'workflows' so the scene stays usable.
-                if (possibleTab === 'suppression' && !values.featureFlags[FEATURE_FLAGS.WORKFLOWS_SUPPRESSION_LIST]) {
-                    possibleTab = 'workflows'
-                }
                 if (possibleTab === 'reputation' && !values.featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_REPUTATION]) {
                     possibleTab = 'workflows'
                 }
@@ -211,10 +204,6 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             : []),
     ]
 
-    // Suppression list is hidden until enforcement rolls out — until then the tab would show
-    // entries that don't yet block sends, which would be confusing.
-    const suppressionListEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_SUPPRESSION_LIST]
-
     const tabs: LemonTab<WorkflowsSceneTab>[] = [
         {
             label: 'Workflows',
@@ -244,21 +233,17 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             content: <OptOutScene />,
             link: urls.workflows('opt-outs'),
         },
-        ...(suppressionListEnabled
-            ? [
-                  {
-                      label: (
-                          <span className="inline-flex items-center gap-1.5">
-                              Suppression list
-                              <LemonTag type="completion">Beta</LemonTag>
-                          </span>
-                      ),
-                      key: 'suppression' as const,
-                      content: <SuppressionScene />,
-                      link: urls.workflows('suppression'),
-                  },
-              ]
-            : []),
+        {
+            label: (
+                <span className="inline-flex items-center gap-1.5">
+                    Suppression list
+                    <LemonTag type="completion">Beta</LemonTag>
+                </span>
+            ),
+            key: 'suppression',
+            content: <SuppressionScene />,
+            link: urls.workflows('suppression'),
+        },
         ...(emailReputationEnabled
             ? [
                   {

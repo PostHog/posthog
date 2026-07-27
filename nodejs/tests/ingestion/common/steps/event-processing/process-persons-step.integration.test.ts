@@ -116,6 +116,7 @@ describe('createProcessPersonsStep', () => {
         team,
         timestamp,
         personsStoreForBatch: new BatchBoundPersonsStore(personsStore, 0),
+        mergeFold: { type: 'immediate' },
         ...overrides,
     })
 
@@ -481,7 +482,7 @@ describe('createProcessPersonsStep', () => {
                     createInput({
                         normalizedEvent: event,
                         timestamp: DateTime.fromISO(event.timestamp!),
-                        mergeFoldPlan: plan,
+                        mergeFold: plan ? { type: 'planned', plan } : { type: 'immediate' },
                     })
                 )
                 expect(isOkResult(result)).toBe(true)

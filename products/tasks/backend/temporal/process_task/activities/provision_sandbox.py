@@ -4,13 +4,20 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
+from django.utils import timezone
 
 from temporalio import activity
 
+from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, filter_user_sandbox_env_vars
-from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
+from products.tasks.backend.exceptions import (
+    CredentialUnavailableError,
+    GitHubAuthenticationError,
+    OAuthTokenError,
+    TaskNotFoundError,
+)
 from products.tasks.backend.logic.services.agentsh import INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
@@ -18,6 +25,7 @@ from products.tasks.backend.logic.services.connection_token import (
     get_sandbox_jwt_public_key,
 )
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox_usage import open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
@@ -37,6 +45,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_api_url,
     get_sandbox_github_token,
     get_sandbox_name_for_task,
+    get_sandbox_otel_env_vars,
     get_sandbox_snapshot_metadata,
     get_task_run_credential_user,
     parse_run_state,
@@ -220,6 +229,15 @@ def _resolve_sandbox_github_token(
             )
             or ""
         )
+    except ReauthorizationRequired as e:
+        # Expected user-actionable state — the acting user must re-link GitHub. Non-retryable and
+        # kept out of the raw error stream (CredentialUnavailableError does not capture) so it does
+        # not surface as error-tracking noise. Mirrors the refresh path in sandbox_credentials.py.
+        raise CredentialUnavailableError(
+            "GitHub user integration for this run requires reauthorization",
+            {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
+            cause=e,
+        )
     except Exception as e:
         raise GitHubAuthenticationError(
             f"Failed to get GitHub token for integration {ctx.github_integration_id}",
@@ -326,6 +344,9 @@ def _build_environment_variables(
         # session to the fallback model mid-run, breaking prompt-cache sharing (model is part of
         # the cache key) and cost attribution. Rely on Temporal retries instead.
         environment_variables["POSTHOG_DISABLE_MODEL_FALLBACK"] = "1"
+
+    if ctx.agent_otel_telemetry_enabled:
+        environment_variables.update(get_sandbox_otel_env_vars())
 
     if ctx.allowed_domains is not None:
         environment_variables.update(NETWORK_RESTRICTED_AGENT_ENV)
@@ -570,6 +591,9 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
 
         with StepTimer("sandbox_creation", used_snapshot=prepared.used_snapshot) as sandbox_creation_timer:
             sandbox = Sandbox.create(config)
+            # The provider's TTL clock starts here — the usage ledger anchors its
+            # kill deadline on this boundary, not on when the row is opened below.
+            sandbox_created_at = timezone.now()
             actual_used_snapshot = bool(
                 (prepared.snapshot_external_id or prepared.snapshot_id) and sandbox.config.snapshot_restored
             )
@@ -602,6 +626,13 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
         except Exception:
             sandbox.destroy()
             raise
+
+        # Best-effort usage-ledger row (swallows its own failures). After the state
+        # write on purpose: the except branch above destroys sandboxes that never
+        # became reachable, and those must not enter the ledger.
+        open_sandbox_session(
+            run_id=ctx.run_id, sandbox_id=sandbox.id, config=sandbox.config, sandbox_created_at=sandbox_created_at
+        )
 
         emit_agent_log(ctx.run_id, "debug", f"Sandbox provisioned: {sandbox.id}")
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={actual_used_snapshot})")
@@ -674,15 +705,37 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutB
                     extra={"branch": input.branch, "stderr": update_result.stderr},
                 )
 
-        depth_flag = f" --depth {shlex.quote('1')}" if input.shallow_clone else ""
-        fetch_and_checkout = (
-            f"cd {shlex.quote(repo_path)} && "
-            f"git fetch{depth_flag} origin -- {shlex.quote(input.branch)} && "
-            f"git checkout -B {shlex.quote(input.branch)} FETCH_HEAD"
-        )
+        branch = shlex.quote(input.branch)
+        branch_ref = shlex.quote(f"refs/heads/{input.branch}")
+        remote_branch_check = f"cd {shlex.quote(repo_path)} && git ls-remote --exit-code --heads origin {branch_ref}"
+        remote_branch_result = sandbox.execute(remote_branch_check, timeout_seconds=30)
+
+        if remote_branch_result.exit_code == 0:
+            depth_flag = f" --depth {shlex.quote('1')}" if input.shallow_clone else ""
+            checkout_command = (
+                f"cd {shlex.quote(repo_path)} && "
+                f"git fetch{depth_flag} origin -- {branch} && "
+                f"git checkout -B {branch} FETCH_HEAD"
+            )
+        elif remote_branch_result.exit_code == 2:
+            if input.used_snapshot:
+                depth_flag = f" --depth {shlex.quote('1')}" if input.shallow_clone else ""
+                checkout_command = (
+                    f"cd {shlex.quote(repo_path)} && "
+                    f"git fetch{depth_flag} origin -- HEAD && "
+                    f"git checkout -B {branch} FETCH_HEAD"
+                )
+            else:
+                checkout_command = f"cd {shlex.quote(repo_path)} && git checkout -B {branch} HEAD"
+        else:
+            logger.warning(
+                "Failed to check whether remote branch exists",
+                extra={"branch": input.branch, "stderr": remote_branch_result.stderr},
+            )
+            raise RuntimeError(f"Failed to check whether branch {input.branch} exists")
 
         with StepTimer("branch_checkout", used_snapshot=input.used_snapshot) as checkout_timer:
-            result = sandbox.execute(fetch_and_checkout, timeout_seconds=5 * 60)
+            result = sandbox.execute(checkout_command, timeout_seconds=5 * 60)
 
         if result.exit_code != 0:
             logger.warning("Branch checkout failed", extra={"branch": input.branch, "stderr": result.stderr})
@@ -736,6 +789,12 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                         repository=input.repository,
                     )
                     or ""
+                )
+            except ReauthorizationRequired as e:
+                raise CredentialUnavailableError(
+                    "GitHub user integration for this run requires reauthorization",
+                    {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
+                    cause=e,
                 )
             except Exception as e:
                 raise GitHubAuthenticationError(

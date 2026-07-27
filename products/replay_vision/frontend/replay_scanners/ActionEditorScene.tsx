@@ -31,6 +31,7 @@ import {
     VisionAlertDirectionEnumApi,
     VisionAlertMetricEnumApi,
 } from '../generated/api.schemas'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { actionEditorSceneLogic } from './actionEditorSceneLogic'
 import { DEFAULT_CADENCE } from './cadence'
 import { replayScannerLogic } from './replayScannerLogic'
@@ -451,44 +452,48 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
 
             {!everyMatch && (
                 <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm">when the</span>
                     {isScorer ? (
-                        <LemonSelect
-                            size="small"
-                            value={actionForm.alert_metric}
-                            onChange={(value) => {
-                                if (!value) {
-                                    return
-                                }
-                                setActionFormValue('alert_metric', value)
-                                // Count thresholds are always "at least" (the direction control is
-                                // hidden for them), so switching back to count clears any "at most".
-                                if (value === VisionAlertMetricEnumApi.Count) {
-                                    setActionFormValue('alert_direction', VisionAlertDirectionEnumApi.Above)
-                                }
-                            }}
-                            options={[
-                                { value: VisionAlertMetricEnumApi.Count, label: 'number of matches' },
-                                { value: VisionAlertMetricEnumApi.AvgScore, label: 'average score' },
-                            ]}
-                            data-attr="vision-action-alert-metric"
-                        />
+                        <>
+                            <span className="text-sm">when the</span>
+                            <LemonSelect
+                                size="small"
+                                value={actionForm.alert_metric}
+                                onChange={(value) => {
+                                    if (!value) {
+                                        return
+                                    }
+                                    setActionFormValue('alert_metric', value)
+                                    // Count thresholds are always "at least" (the direction control is
+                                    // hidden for them), so switching back to count clears any "at most".
+                                    if (value === VisionAlertMetricEnumApi.Count) {
+                                        setActionFormValue('alert_direction', VisionAlertDirectionEnumApi.Above)
+                                    }
+                                }}
+                                options={[
+                                    { value: VisionAlertMetricEnumApi.Count, label: 'number of matches' },
+                                    { value: VisionAlertMetricEnumApi.AvgScore, label: 'average score' },
+                                ]}
+                                data-attr="vision-action-alert-metric"
+                            />
+                            {isAvg ? (
+                                <LemonSelect
+                                    size="small"
+                                    value={actionForm.alert_direction}
+                                    onChange={(value) => value && setActionFormValue('alert_direction', value)}
+                                    options={[
+                                        { value: VisionAlertDirectionEnumApi.Above, label: 'is at least' },
+                                        { value: VisionAlertDirectionEnumApi.Below, label: 'is at most' },
+                                    ]}
+                                    data-attr="vision-action-alert-direction"
+                                />
+                            ) : (
+                                <span className="text-sm">is at least</span>
+                            )}
+                        </>
                     ) : (
-                        <span className="text-sm">number of matches</span>
-                    )}
-                    {isAvg ? (
-                        <LemonSelect
-                            size="small"
-                            value={actionForm.alert_direction}
-                            onChange={(value) => value && setActionFormValue('alert_direction', value)}
-                            options={[
-                                { value: VisionAlertDirectionEnumApi.Above, label: 'is at least' },
-                                { value: VisionAlertDirectionEnumApi.Below, label: 'is at most' },
-                            ]}
-                            data-attr="vision-action-alert-direction"
-                        />
-                    ) : (
-                        <span className="text-sm">is at least</span>
+                        // One span, not one per word: adjacent flex items get the 8px control
+                        // gap, which reads as doubled spacing between plain words.
+                        <span className="text-sm">when the number of matches is at least</span>
                     )}
                     <LemonInput
                         type="number"
@@ -566,8 +571,8 @@ function DeliverySection(): JSX.Element {
             )}
             {!actionForm.channel && (
                 <span className="text-xs text-muted">
-                    No channel selected — this summary will appear on the scanner page and in its run history, without a
-                    Slack notification.
+                    No channel selected — this {actionForm.mode === VisionActionModeEnumApi.Alert ? 'alert' : 'digest'}{' '}
+                    will appear on the scanner page and in its run history, without a Slack notification.
                 </span>
             )}
         </div>
@@ -579,6 +584,10 @@ export function ActionEditorSceneComponent(): JSX.Element {
         useValues(actionEditorSceneLogic)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
+    // Hooks can't be skipped, and effectiveScannerId can be empty before the action/scanner resolve —
+    // 'new' is the sentinel replayScannerLogic already uses to skip its fetch, a harmless placeholder
+    // until the real id is available and the logic remounts keyed on it.
+    const { scanner } = useValues(replayScannerLogic({ id: effectiveScannerId || 'new' }))
 
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION] || !featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]) {
         // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
@@ -600,7 +609,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
     if (!isNew && !loadedAction) {
         return (
             <SceneContent>
-                <SceneTitleSection name="Summary not found" resourceType={{ type: 'replay_vision' }} />
+                <SceneTitleSection name="Action not found" resourceType={{ type: 'replay_vision' }} />
                 <div className="flex justify-center pt-4">
                     <LemonButton type="secondary" to={urls.replayVision()}>
                         Back to Replay vision
@@ -611,7 +620,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
     }
 
     const isAlert = actionForm.mode === VisionActionModeEnumApi.Alert
-    const noun = isAlert ? 'alert' : 'summary'
+    const noun = isAlert ? 'alert' : 'digest'
     const title = isNew
         ? scannerName
             ? `New ${noun} for ${scannerName}`
@@ -631,7 +640,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
                         description={
                             isAlert
                                 ? 'Watch this scanner on a schedule and get notified only when the condition is met.'
-                                : "Schedule an AI summary of this scanner's observations and deliver it to Slack."
+                                : "Schedule an AI digest of this scanner's observations and deliver it to Slack."
                         }
                         resourceType={{ type: 'replay_vision' }}
                         actions={<ReplayVisionFeedbackButton />}
@@ -646,7 +655,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
                         <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-4">
                             <LemonField name="name" label="Name">
                                 <LemonInput
-                                    placeholder={isAlert ? 'Rage click alert' : 'Daily checkout summary'}
+                                    placeholder={isAlert ? 'Rage click alert' : 'Daily checkout digest'}
                                     autoFocus
                                 />
                             </LemonField>
@@ -673,7 +682,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
                                 <LemonField
                                     name="prompt_guide"
                                     label="Additional guidance (optional)"
-                                    info="Steers how the AI writes the summary."
+                                    info="Steers how the AI writes the digest."
                                 >
                                     <LemonTextArea
                                         placeholder="e.g. focus on issues, bugs, and friction users face — or focus on general user behavior and flows."
@@ -689,7 +698,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
 
                             {!isAlert && (
                                 <div className="text-xs text-muted">
-                                    Each scheduled run generates an AI summary using your PostHog AI credits. Runs are
+                                    Each scheduled run generates an AI digest using your PostHog AI credits. Runs are
                                     skipped while you're over your AI-credit budget.
                                 </div>
                             )}
@@ -703,10 +712,13 @@ export function ActionEditorSceneComponent(): JSX.Element {
                                     htmlType="submit"
                                     form="action-editor-form"
                                     loading={isActionFormSubmitting}
-                                    disabledReason={!isAlert && noDays ? 'Pick at least one day to run on' : undefined}
+                                    disabledReason={
+                                        getReplayVisionEditDisabledReason(scanner?.user_access_level) ??
+                                        (!isAlert && noDays ? 'Pick at least one day to run on' : undefined)
+                                    }
                                     data-attr="vision-action-editor-save"
                                 >
-                                    {isNew ? (isAlert ? 'Create alert' : 'Create summary') : 'Save'}
+                                    {isNew ? (isAlert ? 'Create alert' : 'Create digest') : 'Save'}
                                 </LemonButton>
                             </div>
                         </div>

@@ -67,11 +67,16 @@ class TVMazeSource(ResumableSource[TVMazeSourceConfig, TVMazeResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: TVMazeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TVMazeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # No credentials to validate — just confirm the public API is reachable.
         return check_connection()

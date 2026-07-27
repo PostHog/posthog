@@ -15,6 +15,8 @@ import {
     ExperimentSavedMetricsPartialUpdateBody,
     ExperimentSavedMetricsPartialUpdateParams,
     ExperimentSavedMetricsRetrieveParams,
+    ExperimentsActivityRetrieveParams,
+    ExperimentsActivityRetrieveQueryParams,
     ExperimentsArchiveCreateBody,
     ExperimentsArchiveCreateParams,
     ExperimentsCalculateRunningTimeCreateBody,
@@ -47,6 +49,27 @@ import { SavedMetricsAttachSchema } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const ExperimentActivitySchema = ExperimentsActivityRetrieveParams.omit({ project_id: true })
+    .extend(ExperimentsActivityRetrieveQueryParams.shape)
+    .extend({ id: z.preprocess(castStringToInt, ExperimentsActivityRetrieveParams.shape['id']) })
+
+const experimentActivity = (): ToolBase<typeof ExperimentActivitySchema, Schemas.ActivityLogPaginatedResponse> => ({
+    name: 'experiment-activity',
+    schema: ExperimentActivitySchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentActivitySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/activity/`,
+            query: {
+                limit: params.limit,
+                page: params.page,
+            },
+        })
+        return result
+    },
+})
 
 const ExperimentArchiveSchema = ExperimentsArchiveCreateParams.omit({ project_id: true })
     .extend(ExperimentsArchiveCreateBody.shape)
@@ -177,6 +200,7 @@ const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     _create_in_folder: true,
     conclusion: true,
     conclusion_comment: true,
+    repository: true,
     primary_metrics_ordered_uuids: true,
     secondary_metrics_ordered_uuids: true,
     only_count_matured_users: true,
@@ -291,6 +315,7 @@ const ExperimentDuplicateSchema = ExperimentsDuplicateCreateParams.omit({ projec
             _create_in_folder: true,
             conclusion: true,
             conclusion_comment: true,
+            repository: true,
             primary_metrics_ordered_uuids: true,
             secondary_metrics_ordered_uuids: true,
             only_count_matured_users: true,
@@ -937,6 +962,7 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             type: true,
             scheduling_config: true,
             _create_in_folder: true,
+            repository: true,
             primary_metrics_ordered_uuids: true,
             secondary_metrics_ordered_uuids: true,
             only_count_matured_users: true,
@@ -1040,6 +1066,7 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
     })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'experiment-activity': experimentActivity,
     'experiment-archive': experimentArchive,
     'experiment-calculate-running-time': experimentCalculateRunningTime,
     'experiment-copy-to-project': experimentCopyToProject,

@@ -110,6 +110,7 @@ Find your company ID and create an API key on the **Integrations** page in [inFl
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — inFlow's list endpoints expose cursor pagination but
         # no reliably ordered server-side timestamp filter, so there is no incremental cursor.
@@ -129,7 +130,11 @@ Find your company ID and create an API key on the **Integrations** page in [inFl
         return schemas
 
     def validate_credentials(
-        self, config: InflowinventorySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: InflowinventorySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key, config.company_id)

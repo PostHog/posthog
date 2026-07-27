@@ -701,8 +701,10 @@ export class PostgresPersonRepository
         // All persons in a folded merge belong to one team.
         const teamId = persons[0].team_id
         const personById = new Map(persons.map((person) => [person.id, person]))
-        // Sorted ids keep the row-lock acquisition order deterministic across
-        // concurrent folded merges touching overlapping source persons.
+        // Postgres acquires the row locks in index scan order (btree scans sort
+        // the id keys ascending), not in array-parameter order, so concurrent
+        // folds deleting overlapping persons lock in a consistent order either
+        // way; sorting here just keeps the parameter and logs deterministic.
         const personIds = [...personById.keys()].sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1))
 
         let rows: { id: string; version: string }[] = []

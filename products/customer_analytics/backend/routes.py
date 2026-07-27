@@ -1,5 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
+from products.customer_analytics.backend.presentation.views.announcements import AnnouncementViewSet
 from products.customer_analytics.backend.presentation.views.organization_members import (
     OrganizationMembersForAccountViewSet,
 )
@@ -14,10 +15,17 @@ from products.customer_analytics.backend.presentation.views.views import (
     CustomPropertyDefinitionViewSet,
     CustomPropertySourceViewSet,
     CustomPropertyValueViewSet,
+    EventStreamViewSet,
 )
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(
+        r"announcements",
+        AnnouncementViewSet,
+        "project_announcements",
+        ["team_id"],
+    )
     routers.projects.register(
         r"organization_members",
         OrganizationMembersForAccountViewSet,
@@ -53,6 +61,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"account_notes",
         AccountNotesViewSet,
         "project_account_notes",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"event_streams",
+        EventStreamViewSet,
+        "project_event_streams",
         ["team_id"],
     )
     project_accounts_router = routers.projects.register(r"accounts", AccountViewSet, "project_accounts", ["team_id"])

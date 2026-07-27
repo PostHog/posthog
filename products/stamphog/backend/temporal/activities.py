@@ -114,7 +114,7 @@ def _mint_reviewer_gateway_token(run: ReviewRun) -> str:
     tasks uses with ``task.created_by``), under the shared sandbox OAuth app, carrying only
     ``llm_gateway:read`` plus the ``internal_run:read`` provenance marker — the gateway's stamphog
     route sets ``requires_server_credential`` and refuses OAuth tokens without the marker, so a
-    user's own Code OAuth token can't reach the route. The marker is passed explicitly instead of
+    user's own Desktop OAuth token can't reach the route. The marker is passed explicitly instead of
     ``include_internal_scopes=True`` to keep the rest of the internal bundle (``task:write``) out of
     a sandbox that runs an LLM over untrusted PR content. If that PR coaxes the reviewer into
     leaking the token, it buys a few hours of stamphog-route LLM calls and nothing else — the

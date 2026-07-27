@@ -166,7 +166,7 @@ const logAlerts = [
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/Alerts',
+    title: 'Products/Alerts/Alerts scene',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -188,7 +188,7 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const ListView: Story = {}
+export const InsightAlerts: Story = {}
 
 export const EmptyState: Story = {
     decorators: [
@@ -211,6 +211,19 @@ export const LogAlerts: Story = {
                     200,
                     { count: logAlerts.length, next: null, previous: null, results: logAlerts },
                 ],
+            },
+        }),
+    ],
+}
+
+export const EmptyLogAlerts: Story = {
+    parameters: {
+        pageUrl: `${urls.alerts()}?alert_type=logs`,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/logs/alerts/': EMPTY_PAGINATED_RESPONSE,
             },
         }),
     ],

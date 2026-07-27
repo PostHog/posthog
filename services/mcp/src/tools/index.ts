@@ -42,6 +42,7 @@ import getProjects from './projects/getProjects'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
 import updatePathCleaning from './projects/updatePathCleaning'
+import updatePropertyDefinition from './projects/updatePropertyDefinition'
 // Replay
 import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
@@ -70,6 +71,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'projects-get': getProjects,
     'switch-project': setActiveProject,
     'event-definition-update': updateEventDefinition,
+    'property-definition-update': updatePropertyDefinition,
 
     // Feature flags (get-definition-by-key is hand-written; get-definition by numeric id is codegen)
     'feature-flag-get-definition-by-key': featureFlagGetDefinitionByKey,
