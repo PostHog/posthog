@@ -55,18 +55,63 @@ The result tells you what happened: `report_id` (always set when a report was pe
 Worth it when the _shape_ is the point — a trend that broke, a distribution that shifted, a funnel step that collapsed.
 A chart restating one number the summary already gives is noise; just write the number.
 
-| Field      | Type             | Notes                                                                                                                                                                                             |
-| ---------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `chart_id` | string, required | Your own slug (lowercase letters, numbers, `_`, `-`). How the summary points at the chart, and the key a later edit refreshes it under.                                                           |
-| `title`    | string, required | Heading above the chart.                                                                                                                                                                          |
-| `query`    | object, required | An `InsightVizNode`, `DataVisualizationNode` (a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (by `shortId`). Any other `kind` is refused at write time.                           |
-| `caption`  | string, optional | One line on what to look at.                                                                                                                                                                      |
-| `size`     | enum, optional   | `small` / `medium` / `large`. Leave it out unless the default looks wrong — the inbox sizes a chart from its query (a big single number gets a short box, a retention grid a tall scrolling one). |
+| Field      | Type             | Notes                                                                                                                                                                                                  |
+| ---------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `chart_id` | string, required | Your own slug (lowercase letters, numbers, `_`, `-`). How the summary points at the chart, and the key a later edit refreshes it under.                                                                |
+| `title`    | string, required | Heading above the chart.                                                                                                                                                                               |
+| `query`    | object, required | An `InsightVizNode`, `DataVisualizationNode` (a `HogQLQuery` source, plus `display` and `chartSettings` for a graph), or `SavedInsightNode` (by `shortId`). Any other `kind` is refused at write time. |
+| `caption`  | string, optional | One line on what to look at.                                                                                                                                                                           |
+| `size`     | enum, optional   | `small` / `medium` / `large`. Leave it out unless the default looks wrong — the inbox sizes a chart from its query (a big single number gets a short box, a retention grid a tall scrolling one).      |
+
+A trends chart and a graph built from SQL, as they arrive in `charts`:
+
+```json
+[
+  {
+    "chart_id": "exceptions-daily",
+    "title": "Exceptions per day",
+    "caption": "The step up starts on 18 June.",
+    "query": {
+      "kind": "InsightVizNode",
+      "source": {
+        "kind": "TrendsQuery",
+        "dateRange": { "date_from": "2026-06-01", "date_to": "2026-07-02" },
+        "interval": "day",
+        "series": [{ "kind": "EventsNode", "event": "$exception", "math": "total" }],
+        "trendsFilter": { "display": "ActionsLineGraph" }
+      }
+    }
+  },
+  {
+    "chart_id": "exceptions-by-type",
+    "title": "People affected, by exception type",
+    "query": {
+      "kind": "DataVisualizationNode",
+      "source": {
+        "kind": "HogQLQuery",
+        "query": "SELECT exception_type, uniq(distinct_id) AS people FROM ... GROUP BY exception_type ORDER BY people DESC"
+      },
+      "display": "ActionsBar",
+      "chartSettings": { "xAxis": { "column": "exception_type" }, "yAxis": [{ "column": "people" }] }
+    }
+  }
+]
+```
+
+**A graph from SQL needs its axes named.** Setting `display` without `chartSettings` draws an empty box; `chartSettings.xAxis.column` and `chartSettings.yAxis[].column` say which columns of the result are which.
+Omit `display` altogether and the node renders the result table, which reads better than a chart for a handful of rows.
+
+**Only the node's `kind` and its serialized size are checked on write.** A well-formed node of an allowed kind carrying a broken query is stored without complaint, then fails to draw when a reader opens the report, and nothing reports that back to the scout.
+So a scout should attach a query it has already run in the same session, or point at an insight that already exists via `SavedInsightNode`, rather than composing a node from memory.
+This is the single most useful thing to reinforce in a scout body that leans on charts.
 
 **Placement comes from the summary.** A markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — draws the chart at that point in the body; a chart you never reference still renders, after the prose.
 Reference each chart once: a repeated reference reads as pointing back at the chart, not as asking for a second copy of it.
 Two references in one paragraph sit side by side, so put a pair you want compared in a paragraph of their own.
 A reference inside a code span, a table cell, or a heading has no room to draw — its chart falls to the end of the report instead.
+
+**The summary has to read without the charts.** A report can also be delivered to Slack, where nothing draws and each reference degrades to the plain label it was given.
+"Signups fell 60% over the week" survives that; "the chart below shows the drop" leaves a Slack reader with nothing.
 
 **Pin the window** to absolute dates wherever the node supports it, so a reader opening the report days later sees the data you wrote about rather than whatever a relative range resolves to then.
 

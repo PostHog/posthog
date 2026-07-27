@@ -280,12 +280,47 @@ _REPORT_CHARTS = f"""# Attaching charts
 
 `charts` on the report tools carries queries the inbox draws on the report itself, so the move you describe is visible next to the sentence describing it instead of being a number the reader has to go and reproduce. Optional, and worth it only when the shape of the data is the point — a trend that broke, a distribution that shifted, a funnel step that collapsed. A chart restating one number the summary already gives is noise; write the number.
 
-- **Each chart is `chart_id` + `title` + `query`.** `chart_id` is your own slug (lowercase letters, numbers, `_`, `-`), `title` the heading above it, `query` a query node: `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Anything else is refused. Add a `caption` when there's something specific to look at.
+- **Each chart is `chart_id` + `title` + `query`.** `chart_id` is your own slug (lowercase letters, numbers, `_`, `-`), `title` the heading above it, `query` a query node: `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a `HogQLQuery` source, plus `display` and `chartSettings` when you want a graph rather than a result table), or `SavedInsightNode` (an existing insight by `shortId`). Anything else is refused. Add a `caption` when there's something specific to look at.
+- **A graph from SQL needs its axes named.** Setting `display` without `chartSettings` draws an empty box: `chartSettings.xAxis.column` and `chartSettings.yAxis[].column` say which columns of your result are which. Leave `display` off entirely and the node renders the result table instead, which reads better than a chart for a handful of rows.
+- **A query is checked for its `kind` and its size when you write it, not for whether it runs.** A well-formed node of an allowed kind holding a broken query is stored without complaint and then fails to draw when a reader opens the report, and nothing tells you. So attach a query you have already run in this session rather than one written from memory, and when you want the exact shape of an ad-hoc node, read it off an insight that already exists instead of guessing at it.
 - **Place it from the summary.** A markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — draws the chart at that point in the body. A chart you never reference still renders, after the prose. Reference it once: repeating the reference doesn't draw a second copy.
 - **Two references in one paragraph sit side by side.** Put a pair you want compared in a paragraph of their own; anywhere else they stack. A reference inside a table cell or a heading has no room to draw, so its chart falls to the end.
+- **Write prose that stands on its own.** A report can also be delivered to Slack, where nothing can draw a chart and a reference degrades to the plain label you gave it. "Signups fell 60% over the week" survives that; "the chart below shows the drop" leaves a Slack reader with nothing. State the finding in words and let the chart corroborate it.
 - **Pin the window.** Use absolute dates wherever the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report days later.
 - **Size only when the default is wrong.** The inbox sizes a chart from its query. Set `size` to `small` (a single number, a short series), `medium`, or `large` (rows or a grid to read — retention, paths, a wide breakdown) when it isn't.
-- **At most {MAX_REPORT_CHARTS} per report**, which is far more than most reports should use. Every chart runs its query when someone opens the report, so attach the ones that carry the argument rather than everything you looked at — three charts a reader studies beat a dozen they scroll past. Re-supplying a `chart_id` on a later edit refreshes that chart in place rather than adding another."""
+- **At most {MAX_REPORT_CHARTS} per report**, which is far more than most reports should use. Every chart runs its query when someone opens the report, so attach the ones that carry the argument rather than everything you looked at — three charts a reader studies beat a dozen they scroll past. Re-supplying a `chart_id` on a later edit refreshes that chart in place rather than adding another.
+
+A trends chart and a graph built from SQL, as they arrive in `charts`:
+
+```json
+[
+  {{
+    "chart_id": "exceptions-daily",
+    "title": "Exceptions per day",
+    "caption": "The step up starts on 18 June.",
+    "query": {{
+      "kind": "InsightVizNode",
+      "source": {{
+        "kind": "TrendsQuery",
+        "dateRange": {{"date_from": "2026-06-01", "date_to": "2026-07-02"}},
+        "interval": "day",
+        "series": [{{"kind": "EventsNode", "event": "$exception", "math": "total"}}],
+        "trendsFilter": {{"display": "ActionsLineGraph"}}
+      }}
+    }}
+  }},
+  {{
+    "chart_id": "exceptions-by-type",
+    "title": "People affected, by exception type",
+    "query": {{
+      "kind": "DataVisualizationNode",
+      "source": {{"kind": "HogQLQuery", "query": "SELECT exception_type, uniq(distinct_id) AS people FROM ... GROUP BY exception_type ORDER BY people DESC"}},
+      "display": "ActionsBar",
+      "chartSettings": {{"xAxis": {{"column": "exception_type"}}, "yAxis": [{{"column": "people"}}]}}
+    }}
+  }}
+]
+```"""
 
 _WRITING_SUMMARY = """# Writing the summary (how it renders in run history)
 
