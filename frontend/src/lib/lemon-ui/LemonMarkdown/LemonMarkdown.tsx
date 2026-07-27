@@ -16,14 +16,14 @@ import remarkMentions from './mention'
 
 /**
  * Link target that places a chart inline in prose, e.g. `[Daily signups](chart:signups-drop)`.
- * A link rather than a bespoke token so the same markdown degrades to a clickable label in the
+ * A link rather than a bespoke token so the same markdown degrades to a readable label in the
  * renderers that can't draw charts (Slack, the desktop inbox).
  */
 export const CHART_REF_PREFIX = 'chart:'
 
 // Matched against the id charset the backend enforces on `chart_id` (see `ChartArtefact` in
 // artefact_schemas.py). Anything outside it is not treated as a chart reference at all, so it stays
-// subject to the ordinary URL sanitizing rather than riding the exemption below.
+// subject to the ordinary URL sanitizing rather than riding the `urlTransform` exemption below.
 const CHART_REF_TARGET = new RegExp(`^${CHART_REF_PREFIX}([a-z0-9][a-z0-9_-]*)$`)
 
 /** The chart id behind a `chart:` link target, or null when `href` is an ordinary link. */
@@ -87,8 +87,8 @@ export interface LemonMarkdownProps {
      * where the reference starts in the markdown, so a caller that resolved placement from its own
      * parse can tell one reference to an id from another. Returning null or undefined renders the
      * link's own label as plain text, which is the fallback for an id the caller has no chart for.
-     * Omitting this prop leaves chart targets to the ordinary link path, where the URL sanitizer
-     * strips the unrecognized scheme.
+     * Omitting this prop renders every chart target as its label — never as a link, since `chart:`
+     * is a scheme no browser can follow.
      */
     renderChartRef?: (chartId: string, sourceOffset?: number) => React.ReactNode
 }
@@ -134,12 +134,12 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     const components = useMemo(
         () => ({
             a: ({ href, children, node }: any): JSX.Element => {
-                const chartId = renderChartRef ? chartRefId(href) : null
+                const chartId = chartRefId(href)
                 if (chartId !== null) {
-                    // An id with no chart behind it (a typo, one deleted since the summary was
-                    // written, a repeat of a reference already drawn) falls back to its own label as
-                    // plain text. Linking it instead would point the reader at a scheme no browser
-                    // can follow.
+                    // Falls back to its own label as plain text: for a consumer that can't draw
+                    // charts at all, and for an id with no chart behind it (a typo, one deleted since
+                    // the summary was written, a repeat of a reference already drawn). Linking it
+                    // instead would point the reader at a scheme no browser can follow.
                     return <>{renderChartRef?.(chartId, node?.position?.start?.offset) ?? children}</>
                 }
                 return (
@@ -275,15 +275,14 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     )
 
     // `chart:` is not a protocol the default URL sanitizer knows, so it strips the href before the
-    // `a` override ever sees it. Let it through only for a caller that can draw the chart; without
-    // one, stripping is the wanted behavior, because the fallback should be an inert label rather
-    // than a link to a scheme no browser can follow.
+    // `a` override ever sees it — and an emptied href is what `Link` turns into a focusable
+    // target-blank stub that goes nowhere. Let the scheme through whether or not this caller can
+    // draw charts, so the `a` override can recognize the reference and render its label as text.
     const urlTransform = useMemo(
         () =>
-            renderChartRef
-                ? (url: string): string => (chartRefId(url) !== null ? url : defaultUrlTransform(url))
-                : undefined,
-        [renderChartRef]
+            (url: string): string =>
+                chartRefId(url) !== null ? url : defaultUrlTransform(url),
+        []
     )
 
     // remark-breaks: a single newline becomes a line break, so prose authored without the arcane

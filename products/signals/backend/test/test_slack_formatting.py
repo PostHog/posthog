@@ -21,6 +21,9 @@ class TestStripChartReferences(SimpleTestCase):
             # A title may contain parens. Ending the match at the first one leaves `")` in the prose.
             ("title_containing_parens", '[Daily](chart:daily "Daily signups (UTC)")', "Daily"),
             ("single_quoted_title", "[Daily](chart:daily 'Daily signups')", "Daily"),
+            # Neither is a reference the inbox resolves, so Slack should read what the author wrote.
+            ("image_is_left_alone", "![Daily](chart:daily)", "![Daily](chart:daily)"),
+            ("escaped_bracket_is_left_alone", r"\[Daily](chart:daily)", r"\[Daily](chart:daily)"),
             ("http_link_is_left_alone", "[Docs](https://posthog.com)", "[Docs](https://posthog.com)"),
             ("prose_without_a_reference", "Signups fell 60%.", "Signups fell 60%."),
         ]

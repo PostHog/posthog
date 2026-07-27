@@ -22,10 +22,15 @@ _SLACK_ANGLE_TOKEN_RE = re.compile(r"<([^<>|]*)(\|[^<>]*)?>")
 # run rather than by scanning to the first `)`. A title is allowed to contain parens (`"signups
 # (UTC)"`), and scanning to the first one would end the match inside it and leave the tail (`")`) in
 # the prose, which reads worse than the raw link it replaced.
+# `![…]` is an image and `\[…]` is an escaped bracket, neither of which the inbox resolves as a
+# reference, so a fixed-width lookbehind leaves both as the author wrote them. A reference inside a
+# code span is the one literal form still rewritten: the renderer shows it verbatim while Slack gets
+# the label. Telling them apart needs a markdown parse, which this module deliberately doesn't have,
+# and the result is prose that reads oddly rather than prose that misleads.
 # Every class excludes `[`, which keeps the scan linear. Without it, a summary of `[a](chart:` over
 # and over makes every start position scan the whole remaining suffix before failing, and a summary
 # is long enough for that to cost seconds of a Celery worker.
-_CHART_REF_LINK_RE = re.compile(r"""\[([^\[\]\n]*)\]\(chart:[^\s)\[]*(?:\s+"[^"\n]*"|\s+'[^'\n]*')?\s*\)""")
+_CHART_REF_LINK_RE = re.compile(r"""(?<![!\\])\[([^\[\]\n]*)\]\(chart:[^\s)\[]*(?:\s+"[^"\n]*"|\s+'[^'\n]*')?\s*\)""")
 
 
 def strip_chart_references(text: str) -> str:

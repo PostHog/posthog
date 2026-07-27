@@ -105,6 +105,10 @@ Omit `display` altogether and the node renders the result table, which reads bet
 So a scout should attach a query it has already run in the same session, or point at an insight that already exists via `SavedInsightNode`, rather than composing a node from memory.
 This is the single most useful thing to reinforce in a scout body that leans on charts.
 
+**A chart query must not carry anything executable.** HogVM `bytecode` (what conditional formatting compiles to), a nested `HogQuery`, and `sendRawQuery` are each refused with a 400 wherever they sit in the node, because a chart renders data rather than running code in the reader's session.
+A query over a warehouse connection is fine as long as it goes through HogQL: keep `connectionId`, drop `sendRawQuery`.
+So a direct-warehouse query you ran with the raw-SQL bypass has to be rewritten before it can be attached.
+
 **Placement comes from the summary.** A markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — draws the chart at that point in the body; a chart you never reference still renders, after the prose.
 Reference each chart once: a repeated reference reads as pointing back at the chart, not as asking for a second copy of it.
 Two references in one paragraph sit side by side, so put a pair you want compared in a paragraph of their own.
