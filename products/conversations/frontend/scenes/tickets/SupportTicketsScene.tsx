@@ -258,7 +258,6 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
     const logic = useMountedLogic(supportTicketsSceneLogic)
     const {
         searchQuery,
-        searchQueryTooShort,
         statusFilter,
         priorityFilter,
         channelFilter,
@@ -303,11 +302,6 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                     size="small"
                     className="min-w-64"
                 />
-                {searchQueryTooShort && (
-                    <span className="text-secondary text-xs whitespace-nowrap">
-                        Type at least 3 characters to search
-                    </span>
-                )}
                 <Tooltip
                     title={
                         hasActiveFilters || searchQuery

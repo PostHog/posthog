@@ -217,10 +217,6 @@ class TicketMessagePagination(pagination.LimitOffsetPagination):
 
 MAX_TAG_FILTER_VALUES = 50
 
-# Trigram indexes back the text search; they need a complete trigram, so shorter
-# queries would degrade to full table scans and are ignored instead.
-MIN_TEXT_SEARCH_LENGTH = 3
-
 # Bounds the IN list built from comment matches. Searches whose comments match more
 # tickets than this omit the overflow (comment branch only) — a search that broad is
 # unusable without narrowing anyway.
@@ -526,10 +522,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 self._search_path = "ticket_number"
                 queryset = queryset.filter(ticket_number=int(ticket_number_search))
             elif is_search_v2_enabled(self.team):
-                # Sub-trigram queries are silently ignored, like the length cap above.
-                if len(search) >= MIN_TEXT_SEARCH_LENGTH:
-                    self._search_path = "v2"
-                    queryset = self._filter_by_text_search(queryset, search)
+                self._search_path = "v2"
+                queryset = self._filter_by_text_search(queryset, search)
             else:
                 # Legacy path, kept while product-support-search-v2 rolls out.
                 # The correlated EXISTS inside an OR forces a per-ticket probe of
@@ -804,8 +798,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 description=(
                     "Free-text search. A numeric value (optionally prefixed with `#`) matches a ticket number "
                     "exactly; otherwise matches against the customer's name or email, the email subject, or "
-                    "message content (case-insensitive, partial match). Text queries shorter than 3 characters "
-                    "are ignored."
+                    "message content (case-insensitive, partial match)."
                 ),
             ),
             OpenApiParameter(

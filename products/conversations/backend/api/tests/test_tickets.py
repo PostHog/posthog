@@ -592,15 +592,14 @@ class TestTicketAPI(APIBaseTest):
     def _search_v2(self, enabled: bool):
         return patch("products.conversations.backend.api.tickets.is_search_v2_enabled", return_value=enabled)
 
-    @parameterized.expand([("legacy", False, 0), ("v2", True, 1)])
-    def test_search_with_non_ascii_digit_does_not_error(self, mock_on_commit, _name, search_v2, expected_count):
+    @parameterized.expand([("legacy", False), ("v2", True)])
+    def test_search_with_non_ascii_digit_does_not_error(self, mock_on_commit, _name, search_v2):
         # "²" passes str.isdigit() but int() rejects it; it must fall through to text search
-        # rather than 500. Legacy text search matches nothing; v2 ignores it as a
-        # sub-3-character query, leaving the list unfiltered.
+        # rather than 500.
         with self._search_v2(search_v2):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=%C2%B2")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], expected_count)
+        self.assertEqual(response.json()["count"], 0)
 
     @parameterized.expand(
         [
@@ -683,25 +682,6 @@ class TestTicketAPI(APIBaseTest):
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 0)
-
-    def test_search_v2_ignores_short_text_query(self, mock_on_commit):
-        # Sub-3-character text queries can't use the trigram indexes; v2 leaves the
-        # list unfiltered instead of falling back to a full scan.
-        with self._search_v2(True):
-            response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=ab")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-
-    def test_search_v2_short_ticket_number_still_matches(self, mock_on_commit):
-        # The minimum length only applies to text search; a 1-digit ticket number
-        # must still resolve exactly.
-        with self._search_v2(True):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/conversations/tickets/?search=%23{self.ticket.ticket_number}"
-            )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
     def test_search_v2_excludes_other_team_comments(self, mock_on_commit):
         # The comment pre-query filters by the request's team; a matching comment in

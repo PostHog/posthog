@@ -73492,7 +73492,7 @@ export namespace Schemas {
      */
     priority?: string;
     /**
-     * Free-text search. A numeric value (optionally prefixed with `#`) matches a ticket number exactly; otherwise matches against the customer's name or email, the email subject, or message content (case-insensitive, partial match). Text queries shorter than 3 characters are ignored.
+     * Free-text search. A numeric value (optionally prefixed with `#`) matches a ticket number exactly; otherwise matches against the customer's name or email, the email subject, or message content (case-insensitive, partial match).
      */
     search?: string;
     /**
