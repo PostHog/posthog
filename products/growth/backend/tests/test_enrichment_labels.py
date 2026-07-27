@@ -12,9 +12,6 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-# Admin registration is import-time, and under settings.TEST there is no autodiscover —
-# without this the admin POSTs below 404 in catch_all_view and pass vacuously.
-import products.growth.backend.admin  # noqa: F401
 from products.growth.backend.enrichment.input_query import InputQueryError, parse_input_query, rows_from_query_result
 from products.growth.backend.enrichment.labels import UNKNOWN, build_messages, classify_payload, classify_row
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
@@ -467,35 +464,3 @@ class TestEnrichmentLabelDryRun(BaseTest):
             call_command("enrichment_label_dry_run", label="test_label")
 
         assert EnrichmentLabelResult.objects.count() == 0
-
-    def test_admin_bulk_delete_cannot_remove_a_config_with_stored_results(self):
-        config = EnrichmentPromptConfig.objects.create(
-            name="test_label",
-            version="test-v1",
-            prompt_text="... Email: {email}",
-            model="gpt-5-mini",
-            input_fields=["name"],
-        )
-        fetch = OrganizationEnrichmentFetch.objects.create(
-            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
-        )
-        EnrichmentLabelResult.objects.create(
-            organization=self.organization,
-            fetch=fetch,
-            label_name=config.name,
-            prompt_version=config.version,
-            prompt_hash=config.content_hash,
-            model=config.model,
-            output={"test_label": True, "confidence": 0.9, "reasoning": "x"},
-        )
-        self.user.is_staff = True
-        self.user.save()
-        self.client.force_login(self.user)
-
-        resp = self.client.post(
-            "/admin/growth/enrichmentpromptconfig/",
-            {"action": "delete_selected", "_selected_action": [str(config.pk)], "post": "yes"},
-        )
-
-        assert resp.status_code == 403
-        assert EnrichmentPromptConfig.objects.filter(pk=config.pk).exists()

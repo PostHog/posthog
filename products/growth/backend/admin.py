@@ -16,7 +16,7 @@ from posthog.admin.inline_registry import register_admin_inline
 from posthog.models.organization import Organization
 from posthog.schema_enums import ProductKey
 
-from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, ProductPushCampaign
+from products.growth.backend.models import EnrichmentLabelResult, ProductPushCampaign
 from products.growth.backend.product_push.selection import select_next_product
 from products.growth.backend.product_push.service import cancel_campaigns, get_eligible_organization_queryset
 
@@ -271,140 +271,6 @@ def _next_up_preview(organization: Organization) -> str:
 # Surface the inline on core's Organization admin page without core importing the
 # product. OrganizationAdmin pulls it in via get_inlines() — see posthog.admin.inline_registry.
 register_admin_inline(Organization, ProductPushCampaignInline)
-
-
-def _config_has_results(config: EnrichmentPromptConfig) -> bool:
-    return EnrichmentLabelResult.objects.filter(label_name=config.name, prompt_version=config.version).exists()
-
-
-# Runtime constraints only (the model keeps plain fields): curated gateway models and the
-# archived-Harmonic payload paths worth feeding a prompt. Extend freely; stored rows with
-# values outside these lists still render (choices are unioned with the instance's values).
-GATEWAY_MODEL_CHOICES = [
-    "gpt-5.2",
-    "gpt-5.2-pro",
-    "gpt-5.1",
-    "gpt-5",
-    "gpt-5-mini",
-    "gpt-5-nano",
-    "gpt-4.1",
-    "gpt-4.1-mini",
-    "claude-fable-5",
-    "claude-opus-4-8",
-    "claude-sonnet-5",
-    "claude-haiku-4-5",
-]
-
-HARMONIC_INPUT_FIELD_CHOICES = [
-    ("name", "Company name"),
-    ("description", "Description"),
-    ("website.url", "Website URL"),
-    ("companyType", "Company type"),
-    ("headcount", "Headcount"),
-    ("tagsV2", "Tags (tagsV2)"),
-    ("funding.fundingStage", "Funding stage"),
-    ("funding.fundingTotal", "Total funding"),
-    ("funding.lastFundingAt", "Last funding date"),
-    ("funding.investors", "Investors"),
-    ("location.country", "Country"),
-    ("foundingDate.date", "Founding date"),
-]
-
-
-class EnrichmentPromptConfigForm(forms.ModelForm):
-    """Label-owner-facing form: dropdowns and checkboxes instead of free text, so a new
-    version is a guided copy-and-tweak rather than hand-typed JSON."""
-
-    class Meta:
-        model = EnrichmentPromptConfig
-        fields = "__all__"
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        instance: EnrichmentPromptConfig | None = self.instance if self.instance.pk else None
-        if "model" in self.fields:
-            models_list = list(GATEWAY_MODEL_CHOICES)
-            if instance and instance.model and instance.model not in models_list:
-                models_list.append(instance.model)
-            self.fields["model"] = forms.ChoiceField(
-                choices=[(m, m) for m in models_list],
-                help_text="Routed through the internal LLM gateway.",
-            )
-        if "input_fields" in self.fields:
-            paths = list(HARMONIC_INPUT_FIELD_CHOICES)
-            if instance:
-                known = {value for value, _ in paths}
-                paths += [(p, p) for p in instance.input_fields if p not in known]
-            self.fields["input_fields"] = forms.MultipleChoiceField(
-                choices=paths,
-                widget=forms.CheckboxSelectMultiple,
-                required=False,
-                label="Input fields",
-                help_text="Archived Harmonic payload fields passed to the prompt as the Company data block.",
-            )
-        if "version" in self.fields:
-            self.fields["version"].help_text = (
-                "Immutable once the batch runner stores results. Iterating = add a new row "
-                "with a new version, e.g. ai-pilled-v2."
-            )
-        if "prompt_text" in self.fields:
-            self.fields["prompt_text"].help_text = (
-                "{email} is replaced with the signup email domain at runtime. The JSON output "
-                "instruction is appended automatically - describe only the judgment."
-            )
-        if "is_active" in self.fields:
-            self.fields["is_active"].help_text = "The version the batch runner computes. One active version per label."
-
-
-@admin.register(EnrichmentPromptConfig)
-class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
-    form = EnrichmentPromptConfigForm
-    list_display = ("name", "version", "model", "is_active", "created_by", "created_at")
-    list_filter = ("name", "is_active")
-    search_fields = ("name", "version")
-    ordering = ("-created_at",)
-    show_full_result_count = False
-    list_select_related = ("created_by",)
-
-    def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, Any]:
-        # A new version is almost always a tweak of the newest one: prefill everything
-        # except the version string, which the owner must choose.
-        initial: dict[str, Any] = dict(super().get_changeform_initial_data(request))
-        latest = EnrichmentPromptConfig.objects.order_by("-created_at").first()
-        if latest is not None and "name" not in initial:
-            initial.update(
-                {
-                    "name": latest.name,
-                    "prompt_text": latest.prompt_text,
-                    "model": latest.model,
-                    "input_fields": latest.input_fields,
-                }
-            )
-        return initial
-
-    def get_readonly_fields(self, request: HttpRequest, obj: EnrichmentPromptConfig | None = None) -> tuple[str, ...]:
-        readonly: tuple[str, ...] = ("id", "created_by", "created_at")
-        # Belt for the model save() guard: render the frozen fields read-only so the label
-        # owner sees "make a new version" instead of a save error.
-        if obj is not None and _config_has_results(obj):
-            readonly = (*readonly, *EnrichmentPromptConfig.FROZEN_FIELDS)
-        return readonly
-
-    def has_delete_permission(self, request: HttpRequest, obj: EnrichmentPromptConfig | None = None) -> bool:
-        if obj is not None and _config_has_results(obj):
-            return False
-        return super().has_delete_permission(request, obj)
-
-    def delete_queryset(self, request: HttpRequest, queryset: Any) -> None:
-        # Bulk delete uses queryset.delete(), which skips the model's provenance guard —
-        # route through instance deletes so it always runs.
-        for config in queryset:
-            config.delete()
-
-    def save_model(self, request: HttpRequest, obj: EnrichmentPromptConfig, form: Any, change: bool) -> None:
-        if not change and request.user.is_authenticated:
-            obj.created_by = request.user
-        super().save_model(request, obj, form, change)
 
 
 @admin.register(EnrichmentLabelResult)
