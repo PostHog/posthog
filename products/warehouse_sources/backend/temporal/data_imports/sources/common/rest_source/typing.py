@@ -178,6 +178,10 @@ class ClientConfig(TypedDict, total=False):
     # When False, redirects are not followed and any 3xx is rejected — closes the redirect-based
     # off-host escape that host-pinning alone would miss. Defaults to True (follow redirects).
     allow_redirects: bool
+    # Per-request (connect, read) timeout in seconds. Left unset, requests never time out and a
+    # source pointed at a customer-controlled host that stalls holds an import worker forever.
+    # A single float applies to both connect and read; a tuple sets them separately.
+    request_timeout: Optional[float | tuple[float, float]]
 
 
 class IncrementalArgs(TypedDict, total=False):

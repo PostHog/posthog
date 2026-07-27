@@ -155,9 +155,9 @@ async def test_each_surface_routes_to_its_provider_configs(
     assert handle.call_args.kwargs["provider_config"].endpoint_name == cloudflare_endpoint
 
 
-@pytest.mark.parametrize("product", ["twig", "array"])
+@pytest.mark.parametrize("product", ["twig", "array", "custom_image_scans"])
 async def test_alias_products_ramp_through_canonical_fraction(product: str) -> None:
-    # twig/array requests must follow posthog_code's per-product ramp end to end.
+    # These requests must follow posthog_code's per-product ramp end to end.
     handle = AsyncMock(return_value={"ok": True})
     settings = _settings(glm_modal_product_traffic_fractions={"posthog_code": 1.0})
     _, evaluate = await _send(settings, handle, product=product)

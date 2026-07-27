@@ -636,6 +636,10 @@ impl Coordinator {
                 partition: h.partition,
                 old_owner: h.old_owner.clone(),
                 new_owner: h.new_owner.clone(),
+                new_owner_address: pods
+                    .iter()
+                    .find(|p| p.pod_name == h.new_owner)
+                    .and_then(|p| p.advertise_address.clone()),
                 phase: HandoffPhase::Freezing,
                 started_at: now,
                 handoff_id: util::new_handoff_id(),
@@ -877,6 +881,7 @@ mod tests {
             registered_at: 0,
             last_heartbeat: 0,
             controller: None,
+            advertise_address: None,
         }
     }
 

@@ -1,1 +1,1 @@
-0092_repin_lightspeed_retail_api_version
+0099_latitude_source

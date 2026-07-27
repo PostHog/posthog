@@ -475,7 +475,7 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
             const params = new URLSearchParams(window.location.search)
 
             // Stash ``connect_from`` so the post-roundtrip success toast can surface a
-            // "Return to PostHog Code" CTA.
+            // "Return to PostHog Desktop" CTA.
             const connectFrom = params.get('connect_from')
             if (connectFrom) {
                 writeConnectFromStorage(connectFrom)

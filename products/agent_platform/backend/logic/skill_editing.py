@@ -64,8 +64,7 @@ def assert_skills_writable(
     returns ``None`` for it), so ``check_access_level_for_object`` passes
     unconditionally and must not be mistaken for a boundary. The resource-level
     check is what ``LLMSkillViewSet`` actually enforces — it honours both
-    team-wide lockdowns and member-specific grants on the inherited
-    ``llm_analytics`` resource.
+    team-wide lockdowns and member-specific grants on the ``llm_skill`` resource.
     """
     if not names:
         return

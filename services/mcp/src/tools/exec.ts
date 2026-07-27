@@ -59,7 +59,7 @@ export interface ExecToolOptions {
     /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
      * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
-     * PostHog Code consumer: structuredContent suppressed toward the model, app data
+     * PostHog Desktop consumer: structuredContent suppressed toward the model, app data
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
@@ -633,7 +633,7 @@ export function createExecTool(
                     }
 
                     // If the inner tool has a UI app attached AND the caller self-identifies as
-                    // PostHog Code (the UI-apps host), emit a full `CallToolResult` payload
+                    // PostHog Desktop (the UI-apps host), emit a full `CallToolResult` payload
                     // carrying `structuredContent` + `_meta.ui.resourceUri`. Clients only see
                     // the `exec` tool registered in single-exec mode, so the UI metadata has to
                     // ride on the per-call response. Gated on the consumer because other
@@ -649,7 +649,7 @@ export function createExecTool(
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
-                                // Inline-exec UI-app hosts (PostHog Code, Claude Code, Cowork)
+                                // Inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork)
                                 // surface `structuredContent` to the model in preference to the
                                 // text content, which would bury the compact formatted table
                                 // under the raw JSON. Always re-home the UI app's data onto

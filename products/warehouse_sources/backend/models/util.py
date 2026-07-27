@@ -18,6 +18,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     StructDatabaseField,
     UnknownDatabaseField,
+    UUIDDatabaseField,
 )
 
 if TYPE_CHECKING:
@@ -181,7 +182,7 @@ def reconstruct_ordered_columns(
 
 
 CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
-    "UUID": StringDatabaseField,
+    "UUID": UUIDDatabaseField,
     "String": StringDatabaseField,
     "Nothing": UnknownDatabaseField,
     "DateTime64": DateTimeDatabaseField,
@@ -210,6 +211,15 @@ CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "Enum8": StringDatabaseField,
 }
 
+# Old-style column metadata stores only the ClickHouse type string and resolves through a
+# mapping on every query, so retyping UUID in CLICKHOUSE_HOGQL_MAPPING would flip every
+# legacy column at once on deploy. Pin those to their historical String typing — UUID typing
+# reaches a table only when a sync or materialization regenerates its column metadata.
+LEGACY_CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
+    **CLICKHOUSE_HOGQL_MAPPING,
+    "UUID": StringDatabaseField,
+}
+
 STR_TO_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "BooleanDatabaseField": BooleanDatabaseField,
     "DateDatabaseField": DateDatabaseField,
@@ -220,6 +230,7 @@ STR_TO_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "StringArrayDatabaseField": StringArrayDatabaseField,
     "StringDatabaseField": StringDatabaseField,
     "StringJSONDatabaseField": StringJSONDatabaseField,
+    "UUIDDatabaseField": UUIDDatabaseField,
     "StructDatabaseField": StructDatabaseField,
     "UnknownDatabaseField": UnknownDatabaseField,
     "boolean": BooleanDatabaseField,

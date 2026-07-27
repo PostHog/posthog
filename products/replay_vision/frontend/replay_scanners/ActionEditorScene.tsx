@@ -571,8 +571,8 @@ function DeliverySection(): JSX.Element {
             )}
             {!actionForm.channel && (
                 <span className="text-xs text-muted">
-                    No channel selected — this summary will appear on the scanner page and in its run history, without a
-                    Slack notification.
+                    No channel selected — this {actionForm.mode === VisionActionModeEnumApi.Alert ? 'alert' : 'digest'}{' '}
+                    will appear on the scanner page and in its run history, without a Slack notification.
                 </span>
             )}
         </div>
@@ -609,7 +609,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
     if (!isNew && !loadedAction) {
         return (
             <SceneContent>
-                <SceneTitleSection name="Summary not found" resourceType={{ type: 'replay_vision' }} />
+                <SceneTitleSection name="Action not found" resourceType={{ type: 'replay_vision' }} />
                 <div className="flex justify-center pt-4">
                     <LemonButton type="secondary" to={urls.replayVision()}>
                         Back to Replay vision
@@ -620,7 +620,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
     }
 
     const isAlert = actionForm.mode === VisionActionModeEnumApi.Alert
-    const noun = isAlert ? 'alert' : 'summary'
+    const noun = isAlert ? 'alert' : 'digest'
     const title = isNew
         ? scannerName
             ? `New ${noun} for ${scannerName}`
@@ -640,7 +640,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
                         description={
                             isAlert
                                 ? 'Watch this scanner on a schedule and get notified only when the condition is met.'
-                                : "Schedule an AI summary of this scanner's observations and deliver it to Slack."
+                                : "Schedule an AI digest of this scanner's observations and deliver it to Slack."
                         }
                         resourceType={{ type: 'replay_vision' }}
                         actions={<ReplayVisionFeedbackButton />}
@@ -655,7 +655,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
                         <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-4">
                             <LemonField name="name" label="Name">
                                 <LemonInput
-                                    placeholder={isAlert ? 'Rage click alert' : 'Daily checkout summary'}
+                                    placeholder={isAlert ? 'Rage click alert' : 'Daily checkout digest'}
                                     autoFocus
                                 />
                             </LemonField>
@@ -682,7 +682,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
                                 <LemonField
                                     name="prompt_guide"
                                     label="Additional guidance (optional)"
-                                    info="Steers how the AI writes the summary."
+                                    info="Steers how the AI writes the digest."
                                 >
                                     <LemonTextArea
                                         placeholder="e.g. focus on issues, bugs, and friction users face — or focus on general user behavior and flows."
@@ -698,7 +698,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
 
                             {!isAlert && (
                                 <div className="text-xs text-muted">
-                                    Each scheduled run generates an AI summary using your PostHog AI credits. Runs are
+                                    Each scheduled run generates an AI digest using your PostHog AI credits. Runs are
                                     skipped while you're over your AI-credit budget.
                                 </div>
                             )}
@@ -718,7 +718,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
                                     }
                                     data-attr="vision-action-editor-save"
                                 >
-                                    {isNew ? (isAlert ? 'Create alert' : 'Create summary') : 'Save'}
+                                    {isNew ? (isAlert ? 'Create alert' : 'Create digest') : 'Save'}
                                 </LemonButton>
                             </div>
                         </div>

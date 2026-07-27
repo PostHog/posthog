@@ -370,6 +370,16 @@ export interface PatchedVisionActionApi {
 }
 
 /**
+ * Async-accepted response for POST /vision/actions/{id}/run/.
+ */
+export interface RunActionResponseApi {
+    /** Temporal workflow id for the run; the resulting run appears under the action's run history. */
+    workflow_id: string
+    /** True when a run for this action was already in progress (scheduled or manual), so this request coalesced onto it rather than starting a second run. */
+    already_running: boolean
+}
+
+/**
  * * `running` - Running
  * * `completed` - Completed
  * * `failed` - Failed

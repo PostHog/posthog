@@ -467,7 +467,9 @@ def send_password_changed_email(user_id: int) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_email_verification(user_id: int, token: str, next_url: str | None = None) -> None:
+def send_email_verification(
+    user_id: int, token: str, next_url: str | None = None, target_email: str | None = None
+) -> None:
     user: User = User.objects.get(pk=user_id)
     next_query = f"?next={quote(next_url, safe='')}" if next_url else ""
     message = EmailMessage(
@@ -482,7 +484,9 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
             "url": f"{settings.SITE_URL}/verify_email/{user.uuid}/{token}{next_query}",
         },
     )
-    message.add_user_recipient(user, email_override=user.pending_email)
+    # Pin the recipient to the email the token authorizes (the caller-captured `target_email`)
+    # rather than re-reading `pending_email`, which a concurrent email change could have drifted.
+    message.add_user_recipient(user, email_override=target_email if target_email is not None else user.pending_email)
     message.send(send_async=False)
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
