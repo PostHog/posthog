@@ -3,6 +3,7 @@ import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
@@ -159,6 +160,34 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(all_names, empty_names, "Empty value filter should return same values as no filter")
         self.assertEqual(set(all_names), {"info", "DEBUG", "PING", "more", "error"})
 
+    @parameterized.expand(
+        [
+            ("level", "log"),
+            ("service.name", "resource"),
+        ]
+    )
+    def test_log_values_query_returns_counts(self, key, attribute_type):
+        """Each value carries a positive integer count, and results are ordered most-observed first."""
+
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "key": key,
+            "attribute_type": attribute_type,
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+        self.assertGreater(len(results), 0, f"Expected at least one {key} value")
+
+        for result in results:
+            self.assertIsInstance(result["count"], int, f"count missing/non-int for {result['name']}")
+            self.assertGreater(result["count"], 0, f"count should be positive for {result['name']}")
+
+        counts = [r["count"] for r in results]
+        self.assertEqual(counts, sorted(counts, reverse=True), "Values should be ordered by count descending")
+
     def test_log_attributes_search_values_off_by_default(self):
         """Searching with `search_values` unset should match attribute keys only."""
 
@@ -275,3 +304,61 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
             trace_id_index, brokers_id_index, "trace_id should appear before brokers.0.id when searching for 'id'"
         )
         self.assertLess(brokers_id_index, pid_index, "brokers.0.id should appear before pid when searching for 'id'")
+
+
+class TestLogAttributesIlikeEscaping(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    DATE_RANGE = '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}'
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        # Two rows whose `promo.code` value differs only by the "%" — used to prove that a
+        # "50%off" search escapes the wildcard instead of matching "50ABCoff" too.
+        rows = [
+            {"uuid": "019b2664-0000-7000-0000-000000000001", "value": "50%off"},
+            {"uuid": "019b2664-0000-7000-0000-000000000002", "value": "50ABCoff"},
+        ]
+        sql = ""
+        for i, row in enumerate(rows):
+            sql += (
+                json.dumps(
+                    {
+                        "uuid": row["uuid"],
+                        "team_id": cls.team.id,
+                        "timestamp": "2025-12-16 09:30:00.000000",
+                        "observed_timestamp": "2025-12-16 09:30:00.000000",
+                        "body": f"promo log {i}",
+                        "severity_text": "info",
+                        "severity_number": 9,
+                        "service_name": "promo-svc",
+                        "resource_attributes": {"service.name": "promo-svc"},
+                        "attributes_map_str": {"promo.code__str": row["value"]},
+                    }
+                )
+                + "\n"
+            )
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{sql}")
+
+    def _attributes(self, params: dict) -> list[dict]:
+        query_params = {"dateRange": self.DATE_RANGE, **params}
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/attributes", query_params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()["results"]
+
+    def test_attribute_value_search_escapes_ilike_wildcards(self):
+        # "%" must match a literal percent — "50%off" must not wildcard-match "50ABCoff".
+        results = self._attributes({"attribute_type": "log", "search": "50%off", "search_values": "true"})
+        value_matches = [r["matchedValue"] for r in results if r["matchedOn"] == "value"]
+        self.assertIn("50%off", value_matches)
+        self.assertNotIn("50ABCoff", value_matches)
+
+    def test_value_search_escapes_ilike_wildcards(self):
+        # The /logs/values endpoint must escape the wildcard too.
+        query_params = {"dateRange": self.DATE_RANGE, "key": "promo.code", "attribute_type": "log", "value": "50%off"}
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        names = {r["name"] for r in response.json()["results"]}
+        self.assertIn("50%off", names)
+        self.assertNotIn("50ABCoff", names)

@@ -7,7 +7,8 @@ from django.core.management import call_command
 
 from posthog.management.commands.refresh_hog_flows import remove_event_filters_from_conditionals
 from posthog.models import Team
-from posthog.models.hog_flow.hog_flow import HogFlow
+
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
 class TestRefreshHogFlows(BaseTest):
@@ -18,7 +19,7 @@ class TestRefreshHogFlows(BaseTest):
         self.team2 = Team.objects.create(organization=self.organization, name="Test Team 2")
 
         # Create HogFlows for testing with proper trigger actions
-        with patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers"):
+        with patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers"):
             trigger_config_1 = {
                 "type": "event",
                 "filters": {
@@ -94,7 +95,7 @@ class TestRefreshHogFlows(BaseTest):
                 version=1,
             )
 
-    @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_refresh_all_hog_flows(self, mock_reload):
         """Test refreshing all HogFlows across all teams."""
 
@@ -110,7 +111,7 @@ class TestRefreshHogFlows(BaseTest):
         self.assertIn("Updated: 4", output)
         self.assertIn("Errors: 0", output)
 
-    @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_refresh_by_team_id(self, mock_reload):
         """Test refreshing HogFlows for a specific team."""
 
@@ -125,7 +126,7 @@ class TestRefreshHogFlows(BaseTest):
         self.assertIn("Found 3 HogFlows to process", output)
         self.assertIn("Updated: 3", output)
 
-    @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_refresh_by_hog_flow_id(self, mock_reload):
         """Test refreshing a specific HogFlow by ID."""
 
@@ -140,7 +141,7 @@ class TestRefreshHogFlows(BaseTest):
         self.assertIn("Found 1 HogFlows to process", output)
         self.assertIn("Updated: 1", output)
 
-    @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_nonexistent_team_id(self, mock_reload):
         """Test handling of nonexistent team ID."""
 
@@ -153,7 +154,7 @@ class TestRefreshHogFlows(BaseTest):
         self.assertIn("Found 0 HogFlows to process", output)
         self.assertIn("No HogFlows found matching criteria", output)
 
-    @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_nonexistent_hog_flow_id(self, mock_reload):
         """Test handling of nonexistent HogFlow ID."""
 
@@ -168,7 +169,7 @@ class TestRefreshHogFlows(BaseTest):
         self.assertIn("Found 0 HogFlows to process", output)
         self.assertIn("No HogFlows found matching criteria", output)
 
-    @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_page_size_option(self, mock_reload):
         """Test that the page_size option works correctly."""
 
@@ -186,7 +187,7 @@ class TestRefreshHogFlows(BaseTest):
         self.assertIn("Processed: 4", output)
         self.assertIn("Updated: 4", output)
 
-    @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_error_handling(self, mock_reload):
         """Test error handling when a flow fails to save."""
 
@@ -217,7 +218,7 @@ class TestRefreshHogFlows(BaseTest):
             self.assertIn("Errors: 1", output)  # 1 failure
             self.assertIn("Check logs for details on 1 errors encountered", output)
 
-    @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_bytecode_regeneration_on_conditional_branch(self, mock_reload):
         """Test that bytecode is regenerated when a conditional branch action is missing bytecode."""
 

@@ -30,7 +30,7 @@ hogli lint:skills
 # 4. Build locally to verify rendered output
 hogli build:skills
 
-# 5. Test locally with PostHog Code or a coding agent
+# 5. Test locally with PostHog Desktop or a coding agent
 hogli sync:skill -- --name <skill-name>
 
 # 6. Delete the test skill (optional)
@@ -59,7 +59,7 @@ but need guidance on _which_ tools to use, in _what order_, with _what constrain
 
 The decision flow:
 
-1. **Ask PostHog Code or Claude Code to do X.** If it works on its own, you don't need a skill.
+1. **Ask PostHog Desktop or Claude Code to do X.** If it works on its own, you don't need a skill.
 2. **If it can't do X, fix the tool prompts first.**
    Tool names, descriptions, and schemas are the cheapest lever — most "the agent doesn't know how to do X" problems are really "the tool description doesn't explain how to do X."
    See [Adding tools to the MCP server](/handbook/engineering/ai/implementing-mcp-tools).
@@ -67,11 +67,23 @@ The decision flow:
 
 Additional signals that a skill is the right answer even when tool prompts are already solid:
 
-- **Complex inputs or outputs.** LLM analytics, logs, and other query-style endpoints have nested or non-obvious payload shapes the agent has to reason over. Ship a skill so it doesn't rediscover that shape every conversation.
+- **Complex inputs or outputs.** AI observability, logs, and other query-style endpoints have nested or non-obvious payload shapes the agent has to reason over. Ship a skill so it doesn't rediscover that shape every conversation.
 - **The guidance naturally splits into entry point plus references.**
   SQL skills are the canonical example — a top-level workflow with optional schemas, query patterns, and function indexes loaded on demand. If your guidance has that shape, structure it as a skill with `references/`.
 
 Don't write a skill for something the agent already one-shots from generic knowledge. A few real examples from review: `creating-isolated-project` or `finding-experiments` were unnecessary — the agent can do it without help. `setting-up-reverse-proxy` was the right call — the agent failed at it, and the skill needed to ship code snippets it couldn't derive. The bar is PostHog-specific judgement that a smart generalist agent wouldn't have, not project setup it can already handle.
+
+### How many skills is too many?
+
+A common worry when shipping a set of skills is "am I adding too many?" — and it's the right worry. Skill count is a budgeted, shared resource, not a free axis to expand. Agents pick skills from a list of _all_ available descriptions, and many harnesses **truncate that list** once it grows long. Every extra skill dilutes discovery for every other skill, so a bloated set makes each individual skill _less_ likely to fire, not more.
+
+So the number of skills is a cost to weigh, not just the content of each one. Before adding another skill, decide whether you have a genuinely new job-to-be-done or just more detail for a job you've already covered:
+
+- **New trigger → new skill.** A skill earns its own entry point only when it has a distinct trigger an agent would match against on its own. If you can't write a description whose "when to use it" is clearly different from an existing skill's, it isn't a separate skill.
+- **More detail → `references/`, not a new skill.** When the extra material is depth on an existing workflow (another failure mode, an SDK-specific variant, a longer query catalog), add it to that skill's [`references/`](#progressive-disclosure) rather than spinning up a sibling. The entry point stays lean and the detail loads on demand — you get coverage without spending a skill slot.
+- **Consolidate near-duplicate siblings.** If two skills share the same diagnosis, bug class, or trigger and differ only in a detail, merge them into one skill with references. Splitting the same job across two files adds a slot for no discovery benefit — reviewers will (and should) push back on it.
+
+The rule of thumb: prefer a small set of focused skills, each with rich `references/`, over a large set of thin ones. Reach for a reference file first; add a whole new skill only when the job and its trigger are genuinely distinct.
 
 ### Referencing MCP tools in skills
 
@@ -184,7 +196,7 @@ description: >
 
 description: >
   Debug and inspect LLM/AI agent traces using PostHog's MCP tools.
-  Use when the user pastes a trace URL (e.g. /llm-observability/traces/<id>),
+  Use when the user pastes a trace URL (e.g. /ai-observability/traces/<id>),
   asks to debug a trace, figure out what went wrong, check if an agent used a tool correctly,
   verify context/files were surfaced, inspect subagent behavior, investigate LLM decisions,
   or analyze token usage and costs.
@@ -194,7 +206,7 @@ description: >
 
 ```yaml
 # Too vague – agents can't determine when to use it
-description: 'Helps with LLM analytics'
+description: 'Helps with AI observability'
 
 # Too broad – an umbrella for everything isn't a skill
 description: 'Everything about PostHog AI features'
@@ -205,7 +217,7 @@ description: 'Everything about PostHog AI features'
 ### Good: `exploring-llm-traces`
 
 A focused skill that guides the agent through a specific workflow –
-see [`exploring-llm-traces/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/llm_analytics/skills/exploring-llm-traces/SKILL.md):
+see [`exploring-llm-traces/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/ai_observability/skills/exploring-llm-traces/SKILL.md):
 
 - Declares the exact MCP tools it relies on (`posthog:query-llm-traces-list`, `posthog:query-llm-trace`, `posthog:execute-sql`).
 - Explains the `$ai_trace` / `$ai_span` / `$ai_generation` / `$ai_embedding` event hierarchy
@@ -215,7 +227,7 @@ see [`exploring-llm-traces/SKILL.md`](https://github.com/PostHog/posthog/blob/ma
 - Uses progressive disclosure – details like the full event schema live in `references/`
   so the entry point stays focused.
 - Ships with pre-written Python helpers in
-  [`scripts/`](https://github.com/PostHog/posthog/tree/master/products/llm_analytics/skills/exploring-llm-traces/scripts)
+  [`scripts/`](https://github.com/PostHog/posthog/tree/master/products/ai_observability/skills/exploring-llm-traces/scripts)
   that cover the common workflows.
   The agent runs these instead of re-deriving the shape of the trace JSON,
   slicing nested payloads by hand, or burning tokens on exploratory parsing –
@@ -366,10 +378,10 @@ CI builds the `dist/skills.zip` artifact and publishes it to two downstream repo
   any agent that follows Anthropic's skills layout (Claude Code, Claude Desktop, etc.).
 - [`PostHog/ai-plugin`](https://github.com/PostHog/ai-plugin) –
   the plugin distribution used by coding agents that consume PostHog capabilities
-  (PostHog Code, PostHog AI). The plugin bundles the skills alongside the MCP tool definitions
+  (PostHog Desktop, PostHog AI). The plugin bundles the skills alongside the MCP tool definitions
   so agents get the "how" and the "what" together.
 
-PostHog Code already consumes skills automatically, and PostHog AI consumes the same set.
+PostHog Desktop already consumes skills automatically, and PostHog AI consumes the same set.
 Because both repositories are updated from the same `dist/skills.zip` on every merge to `master`,
 you don't need to handle distribution yourself –
 merge your skill and it shows up in both places on the next CI run.

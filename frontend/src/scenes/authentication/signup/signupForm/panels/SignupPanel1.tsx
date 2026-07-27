@@ -8,7 +8,7 @@ import PasswordStrength from 'lib/components/PasswordStrength'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import RegionSelect from 'scenes/authentication/RegionSelect'
+import RegionSelect from 'scenes/authentication/shared/RegionSelect'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { JoinExistingOrgLink } from '../JoinExistingOrgLink'
@@ -89,17 +89,18 @@ export function SignupPanel1(): JSX.Element | null {
                     Continue
                 </LemonButton>
             </Form>
-            {!preflight?.demo && (preflight?.cloud || preflight?.initiated) && (
-                // If we're in the demo environment, login is unified with signup and it's passwordless
-                // For now, if you're not on Cloud, you wouldn't see this page,
-                // but future-proofing this (with `preflight.initiated`) in case this changes
-                <div className="text-center mt-4">
-                    Already have an account?{' '}
-                    <Link to={loginUrl} data-attr="signup-login-link" className="font-bold">
-                        Log in
-                    </Link>
-                </div>
-            )}
+            {!preflight?.demo &&
+                (preflight?.cloud || preflight?.initiated) && (
+                    // If we're in the demo environment, login is unified with signup and it's passwordless
+                    // For now, if you're not on Cloud, you wouldn't see this page,
+                    // but future-proofing this (with `preflight.initiated`) in case this changes
+                    <div className="text-center mt-4">
+                        Already have an account?{' '}
+                        <Link to={loginUrl} data-attr="signup-login-link" className="font-bold">
+                            Log in
+                        </Link>
+                    </div>
+                )}
             {!preflight?.demo && <JoinExistingOrgLink />}
         </div>
     )

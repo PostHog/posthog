@@ -9,15 +9,36 @@ from django.db.models import QuerySet
 from posthog.api.llm_prompt_serializers import MAX_PROMPT_PAYLOAD_BYTES
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.models.llm_prompt import LLMPrompt, annotate_llm_prompt_version_history_metadata
+from posthog.models.activity_logging.activity_log import Change
 from posthog.storage.llm_prompt_cache import invalidate_prompt_latest_cache, invalidate_prompt_version_caches
+
+from products.ai_observability.backend.activity_logging import log_llm_prompt_activity
+from products.ai_observability.backend.models.llm_prompt import (
+    LLMPrompt,
+    LLMPromptLabel,
+    annotate_llm_prompt_version_history_metadata,
+)
 
 SYNC_ARCHIVE_VERSION_INVALIDATION_LIMIT = 100
 MAX_PROMPT_VERSION = 2000
+MAX_PROMPT_LABELS = 50
 
 
 class LLMPromptNotFoundError(Exception):
     pass
+
+
+class LLMPromptLabelNotFoundError(Exception):
+    pass
+
+
+class LLMPromptLabelConflictError(Exception):
+    pass
+
+
+@dataclass
+class LLMPromptLabelLimitError(Exception):
+    max_labels: int
 
 
 @dataclass
@@ -84,7 +105,7 @@ def apply_prompt_edits(prompt_content: Any, edits: list[dict[str, str]]) -> Any:
 
 def get_active_prompt_queryset(team: Team) -> QuerySet[LLMPrompt]:
     return annotate_llm_prompt_version_history_metadata(
-        LLMPrompt.objects.filter(team=team, deleted=False).select_related("created_by")
+        LLMPrompt.objects.filter(team=team, deleted=False).select_related("created_by").prefetch_related("labels")
     )
 
 
@@ -123,6 +144,7 @@ def resolve_versions_page(
     queryset = (
         LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False)
         .select_related("created_by")
+        .prefetch_related("labels")
         .order_by("-version", "-created_at", "-id")
     )
 
@@ -138,6 +160,14 @@ def resolve_versions_page(
     return versions[:limit], has_more
 
 
+def get_prompt_labels(team: Team, prompt_name: str) -> QuerySet[LLMPromptLabel]:
+    return (
+        LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name)
+        .select_related("prompt", "created_by")
+        .order_by("name")
+    )
+
+
 def publish_prompt_version(
     team: Team,
     *,
@@ -146,6 +176,7 @@ def publish_prompt_version(
     prompt_payload: Any | None = None,
     edits: list[dict[str, str]] | None = None,
     base_version: int,
+    version_description: str | None = None,
 ) -> LLMPrompt:
     with transaction.atomic():
         current_latest = (
@@ -175,6 +206,28 @@ def publish_prompt_version(
             version=current_latest.version + 1,
             is_latest=True,
             created_by=user,
+            version_description=version_description,
+        )
+
+        changes = [
+            Change(
+                type="LLMPrompt",
+                action="changed",
+                field="version",
+                before=current_latest.version,
+                after=published_prompt.version,
+            )
+        ]
+        if version_description:
+            changes.append(
+                Change(type="LLMPrompt", action="created", field="version_description", after=version_description)
+            )
+        log_llm_prompt_activity(
+            team=team,
+            user=user,
+            prompt_name=prompt_name,
+            activity="published",
+            changes=changes,
         )
 
         refreshed_prompt = (
@@ -232,11 +285,28 @@ def duplicate_prompt(
                 raise LLMPromptDuplicateNameConflictError() from err
             raise
 
+        # One entry per prompt history: the copy records where it came from, the
+        # source records where it went.
+        log_llm_prompt_activity(
+            team=team,
+            user=user,
+            prompt_name=new_name,
+            activity="created",
+            changes=[Change(type="LLMPrompt", action="created", field="duplicated_from", after=source_name)],
+        )
+        log_llm_prompt_activity(
+            team=team,
+            user=user,
+            prompt_name=source_name,
+            activity="duplicated",
+            changes=[Change(type="LLMPrompt", action="created", field="duplicated_to", after=new_name)],
+        )
+
     refreshed = get_active_prompt_queryset(team).filter(pk=new_prompt.pk).first()
     return refreshed if refreshed is not None else new_prompt
 
 
-def archive_prompt(team: Team, prompt_name: str) -> list[int]:
+def archive_prompt(team: Team, prompt_name: str, *, user: User | None = None) -> list[int]:
     with transaction.atomic():
         prompt_versions = list(
             LLMPrompt.objects.select_for_update()
@@ -249,6 +319,18 @@ def archive_prompt(team: Team, prompt_name: str) -> list[int]:
         LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False).update(
             deleted=True,
             is_latest=False,
+        )
+
+        # Instance-level deletes so ModelActivityMixin logs each label removal.
+        for label in LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name):
+            label.delete()
+
+        log_llm_prompt_activity(
+            team=team,
+            user=user,
+            prompt_name=prompt_name,
+            activity="archived",
+            changes=[Change(type="LLMPrompt", action="deleted", field="version_count", before=len(prompt_versions))],
         )
 
         def invalidate_caches_on_commit() -> None:
@@ -279,3 +361,72 @@ def archive_prompt(team: Team, prompt_name: str) -> list[int]:
         transaction.on_commit(invalidate_caches_on_commit)
 
     return prompt_versions
+
+
+@dataclass
+class PromptLabelSetResult:
+    label: LLMPromptLabel
+    previous_version: int | None
+    created: bool
+
+
+def set_prompt_label(
+    team: Team,
+    *,
+    user: User,
+    prompt_name: str,
+    label_name: str,
+    version: int,
+) -> PromptLabelSetResult:
+    """Point a label at a prompt version, creating or moving it.
+
+    "Set" is the only write verb: a label that already exists on another version is
+    moved, so the one-version-per-label invariant can't be violated through this path.
+    """
+    with transaction.atomic():
+        # Locked so a concurrent archive_prompt (which locks the same rows) can't mark the
+        # prompt deleted between this check and the label write, orphaning the label.
+        target = (
+            LLMPrompt.objects.select_for_update()
+            .filter(team=team, name=prompt_name, deleted=False, version=version)
+            .order_by("created_at", "id")
+            .first()
+        )
+        if target is None:
+            raise LLMPromptNotFoundError()
+
+        existing = (
+            LLMPromptLabel.objects.select_for_update()
+            .select_related("prompt")
+            .filter(team=team, prompt_name=prompt_name, name=label_name)
+            .first()
+        )
+        if existing is not None:
+            previous_version = existing.prompt.version
+            if existing.prompt_id != target.pk:
+                existing.prompt = target
+                existing.save()
+            return PromptLabelSetResult(label=existing, previous_version=previous_version, created=False)
+
+        if LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name).count() >= MAX_PROMPT_LABELS:
+            raise LLMPromptLabelLimitError(max_labels=MAX_PROMPT_LABELS)
+
+        try:
+            label = LLMPromptLabel.objects.create(
+                team=team,
+                prompt_name=prompt_name,
+                name=label_name,
+                prompt=target,
+                created_by=user,
+            )
+        except IntegrityError as err:
+            # Concurrent PUTs raced to create the same label; the other request won.
+            raise LLMPromptLabelConflictError() from err
+        return PromptLabelSetResult(label=label, previous_version=None, created=True)
+
+
+def remove_prompt_label(team: Team, *, prompt_name: str, label_name: str) -> None:
+    label = LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name, name=label_name).first()
+    if label is None:
+        raise LLMPromptLabelNotFoundError()
+    label.delete()

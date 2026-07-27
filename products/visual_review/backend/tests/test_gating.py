@@ -18,7 +18,10 @@ covers the entire state space.
 
 import pytest
 
+from parameterized import parameterized
+
 from products.visual_review.backend import logic
+from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import QuarantinedIdentifier, Run
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
@@ -31,21 +34,21 @@ RESULT_ENUM = {
 }
 
 # fmt: off
-# (result, action, gate_passes, expected_changed_count)
+# (name, result, action, gate_passes, expected_changed_count)
 # gate_passes: True when unresolved=0 (action resolves the change or result is unchanged)
 # expected_changed_count: raw classifier count on the Run model (excludes quarantined only)
 GATE_CASES = [
-    pytest.param("unchanged", None,          True,  0, id="unchanged"),
-    pytest.param("changed",   None,          False, 1, id="changed-unresolved"),
-    pytest.param("changed",   "quarantine",  True,  0, id="changed-quarantined"),
-    pytest.param("changed",   "tolerate",    True,  1, id="changed-tolerated"),
-    pytest.param("changed",   "approve",     True,  1, id="changed-approved"),
-    pytest.param("new",       None,          False, 0, id="new-unresolved"),
-    pytest.param("new",       "quarantine",  True,  0, id="new-quarantined"),
-    pytest.param("new",       "approve",     True,  0, id="new-approved"),
-    pytest.param("removed",   None,          False, 0, id="removed-unresolved"),
-    pytest.param("removed",   "quarantine",  True,  0, id="removed-quarantined"),
-    pytest.param("removed",   "approve",     True,  0, id="removed-approved"),
+    ("unchanged",            "unchanged", None,          True,  0),
+    ("changed_unresolved",   "changed",   None,          False, 1),
+    ("changed_quarantined",  "changed",   "quarantine", True,  0),
+    ("changed_tolerated",    "changed",   "tolerate",   True,  1),
+    ("changed_approved",     "changed",   "approve",    True,  1),
+    ("new_unresolved",       "new",       None,          False, 0),
+    ("new_quarantined",      "new",       "quarantine", True,  0),
+    ("new_approved",         "new",       "approve",    True,  0),
+    ("removed_unresolved",   "removed",   None,          False, 0),
+    ("removed_quarantined",  "removed",   "quarantine", True,  0),
+    ("removed_approved",     "removed",   "approve",    True,  0),
 ]
 # fmt: on
 
@@ -61,7 +64,7 @@ class TestGatingInvariants:
         mocker.patch("products.visual_review.backend.logic._post_commit_status")
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
 
-    def _build_run(self, result: str, action: str | None) -> Run:
+    def _build_run(self, result: str, action: str | None, purpose: str = "review") -> Run:
         snapshots: list[dict] = []
         baseline: dict[str, str] = {}
 
@@ -89,6 +92,7 @@ class TestGatingInvariants:
             branch="feat/test",
             pr_number=1,
             snapshots=snapshots,
+            purpose=purpose,
         )
         logic.complete_run(run.id)
         run.refresh_from_db()
@@ -126,22 +130,22 @@ class TestGatingInvariants:
 
         return run
 
-    @pytest.mark.parametrize("result, action, expected_gate_passes, expected_changed_count", GATE_CASES)
-    def test_gate_outcome(self, result, action, expected_gate_passes, expected_changed_count):
+    @parameterized.expand(GATE_CASES)
+    def test_gate_outcome(self, _name, result, action, expected_gate_passes, expected_changed_count):
         run = self._build_run(result, action)
         recompute_result = logic.recompute_run(run.id, team_id=self.team.id)
         gate_passes = recompute_result["unresolved"] == 0
         assert gate_passes is expected_gate_passes
 
-    @pytest.mark.parametrize("result, action, _expected_gate, expected_changed_count", GATE_CASES)
-    def test_raw_counts_reflect_classifier_truth(self, result, action, _expected_gate, expected_changed_count):
+    @parameterized.expand(GATE_CASES)
+    def test_raw_counts_reflect_classifier_truth(self, _name, result, action, _expected_gate, expected_changed_count):
         run = self._build_run(result, action)
         logic.recompute_run(run.id, team_id=self.team.id)
         run.refresh_from_db()
         assert run.changed_count == expected_changed_count
 
-    @pytest.mark.parametrize("result, action, _expected_gate, _expected_changed", GATE_CASES)
-    def test_result_not_mutated_by_action_or_recompute(self, result, action, _expected_gate, _expected_changed):
+    @parameterized.expand(GATE_CASES)
+    def test_result_not_mutated_by_action_or_recompute(self, _name, result, action, _expected_gate, _expected_changed):
         run = self._build_run(result, action)
         logic.recompute_run(run.id, team_id=self.team.id)
 
@@ -149,10 +153,25 @@ class TestGatingInvariants:
         snapshot.refresh_from_db()
         assert snapshot.result == RESULT_ENUM[result]
 
-    @pytest.mark.parametrize("result, action, _expected_gate, _expected_changed", GATE_CASES)
-    def test_recompute_is_idempotent(self, result, action, _expected_gate, _expected_changed):
+    @parameterized.expand(GATE_CASES)
+    def test_recompute_is_idempotent(self, _name, result, action, _expected_gate, _expected_changed):
         run = self._build_run(result, action)
         logic.recompute_run(run.id, team_id=self.team.id)
 
         second = logic.recompute_run(run.id, team_id=self.team.id)
         assert second["counts_changed"] is False
+
+    def test_observe_run_summary_never_gates(self):
+        # The CLI exits non-zero on summary.unresolved > 0. Observe (tracking-only) runs are
+        # non-approvable, so the summary must report 0 unresolved even with real changes —
+        # otherwise `vr submit --purpose observe` would red a default-branch job.
+        run = self._build_run("changed", None, purpose="observe")
+        summary = api.get_run(run.id, team_id=self.team.id).summary
+        assert summary.changed == 1
+        assert summary.unresolved == 0
+
+    def test_review_run_summary_still_gates(self):
+        run = self._build_run("changed", None)
+        summary = api.get_run(run.id, team_id=self.team.id).summary
+        assert summary.changed == 1
+        assert summary.unresolved == 1

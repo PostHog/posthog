@@ -48,6 +48,15 @@
 @import '../../../packages/primitives/src/styles/layers.css';
 
 /*
+ * Primitive BEM styles, from the built package. Components stories (e.g.
+ * DataTable) import primitives via `@posthog/quill-primitives`, whose JS does
+ * NOT inject CSS — so without this they render with classnames but no styles.
+ * The primitives' OWN stories import from source and still hot-reload their BEM;
+ * this only backstops cross-package consumers. Rebuild primitives to refresh.
+ */
+@import '../../../packages/primitives/dist/quill-primitives.css';
+
+/*
  * Scan sources, not dist. Vite HMR forwards any .tsx change in these
  * trees to Tailwind's scanner and we get new utilities emitted on the
  * next tick.
@@ -56,6 +65,7 @@
 @source "../../../packages/primitives/src/**/*.{ts,tsx}";
 @source "../../../packages/components/src/**/*.{ts,tsx}";
 @source "../../../packages/blocks/src/**/*.{ts,tsx}";
+@source "../../../packages/charts/src/**/*.{ts,tsx}";
 
 @layer base {
     * {

@@ -19,9 +19,9 @@ describe('fooLogic', () => {
   beforeEach(() => {
     useMocks({
       get: {
-        '/api/environments/:team_id/foos/:id/': (req) => [200, { id: req.params.id, name: 'hello' }],
+        '/api/projects/:team_id/foos/:id/': (req) => [200, { id: req.params.id, name: 'hello' }],
       },
-      post: { '/api/environments/:team_id/foos/': { id: 'new', name: 'new' } },
+      post: { '/api/projects/:team_id/foos/': { id: 'new', name: 'new' } },
     })
     initKeaTests()
     logic = fooLogic({ fooId: '123' })

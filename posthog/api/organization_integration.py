@@ -1,9 +1,10 @@
 from typing import Any
 
 import structlog
-from drf_spectacular.utils import extend_schema
-from rest_framework import mixins, serializers, viewsets
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -15,6 +16,15 @@ from posthog.models.organization_integration import OrganizationIntegration
 from posthog.permissions import OrganizationAdminWritePermissions
 
 logger = structlog.get_logger(__name__)
+
+
+class OpenInvoicesError(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = (
+        "This integration has unpaid invoices that must be resolved before disconnecting. "
+        "Please contact support@posthog.com for help."
+    )
+    default_code = "open_invoices_error"
 
 
 class OrganizationIntegrationSerializer(serializers.ModelSerializer):
@@ -42,6 +52,7 @@ class EnvironmentMappingUpdateSerializer(serializers.Serializer):
     development = serializers.IntegerField(required=False)
 
 
+@extend_schema(extensions={"x-product": "integrations"})
 class OrganizationIntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -65,7 +76,13 @@ class OrganizationIntegrationViewSet(
     serializer_class = OrganizationIntegrationSerializer
     permission_classes = [OrganizationAdminWritePermissions]
 
-    @extend_schema(operation_id="organization_integrations_destroy")
+    @extend_schema(
+        operation_id="organization_integrations_destroy",
+        responses={
+            204: None,
+            409: OpenApiResponse(description="Deauthorization is blocked because the account has unpaid invoices."),
+        },
+    )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return super().destroy(request, *args, **kwargs)
 
@@ -73,10 +90,22 @@ class OrganizationIntegrationViewSet(
         is_marketplace = instance.config.get("type") != "connectable"
 
         if is_marketplace and instance.integration_id:
-            try:
-                from ee.vercel.integration import VercelIntegration
+            from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+            from ee.vercel.integration import VercelIntegration
 
+            try:
                 VercelIntegration.delete_installation(instance.integration_id)
+            except BillingServiceOpenInvoicesError as e:
+                # Expected business condition, not a crash: billing blocks deauthorization while
+                # invoices are unpaid. Mirror the marketplace DELETE API (409) so the UI disconnect
+                # can't sidestep the guard, and abort the local delete instead of capturing an error.
+                logger.warning(
+                    "organization_integration.delete_installation_blocked_by_open_invoices",
+                    organization_id=str(instance.organization_id),
+                    integration_id=instance.integration_id,
+                    reason=e.message,
+                )
+                raise OpenInvoicesError(detail=e.message)
             except Exception as e:
                 capture_exception(
                     e,
@@ -132,12 +161,12 @@ class OrganizationIntegrationViewSet(
         from posthog.models.integration import Integration as TeamIntegration
 
         from ee.vercel.client import VercelAPIClient
-        from ee.vercel.integration import VercelIntegration
 
         teams_by_id: dict[int, Team] = {}
+        resources: dict[int, TeamIntegration] = {}
         for tid in {production_id, preview_id, development_id}:
             teams_by_id[tid] = Team.objects.get(pk=tid, organization=org)
-            TeamIntegration.objects.get_or_create(
+            resources[tid], _ = TeamIntegration.objects.get_or_create(
                 team=teams_by_id[tid],
                 kind=TeamIntegration.IntegrationKind.VERCEL,
                 integration_id=str(tid),
@@ -152,44 +181,17 @@ class OrganizationIntegrationViewSet(
         integration.save(update_fields=["config"])
 
         production_team = teams_by_id[production_id]
-        preview_team = teams_by_id[preview_id]
-        dev_team = teams_by_id[development_id]
-
-        production_resource = TeamIntegration.objects.filter(
-            team=production_team, kind=TeamIntegration.IntegrationKind.VERCEL
-        ).first()
-
-        if not production_resource:
-            return Response(
-                {"detail": "Failed to find or create production resource. Please reconnect the integration."},
-                status=500,
-            )
+        production_resource = resources[production_id]
 
         access_token = integration.sensitive_config.get("credentials", {}).get(
             "access_token"
         ) or integration.config.get("credentials", {}).get("access_token")
         if access_token and integration.integration_id:
-            all_same = production_id == preview_id == development_id
-            secrets: list[dict[str, Any]] = [
-                {
-                    "name": "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
-                    "value": production_team.api_token,
-                    **(
-                        {}
-                        if all_same
-                        else {
-                            "environmentOverrides": {
-                                **({"preview": preview_team.api_token} if preview_id != production_id else {}),
-                                **({"development": dev_team.api_token} if development_id != production_id else {}),
-                            }
-                        }
-                    ),
-                },
-                {
-                    "name": "NEXT_PUBLIC_POSTHOG_HOST",
-                    "value": VercelIntegration._build_secrets(production_team)[1]["value"],
-                },
-            ]
+            from ee.api.vercel.vercel_connect import VercelConnectLinkViewSet
+
+            secrets = VercelConnectLinkViewSet._build_env_secrets(
+                teams_by_id, production_id, preview_id, development_id
+            )
             client = VercelAPIClient(bearer_token=access_token)
             client.import_resource(
                 integration_config_id=integration.integration_id,

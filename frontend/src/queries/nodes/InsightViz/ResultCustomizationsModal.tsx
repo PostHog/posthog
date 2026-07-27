@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonColorButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { DataColorToken } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { LemonColorList } from 'lib/lemon-ui/LemonColor/LemonColorList'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -23,7 +24,9 @@ export function ResultCustomizationsModal(): JSX.Element | null {
     const { modalVisible, dataset, colorToken, resultCustomizationBy } = useValues(
         resultCustomizationsModalLogic(insightProps)
     )
-    const { closeModal, setColorToken, save } = useActions(resultCustomizationsModalLogic(insightProps))
+    const { closeModal, setColorToken, clearColorToken, save } = useActions(
+        resultCustomizationsModalLogic(insightProps)
+    )
 
     const { isTrends, isFunnels, querySource } = useValues(insightVizDataLogic)
 
@@ -63,21 +66,12 @@ export function ResultCustomizationsModal(): JSX.Element | null {
             {isFunnels && <FunnelsInfo dataset={dataset as FlattenedFunnelStepByBreakdown} />}
 
             <h3 className="l4 mt-2 mb-2">Color</h3>
-            <div className="flex flex-wrap gap-1">
-                {Object.keys(theme).map((key) => (
-                    <LemonColorButton
-                        key={key}
-                        colorToken={key as DataColorToken}
-                        type={key === colorToken ? 'secondary' : 'tertiary'}
-                        onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-
-                            setColorToken(key as DataColorToken)
-                        }}
-                    />
-                ))}
-            </div>
+            <LemonColorList
+                colorTokens={Object.keys(theme) as DataColorToken[]}
+                selectedColorToken={colorToken}
+                onSelectColorToken={setColorToken}
+                onClearColorToken={clearColorToken}
+            />
         </LemonModal>
     )
 }
@@ -92,15 +86,18 @@ function TrendsInfo({ dataset, resultCustomizationBy }: TrendsInfoProps): JSX.El
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { breakdownFilter } = useValues(insightVizDataLogic)
 
+    // Formula series carry no entity (`action` is null), so fall back to the series label.
+    const seriesName = dataset.action ? (
+        <EntityFilterInfo filter={dataset.action} allowWrap={true} showSingleName={true} />
+    ) : (
+        dataset.label
+    )
+
     return (
         <>
             {dataset.breakdown_value ? (
                 <p className="mb-2">
-                    You are customizing the appearance of series{' '}
-                    <b>
-                        <EntityFilterInfo filter={dataset.action} allowWrap={true} showSingleName={true} />
-                    </b>{' '}
-                    for the breakdown{' '}
+                    You are customizing the appearance of series <b>{seriesName}</b> for the breakdown{' '}
                     <b>
                         {formatBreakdownLabel(
                             dataset.breakdown_value,
@@ -113,11 +110,7 @@ function TrendsInfo({ dataset, resultCustomizationBy }: TrendsInfoProps): JSX.El
                 </p>
             ) : (
                 <p className="mb-2">
-                    You are customizing the appearance of series{' '}
-                    <b>
-                        <EntityFilterInfo filter={dataset.action} allowWrap={true} showSingleName={true} />
-                    </b>
-                    .
+                    You are customizing the appearance of series <b>{seriesName}</b>.
                 </p>
             )}
 
@@ -146,7 +139,8 @@ function FunnelsInfo({ dataset }: FunnelsInfoProps): JSX.Element {
     return (
         <>
             You are customizing the appearance of the{' '}
-            {dataset.breakdown_value?.[0] === 'Baseline' ? (
+            {/* Pure-compare rows carry no breakdown value but customize the baseline color. */}
+            {dataset.breakdown_value?.[0] === 'Baseline' || !dataset.breakdown_value ? (
                 <b>Baseline</b>
             ) : (
                 <>

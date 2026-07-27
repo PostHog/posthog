@@ -13,6 +13,7 @@ from temporalio import activity
 
 from posthog.clickhouse.cluster import AlterTableMutationRunner, get_cluster
 from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
+from posthog.clickhouse.materialized_columns import DMAT_STRING_COLUMN_NAME_PREFIX
 from posthog.models import MaterializedColumnSlot
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dmat_slot_assignments.sql import (
@@ -27,8 +28,6 @@ from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import close_db_connections
 
 logger = structlog.get_logger(__name__)
-
-DMAT_STRING_COLUMN_NAME_PREFIX = "dmat_string_"
 
 
 def _generate_property_extraction_sql(property_name_param: str = "property_name") -> str:

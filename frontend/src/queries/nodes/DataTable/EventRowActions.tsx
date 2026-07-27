@@ -68,10 +68,10 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
                     fullWidth
                     sideIcon={<IconWarning />}
                     data-attr="events-table-issue-link"
-                    to={urls.errorTrackingIssue(
-                        event.properties.$exception_issue_id,
-                        event.properties.$exception_fingerprint
-                    )}
+                    to={urls.errorTrackingIssue(event.properties.$exception_issue_id, {
+                        fingerprint: event.properties.$exception_fingerprint,
+                        timestamp: event.timestamp,
+                    })}
                 >
                     Visit issue
                 </LemonButton>
@@ -81,7 +81,7 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
                     fullWidth
                     sideIcon={<IconLlmAnalytics />}
                     data-attr="events-table-trace-link"
-                    to={urls.llmAnalyticsTrace(
+                    to={urls.aiObservabilityTrace(
                         event.properties.$ai_trace_id,
                         event.event === '$ai_trace'
                             ? { event: event.id, exception_ts: event.timestamp }

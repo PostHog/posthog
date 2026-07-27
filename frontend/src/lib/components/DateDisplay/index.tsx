@@ -1,7 +1,7 @@
 import './DateDisplay.scss'
 
 import { dayjs } from 'lib/dayjs'
-import { getConstrainedWeekRange } from 'lib/utils/dateTimeUtils'
+import { getConstrainedWeekRange } from 'lib/utils/datetime'
 
 import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
@@ -23,6 +23,8 @@ const DISPLAY_DATE_FORMAT: Record<IntervalType, string> = {
     day: 'D MMM',
     week: 'D MMM',
     month: 'MMM',
+    quarter: '[Q]Q',
+    year: 'YYYY',
 }
 
 const dateHighlight = (parsedDate: dayjs.Dayjs, interval: IntervalType): string => {
@@ -39,6 +41,10 @@ const dateHighlight = (parsedDate: dayjs.Dayjs, interval: IntervalType): string 
             return parsedDate.format('dd')
         case 'month':
             return parsedDate.format('YYYY')
+        case 'quarter':
+            return parsedDate.format('YYYY')
+        case 'year':
+            return ''
         default:
             return parsedDate.format('dd')
     }

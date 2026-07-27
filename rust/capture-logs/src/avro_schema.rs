@@ -85,6 +85,17 @@ pub const AVRO_SCHEMA: &str = r#"
         "values": "string"
     }],
     "doc": "A map of custom string-valued attributes associated with the log."
+    },
+    {
+    "name": "bytes_uncompressed",
+    "type": ["null", "long"],
+    "doc": "Logical content size of the row (sum of byte lengths of string/map fields). Used by drop-rule accounting; does not include fixed-width numeric or timestamp fields."
+    },
+    {
+    "name": "retention_days",
+    "type": ["null", "int"],
+    "default": null,
+    "doc": "Per-row retention in days, stamped by the Node consumer from team retention rules. Null when unset — ClickHouse then falls back to the batch `retention-days` header. capture-logs always writes null; it does not evaluate team rules."
     }
 ]
 }"#;

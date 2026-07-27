@@ -32,10 +32,6 @@ The main cluster is:
 
 Additionally, on k8s we have stateless nodes:
 
-## ShuffleHog nodes
-
-It shuffles data between Kafka partitions.
-
 ## Ingestion nodes
 
 It ingests data from Kafka to a proper ClickHouse shard.
@@ -48,6 +44,36 @@ The way this is done:
 3. Create a materialized view that reads from Kafka and writes to the writetable table
 
 If a destination table is non-sharded, we pick only one node as data for the Distributed table.
+
+# Local setup parity
+
+No table should exist only in the cloud. Every table created via migration must also exist
+in a local dev environment.
+
+Some migrations are cloud-guarded and skipped in local/hobby dev:
+
+```python
+operations = (
+    []
+    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV")
+    else [...]
+)
+```
+
+If you create a new table inside such a guard, also add its SQL function to
+`posthog/clickhouse/schema.py` in the appropriate tuple so the table is created locally:
+
+| Table type             | Tuple in `schema.py`               |
+| ---------------------- | ---------------------------------- |
+| MergeTree / base table | `CREATE_MERGETREE_TABLE_QUERIES`   |
+| Distributed / writable | `CREATE_DISTRIBUTED_TABLE_QUERIES` |
+| Kafka consumer         | `CREATE_KAFKA_TABLE_QUERIES`       |
+| Materialized view      | `CREATE_MV_TABLE_QUERIES`          |
+| Non-materialized view  | `CREATE_VIEW_QUERIES`              |
+| Dictionary             | `CREATE_DICTIONARY_QUERIES`        |
+
+The only exception is tables whose definition intentionally differs per environment and is
+not tracked in the repo (e.g. the no-go zone `events_json_ws_mv` table above).
 
 # Migration basics
 
@@ -125,16 +151,44 @@ engine=Distributed(
 > [!CAUTION]
 > Do not use `ON CLUSTER` clause, it causes issues and is incompatible with our migration setup.
 
+> [!CAUTION]
+> Never write a `DROP COLUMN` migration on your own. `DROP COLUMN` can get stuck in ClickHouse
+> and block releases. Column removal follows a two-step process:
+>
+> 1. The ClickHouse team drops the column directly on the cluster.
+> 2. You write a migration with the matching `DROP COLUMN` to keep the codebase schema in sync.
+>
+> Do not initiate step 2 without confirmation that step 1 has been completed.
+
 > [!INFO]
-> Always use `IF EXISTS` or `IF NOT EXISTS` clauses:
+> Always use `IF EXISTS` / `IF NOT EXISTS` guards. For `ALTER TABLE` the guard goes on the
+> operation, **not** on the table — `ALTER TABLE IF EXISTS ...` is a ClickHouse syntax error.
 >
-> `CREATE TABLE IF NOT EXISTS`
+> `CREATE TABLE IF NOT EXISTS my_table ...`
 >
-> `ALTER TABLE IF EXISTS`
+> `ALTER TABLE my_table ADD COLUMN IF NOT EXISTS my_col ...`
 >
-> `ALTER TABLE IF EXISTS ADD COLUMN`
+> `ALTER TABLE my_table MODIFY COLUMN IF EXISTS my_col ...`
 >
-> `ALTER TABLE IF EXISTS DROP COLUMN`
+> `ALTER TABLE my_table DROP COLUMN IF EXISTS my_col`
+
+> [!CAUTION]
+> Never drop or recreate `kafka_events_json_ws` or `events_json_ws_mv`. These tables are a
+> no-go zone. The MV definition differs between US prod, EU prod, and dev (dozens of
+> environment-specific `mat_*` materialized columns) and those differences are **not reflected
+> in the repo**. Dropping and recreating from repo SQL would destroy the environment-specific
+> schema and break event ingestion. Any change must go through the ClickHouse team.
+
+> [!INFO]
+> A PR containing a ClickHouse migration must be migration-only. Do not mix it with feature code,
+> API changes, model changes, or frontend changes. Migration-related files are:
+>
+> - The migration file itself (`posthog/clickhouse/migrations/0NNN_*.py`)
+> - SQL definition files the migration depends on (e.g. `posthog/clickhouse/sql/*.py`)
+> - Tests that directly exercise the migration or the SQL definitions it touches
+>
+> If application code needs the new schema, ship the migration PR first and merge it before
+> the application-code PR.
 
 # CREATE / DROP patterns
 
@@ -282,7 +336,7 @@ SYNC is not necessary for non-replicated objects: Kafka table engine, Distribute
 
 ```python
 run_sql_with_exceptions(
-    "ALTER TABLE IF EXISTS my_table ADD COLUMN ...",
+    "ALTER TABLE my_table ADD COLUMN IF NOT EXISTS ...",
     node_roles=[NodeRole.DATA],
     is_alter_on_replicated_table=True
 )
@@ -294,7 +348,7 @@ The `is_alter_on_replicated_table=True` flag ensures the ALTER runs on one host 
 
 ```python
 run_sql_with_exceptions(
-    "ALTER TABLE IF EXISTS sharded_my_table ADD COLUMN ...",
+    "ALTER TABLE sharded_my_table ADD COLUMN IF NOT EXISTS ...",
     node_roles=[NodeRole.DATA],
     sharded=True
 )
@@ -306,7 +360,7 @@ The `sharded=True` flag ensures the ALTER runs once per shard.
 
 ```python
 run_sql_with_exceptions(
-    "ALTER TABLE IF EXISTS distributed_my_table ADD COLUMN ...",
+    "ALTER TABLE distributed_my_table ADD COLUMN IF NOT EXISTS ...",
     node_roles=[NodeRole.DATA]
 )
 ```

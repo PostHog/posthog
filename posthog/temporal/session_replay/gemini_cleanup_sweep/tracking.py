@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 
 import structlog
+from google.genai.errors import APIError
 
 from posthog.redis import get_async_client
 from posthog.temporal.session_replay.gemini_cleanup_sweep.constants import (
@@ -16,6 +17,13 @@ from posthog.temporal.session_replay.gemini_cleanup_sweep.constants import (
 from posthog.temporal.session_replay.gemini_cleanup_sweep.types import TrackedFile
 
 logger = structlog.get_logger(__name__)
+
+
+def is_gemini_file_gone(error: Exception) -> bool:
+    """Whether a Gemini delete failure means the file no longer exists. Gemini reports missing
+    files as 403 PERMISSION_DENIED ("...or it may not exist"), not just 404 — callers should
+    untrack on either instead of retrying a doomed delete."""
+    return isinstance(error, APIError) and error.code in (403, 404)
 
 
 def _redis_key_for(gemini_file_name: str) -> str:

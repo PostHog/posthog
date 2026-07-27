@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { truncate } from 'lib/utils'
+import { truncate } from 'lib/utils/strings'
 import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL } from 'scenes/surveys/constants'
 
 import {
@@ -128,7 +128,7 @@ export function QuestionBranchingInput({
                     options={dropdownOptions}
                     disabled={!!editingLanguage}
                     disabledReason={
-                        editingLanguage ? 'Question branching can only be edited in the default language' : undefined
+                        editingLanguage ? 'Question branching can only be edited in the original language' : undefined
                     }
                 />
             </LemonField>

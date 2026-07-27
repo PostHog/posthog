@@ -1,0 +1,167 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Business knowledge
+feature: business_knowledge
+url_prefix: /business-knowledge
+ui_apps: {}
+tools:
+    business-knowledge-document-window-retrieve:
+        operation: business_knowledge_documents_window_list
+        enabled: true
+        scopes:
+            - business_knowledge:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read business knowledge document context
+        description: >
+            Returns a window of content chunks from a business knowledge document, centered around a specific ordinal.
+            Use after searching knowledge to get more surrounding context for a specific result.
+        feature_flag: product-business-knowledge
+    business-knowledge-documents-search:
+        operation: business_knowledge_documents_search_list
+        enabled: true
+        scopes:
+            - business_knowledge:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search business knowledge
+        description: >
+            Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with
+            document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use
+            for any question about the team's own product, policies, domain knowledge, or internal docs. Set rerank=true
+            for a listwise LLM rerank pass when top-result precision matters.
+        feature_flag: product-business-knowledge
+    business-knowledge-gap-suggestions-accept-create:
+        operation: business_knowledge_gap_suggestions_accept_create
+        enabled: false
+    business-knowledge-gap-suggestions-accept-topic-create:
+        operation: business_knowledge_gap_suggestions_accept_topic_create
+        enabled: false
+    business-knowledge-gap-suggestions-dismiss-create:
+        operation: business_knowledge_gap_suggestions_dismiss_create
+        enabled: false
+    business-knowledge-gap-suggestions-dismiss-topic-create:
+        operation: business_knowledge_gap_suggestions_dismiss_topic_create
+        enabled: false
+    business-knowledge-gap-suggestions-list:
+        operation: business_knowledge_gap_suggestions_list
+        enabled: false
+    business-knowledge-sources-destroy:
+        operation: business_knowledge_sources_destroy
+        enabled: false
+    business-knowledge-sources-list:
+        operation: business_knowledge_sources_list
+        enabled: true
+        scopes:
+            - business_knowledge:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List business knowledge sources
+        description: >
+            List all business knowledge sources in the project, with document/chunk counts, processing status, and
+            refresh metadata.
+        feature_flag: product-business-knowledge
+        response:
+            include:
+                - id
+                - name
+                - source_type
+                - status
+                - error_message
+                - document_count
+                - chunk_count
+                - source_url
+                - has_unsafe_documents
+                - always_include
+                - refresh_interval
+                - next_refresh_at
+                - created_at
+                - updated_at
+    business-knowledge-sources-partial-update:
+        operation: business_knowledge_sources_partial_update
+        enabled: true
+        scopes:
+            - business_knowledge:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update business knowledge source
+        description: >
+            Update an existing business knowledge source by ID. Change its name, replace the text content (text sources
+            only — triggers a re-chunk), or toggle `always_include`. Set `always_include: true` to inject this source's
+            content into every support reply as general guidance (tone, policies, company direction); set false to make
+            it retrieval-only again. Only the fields you pass are changed.
+        feature_flag: product-business-knowledge
+    business-knowledge-sources-refresh-create:
+        operation: business_knowledge_sources_refresh_create
+        enabled: false
+    business-knowledge-sources-retrieve:
+        operation: business_knowledge_sources_retrieve
+        enabled: true
+        scopes:
+            - business_knowledge:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get business knowledge source
+        description: >
+            Get a single business knowledge source by ID, including processing status, document/chunk counts, and
+            refresh metadata.
+        feature_flag: product-business-knowledge
+    business-knowledge-sources-text-create:
+        operation: business_knowledge_sources_create
+        enabled: true
+        scopes:
+            - business_knowledge:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create text business knowledge source
+        description: >
+            Save durable, reusable company knowledge as a searchable text source — the kind of reference material a team
+            wants every future agent session to draw on. Good fits: product specs, internal docs, runbooks, policies,
+            FAQs, glossaries, architecture/decision records, brand or style guides. Do NOT use this as a scratchpad for
+            the current task or to dump transient material (raw web-search results, random articles, one-off snippets,
+            chat logs) — only persist knowledge the user has asked to keep or that is clearly of lasting value to the
+            whole team. Never store secrets or personal data. Provide a short descriptive name and the raw text (capped
+            at 1 MB); it is chunked, embedded, and made searchable. Returns the created source with its processing
+            status.
+        feature_flag: product-business-knowledge
+    business-knowledge-sources-text-retrieve:
+        operation: business_knowledge_sources_text_retrieve
+        enabled: false
+    business-knowledge-sources-url-create:
+        operation: business_knowledge_sources_create
+        enabled: true
+        scopes:
+            - business_knowledge:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        input_schema: BusinessKnowledgeUrlSourceCreateSchema
+        title: Create URL business knowledge source
+        description: >
+            Index a web page as durable, reusable company knowledge that every future agent session can draw on. Use it
+            for authoritative, lasting references the whole team benefits from — public product docs, API references,
+            help-center articles, changelogs, status/policy pages. Do NOT index pages you happened to open while
+            researching the current task, arbitrary search-result links, or pages the user didn't ask to keep — this
+            store is curated team knowledge, not a browsing history. Provide a name and a public HTTP(S) URL; the page
+            is fetched, parsed, chunked, and made searchable. Optionally set a refresh interval so the source is
+            re-fetched automatically. Returns the created source with its processing status (initially "processing"
+            while the URL is fetched in the background).
+        feature_flag: product-business-knowledge

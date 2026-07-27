@@ -1,4 +1,4 @@
-import { AssigneeFilter } from './Assignee'
+import { AssigneeFilter } from '../Assignee/ErrorTrackingAssigneeSelectButton'
 import { DateRangeFilter } from './DateRange'
 import { FilterGroup } from './FilterGroup'
 import { InternalAccountsFilter } from './InternalAccounts'

@@ -1,8 +1,7 @@
 """AST rewriter that translates queries written against `ai_events` columns to work with the `events` table.
 
 This is the reverse of `AiPropertyRewriter`. When a query targets the `events` table
-as a fallback (e.g. data older than the `ai_events` TTL, or the kill switch is off),
-this rewriter:
+as a fallback (e.g. data older than the `ai_events` retention TTL), this rewriter:
 
 1. Rewrites dedicated column references (e.g. `trace_id`) to property access
    (e.g. `properties.$ai_trace_id`) so they resolve against the `events` table.
@@ -60,6 +59,26 @@ _NUMERIC_COLUMNS: frozenset[str] = frozenset(
 )
 
 _BOOLEAN_COLUMNS: frozenset[str] = frozenset({"is_error"})
+_RAW_JSON_COLUMNS: frozenset[str] = frozenset(
+    {"input", "output", "output_choices", "input_state", "output_state", "tools"}
+)
+_EVENTS_TABLE_ALIAS = "__ai_events_fallback"
+
+# Forced String so detection can't coerce timestamp-/number-shaped IDs and break an exact match.
+_STRING_ID_COLUMNS: frozenset[str] = frozenset(
+    {
+        "trace_id",
+        "session_id",
+        "parent_id",
+        "span_id",
+        "generation_id",
+        "experiment_id",
+    }
+)
+
+EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES: dict[str, str] = {
+    AI_COLUMN_TO_PROPERTY[col]: "String" for col in _STRING_ID_COLUMNS
+}
 
 
 class AiColumnToPropertyRewriter(CloningVisitor):
@@ -80,10 +99,22 @@ class AiColumnToPropertyRewriter(CloningVisitor):
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         was_in_scope = self._in_ai_events_scope
         old_qualifier = self._table_qualifier
-        if _has_ai_events_from(node):
+        in_ai_events_scope = _has_ai_events_from(node)
+        natural_names: list[str | None] = []
+        if in_ai_events_scope:
             self._in_ai_events_scope = True
             self._table_qualifier = node.select_from.alias or "ai_events" if node.select_from else "ai_events"
+            # Snapshot the pre-rewrite name of each SELECT-list bare Field. The rewrite
+            # turns `trace_id` into `properties.$ai_trace_id`, which loses the column
+            # name a parent query would reference (e.g. `SELECT trace_id FROM (...)`).
+            # We re-alias below to keep the subquery's exposed column names stable.
+            natural_names = [_select_item_natural_name(item, self._table_qualifier) for item in node.select]
         result = super().visit_select_query(node)
+        if in_ai_events_scope:
+            result.select = [
+                ast.Alias(alias=name, expr=item) if name and not isinstance(item, ast.Alias) else item
+                for name, item in zip(natural_names, result.select)
+            ]
         self._in_ai_events_scope = was_in_scope
         self._table_qualifier = old_qualifier
         return result
@@ -99,10 +130,10 @@ class AiColumnToPropertyRewriter(CloningVisitor):
             col_name = chain[1]
             if isinstance(col_name, str) and col_name in AI_COLUMN_TO_PROPERTY:
                 prop_name = AI_COLUMN_TO_PROPERTY[col_name]
-                new_chain: list[str | int] = ["events", "properties", prop_name, *chain[2:]]
-                return _wrap_for_events_type(col_name, prop_name, new_chain)
+                new_chain: list[str | int] = [_EVENTS_TABLE_ALIAS, "properties", prop_name, *chain[2:]]
+                return _wrap_for_events_type(col_name, new_chain)
             # Native column (timestamp, event, distinct_id, etc.) — just swap table prefix
-            return ast.Field(chain=["events", *chain[1:]])
+            return ast.Field(chain=[_EVENTS_TABLE_ALIAS, *chain[1:]])
 
         # Bare column: ["column_name", ...]
         if len(chain) >= 1:
@@ -110,7 +141,7 @@ class AiColumnToPropertyRewriter(CloningVisitor):
             if isinstance(col_name, str) and col_name in AI_COLUMN_TO_PROPERTY:
                 prop_name = AI_COLUMN_TO_PROPERTY[col_name]
                 new_chain = ["properties", prop_name, *chain[1:]]
-                return _wrap_for_events_type(col_name, prop_name, new_chain)
+                return _wrap_for_events_type(col_name, new_chain)
 
         return super().visit_field(node)
 
@@ -123,8 +154,30 @@ class AiColumnToPropertyRewriter(CloningVisitor):
         # nosemgrep: hogql-no-string-table-chain
         if isinstance(new_node.table, ast.Field) and new_node.table.chain == ["posthog", "ai_events"]:
             new_node.table = ast.Field(chain=["events"])
-            new_node.alias = None
+            new_node.alias = _EVENTS_TABLE_ALIAS
         return new_node
+
+
+def _select_item_natural_name(item: ast.Expr, table_qualifier: str) -> str | None:
+    """Return the column name this SELECT-list bare Field would lose during rewrite.
+
+    Returns the original column name for bare (`["trace_id"]`) or table-qualified
+    (`["ai_events", "trace_id"]`) AI column refs that this rewriter would otherwise
+    transform into `properties.$ai_*` and silently lose the column name.
+    """
+    if not isinstance(item, ast.Field):
+        return None
+    chain = item.chain
+    if len(chain) == 1 and isinstance(chain[0], str) and chain[0] in AI_COLUMN_TO_PROPERTY:
+        return chain[0]
+    if (
+        len(chain) == 2
+        and chain[0] == table_qualifier
+        and isinstance(chain[1], str)
+        and chain[1] in AI_COLUMN_TO_PROPERTY
+    ):
+        return chain[1]
+    return None
 
 
 def _has_ai_events_from(query: ast.SelectQuery) -> bool:
@@ -142,7 +195,7 @@ def _has_ai_events_from(query: ast.SelectQuery) -> bool:
     )
 
 
-def _wrap_for_events_type(col_name: str, prop_name: str, chain: list[str | int]) -> ast.Expr:
+def _wrap_for_events_type(col_name: str, chain: list[str | int]) -> ast.Expr:
     """Wrap a rewritten property reference to preserve the ai_events column type.
 
     On the events table, properties are strings (JSON extraction). Aggregate functions
@@ -163,6 +216,15 @@ def _wrap_for_events_type(col_name: str, prop_name: str, chain: list[str | int])
         )
     if col_name in _NUMERIC_COLUMNS:
         return ast.Call(name="toFloat", args=[ast.Field(chain=chain)])
+    if col_name in _RAW_JSON_COLUMNS:
+        properties_index = chain.index("properties")
+        return ast.Call(
+            name="JSONExtractRaw",
+            args=[
+                ast.Field(chain=chain[: properties_index + 1]),
+                *[ast.Constant(value=key) for key in chain[properties_index + 1 :]],
+            ],
+        )
     return ast.Field(chain=chain)
 
 

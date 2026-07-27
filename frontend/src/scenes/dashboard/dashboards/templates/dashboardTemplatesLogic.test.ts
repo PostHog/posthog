@@ -83,6 +83,29 @@ describe('dashboardTemplatesLogic', () => {
         expect(listMock.mock.calls.some(([params]: [DashboardTemplateListParams]) => expectedParams(params))).toBe(true)
     })
 
+    it.each([
+        { visibility: 'official' as const, expectedScope: 'global' },
+        { visibility: 'project' as const, expectedScope: 'team' },
+        { visibility: 'organization' as const, expectedScope: 'organization' },
+        { visibility: 'all' as const, expectedScope: undefined },
+    ])(
+        'templates tab visibility "$visibility" maps to list scope "$expectedScope"',
+        async ({ visibility, expectedScope }) => {
+            const listMock = api.dashboardTemplates.list as jest.Mock
+            const mounted = dashboardTemplatesLogic({ scope: 'default', templatesTabList: true })
+            logic = mounted
+            mounted.mount()
+
+            await expectLogic(mounted, () =>
+                mounted.actions.setTemplatesTabVisibility(visibility)
+            ).toFinishAllListeners()
+
+            expect(
+                listMock.mock.calls.some(([params]: [DashboardTemplateListParams]) => params.scope === expectedScope)
+            ).toBe(true)
+        }
+    )
+
     it('clears the template search when the dashboard list URL no longer includes a search (stale query no longer hides templates)', async () => {
         router.actions.push('/dashboard', { templateFilter: 'needle' })
         const mounted = dashboardTemplatesLogic({ scope: 'default' })

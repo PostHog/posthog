@@ -23,11 +23,11 @@ impl fmt::Debug for NoPublicIPv4Error {
 /// Internal reqwest type, copied here as part of Resolving
 pub(crate) type BoxError = Box<dyn StdError + Send + Sync>;
 
-/// Returns [`true`] if the address appears to be a globally reachable IPv4.
+/// Returns [`true`] if the IP appears to be a globally reachable IPv4.
 ///
 /// Trimmed down version of the unstable IpAddr::is_global, move to it when it's stable.
-fn is_global_ipv4(addr: &SocketAddr) -> bool {
-    match addr.ip() {
+pub fn is_global_ip(ip: &IpAddr) -> bool {
+    match ip {
         IpAddr::V4(ip) => {
             !(ip.octets()[0] == 0 // "This network"
             || ip.is_private()
@@ -37,6 +37,10 @@ fn is_global_ipv4(addr: &SocketAddr) -> bool {
         }
         IpAddr::V6(_) => false, // Our network does not currently support ipv6, let's ignore for now
     }
+}
+
+fn is_global_ipv4(addr: &SocketAddr) -> bool {
+    is_global_ip(&addr.ip())
 }
 
 /// DNS resolver using the stdlib resolver, but filtering results to only pass public IPv4 results.
@@ -81,6 +85,46 @@ impl Resolve for PublicIPv4Resolver {
 
         // Box the Future to satisfy the Resolving interface.
         Box::pin(future_result)
+    }
+}
+
+/// DNS resolver for the AWS Smithy SDK, filtering to public IPv4 only.
+///
+/// Same logic as [`PublicIPv4Resolver`] (which targets reqwest), but implements
+/// [`aws_smithy_runtime_api::client::dns::ResolveDns`] for use with the AWS SDK S3 client.
+/// Gated behind the `smithy` feature to avoid pulling AWS SDK deps into unrelated consumers.
+#[cfg(feature = "smithy")]
+#[derive(Debug, Clone)]
+pub struct PublicIPv4SmithyResolver;
+
+#[cfg(feature = "smithy")]
+impl aws_smithy_runtime_api::client::dns::ResolveDns for PublicIPv4SmithyResolver {
+    fn resolve_dns<'a>(
+        &'a self,
+        name: &'a str,
+    ) -> aws_smithy_runtime_api::client::dns::DnsFuture<'a> {
+        use aws_smithy_runtime_api::client::dns::{DnsFuture, ResolveDnsError};
+
+        let name = name.to_string();
+        DnsFuture::new(async move {
+            let resolve_host =
+                move || std::net::ToSocketAddrs::to_socket_addrs(&(name.as_str(), 0));
+
+            let result = tokio::task::spawn_blocking(resolve_host)
+                .await
+                .map_err(|e| ResolveDnsError::new(io::Error::from(e)))?;
+
+            let all_addrs = result.map_err(ResolveDnsError::new)?;
+
+            let filtered: Vec<std::net::IpAddr> =
+                all_addrs.filter(is_global_ipv4).map(|sa| sa.ip()).collect();
+
+            if filtered.is_empty() {
+                Err(ResolveDnsError::new(NoPublicIPv4Error))
+            } else {
+                Ok(filtered)
+            }
+        })
     }
 }
 
@@ -136,5 +180,48 @@ mod tests {
                     .contains("failed to lookup address information"))
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "smithy"))]
+mod smithy_tests {
+    use crate::PublicIPv4SmithyResolver;
+    use aws_smithy_runtime_api::client::dns::ResolveDns;
+
+    #[tokio::test]
+    async fn smithy_resolves_google_com() {
+        let resolver = PublicIPv4SmithyResolver;
+        let addrs = resolver
+            .resolve_dns("google.com")
+            .await
+            .expect("lookup has failed");
+        assert!(!addrs.is_empty(), "empty address list");
+    }
+
+    #[tokio::test]
+    async fn smithy_denies_localhost() {
+        let resolver = PublicIPv4SmithyResolver;
+        let err = resolver
+            .resolve_dns("localhost")
+            .await
+            .expect_err("should have rejected localhost");
+        assert!(
+            err.to_string().contains("DNS") || format!("{:?}", err).contains("NoPublicIPv4Error"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn smithy_bubbles_up_resolution_error() {
+        let resolver = PublicIPv4SmithyResolver;
+        let err = resolver
+            .resolve_dns("invalid.domain.unknown")
+            .await
+            .expect_err("should have failed");
+        let debug = format!("{:?}", err);
+        assert!(
+            debug.contains("lookup address") || debug.contains("DNS"),
+            "unexpected error: {debug}"
+        );
     }
 }

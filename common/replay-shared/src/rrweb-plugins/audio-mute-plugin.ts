@@ -1,5 +1,5 @@
-import { ReplayPlugin, Replayer } from '@posthog/rrweb'
-import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
+import { ReplayPlugin, Replayer } from 'posthog-js/rrweb'
+import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
 export const AudioMuteReplayerPlugin = (isMuted: boolean): ReplayPlugin => {
     const applyMuteToMediaElement = (element: HTMLElement): void => {

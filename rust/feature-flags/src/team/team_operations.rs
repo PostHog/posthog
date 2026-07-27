@@ -2,6 +2,7 @@ use crate::{
     api::errors::FlagError, database::get_connection_with_metrics, team::team_models::Team,
 };
 use common_database::PostgresReader;
+use tracing::warn;
 
 /// SQL fragment for selecting all Team columns
 const TEAM_COLUMNS: &str = "
@@ -10,6 +11,7 @@ const TEAM_COLUMNS: &str = "
     name,
     api_token,
     organization_id,
+    project_id,
     cookieless_server_hash_mode,
     timezone,
     autocapture_opt_out,
@@ -41,10 +43,25 @@ const TEAM_COLUMNS: &str = "
     session_recording_url_blocklist_config,
     session_recording_event_trigger_config,
     session_recording_trigger_match_type_config,
-    recording_domains
+    recording_domains,
+    COALESCE(
+        (SELECT minimal_flag_called_events FROM feature_flags_teamfeatureflagsconfig WHERE team_id = posthog_team.id),
+        false
+    ) AS minimal_flag_called_events
 ";
 
 impl Team {
+    /// Parses the team's stored timezone string into a `chrono_tz::Tz`, falling back to
+    /// UTC (with a warning) for an unrecognized value. Every flag-evaluation path that
+    /// interprets naive datetime filter values in the team's local time goes through here,
+    /// so the fallback policy and warning live in one place.
+    pub fn parsed_timezone(&self) -> chrono_tz::Tz {
+        self.timezone.parse().unwrap_or_else(|_| {
+            warn!(team_id = self.id, timezone = %self.timezone, "unrecognized team timezone, falling back to UTC for datetime flag evaluation");
+            chrono_tz::Tz::UTC
+        })
+    }
+
     pub async fn from_pg(client: PostgresReader, token: &str) -> Result<Team, FlagError> {
         let mut conn =
             get_connection_with_metrics(&client, "non_persons_reader", "fetch_team").await?;
@@ -284,5 +301,51 @@ mod tests {
         let config = team_from_pg.extra_settings.unwrap();
         let recorder_script = config.get("recorder_script").and_then(|v| v.as_str());
         assert_eq!(recorder_script, Some(""));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_defaults_minimal_flag_called_events_false_without_config_row() {
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        let team_from_pg = Team::from_pg(context.non_persons_reader.clone(), &team.api_token)
+            .await
+            .expect("Failed to fetch team from pg");
+
+        assert!(!team_from_pg.minimal_flag_called_events);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_reflects_gated_minimal_flag_called_events() {
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        let mut conn = get_connection_with_metrics(
+            &context.non_persons_reader,
+            "non_persons_reader",
+            "test_insert_team_feature_flags_config",
+        )
+        .await
+        .expect("Failed to get connection");
+
+        sqlx::query(
+            "INSERT INTO feature_flags_teamfeatureflagsconfig (team_id, minimal_flag_called_events) VALUES ($1, true)",
+        )
+        .bind(team.id)
+        .execute(&mut *conn)
+        .await
+        .expect("Failed to insert TeamFeatureFlagsConfig row");
+
+        let team_from_pg = Team::from_pg(context.non_persons_reader.clone(), &team.api_token)
+            .await
+            .expect("Failed to fetch team from pg");
+
+        assert!(team_from_pg.minimal_flag_called_events);
     }
 }

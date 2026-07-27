@@ -54,9 +54,13 @@ class OrganizationUsageInfo(TypedDict):
     api_queries_read_bytes: OrganizationUsageResource | None
     llm_events: OrganizationUsageResource | None
     ai_credits: OrganizationUsageResource | None
+    signals_credits: OrganizationUsageResource | None
+    posthog_code_credits: OrganizationUsageResource | None
     workflow_emails: OrganizationUsageResource | None
+    workflow_push: OrganizationUsageResource | None
     workflow_destinations_dispatched: OrganizationUsageResource | None
     logs_mb_ingested: OrganizationUsageResource | None
+    replay_vision_credits: OrganizationUsageResource | None
     period: list[str] | None
 
 
@@ -93,6 +97,8 @@ class OrganizationManager(models.Manager):
         # Set default_anonymize_ips based on deployment if not explicitly provided
         if "default_anonymize_ips" not in kwargs:
             kwargs["default_anonymize_ips"] = default_anonymize_ips()
+        if "is_ai_training_opted_in" not in kwargs:
+            kwargs["is_ai_training_opted_in"] = default_is_ai_training_opted_in()
         return create_with_slug(super().create, *args, **kwargs)
 
     def bootstrap(
@@ -109,6 +115,8 @@ class OrganizationManager(models.Manager):
             # Set default_anonymize_ips based on deployment if not explicitly provided
             if "default_anonymize_ips" not in kwargs:
                 kwargs["default_anonymize_ips"] = default_anonymize_ips()
+            if "is_ai_training_opted_in" not in kwargs:
+                kwargs["is_ai_training_opted_in"] = default_is_ai_training_opted_in()
             organization = Organization.objects.create(**kwargs)
             _, team = Project.objects.create_with_team(
                 initiating_user=user, organization=organization, team_fields=team_fields
@@ -134,7 +142,12 @@ def default_anonymize_ips():
     return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
 
 
-class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manager-missing]
+def default_is_ai_training_opted_in():
+    """Default to False (opted out) for EU cloud deployments to comply with stricter privacy requirements"""
+    return getattr(settings, "CLOUD_DEPLOYMENT", None) != "EU"
+
+
+class Organization(ModelActivityMixin, UUIDTModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -202,10 +215,39 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
     is_member_join_email_enabled = models.BooleanField(
         default=True
     )  # DEPRECATED in favor of User.partial_notification_settings
-    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=False)
+    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
+    is_ai_training_opted_in = models.BooleanField(
+        default=True,
+        null=True,
+        blank=True,
+        help_text="When True, this organization allows its data to be used to train PostHog AI models.",
+    )
+    is_ai_training_locked = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, the AI training opt-out setting cannot be modified through the UI or API.",
+    )
+    is_ai_training_cta_shown = models.BooleanField(
+        default=True,
+        null=True,
+        blank=True,
+        help_text="When True, in-app callouts inviting members to enable AI training are shown.",
+    )
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
+    members_can_create_projects = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.",
+    )
     members_can_use_personal_api_keys = models.BooleanField(default=True)
+    members_can_see_org_members = models.BooleanField(
+        default=True,
+        db_default=True,
+        help_text="When False, members (below admin) only see themselves in the members list and only project members in access control.",
+    )
     allow_publicly_shared_resources = models.BooleanField(default=True)
     default_role = models.ForeignKey(
         "ee.Role",
@@ -367,7 +409,9 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
         """
         from ee.billing.quota_limiting import (
             QuotaLimitingCaches,
+            QuotaResource,
             add_limited_team_tokens,
+            dispatch_recordings_remote_config_sync,
             update_organization_usage_fields,
         )
 
@@ -377,9 +421,10 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
             _start, end = billing_period
             billing_period_end_timestamp = int(end.timestamp())
 
-            team_tokens: dict[str, int] = {
-                t: billing_period_end_timestamp for t in self.teams.values_list("api_token", flat=True) if t
-            }
+            team_rows = [
+                (team_id, api_token) for team_id, api_token in self.teams.values_list("id", "api_token") if api_token
+            ]
+            team_tokens: dict[str, int] = {api_token: billing_period_end_timestamp for _, api_token in team_rows}
             add_limited_team_tokens(resource, team_tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
 
             update_organization_usage_fields(
@@ -387,6 +432,9 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
                 resource,
                 {"quota_limited_until": billing_period_end_timestamp, "quota_limiting_suspended_until": None},
             )
+
+            if resource == QuotaResource.RECORDINGS:
+                dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
         else:
             raise RuntimeError("Cannot limit without having a billing period")
 
@@ -397,17 +445,26 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
         """
         from ee.billing.quota_limiting import (
             QuotaLimitingCaches,
+            QuotaResource,
+            dispatch_recordings_remote_config_sync,
             remove_limited_team_tokens,
             update_organization_usage_fields,
         )
 
-        team_tokens: list[str] = [t for t in self.teams.values_list("api_token", flat=True) if t]
-        remove_limited_team_tokens(resource, team_tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+        team_rows = [
+            (team_id, api_token) for team_id, api_token in self.teams.values_list("id", "api_token") if api_token
+        ]
+        remove_limited_team_tokens(
+            resource, [api_token for _, api_token in team_rows], QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
 
         if self.usage and resource.value in self.usage:
             update_organization_usage_fields(
                 self, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
             )
+
+        if resource == QuotaResource.RECORDINGS:
+            dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
 
     def get_limited_products(self) -> dict[str, dict[str, Any]]:
         """
@@ -682,7 +739,7 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
 
 @receiver(models.signals.post_delete, sender=OrganizationMembership)
 def clean_up_alert_subscriptions_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
-    from posthog.models.alert import AlertSubscription
+    from products.alerts.backend.models.alert import AlertSubscription
 
     deleted_count, _ = AlertSubscription.objects.filter(
         user=instance.user,
@@ -692,6 +749,21 @@ def clean_up_alert_subscriptions_on_membership_removal(sender, instance: Organiz
     if deleted_count > 0:
         logger.info(
             "Removed alert subscriptions for user removed from organization",
+            user_id=instance.user_id,
+            organization_id=str(instance.organization_id),
+            deleted_count=deleted_count,
+        )
+
+
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
+def clean_up_event_streams_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    from products.customer_analytics.backend.facade.api import delete_event_streams_for_user
+
+    deleted_count = delete_event_streams_for_user(user_id=instance.user_id, organization_id=instance.organization_id)
+
+    if deleted_count > 0:
+        logger.info(
+            "Removed customer analytics event streams for user removed from organization",
             user_id=instance.user_id,
             organization_id=str(instance.organization_id),
             deleted_count=deleted_count,
@@ -712,6 +784,18 @@ def sync_billing_on_membership_removal(sender, instance: OrganizationMembership,
             sync_members_to_billing.delay(organization_id)
 
     transaction.on_commit(_sync_if_org_exists)
+
+
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
+def pause_loops_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    # A loop run executes with its owner's credentials, so offboarding a member must pause their loops
+    # in that org and cancel in-flight runs. Deferred import keeps loops/Temporal deps off the model
+    # import path (mirrors the User-deactivation hook).
+    from products.tasks.backend.facade.loops import pause_loops_for_removed_member  # noqa: PLC0415
+
+    user_id = instance.user_id
+    organization_id = str(instance.organization_id)
+    transaction.on_commit(lambda: pause_loops_for_removed_member(user_id, organization_id))
 
 
 @receiver(models.signals.pre_save, sender=OrganizationMembership)

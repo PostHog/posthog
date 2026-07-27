@@ -7,10 +7,11 @@ from celery import current_task, shared_task
 from prometheus_client import Counter, Histogram
 
 from posthog.event_usage import EventSource, groups
-from posthog.models import ExportedAsset
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.tasks.exports.failure_handler import USER_QUERY_ERRORS, classify_failure_type
 from posthog.tasks.utils import CeleryQueue
+
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.tasks.failure_handler import USER_QUERY_ERRORS, classify_failure_type
 
 logger = structlog.get_logger(__name__)
 
@@ -81,7 +82,7 @@ def export_asset_direct(
     max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
     source: Optional[EventSource] = None,  # EventSource value to tag queries with (e.g. "subscription")
 ) -> None:
-    from posthog.tasks.exports import csv_exporter, image_exporter
+    from products.exports.backend.tasks import csv_exporter, image_exporter
 
     start_time = perf_counter()
     team = exported_asset.team
@@ -97,6 +98,7 @@ def export_asset_direct(
         "export_asset.starting",
         exported_asset_id=exported_asset.id,
         team_id=team.id,
+        export_format=exported_asset.export_format,
     )
 
     from posthog.clickhouse.query_tagging import tag_queries

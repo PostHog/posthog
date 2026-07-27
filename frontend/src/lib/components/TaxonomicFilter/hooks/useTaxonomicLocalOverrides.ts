@@ -10,11 +10,18 @@
  * + `optionsFromProp` and report `0` for every logic-backed tab.
  */
 import { useValues } from 'kea'
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {
+    ExcludedOperators,
+    ExcludedProperties,
+    SelectingKeyOnly,
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroupType,
+} from 'lib/components/TaxonomicFilter/types'
+import { filterRecentsForContext } from 'lib/components/TaxonomicFilter/utils/suggestedContextFilters'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 
@@ -25,7 +32,13 @@ import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joins
 
 export type GetLocalOverride = (groupType: TaxonomicFilterGroupType) => TaxonomicDefinitionTypes[] | undefined
 
-export function useTaxonomicLocalOverrides(): GetLocalOverride {
+export function useTaxonomicLocalOverrides(context: {
+    taxonomicGroupTypes: TaxonomicFilterGroupType[]
+    excludedOperators?: ExcludedOperators
+    selectingKeyOnly?: SelectingKeyOnly
+    excludedProperties?: ExcludedProperties
+}): GetLocalOverride {
+    const { taxonomicGroupTypes, excludedOperators, selectingKeyOnly, excludedProperties } = context
     const { actionsSorted } = useValues(actionsModel)
     const { recentFilterItems } = useValues(recentTaxonomicFiltersLogic)
     const { pinnedFilterItems } = useValues(taxonomicFilterPinnedPropertiesLogic)
@@ -34,13 +47,28 @@ export function useTaxonomicLocalOverrides(): GetLocalOverride {
     const { dataWarehouseTablesAndViews } = useValues(dataWarehouseSettingsSceneLogic)
     const { columnsJoinedToPersons } = useValues(joinsLogic)
 
+    // Memoized so repeated calls return the same array reference — the result feeds
+    // `useGroupList` memo deps and `useEffect` deps (e.g. the sole-substantive-group
+    // recents promotion), where a fresh array per render means an infinite update loop.
+    const contextFilteredRecentItems = useMemo(
+        () =>
+            filterRecentsForContext(
+                recentFilterItems,
+                taxonomicGroupTypes,
+                excludedOperators,
+                selectingKeyOnly,
+                excludedProperties
+            ),
+        [recentFilterItems, taxonomicGroupTypes, excludedOperators, selectingKeyOnly, excludedProperties]
+    )
+
     return useCallback(
         (groupType: TaxonomicFilterGroupType): TaxonomicDefinitionTypes[] | undefined => {
             switch (groupType) {
                 case TaxonomicFilterGroupType.Actions:
                     return actionsSorted as unknown as TaxonomicDefinitionTypes[]
                 case TaxonomicFilterGroupType.RecentFilters:
-                    return recentFilterItems
+                    return contextFilteredRecentItems
                 case TaxonomicFilterGroupType.PinnedFilters:
                     return pinnedFilterItems
                 case TaxonomicFilterGroupType.Dashboards:
@@ -57,7 +85,7 @@ export function useTaxonomicLocalOverrides(): GetLocalOverride {
         },
         [
             actionsSorted,
-            recentFilterItems,
+            contextFilteredRecentItems,
             pinnedFilterItems,
             nameSortedDashboards,
             experiments,

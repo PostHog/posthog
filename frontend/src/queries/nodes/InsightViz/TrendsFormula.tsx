@@ -21,8 +21,10 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
     const [localValues, setLocalValues] = useState<TrendsFormulaNode[]>(values)
 
     useEffect(() => {
-        // Don't clear the formulas so that the values are still there after toggling the formula switch
-        if (formulaNodes) {
+        // Don't clear the formulas so that the values are still there after toggling the formula switch.
+        // formulaNodes is [] (truthy) when no formula is set, so check length to fall through to the
+        // hasFormula branch that seeds one empty input when formula mode is toggled on.
+        if (formulaNodes && formulaNodes.length > 0) {
             setValues(formulaNodes)
             // Merge incoming formulas with existing local fields, maintaining order
             setLocalValues((prev) => {

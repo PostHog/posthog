@@ -5,25 +5,37 @@ import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { formatResolvedName, formatType } from 'lib/components/Errors/utils'
 
-export const useStacktraceDisplay = (): { ready: boolean; stacktraceText: string } => {
-    const { exceptionList, stackFrameRecords } = useValues(errorPropertiesLogic)
+export const useStacktraceDisplay = (): { ready: boolean; stacktraceText: string; copyableStacktraceText: string } => {
+    const { exceptionList, stackFrameRecords, stackFrameRecordsLoading } = useValues(errorPropertiesLogic)
 
     const stacktraceText = useMemo(() => {
-        return exceptionList.map((exception) => generateExceptionText(exception, stackFrameRecords)).join('\n\n')
+        return exceptionList
+            .map((exception) => generateExceptionText(exception, stackFrameRecords, { includeInAppMarkers: true }))
+            .join('\n\n')
     }, [exceptionList, stackFrameRecords])
 
-    const ready = exceptionList.length > 0 && Object.keys(stackFrameRecords).length > 0
+    const copyableStacktraceText = useMemo(() => {
+        return exceptionList
+            .map((exception) => generateExceptionText(exception, stackFrameRecords, { includeInAppMarkers: false }))
+            .join('\n\n')
+    }, [exceptionList, stackFrameRecords])
 
-    return { ready, stacktraceText }
+    const ready = exceptionList.length > 0 && !stackFrameRecordsLoading
+
+    return { ready, stacktraceText, copyableStacktraceText }
 }
 
-function generateExceptionText(exception: ErrorTrackingException, stackFrameRecords: Record<string, any>): string {
+function generateExceptionText(
+    exception: ErrorTrackingException,
+    stackFrameRecords: Record<string, any>,
+    options: { includeInAppMarkers: boolean }
+): string {
     let result = `${formatType(exception)}${exception.value ? `: ${exception.value}` : ''}`
 
     const frames = exception.stacktrace?.frames || []
 
     for (const frame of frames) {
-        const inAppMarker = frame.in_app ? ' [IN-APP]' : ''
+        const inAppMarker = options.includeInAppMarkers && frame.in_app ? ' [IN-APP]' : ''
         const resolvedName = formatResolvedName(frame)
         result += `\n${inAppMarker}  File "${frame.source || 'Unknown Source'}"${frame.line ? `, line: ${frame.line}` : ''}${resolvedName ? `, in: ${resolvedName}` : ''}`
 

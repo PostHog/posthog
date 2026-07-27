@@ -1,7 +1,7 @@
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Send
 
-from posthog.schema import HumanMessage
+from posthog.schema import AssistantMessage, AssistantMessageMetadata, HumanMessage
 
 from ee.hogai.chat_agent.memory.nodes import MemoryOnboardingNode
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
@@ -12,7 +12,7 @@ from ee.hogai.chat_agent.slash_commands.commands.usage import UsageCommand
 from ee.hogai.core.agent_modes.const import SlashCommandName
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName
 
 
 class SlashCommandHandlerNode(AssistantNode):
@@ -51,7 +51,26 @@ class SlashCommandHandlerNode(AssistantNode):
 
         command_class = self.COMMAND_HANDLERS[command]
         command_instance = command_class(self._team, self._user)
-        return await command_instance.execute(config, state)
+        result = await command_instance.execute(config, state)
+        return self._stamp_message_source(result, command)
+
+    @staticmethod
+    def _stamp_message_source(result: PartialAssistantState, command: str) -> PartialAssistantState:
+        if not result.messages:
+            return result
+        source = f"slash_command:{command.lstrip('/')}"
+        stamped: list[AssistantMessageUnion] = []
+        for msg in result.messages:
+            if isinstance(msg, AssistantMessage) and (msg.meta is None or msg.meta.source is None):
+                meta = (
+                    msg.meta.model_copy(update={"source": source})
+                    if msg.meta
+                    else AssistantMessageMetadata(source=source)
+                )
+                stamped.append(msg.model_copy(update={"meta": meta}))
+            else:
+                stamped.append(msg)
+        return result.model_copy(update={"messages": stamped})
 
     async def arouter(self, state: AssistantState) -> AssistantNodeName | list[Send]:
         """

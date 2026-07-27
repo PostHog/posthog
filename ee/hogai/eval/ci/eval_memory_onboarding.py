@@ -12,6 +12,8 @@ from posthog.schema import AssistantMessage, EventTaxonomyItem, HumanMessage
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.chat_agent.memory.prompts import (
     ENQUIRY_INITIAL_MESSAGE,
@@ -22,7 +24,6 @@ from ee.hogai.chat_agent.memory.prompts import (
 from ee.hogai.core.agent_modes import SlashCommandName
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from ee.models.assistant import Conversation
 
 from ..base import MaxPublicEval
 

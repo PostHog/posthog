@@ -6,9 +6,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
 
-const eventFilter = (key: string, value?: string, operator?: PropertyOperator): AnyPropertyFilter =>
+const eventFilter = (key: string, value?: PropertyFilterValue, operator?: PropertyOperator): AnyPropertyFilter =>
     ({
         key,
         type: PropertyFilterType.Event,
@@ -117,6 +117,24 @@ describe('propertyFilterLogic', () => {
             const filter = { key: '$browser', type: PropertyFilterType.Event } as AnyPropertyFilter
             const cb = await setFilterAndCheck(filter, false)
             expect(cb).not.toHaveBeenCalled()
+        })
+
+        it.each<[string, AnyPropertyFilter, false | 0]>([
+            [
+                'boolean false (e.g. flag dependency set to false)',
+                {
+                    key: '911',
+                    type: PropertyFilterType.Flag,
+                    operator: PropertyOperator.FlagEvaluatesTo,
+                    value: false,
+                } as AnyPropertyFilter,
+                false,
+            ],
+            ['number 0', eventFilter('$browser', 0, PropertyOperator.Exact), 0],
+        ])('calls onChange when the value is the falsy literal %s', async (_name, filter, expectedValue) => {
+            const cb = await setFilterAndCheck(filter, false)
+            expect(cb).toHaveBeenCalledTimes(1)
+            expect(cb.mock.calls[0][0][0]).toMatchObject({ value: expectedValue })
         })
     })
 
@@ -286,6 +304,23 @@ describe('propertyFilterLogic', () => {
                 operator: PropertyOperator.IsSet,
                 type: PropertyFilterType.Event,
             })
+        })
+
+        it('uses the resolved flag label, not the raw flag ID, as the recent item name', async () => {
+            const logic = mountLogic({ propertyFilters: [{}] as AnyPropertyFilter[] })
+            logic.actions.setFilter(0, {
+                key: '2',
+                label: 'test-flag',
+                type: PropertyFilterType.Flag,
+                operator: PropertyOperator.FlagEvaluatesTo,
+                value: true,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            const recents = recentsLogic.values.recentFilters
+            expect(recents).toHaveLength(1)
+            expect(recents[0].value).toBe('2')
+            expect(recents[0].item).toMatchObject({ name: 'test-flag' })
         })
     })
 })

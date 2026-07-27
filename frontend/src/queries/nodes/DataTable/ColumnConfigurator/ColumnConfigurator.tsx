@@ -174,7 +174,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
             onClose={hideModal}
             footer={
                 <>
-                    <div className="flex-1">
+                    <div className="flex-1 flex flex-wrap items-center gap-2">
                         <LemonButton
                             type="secondary"
                             onClick={() =>
@@ -183,6 +183,21 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                         >
                             Reset to defaults
                         </LemonButton>
+                        {showPersistedColumnReorder && query.showPersistentColumnConfigurator && (
+                            <LemonCheckbox
+                                label={
+                                    context?.type === 'groups'
+                                        ? 'Save as default columns for this group type'
+                                        : context?.type === 'event_definition'
+                                          ? 'Save as default columns for this event type'
+                                          : 'Save as default for all project members'
+                                }
+                                data-attr="events-table-save-columns-as-default-toggle"
+                                checked={saveAsDefault}
+                                onChange={toggleSaveAsDefault}
+                                disabledReason={restrictionReason}
+                            />
+                        )}
                     </div>
                     <LemonButton type="secondary" onClick={hideModal}>
                         Close
@@ -255,23 +270,6 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                         </div>
                     </div>
                 </div>
-                {showPersistedColumnReorder && query.showPersistentColumnConfigurator && (
-                    <LemonCheckbox
-                        label={
-                            context?.type === 'groups'
-                                ? 'Save as default columns for this group type'
-                                : context?.type === 'event_definition'
-                                  ? 'Save as default columns for this event type'
-                                  : 'Save as default for all project members'
-                        }
-                        className="mt-2"
-                        data-attr="events-table-save-columns-as-default-toggle"
-                        bordered
-                        checked={saveAsDefault}
-                        onChange={toggleSaveAsDefault}
-                        disabledReason={restrictionReason}
-                    />
-                )}
             </div>
         </LemonModal>
     )

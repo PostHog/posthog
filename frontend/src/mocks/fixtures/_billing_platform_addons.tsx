@@ -109,6 +109,18 @@ const auditLogs = (months: number): AddonPlanFeature =>
         'See who in your organization has accessed or modified entities within PostHog.',
         { limit: months, unit: 'months' }
     )
+const highFrequencyAlerts = feature(
+    'high_frequency_alerts',
+    'High frequency alerts',
+    'Run insight alerts as frequently as every 15 minutes.',
+    { entitlement_only: true }
+)
+const realTimeAlerts = feature(
+    'real_time_alerts',
+    'Real time alerts',
+    'Run insight alerts in real time as events are ingested.',
+    { entitlement_only: true }
+)
 const prioritySupport = (note: string = 'Target response time 24 hours'): AddonPlanFeature =>
     feature(
         'priority_support',
@@ -172,6 +184,7 @@ const TEAMS_FEATURES: AddonPlanFeature[] = [
     organizationInviteSettings,
     organizationSecuritySettings,
     sessionReplayDataRetention(12),
+    highFrequencyAlerts,
 ]
 
 const BOOST_FEATURES: AddonPlanFeature[] = [
@@ -188,6 +201,7 @@ const BOOST_FEATURES: AddonPlanFeature[] = [
     organizationInviteSettings,
     organizationSecuritySettings,
     sessionReplayDataRetention(12),
+    highFrequencyAlerts,
 ]
 
 const SCALE_FEATURES: AddonPlanFeature[] = [
@@ -208,6 +222,8 @@ const SCALE_FEATURES: AddonPlanFeature[] = [
     organizationInviteSettings,
     organizationSecuritySettings,
     sessionReplayDataRetention(12),
+    highFrequencyAlerts,
+    realTimeAlerts,
 ]
 
 const ENTERPRISE_FEATURES: AddonPlanFeature[] = [
@@ -235,6 +251,8 @@ const ENTERPRISE_FEATURES: AddonPlanFeature[] = [
     prioritySupport('Target response time 8 hours'),
     saml,
     approvals,
+    highFrequencyAlerts,
+    realTimeAlerts,
 ]
 
 type AddonSpec = {

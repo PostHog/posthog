@@ -2,9 +2,9 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime, Settings } from 'luxon'
 
-import { defaultConfig } from '~/config/config'
+import { defaultConfig } from '~/common/config/config'
+import { parseJSON } from '~/common/utils/json-parse'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { parseJSON } from '~/utils/json-parse'
 
 import { createHogFunction } from '../_tests/fixtures'
 import {

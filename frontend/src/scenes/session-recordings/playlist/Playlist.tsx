@@ -19,7 +19,8 @@ import {
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
+import { pluralize } from 'lib/utils/strings'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
@@ -94,6 +95,7 @@ export function Playlist({
         visiblePinnedRecordings: pinnedRecordings,
         otherRecordings,
         hasNext,
+        selectedRecordingOutsideFilters,
     } = useValues(sessionRecordingsPlaylistLogic)
     const { maybeLoadSessionRecordings, setFilters, setSelectedRecordingId } =
         useActions(sessionRecordingsPlaylistLogic)
@@ -258,6 +260,22 @@ export function Playlist({
                     </DraggableToNotebook>
                 </div>
             )}
+            {!!filters?.session_ids?.length && (
+                <div className="mb-2 flex items-center justify-between gap-2 rounded border bg-fill-primary px-2 py-1">
+                    <span className="min-w-0 truncate text-xs text-secondary">
+                        Showing {pluralize(filters.session_ids.length, 'selected recording')}
+                    </span>
+                    <LemonButton
+                        className="shrink-0"
+                        size="xsmall"
+                        type="tertiary"
+                        onClick={() => setFilters({ session_ids: undefined })}
+                        loading={!!sessionRecordingsResponseLoading}
+                    >
+                        Show all
+                    </LemonButton>
+                </div>
+            )}
             <div
                 ref={playlistRef}
                 data-attr="session-recordings-playlist"
@@ -274,9 +292,9 @@ export function Playlist({
                     className="Playlist__list flex flex-col relative overflow-hidden h-full w-full"
                 >
                     <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
-                        <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
-                            <div className="flex flex-col gap-1">
-                                <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
+                        <div className="relative">
+                            <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
+                                <div className="shrink-0 bg-bg-3000 flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
                                     {title && <TitleWithCount title={title} count={itemsCount} />}
                                     <div className="flex items-center gap-0.5">
                                         <LemonButton
@@ -298,9 +316,15 @@ export function Playlist({
                                         />
                                     </div>
                                 </div>
-                                <LemonTableLoader loading={sessionRecordingsResponseLoading} />
-                            </div>
-                        </DraggableToNotebook>
+                            </DraggableToNotebook>
+                            <LemonTableLoader loading={sessionRecordingsResponseLoading} />
+                        </div>
+                        {selectedRecordingOutsideFilters && (
+                            <LemonBanner type="info" className="m-2 text-xs">
+                                The selected recording doesn't match the current filters. It's shown because it was
+                                opened from a direct link.
+                            </LemonBanner>
+                        )}
                         <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={contentRef}>
                             {sectionCount > 1 ? (
                                 <LemonCollapse

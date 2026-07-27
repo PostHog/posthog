@@ -15,9 +15,13 @@ export interface MonacoDiffEditorProps {
     theme?: string | null
     options?: monaco.editor.IDiffEditorConstructionOptions
     onChange?: (value: string, event: monaco.editor.IModelContentChangedEvent) => void
+    /** Make the right (modified) pane editable, keeping the left pane read-only. Defaults to read-only. */
+    modifiedEditable?: boolean
     className?: string | null
     originalUri?: (m: typeof monaco) => monaco.Uri
     modifiedUri?: (m: typeof monaco) => monaco.Uri
+    /** Optional placeholder overlaid on the editor until it has laid out its first content. */
+    loading?: React.ReactNode
 }
 
 const LINE_HEIGHT = 18
@@ -40,9 +44,11 @@ function MonacoDiffEditor(
         theme = null,
         options = {},
         onChange = () => {},
+        modifiedEditable = false,
         className = null,
         originalUri,
         modifiedUri,
+        loading = null,
     }: MonacoDiffEditorProps,
     ref: React.ForwardedRef<{ editor: monaco.editor.IStandaloneDiffEditor | null }>
 ): JSX.Element {
@@ -87,7 +93,8 @@ function MonacoDiffEditor(
             ...(className ? { extraEditorClassName: className } : {}),
             ...options,
             ...(theme ? { theme } : {}),
-            readOnly: true,
+            // readOnly only governs the modified (right) pane; the original pane is always read-only.
+            readOnly: !modifiedEditable,
         })
 
         // Create models
@@ -138,8 +145,9 @@ function MonacoDiffEditor(
         editorRef.current?.updateOptions({
             ...(className ? { extraEditorClassName: className } : {}),
             ...options,
+            readOnly: !modifiedEditable,
         })
-    }, [className, options])
+    }, [className, options, modifiedEditable])
 
     // Update layout on size changes
     useEffect(() => {
@@ -156,12 +164,12 @@ function MonacoDiffEditor(
         }
     }, [language])
 
-    // Update value
+    // Update value. Skip when the model already matches, so an editable pane echoing its own
+    // onChange back through props does not reset the caret.
     useEffect(() => {
         const model = editorRef.current?.getModel()
-        if (model) {
-            const { modified: modifiedEditor } = model
-            modifiedEditor.setValue(modified ?? '')
+        if (model && model.modified.getValue() !== (modified ?? '')) {
+            model.modified.setValue(modified ?? '')
         }
     }, [modified])
 
@@ -190,14 +198,17 @@ function MonacoDiffEditor(
 
     return (
         <div
-            ref={containerRef}
+            className="relative"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: processSize(width),
                 height: processSize(calculatedHeight),
             }}
-            className="react-monaco-editor-container"
-        />
+        >
+            <div ref={containerRef} className="react-monaco-editor-container w-full h-full" />
+            {/* Overlay the placeholder until Monaco reports its first content size (editor laid out). */}
+            {loading && contentHeight === null && <div className="absolute inset-0">{loading}</div>}
+        </div>
     )
 }
 

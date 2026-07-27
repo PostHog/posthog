@@ -1,8 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { screen } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 import { useRef } from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 import {
@@ -15,6 +18,7 @@ import {
 } from '~/types'
 
 import {
+    defaultDataWarehousePopoverFields,
     eventTaxonomicGroupProps,
     propertyTaxonomicGroupProps,
     taxonomicFilterLogic,
@@ -238,5 +242,86 @@ export const WithoutTimestamps: Story = {
             tags: [],
         } as EventDefinition,
         groupType: TaxonomicFilterGroupType.Events,
+    },
+}
+
+// ---- Data warehouse column mapping (legacy / pill variant) --------------
+// Covers the column-field pickers shown when a data warehouse table is
+// selected as an insight series in the legacy TaxonomicFilter path
+// (`DefinitionPopoverContents` → `DefinitionView` DWH branch). Pins the
+// `pill` variant of the category-dropdown experiment. The rebuild variant
+// of the same view is covered by `DataWarehouseConfig` in
+// `TaxonomicFilterMenu.stories.tsx`.
+
+const mockDataWarehouseTable = {
+    id: 'dwh-table-1',
+    name: 'stripe.charges',
+    type: 'data_warehouse',
+    fields: {
+        id: { name: 'id', type: 'string' },
+        amount: { name: 'amount', type: 'integer' },
+        currency: { name: 'currency', type: 'string' },
+        customer_email: { name: 'customer_email', type: 'string' },
+        customer_id: { name: 'customer_id', type: 'string' },
+        description: { name: 'description', type: 'string' },
+        created_at: { name: 'created_at', type: 'datetime' },
+        updated_at: { name: 'updated_at', type: 'datetime' },
+        refunded: { name: 'refunded', type: 'boolean' },
+        distinct_id: { name: 'distinct_id', type: 'string' },
+    },
+}
+
+const dataWarehouseGroup = {
+    name: 'Data warehouse tables',
+    searchPlaceholder: 'data warehouse tables',
+    type: TaxonomicFilterGroupType.DataWarehouse,
+    getValue: (instance: any) => instance.name,
+    getName: (instance: any) => instance.name,
+    getPopoverHeader: () => 'Data warehouse table',
+}
+
+const DataWarehouseColumnMappingWrapper = (): JSX.Element => {
+    const divRef = useRef<HTMLDivElement>(null)
+    return (
+        <BindLogic logic={definitionPopoverLogic} props={{ type: TaxonomicFilterGroupType.DataWarehouse }}>
+            <BindLogic
+                logic={taxonomicFilterLogic}
+                props={{
+                    taxonomicFilterLogicKey: 'definition-popover-dwh-story',
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.DataWarehouse],
+                    dataWarehousePopoverFields: defaultDataWarehousePopoverFields,
+                }}
+            >
+                <div className="p-4 bg-surface-primary" style={{ width: 500, height: 600 }}>
+                    <div ref={divRef} className="p-2 border border-border rounded">
+                        Hover target
+                    </div>
+                    <ControlledDefinitionPopover
+                        visible={true}
+                        item={mockDataWarehouseTable as any}
+                        group={dataWarehouseGroup as any}
+                        highlightedItemElement={divRef.current}
+                    />
+                </div>
+            </BindLogic>
+        </BindLogic>
+    )
+}
+
+export const DataWarehouseColumnMapping: Story = {
+    render: () => <DataWarehouseColumnMappingWrapper />,
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill' },
+        testOptions: { waitForSelector: '.definition-popover-data-warehouse-schema-form' },
+    },
+    // Open the first column picker so the snapshot captures the filterable
+    // search-input dropdown, not just the closed control. The popover renders
+    // into a portal (document.body), outside canvasElement, so query via
+    // `screen` rather than `within(canvasElement)`.
+    play: async () => {
+        const [firstColumnSelect] = await screen.findAllByRole('textbox')
+        await userEvent.click(firstColumnSelect)
+        // Wait for an option row so the snapshot is taken with the dropdown open.
+        await screen.findByRole('button', { name: /distinct_id \(string\)/ })
     },
 }

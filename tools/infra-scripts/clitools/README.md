@@ -6,7 +6,13 @@ The primary function is to help manage and connect to PostHog toolbox pods in a 
 
 1. Ensure you have Python 3.x installed on your system
 2. Clone this repository or download `toolbox.py`
-3. Make the script executable (Unix-based systems):
+3. Install dependencies (the PostHog SDK, used for anonymous usage telemetry):
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Make the script executable (Unix-based systems):
 
    ```bash
    chmod +x toolbox.py
@@ -16,6 +22,7 @@ The primary function is to help manage and connect to PostHog toolbox pods in a 
 
 - Python 3.x
 - kubectl installed and configured
+- the PostHog Python SDK (`pip install -r requirements.txt`) — telemetry is skipped gracefully if it's missing
 - your current settings and k8s context let you access the cluster that you want your toolbox to be claimed in
 
 ## Usage

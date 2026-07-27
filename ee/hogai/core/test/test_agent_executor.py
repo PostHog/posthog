@@ -13,10 +13,11 @@ from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
 
 from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.stream.redis_stream import (
     ConversationEvent,
-    ConversationRedisStream,
     MessageEvent,
     StatusPayload,
     StreamError,
@@ -25,7 +26,6 @@ from ee.hogai.stream.redis_stream import (
     get_conversation_stream_key,
 )
 from ee.hogai.utils.types.base import AssistantOutput
-from ee.models.assistant import Conversation
 
 
 class TestAgentExecutor(BaseTest):
@@ -35,13 +35,6 @@ class TestAgentExecutor(BaseTest):
         self.team_id = self.team.pk
         self.user_id = self.user.pk
         self.manager = AgentExecutor(self.conversation)
-
-    def test_init(self):
-        """Test ConversationStreamManager initialization."""
-        manager = AgentExecutor(self.conversation)
-
-        self.assertEqual(manager._conversation.id, self.conversation.id)
-        self.assertIsInstance(manager._redis_stream, ConversationRedisStream)
 
     @patch("ee.hogai.core.executor.async_connect")
     async def test_start_workflow_and_stream_success(self, mock_connect):

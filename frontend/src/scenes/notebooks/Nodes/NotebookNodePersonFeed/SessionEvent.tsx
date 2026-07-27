@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { eventToDescription } from 'lib/utils'
+import { eventToDescription } from 'lib/utils/events'
 
 import { EventType } from '~/types'
 

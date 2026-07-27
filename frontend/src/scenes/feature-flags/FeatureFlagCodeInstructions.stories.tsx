@@ -26,6 +26,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     features: [],
     active: true,
     deleted: false,
+    archived: false,
     created_at: '2021-05-05T12:00:00Z',
     updated_at: '2021-05-05T12:00:00Z',
     created_by: null,

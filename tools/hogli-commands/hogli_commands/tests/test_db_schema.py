@@ -104,7 +104,7 @@ def test_download_diagnostics_on_no_compatible_artifact(monkeypatch: pytest.Monk
         _artifact(10, "pr-sha", "2026-01-01T00:00:00Z", head_branch="some-pr"),
         _artifact(11, "master-sha", "2026-01-02T00:00:00Z", head_branch="some-other-pr"),
     ]
-    monkeypatch.setattr(db_schema, "_github_token", lambda: "token")
+    monkeypatch.setattr(db_schema, "github_token", lambda: "token")
     monkeypatch.setattr(db_schema, "fetch_schema_artifacts", lambda **kwargs: artifacts)
 
     split_runner = CliRunner(mix_stderr=False)
@@ -267,9 +267,15 @@ def test_restore_schema_dump_recreate_cleans_up_after_failure(tmp_path: Path, mo
         db_schema.restore_schema_dump(target_db="test_posthog", recreate=True, schema_path=schema_path)
 
     admin_sql = [command[-1] for command in commands]
+    terminate_sql = (
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+        "WHERE datname = 'test_posthog' AND pid <> pg_backend_pid();"
+    )
     assert admin_sql == [
+        terminate_sql,
         "DROP DATABASE IF EXISTS test_posthog;",
         "CREATE DATABASE test_posthog;",
+        terminate_sql,
         "DROP DATABASE IF EXISTS test_posthog;",
         "CREATE DATABASE test_posthog;",
     ]

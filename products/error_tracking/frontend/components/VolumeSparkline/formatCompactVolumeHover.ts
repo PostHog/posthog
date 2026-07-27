@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyLargeNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import type { SparklineDatum } from './types'
 

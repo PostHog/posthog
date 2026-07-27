@@ -1,0 +1,541 @@
+import datetime as dt
+
+import pytest
+from freezegun import freeze_time
+from unittest.mock import patch
+
+from django.test import override_settings
+from django.test.client import Client as HttpClient
+
+from rest_framework import status
+
+from posthog.api.test.test_team import create_team
+from posthog.api.test.test_user import create_user
+from posthog.models.person.util import create_person
+from posthog.models.team import Team
+
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportBackfill
+from products.batch_exports.backend.tests.api.fixtures import create_organization
+from products.batch_exports.backend.tests.api.operations import backfill_batch_export, create_batch_export_ok
+
+pytestmark = [
+    pytest.mark.django_db,
+    pytest.mark.usefixtures("temporal_worker", "cleanup"),
+]
+
+
+def _create_batch_export_ok(
+    client: HttpClient,
+    team: Team,
+    model: str,
+    interval: str = "hour",
+    timezone: str = "UTC",
+    offset_day: int | None = None,
+    offset_hour: int | None = None,
+):
+    """Helper function to create a BatchExport."""
+    destination_data = {
+        "type": "AwsS3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": interval,
+        "timezone": timezone,
+        "offset_day": offset_day,
+        "offset_hour": offset_hour,
+        "model": model,
+    }
+    return create_batch_export_ok(client, team.pk, batch_export_data)
+
+
+@pytest.mark.parametrize("model", ["events", "persons"])
+def test_batch_export_backfill_success(client: HttpClient, organization, team, user, temporal, model):
+    """Test a BatchExport can be backfilled.
+
+    We should be able to create a Batch Export, then request that the Schedule
+    handles backfilling all runs between two dates.
+    """
+
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, model)
+    batch_export_id = batch_export["id"]
+
+    response = backfill_batch_export(
+        client=client,
+        team_id=team.pk,
+        batch_export_id=batch_export_id,
+        start_at="2021-01-01T00:00:00+00:00",
+        end_at="2021-01-01T01:00:00+00:00",
+    )
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+@pytest.mark.parametrize(
+    "timezone,offset_hour",
+    [
+        ("UTC", None),
+        ("US/Pacific", 1),
+        ("Asia/Kathmandu", 20),
+    ],
+)
+def test_batch_export_backfill_for_daily_schedule(
+    client: HttpClient, organization, team, user, temporal, timezone, offset_hour
+):
+    """Test a BatchExport with a daily schedule can be backfilled.
+
+    For daily schedules, the start and end dates should just be a date string rather than a datetime string.
+    """
+
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, "events", "day", timezone, None, offset_hour)
+    batch_export_id = batch_export["id"]
+
+    response = backfill_batch_export(
+        client=client,
+        team_id=team.pk,
+        batch_export_id=batch_export_id,
+        start_at="2026-01-01",
+        end_at="2026-01-02",
+    )
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+    assert "backfill_id" in response.json()
+
+
+def test_batch_export_backfill_for_daily_schedule_with_datetime_strings_fails(
+    client: HttpClient, organization, team, user, temporal
+):
+    """Test a BatchExport with a daily schedule fails if we pass datetime strings.
+
+    It is more intuitive to pass in date strings rather than datetime strings for daily schedules, especially when the
+    schedule might not necessarily run at midnight.
+    """
+
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, "events", "day")
+    batch_export_id = batch_export["id"]
+
+    response = backfill_batch_export(
+        client=client,
+        team_id=team.pk,
+        batch_export_id=batch_export_id,
+        start_at="2021-01-01T00:00:00+00:00",
+        end_at="2021-01-01T01:00:00+00:00",
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == (
+        "Input '2021-01-01T00:00:00+00:00' is not a valid ISO formatted date. "
+        "Daily or weekly batch export backfills expect only the date component, but a time was included."
+    )
+
+
+@pytest.mark.parametrize(
+    "timezone,offset_day,offset_hour",
+    [
+        ("UTC", 0, None),  # Sunday, midnight
+        ("US/Pacific", 0, 1),  # Sunday, 1am
+        ("Asia/Kathmandu", 3, 20),  # Wednesday, 8pm
+    ],
+)
+def test_batch_export_backfill_for_weekly_schedule(
+    client: HttpClient, organization, team, user, temporal, timezone, offset_day, offset_hour
+):
+    """Test a BatchExport with a weekly schedule can be backfilled.
+
+    For weekly schedules, the start and end dates should just be a date string rather than a datetime string.
+    The date must be on the correct day of the week according to the batch export's offset_day.
+    """
+    client.force_login(user)
+
+    # Use dates that match the offset_day: Jan 4, 2026 is a Sunday (offset_day=0), Jan 7, 2026 is a Wednesday (offset_day=3)
+    if offset_day == 0:
+        start_date = "2026-01-04"  # Sunday
+        end_date = "2026-01-11"  # Sunday
+    else:  # offset_day == 3 (Wednesday)
+        start_date = "2026-01-07"  # Wednesday
+        end_date = "2026-01-14"  # Wednesday
+
+    batch_export = _create_batch_export_ok(client, team, "events", "week", timezone, offset_day, offset_hour)
+    batch_export_id = batch_export["id"]
+
+    response = backfill_batch_export(
+        client=client,
+        team_id=team.pk,
+        batch_export_id=batch_export_id,
+        start_at=start_date,
+        end_at=end_date,
+    )
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+    assert "backfill_id" in response.json()
+
+
+def test_batch_export_backfill_for_weekly_schedule_with_datetime_strings_fails(
+    client: HttpClient, organization, team, user, temporal
+):
+    """Test a BatchExport with a weekly schedule fails if we pass datetime strings.
+
+    It is more intuitive to pass in date strings rather than datetime strings for weekly schedules, especially when the
+    schedule might not necessarily run at midnight.
+    """
+
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, "events", "week", "UTC", 0, 0)
+    batch_export_id = batch_export["id"]
+
+    response = backfill_batch_export(
+        client=client,
+        team_id=team.pk,
+        batch_export_id=batch_export_id,
+        start_at="2026-01-04T00:00:00+00:00",
+        end_at="2026-01-11T00:00:00+00:00",
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == (
+        "Input '2026-01-04T00:00:00+00:00' is not a valid ISO formatted date. "
+        "Daily or weekly batch export backfills expect only the date component, but a time was included."
+    )
+
+
+def test_batch_export_backfill_for_weekly_schedule_fails_if_day_of_week_is_incorrect(
+    client: HttpClient, organization, team, user, temporal
+):
+    """Test a BatchExport with a weekly schedule fails if we pass a date that is not on the correct day of the week.
+
+    In this example, we are passing a start date of a Sunday, but the batch export is configured to run weekly on Monday.
+    """
+
+    client.force_login(user)
+
+    # use an offset day of 1, so we run weekly on Monday
+    batch_export = _create_batch_export_ok(client, team, "events", "week", "UTC", 1, None)
+    batch_export_id = batch_export["id"]
+
+    response = backfill_batch_export(
+        client=client,
+        team_id=team.pk,
+        batch_export_id=batch_export_id,
+        start_at="2026-01-04",  # this is a Sunday
+        end_at="2026-01-11",  # this is a Sunday
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == (
+        "Input 2026-01-04 is not on the correct day of the week for this batch export. "
+        "2026-01-04 is a Sunday but this batch export is configured to run weekly on Monday."
+    )
+
+
+def test_batch_export_backfill_with_non_isoformatted_dates(client: HttpClient, organization, team, user, temporal):
+    """Test a BatchExport backfill fails if we pass malformed dates."""
+
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, "events")
+
+    batch_export_id = batch_export["id"]
+
+    response = backfill_batch_export(client, team.pk, batch_export_id, "not a date", "2021-01-01T01:00:00+00:00")
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    response = backfill_batch_export(client, team.pk, batch_export_id, "2021-01-01T01:00:00+00:00", "not a date")
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
+def test_batch_export_backfill_with_end_at_in_the_future(client: HttpClient, organization, team, user, temporal):
+    """Test a BatchExport backfill fails if we pass malformed dates."""
+
+    test_time = dt.datetime.now(dt.UTC)
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, "events")
+
+    batch_export_id = batch_export["id"]
+
+    with freeze_time(test_time):
+        response = backfill_batch_export(
+            client,
+            team.pk,
+            batch_export_id,
+            (test_time - dt.timedelta(minutes=30)).isoformat(),
+            (test_time + dt.timedelta(minutes=30)).isoformat(),
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "is in the future" in response.json()["detail"]
+
+
+def test_batch_export_backfill_with_naive_bounds(client: HttpClient, organization, team, user, temporal):
+    """Test a BatchExport backfill fails if we naive dates."""
+
+    client.force_login(user)
+    batch_export = _create_batch_export_ok(client, team, "events")
+
+    batch_export_id = batch_export["id"]
+
+    response = backfill_batch_export(client, team.pk, batch_export_id, "2021-01-01T01:00:00", "2021-01-01T01:00:00")
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    response = backfill_batch_export(client, team.pk, batch_export_id, "2021-01-01T01:00:00", "2021-01-01T01:00:00")
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
+def test_batch_export_backfill_with_start_at_after_end_at(client: HttpClient, organization, team, user, temporal):
+    """Test a BatchExport backfill fails if start_at is after end_at."""
+
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, "events")
+    batch_export_id = batch_export["id"]
+
+    response = backfill_batch_export(
+        client,
+        team.pk,
+        batch_export_id,
+        "2021-01-01T01:00:00+00:00",
+        "2021-01-01T01:00:00+00:00",
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    response = backfill_batch_export(
+        client,
+        team.pk,
+        batch_export_id,
+        "2021-01-01T01:00:00+00:00",
+        "2020-01-01T01:00:00+00:00",
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
+def test_cannot_trigger_backfill_for_another_organization(client: HttpClient, temporal, organization, team, user):
+    other_organization = create_organization("Other Org")
+    create_team(other_organization)
+    other_user = create_user("other-test@user.com", "Other Test User", other_organization)
+
+    client.force_login(user)
+    batch_export = _create_batch_export_ok(client, team, "events")
+
+    batch_export_id = batch_export["id"]
+
+    client.force_login(other_user)
+    response = backfill_batch_export(
+        client,
+        team.pk,
+        batch_export_id,
+        "2021-01-01T00:00:00+00:00",
+        "2021-01-01T01:00:00+00:00",
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+
+def test_backfill_is_partitioned_by_team_id(client: HttpClient, temporal, organization, team, user):
+    from posthog.api.test.test_team import create_team
+
+    other_team = create_team(organization)
+
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, "events")
+    batch_export_id = batch_export["id"]
+
+    response = backfill_batch_export(
+        client,
+        other_team.pk,
+        batch_export_id,
+        "2021-01-01T00:00:00+00:00",
+        "2021-01-01T01:00:00+00:00",
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+
+def test_batch_export_backfill_created_in_timezone(client: HttpClient, temporal, organization, user, team):
+    """Test creating a BatchExportBackfill sets the right ID in UTC timezone.
+
+    PostgreSQL stores datetime values in their UTC representation, converting the input
+    if it's in a different timezone. For this reason, we need backfills to have a workflow
+    ID in UTC representation, so that we can later re-construct this ID from the data stored
+    in PostgreSQL.
+
+    Otherwise, we would need to store a timezone field in PostgreSQL too. We may want
+    to do that later, but this test case is still valuable to ensure we are pulling and
+    using the timezone stored in PostgreSQL correctly.
+    """
+
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, "events")
+    batch_export_id = batch_export["id"]
+
+    response = backfill_batch_export(
+        client,
+        team.pk,
+        batch_export_id,
+        "2021-01-01T00:00:00-05:00",
+        "2021-10-01T00:00:00-04:00",
+    )
+
+    data = response.json()
+
+    assert response.status_code == status.HTTP_201_CREATED, data
+    assert "backfill_id" in data
+
+
+def test_batch_export_earliest_backfill_rejected_without_feature_flag(
+    client: HttpClient, organization, team, user, temporal
+):
+    """Test that earliest backfill (start_at=None) is rejected when feature flag is disabled."""
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, "persons")
+    batch_export_id = batch_export["id"]
+
+    with patch("products.batch_exports.backend.api.batch_export.posthoganalytics.feature_enabled", return_value=False):
+        response = backfill_batch_export(
+            client,
+            team.pk,
+            batch_export_id,
+            None,
+            "2021-01-01T01:00:00+00:00",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == "Backfilling from the beginning of time is not enabled for this team."
+
+
+@override_settings(BATCH_EXPORT_MAX_CONCURRENT_BACKFILLS_PER_TEAM=2)
+def test_backfill_rejected_when_team_at_concurrent_limit(client: HttpClient, organization, team, user, temporal):
+    """Test backfill creation is rejected with 429 when team is at the concurrent limit."""
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, "events")
+    batch_export_id = batch_export["id"]
+    batch_export_obj = BatchExport.objects.get(id=batch_export_id)
+
+    for _ in range(2):
+        BatchExportBackfill.objects.create(
+            team=team,
+            batch_export=batch_export_obj,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+            status=BatchExportBackfill.Status.RUNNING,
+        )
+
+    response = backfill_batch_export(
+        client=client,
+        team_id=team.pk,
+        batch_export_id=batch_export_id,
+        start_at="2021-01-01T00:00:00+00:00",
+        end_at="2021-01-01T01:00:00+00:00",
+    )
+    assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
+    detail = response.json()["detail"]
+    assert "This team already has 2 batch export backfills running" in detail
+
+
+@override_settings(BATCH_EXPORT_MAX_CONCURRENT_BACKFILLS_PER_TEAM=2)
+def test_backfill_allowed_when_team_below_concurrent_limit(client: HttpClient, organization, team, user, temporal):
+    """Test backfill creation succeeds when team has fewer running backfills than the limit."""
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, "events")
+    batch_export_id = batch_export["id"]
+    batch_export_obj = BatchExport.objects.get(id=batch_export_id)
+
+    # create one running backfill
+    BatchExportBackfill.objects.create(
+        team=team,
+        batch_export=batch_export_obj,
+        start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+        end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+        status=BatchExportBackfill.Status.RUNNING,
+    )
+
+    # also create one completed backfill to ensure the limit is not exceeded
+    BatchExportBackfill.objects.create(
+        team=team,
+        batch_export=batch_export_obj,
+        start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+        end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+        status=BatchExportBackfill.Status.COMPLETED,
+    )
+
+    response = backfill_batch_export(
+        client=client,
+        team_id=team.pk,
+        batch_export_id=batch_export_id,
+        start_at="2021-01-01T00:00:00+00:00",
+        end_at="2021-01-01T01:00:00+00:00",
+    )
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+@override_settings(BATCH_EXPORT_MAX_CONCURRENT_BACKFILLS_PER_TEAM=2)
+def test_other_teams_backfills_do_not_count_toward_concurrent_limit(
+    client: HttpClient, organization, team, user, temporal
+):
+    """Test that running backfills from other teams don't count toward this team's limit."""
+    client.force_login(user)
+
+    other_team = create_team(organization)
+
+    batch_export = _create_batch_export_ok(client, team, "events")
+    batch_export_id = batch_export["id"]
+
+    other_batch_export = _create_batch_export_ok(client, other_team, "events")
+    other_batch_export_obj = BatchExport.objects.get(id=other_batch_export["id"])
+
+    for _ in range(5):
+        BatchExportBackfill.objects.create(
+            team=other_team,
+            batch_export=other_batch_export_obj,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+            status=BatchExportBackfill.Status.RUNNING,
+        )
+
+    response = backfill_batch_export(
+        client=client,
+        team_id=team.pk,
+        batch_export_id=batch_export_id,
+        start_at="2021-01-01T00:00:00+00:00",
+        end_at="2021-01-01T01:00:00+00:00",
+    )
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+def test_batch_export_earliest_backfill_allowed_with_feature_flag(
+    client: HttpClient, organization, team, user, temporal
+):
+    """Test that earliest backfill (start_at=None) is allowed when feature flag is enabled."""
+    client.force_login(user)
+
+    create_person(
+        team_id=team.pk,
+        properties={"distinct_id": "1"},
+        uuid=None,
+        version=0,
+        timestamp=dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+    )
+
+    batch_export = _create_batch_export_ok(client, team, "persons")
+    batch_export_id = batch_export["id"]
+
+    with patch("products.batch_exports.backend.api.batch_export.posthoganalytics.feature_enabled", return_value=True):
+        response = backfill_batch_export(
+            client,
+            team.pk,
+            batch_export_id,
+            None,
+            "2021-01-01T01:00:00+00:00",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert "backfill_id" in response.json()

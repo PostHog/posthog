@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
 
 import { ImpersonationReasonModal } from './ImpersonationReasonModal'
 
@@ -33,7 +33,21 @@ export const SessionExpiredReImpersonation: Story = {
                 description={`Your session impersonating ${IMPERSONATED_EMAIL} has expired.`}
                 confirmText="Re-impersonate"
                 closable={false}
-                cancelButton={{ label: 'Return to admin', status: 'danger', onClick: noop }}
+                cancelButton={{
+                    label: 'Return to admin',
+                    status: 'danger',
+                    onClick: noop,
+                    sideAction: {
+                        dropdown: {
+                            placement: 'top-end',
+                            overlay: (
+                                <LemonButton fullWidth onClick={noop}>
+                                    Return to PostHog
+                                </LemonButton>
+                            ),
+                        },
+                    },
+                }}
                 inline
             >
                 <LemonCheckbox checked onChange={noop} label="Read-only mode (recommended)" />

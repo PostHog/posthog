@@ -2,6 +2,7 @@
 
 import asyncio
 import operator
+from datetime import UTC, datetime
 from typing import Annotated, Any, Optional, TypedDict
 from uuid import uuid4
 
@@ -19,13 +20,17 @@ from langgraph.graph import END, START
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 from pydantic import BaseModel, Field
 
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.models.assistant import (
+from posthog.schema import AssistantMessage, HumanMessage
+
+from products.posthog_ai.backend.models.assistant import (
     Conversation,
     ConversationCheckpoint,
     ConversationCheckpointBlob,
     ConversationCheckpointWrite,
 )
+
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
 class TestDjangoCheckpointer(NonAtomicBaseTest):
@@ -613,3 +618,79 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         }
         retrieved_null = await saver.aget_tuple(null_config)
         self.assertIsNone(retrieved_null)
+
+    async def test_metadata_returns_stored_json_on_load(self):
+        thread = await Conversation.objects.acreate(user=self.user, team=self.team)
+        saver = DjangoCheckpointer()
+
+        graph = StateGraph(AssistantState)
+        graph.add_node(
+            "node",
+            lambda state: PartialAssistantState(
+                messages=[AssistantMessage(content="hello", id=str(uuid4()))],
+                start_dt=datetime(2026, 6, 12, tzinfo=UTC),
+            ),
+        )
+        graph.add_edge(START, "node")
+        graph.add_edge("node", END)
+        compiled = graph.compile(checkpointer=saver)
+
+        config = {"configurable": {"thread_id": str(thread.id)}}
+        await compiled.ainvoke(AssistantState(messages=[HumanMessage(content="hi", id=str(uuid4()))]), config)
+
+        checkpoints = [
+            checkpoint
+            async for checkpoint in ConversationCheckpoint.objects.filter(thread=thread, checkpoint__isnull=False)
+        ]
+        self.assertGreater(len(checkpoints), 0)
+
+        # langgraph-checkpoint 4.x writes plain JSON: pydantic models in metadata are
+        # stored as their kwargs dicts, without lc constructor markers
+        metadata_by_source = {checkpoint.metadata["source"]: checkpoint.metadata for checkpoint in checkpoints}
+        raw_input_state = metadata_by_source["input"]["writes"]["__start__"]
+        self.assertNotIn("lc", raw_input_state)
+        self.assertEqual(raw_input_state["messages"][0]["content"], "hi")
+
+        raw_by_id = {str(checkpoint.id): checkpoint for checkpoint in checkpoints}
+        loaded_tuples = [result async for result in saver.alist(config)]
+        self.assertEqual(len(loaded_tuples), len(checkpoints))
+        for loaded in loaded_tuples:
+            raw = raw_by_id[str(loaded.config["configurable"]["checkpoint_id"])]
+            with self.subTest(checkpoint_id=str(raw.id)):
+                self.assertEqual(loaded.metadata, raw.metadata)
+                expected_checkpoint = {
+                    **raw.checkpoint,
+                    "pending_sends": loaded.checkpoint["pending_sends"],
+                    "channel_values": loaded.checkpoint["channel_values"],
+                }
+                self.assertEqual(loaded.checkpoint, expected_checkpoint)
+
+    async def test_unknown_constructor_marker_returned_as_plain_dict(self):
+        thread = await Conversation.objects.acreate(user=self.user, team=self.team)
+        saver = DjangoCheckpointer()
+
+        marker = {
+            "lc": 2,
+            "type": "constructor",
+            "id": ["pprint", "pprint"],
+            "kwargs": {"object": "HELLO"},
+        }
+        checkpoint_id = str(uuid6(clock_seq=-2))
+        await ConversationCheckpoint.objects.acreate(
+            id=checkpoint_id,
+            thread=thread,
+            checkpoint_ns="",
+            checkpoint={
+                "v": 1,
+                "ts": "2024-07-31T20:14:19.804150+00:00",
+                "id": checkpoint_id,
+                "channel_versions": {},
+                "versions_seen": {},
+                "pending_sends": [],
+            },
+            metadata={"source": "input", "step": -1, "writes": {"node": marker}},
+        )
+
+        config = {"configurable": {"thread_id": str(thread.id), "checkpoint_ns": ""}}
+        loaded = await saver.aget_tuple(config)
+        self.assertEqual(loaded.metadata["writes"]["node"], marker)

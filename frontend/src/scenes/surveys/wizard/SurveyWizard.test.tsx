@@ -93,6 +93,6 @@ describe('SurveyWizard', () => {
         render(<SurveyWizardComponent id="test-survey" />)
 
         expect(await screen.findByText('Translations')).toBeInTheDocument()
-        expect(screen.getByPlaceholderText('Add a language')).toBeInTheDocument()
+        expect(screen.getByPlaceholderText('Add a translation')).toBeInTheDocument()
     })
 })

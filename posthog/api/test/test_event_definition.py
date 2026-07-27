@@ -16,7 +16,9 @@ from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import Action, ActivityLog, EventDefinition, Organization, Team
+from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
+
+from products.actions.backend.models.action import Action
 
 
 @freeze_time("2020-01-02")
@@ -144,6 +146,8 @@ class TestEventDefinitionAPI(APIBaseTest):
                 "$pathname": ANY,
                 "$session_id": ANY,
                 "was_impersonated": ANY,
+                "access_method": ANY,
+                "user_agent": ANY,
                 "mcp_user_agent": ANY,
                 "mcp_client_name": ANY,
                 "mcp_client_version": ANY,
@@ -459,6 +463,12 @@ class TestEventDefinitionAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=nonexistent")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_retrieve_with_non_uuid_id_returns_404(self):
+        # Links built without a saved definition id (e.g. pinned defaults) request
+        # `.../event_definitions/undefined` — that must 404, not 500 with a UUID ValueError.
+        response = self.client.get("/api/projects/@current/event_definitions/undefined")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_by_name_missing_param(self):
         response = self.client.get("/api/projects/@current/event_definitions/by_name/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -480,6 +490,146 @@ class TestEventDefinitionAPI(APIBaseTest):
         other_team = create_team(organization=self.organization)
         other_team_event_exists = EventDefinition.objects.filter(name="team_specific_event", team=other_team).exists()
         assert not other_team_event_exists
+
+    def test_bulk_update_tags_with_uuid_ids(self):
+        # Event definitions have UUID PKs and are not an object-level access-controlled resource, so the
+        # inherited mixin action (integer PKs + per-object access filter) can't be reused. If that override
+        # regresses, UUID ids 400 on the integer serializer or every object gets filtered out as inaccessible.
+        ed1 = EventDefinition.objects.create(team=self.demo_team, name="bulk_a")
+        ed2 = EventDefinition.objects.create(team=self.demo_team, name="bulk_b")
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": [str(ed1.id), str(ed2.id)], "action": "add", "tags": ["pii", "billing"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["skipped"] == []
+        assert {row["id"]: sorted(row["tags"]) for row in data["updated"]} == {
+            str(ed1.id): ["billing", "pii"],
+            str(ed2.id): ["billing", "pii"],
+        }
+        for ed in (ed1, ed2):
+            assert sorted(ed.tagged_items.values_list("tag__name", flat=True)) == ["billing", "pii"]
+
+    def test_bulk_update_tags_ignores_event_definitions_in_other_project(self):
+        # Project-scoping / IDOR guard: a definition in another project must be reported "Not found" and left untouched.
+        other_team = create_team(organization=create_organization(name="other org"))
+        foreign = EventDefinition.objects.create(team=other_team, name="foreign_event")
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": [str(foreign.id)], "action": "add", "tags": ["pii"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["updated"] == []
+        assert data["skipped"] == [{"id": str(foreign.id), "reason": "Not found"}]
+        assert foreign.tagged_items.count() == 0
+
+    def test_bulk_update_tags_cleans_orphan_tags_for_every_team_in_project(self):
+        # Project-scoped bulk updates can span multiple environments (teams) in one project, so orphan
+        # cleanup must run for each affected team — not just the last object's, which would leave orphan
+        # Tag rows behind in every other environment.
+        other_env = Team.objects.create(
+            organization=self.organization, project_id=self.demo_team.project_id, name="staging env"
+        )
+        ed_a = EventDefinition.objects.create(team=self.demo_team, name="env_a_event")
+        ed_b = EventDefinition.objects.create(team=other_env, name="env_b_event")
+        bulk_url = f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/"
+        # Seed a distinct tag in each environment that the batch below then orphans.
+        self.client.post(bulk_url, {"ids": [str(ed_a.id)], "action": "set", "tags": ["orphan_a"]})
+        self.client.post(bulk_url, {"ids": [str(ed_b.id)], "action": "set", "tags": ["orphan_b"]})
+        assert Tag.objects.filter(name="orphan_a", team=self.demo_team).exists()
+        assert Tag.objects.filter(name="orphan_b", team=other_env).exists()
+
+        response = self.client.post(
+            bulk_url, {"ids": [str(ed_a.id), str(ed_b.id)], "action": "set", "tags": ["shared"]}
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert not Tag.objects.filter(name="orphan_a", team=self.demo_team).exists()
+        assert not Tag.objects.filter(name="orphan_b", team=other_env).exists()
+
+    def test_bulk_update_tags_logs_activity_per_event_definition(self):
+        # The single-object update path leaves a tags audit trail; the bulk path must too, or tagging
+        # 50 definitions is silent while tagging one is logged. Guards that the override threads an
+        # activity context through to apply_bulk_tag_changes.
+        ed1 = EventDefinition.objects.create(team=self.demo_team, name="logged_a")
+        ed2 = EventDefinition.objects.create(team=self.demo_team, name="logged_b")
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": [str(ed1.id), str(ed2.id)], "action": "add", "tags": ["pii"]},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        logs = ActivityLog.objects.filter(
+            scope="EventDefinition", activity="changed", item_id__in=[str(ed1.id), str(ed2.id)]
+        )
+        assert {log.item_id for log in logs} == {str(ed1.id), str(ed2.id)}
+        log = logs.get(item_id=str(ed1.id))
+        assert log.detail is not None
+        assert log.detail["changes"] == [
+            {"type": "EventDefinition", "action": "changed", "field": "tags", "before": [], "after": ["pii"]}
+        ]
+
+    def test_bulk_update_tags_noop_does_not_log_activity(self):
+        # Adding a tag a definition already has changes nothing; it must not write an empty activity
+        # entry. Guards the current_tags != new_tags skip in apply_bulk_tag_changes.
+        ed = EventDefinition.objects.create(team=self.demo_team, name="noop_event")
+        self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": [str(ed.id)], "action": "set", "tags": ["kept"]},
+        )
+        ActivityLog.objects.filter(scope="EventDefinition").delete()
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": [str(ed.id)], "action": "add", "tags": ["kept"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert not ActivityLog.objects.filter(scope="EventDefinition", item_id=str(ed.id)).exists()
+
+
+class TestEventDefinitionExcludeStale(APIBaseTest):
+    """Stale filter tests need real wall-clock times so the Postgres NOW() comparison
+    in `exclude_stale` matches the fixture last_seen_at values. The other test class is
+    wrapped in freeze_time which Postgres NOW() does not respect."""
+
+    @parameterized.expand(
+        [
+            (
+                "default keeps stale events",
+                "",
+                {"fresh_event", "stale_event", "ancient_event", "never_seen_event"},
+            ),
+            (
+                "explicit false keeps stale events",
+                "?exclude_stale=false",
+                {"fresh_event", "stale_event", "ancient_event", "never_seen_event"},
+            ),
+            (
+                "true hides stale events but keeps never-seen",
+                "?exclude_stale=true",
+                {"fresh_event", "never_seen_event"},
+            ),
+        ]
+    )
+    def test_exclude_stale_filter(self, _description: str, query_string: str, expected_names: set[str]) -> None:
+        now = timezone.now()
+        EventDefinition.objects.create(team=self.team, name="fresh_event", last_seen_at=now - timedelta(days=1))
+        EventDefinition.objects.create(team=self.team, name="stale_event", last_seen_at=now - timedelta(days=45))
+        EventDefinition.objects.create(team=self.team, name="ancient_event", last_seen_at=now - timedelta(days=365))
+        EventDefinition.objects.create(team=self.team, name="never_seen_event", last_seen_at=None)
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/event_definitions/{query_string}")
+        assert response.status_code == status.HTTP_200_OK
+        names = {row["name"] for row in response.json()["results"]}
+        assert names == expected_names
 
 
 @dataclasses.dataclass

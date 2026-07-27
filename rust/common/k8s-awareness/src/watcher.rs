@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::{Deployment, ReplicaSet, StatefulSet};
 use kube::api::{Api, ListParams};
 use kube::runtime::watcher::{self, Config as WatcherConfig, Event};
+use kube::runtime::WatchStreamExt;
 use kube::Client;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -13,6 +15,11 @@ use tracing::{debug, info, warn};
 use crate::detection;
 use crate::discovery::{self, DiscoveryError};
 use crate::types::{ClusterIntent, ControllerKind, ControllerRef, DepartureReason, PodInfo};
+
+/// Timeout for `stream.next()` in watcher loops. Prevents the watcher task from
+/// blocking indefinitely when the K8s API server is unreachable, which would
+/// otherwise create a deadlock path (the assigner cannot make progress).
+const STREAM_NEXT_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, thiserror::Error)]
 pub enum K8sAwarenessError {
@@ -61,20 +68,29 @@ impl K8sAwareness {
 
     /// Classify why a member is departing based on its controller's current intent.
     ///
-    /// Returns `DepartureReason::Unknown` if the controller isn't being watched.
+    /// Returns `DepartureReason::Unknown` if the controller isn't being watched
+    /// or if the lock is contended (avoids blocking the assigner).
     pub async fn classify_departure(
         &self,
         controller: &ControllerRef,
         generation: &str,
     ) -> DepartureReason {
-        let controllers = self.controllers.read().await;
-        match controllers.get(controller) {
-            Some(intent) => detection::classify_departure(intent, generation),
-            None => {
-                warn!(
-                    controller = %controller,
-                    "no cluster intent available, returning Unknown"
-                );
+        // Use try_read to avoid blocking if the watcher is updating controllers.
+        // If the lock is contended, return Unknown — the assigner will treat the
+        // consumer as active, which is the safe default.
+        match self.controllers.try_read() {
+            Ok(controllers) => match controllers.get(controller) {
+                Some(intent) => detection::classify_departure(intent, generation),
+                None => {
+                    warn!(
+                        controller = %controller,
+                        "no cluster intent available, returning Unknown"
+                    );
+                    DepartureReason::Unknown
+                }
+            },
+            Err(_) => {
+                debug!(controller = %controller, "controllers lock contended, returning Unknown");
                 DepartureReason::Unknown
             }
         }
@@ -152,15 +168,17 @@ async fn run_deployment_watcher(
     let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
     let config = WatcherConfig::default().fields(&format!("metadata.name={}", controller.name));
 
-    let stream = watcher::watcher(api, config);
+    // Without backoff, an unreachable API server makes the watcher retry
+    // its connection in a hot loop, flooding logs at sub-millisecond rate.
+    let stream = watcher::watcher(api, config).default_backoff();
     tokio::pin!(stream);
 
     loop {
         tokio::select! {
             _ = cancel.cancelled() => break,
-            item = stream.next() => {
+            item = tokio::time::timeout(STREAM_NEXT_TIMEOUT, stream.next()) => {
                 match item {
-                    Some(Ok(event)) => {
+                    Ok(Some(Ok(event))) => {
                         handle_deployment_event(
                             client,
                             namespace,
@@ -170,16 +188,22 @@ async fn run_deployment_watcher(
                             event,
                         ).await;
                     }
-                    Some(Err(e)) => {
+                    Ok(Some(Err(e))) => {
                         warn!(
                             controller = %controller,
                             error = %e,
                             "deployment watcher error, stream will retry"
                         );
                     }
-                    None => {
+                    Ok(None) => {
                         info!(controller = %controller, "deployment watcher stream ended");
                         break;
+                    }
+                    Err(_elapsed) => {
+                        debug!(
+                            controller = %controller,
+                            "deployment watcher stream.next() timed out, retrying"
+                        );
                     }
                 }
             }
@@ -381,27 +405,34 @@ async fn run_statefulset_watcher(
     let api: Api<StatefulSet> = Api::namespaced(client.clone(), namespace);
     let config = WatcherConfig::default().fields(&format!("metadata.name={}", controller.name));
 
-    let stream = watcher::watcher(api, config);
+    // Same backoff rationale as the deployment watcher above.
+    let stream = watcher::watcher(api, config).default_backoff();
     tokio::pin!(stream);
 
     loop {
         tokio::select! {
             _ = cancel.cancelled() => break,
-            item = stream.next() => {
+            item = tokio::time::timeout(STREAM_NEXT_TIMEOUT, stream.next()) => {
                 match item {
-                    Some(Ok(event)) => {
+                    Ok(Some(Ok(event))) => {
                         handle_statefulset_event(controller, controllers, watching, event).await;
                     }
-                    Some(Err(e)) => {
+                    Ok(Some(Err(e))) => {
                         warn!(
                             controller = %controller,
                             error = %e,
                             "statefulset watcher error, stream will retry"
                         );
                     }
-                    None => {
+                    Ok(None) => {
                         info!(controller = %controller, "statefulset watcher stream ended");
                         break;
+                    }
+                    Err(_elapsed) => {
+                        debug!(
+                            controller = %controller,
+                            "statefulset watcher stream.next() timed out, retrying"
+                        );
                     }
                 }
             }

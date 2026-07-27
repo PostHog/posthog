@@ -6,7 +6,6 @@ load_from:
     ## Something like a full backup or something that makes heavy network requests should not be included.
     ## To test something like that locally, uncomment but do not commit.
     #    - python_module: posthog.dags.locations.data_stack
-    #    - python_module: posthog.dags.locations.error_tracking
     #    - python_module: posthog.dags.locations.revenue_analytics
     #    - python_module: posthog.dags.locations.clickhouse
     #    - python_module: posthog.dags.locations.billing
@@ -17,6 +16,5 @@ load_from:
     - python_module: posthog.dags.locations.growth
     - python_module: posthog.dags.locations.shared
     - python_module: posthog.dags.locations.ingestion
-    - python_module: posthog.dags.locations.llm_analytics
     - python_module: posthog.dags.locations.posthog_ai
     - python_module: posthog.dags.locations.web_analytics

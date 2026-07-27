@@ -1,6 +1,6 @@
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, RedisPool, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
 
 import { QUOTA_LIMITER_CACHE_KEY, QuotaLimiting, QuotaResource } from './quota-limiting.service'
 

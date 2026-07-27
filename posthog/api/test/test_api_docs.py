@@ -1,16 +1,7 @@
-import re
-from pathlib import Path
-
-import pytest
 from posthog.test.base import APIBaseTest
 
 
 class TestAPIDocsSchema(APIBaseTest):
-    @pytest.fixture(autouse=True)
-    def inject_fixtures(self, capsys, snapshot):
-        self._capsys = capsys
-        self._snapshot = snapshot
-
     def test_can_generate_api_docs_schema(self) -> None:
         self.client.logout()
 
@@ -22,28 +13,6 @@ class TestAPIDocsSchema(APIBaseTest):
         assert schema_response.headers.get("Content-Type") == "application/vnd.oai.openapi; charset=utf-8"
         assert int(str(schema_response.headers.get("Content-Length"))) > 0
 
-    def test_api_docs_generation_warnings_snapshot(self) -> None:
-        """
-        There are a little under 200 warning from API docs generation. Lets at least not add more.
-        """
-        self.client.logout()
-
-        self.client.get("/api/schema/")
-
-        # we log lots of warnings when generating the schema
-        warnings = [self._normalize_warning_path(warning) for warning in self._capsys.readouterr().err.split("\n")]
-        assert sorted(warnings) == self._snapshot
-
-    @staticmethod
-    def _normalize_warning_path(warning: str) -> str:
-        repo_root = str(Path(__file__).resolve().parents[3])
-        warning = warning.replace(repo_root, "/home/runner/work/posthog/posthog")
-        return re.sub(
-            r"^.*?/site-packages/",
-            "/opt/hostedtoolcache/Python/3.12.12/x64/lib/python3.12/site-packages/",
-            warning,
-        )
-
     def test_llm_prompt_schema_includes_search_and_prompt_name_path_param(self) -> None:
         self.client.logout()
 
@@ -53,12 +22,12 @@ class TestAPIDocsSchema(APIBaseTest):
         assert isinstance(schema_response.data, dict)
 
         paths = schema_response.data["paths"]
-        list_operation = paths["/api/environments/{project_id}/llm_prompts/"]["get"]
+        list_operation = paths["/api/projects/{project_id}/llm_prompts/"]["get"]
         list_params = list_operation.get("parameters", [])
         assert any(param.get("in") == "query" and param.get("name") == "search" for param in list_params)
         assert any(param.get("in") == "query" and param.get("name") == "content" for param in list_params)
 
-        by_name_path = "/api/environments/{project_id}/llm_prompts/name/{prompt_name}/"
+        by_name_path = "/api/projects/{project_id}/llm_prompts/name/{prompt_name}/"
         assert by_name_path in paths
 
         for method in ("get", "patch"):

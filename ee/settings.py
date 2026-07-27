@@ -100,6 +100,8 @@ LLM_GATEWAY_API_KEY = get_from_env("LLM_GATEWAY_PERSONAL_API_KEY", DEV_API_KEY i
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
+# Dedicated key for Replay Vision (own GCP project for cost/quota isolation); falls back to GEMINI_API_KEY
+REPLAY_VISION_GEMINI_API_KEY = get_from_env("REPLAY_VISION_GEMINI_API_KEY", "")
 PPLX_API_KEY = get_from_env("PPLX_API_KEY", "")
 AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "", type_cast=str)
 AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "", type_cast=str)
@@ -145,6 +147,7 @@ HARMONIC_BASE_URL = get_from_env("HARMONIC_BASE_URL", "https://api.harmonic.ai",
 # Vercel Integration
 VERCEL_CLIENT_INTEGRATION_ID = get_from_env("VERCEL_CLIENT_INTEGRATION_ID", "", type_cast=str)
 VERCEL_CLIENT_INTEGRATION_SECRET = get_from_env("VERCEL_CLIENT_INTEGRATION_SECRET", "", type_cast=str)
+BILLING_PROVIDER_WEBHOOK_SECRET = get_from_env("BILLING_PROVIDER_WEBHOOK_SECRET", "", type_cast=str)
 
 # SCIM Configuration
 # django-scim2 requires these settings

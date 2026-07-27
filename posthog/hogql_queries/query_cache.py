@@ -1,7 +1,10 @@
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
-from typing import NamedTuple, Optional
+from typing import TYPE_CHECKING, NamedTuple, Optional
+
+if TYPE_CHECKING:
+    from posthog.caching.fetch_from_cache import SplitCachedResponse
 
 from django.conf import settings
 
@@ -10,12 +13,6 @@ from prometheus_client import CollectorRegistry, Counter, Histogram
 
 from posthog.cache_utils import OrjsonJsonSerializer
 from posthog.caching.cache_size_tracker import TeamCacheSizeTracker
-from posthog.caching.query_cache_routing import (
-    BACKEND_CLUSTER,
-    BACKEND_DEFAULT,
-    get_query_cache_selection,
-    use_cluster_cache,
-)
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
@@ -82,28 +79,28 @@ def _create_cache_metrics(registry: Optional[CollectorRegistry] = None) -> Cache
     hit_counter = Counter(
         name="posthog_query_cache_hit_total",
         documentation="Whether we could fetch the query from the cache or not.",
-        labelnames=[LABEL_TEAM_ID, "cache_hit", "trigger", "backend"],
+        labelnames=[LABEL_TEAM_ID, "cache_hit", "trigger"],
         registry=registry,
     )
 
     write_counter = Counter(
         name="posthog_query_cache_write_total",
         documentation="When a query result was persisted in the cache.",
-        labelnames=[LABEL_TEAM_ID, "backend"],
+        labelnames=[LABEL_TEAM_ID],
         registry=registry,
     )
 
     bytes_counter = Counter(
         name="posthog_query_cache_write_bytes_total",
         documentation="Total bytes written to cache (uncompressed JSON)",
-        labelnames=[LABEL_TEAM_ID, "backend"],
+        labelnames=[LABEL_TEAM_ID],
         registry=registry,
     )
 
     size_histogram = Histogram(
         name="posthog_query_cache_write_size_bytes",
         documentation="Distribution of cache write data sizes in bytes (uncompressed JSON)",
-        labelnames=[LABEL_TEAM_ID, "backend"],
+        labelnames=[LABEL_TEAM_ID],
         buckets=[
             100,  # Small responses < 100B
             1000,  # 100B - 1KB
@@ -131,7 +128,7 @@ def _get_cache_metrics(registry: Optional[CollectorRegistry] = None) -> CacheMet
 
 
 @contextmanager
-def get_cache_metrics_context(registry_name: str) -> Generator[CacheMetrics, None, None]:
+def get_cache_metrics_context(registry_name: str) -> Generator[CacheMetrics]:
     """Context manager that yields the appropriate cache metrics based on execution context."""
     if _is_short_lived_context():
         with pushed_metrics_registry(registry_name) as registry:
@@ -144,26 +141,21 @@ def is_cache_warming() -> bool:
     return (get_query_tag_value("trigger") or "").startswith("warming")
 
 
-def _cache_backend_label() -> str:
-    return BACKEND_CLUSTER if use_cluster_cache() else BACKEND_DEFAULT
-
-
 def count_query_cache_hit(team_id: int, hit: str, trigger: str = "") -> None:
     """Count cache hit/miss, excluding cache warming requests."""
     if is_cache_warming():
         return
 
-    backend = _cache_backend_label()
     with get_cache_metrics_context("query_cache_hits") as metrics:
-        metrics.hit_counter.labels(team_id=team_id, cache_hit=hit, trigger=trigger, backend=backend).inc()
+        metrics.hit_counter.labels(team_id=team_id, cache_hit=hit, trigger=trigger).inc()
 
 
-def count_cache_write_data(team_id: int, data_size: int, backend: str = BACKEND_DEFAULT) -> None:
+def count_cache_write_data(team_id: int, data_size: int) -> None:
     """Count cache write operations and data size metrics."""
     with get_cache_metrics_context("query_cache_writes") as metrics:
-        metrics.write_counter.labels(team_id=team_id, backend=backend).inc()
-        metrics.bytes_counter.labels(team_id=team_id, backend=backend).inc(data_size)
-        metrics.size_histogram.labels(team_id=team_id, backend=backend).observe(data_size)
+        metrics.write_counter.labels(team_id=team_id).inc()
+        metrics.bytes_counter.labels(team_id=team_id).inc(data_size)
+        metrics.size_histogram.labels(team_id=team_id).observe(data_size)
 
 
 class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
@@ -176,17 +168,20 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
     """
 
     def set_cache_data(self, *, response: dict, target_age: Optional[datetime]) -> None:
-        fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
+        from posthog.caching.fetch_from_cache import encode_split_cached_response
+
+        if isinstance(response.get("results"), list):
+            # Split format keeps `results` as its own JSON segment so cache hits can skip
+            # parsing it — see fetch_from_cache.SplitCachedResponse. Pods that predate this
+            # format treat split entries as cache misses and recompute, so entries written
+            # during a rolling deploy may be recomputed once — accepted, deploys are quick.
+            fresh_response_serialized = encode_split_cached_response(response)
+        else:
+            fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
         data_size = len(fresh_response_serialized)
 
         # Set cache with per-team size limit enforcement
-        selection = get_query_cache_selection()
-        tracker = TeamCacheSizeTracker(
-            self.team_id,
-            cache_backend=selection.cache_backend,
-            redis_client=selection.redis_client,
-            is_cluster=selection.is_cluster,
-        )
+        tracker = TeamCacheSizeTracker(self.team_id)
         tracker.set(self.cache_key, fresh_response_serialized, data_size, settings.CACHED_RESULTS_TTL)
 
         if target_age:
@@ -195,10 +190,14 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
             self.remove_last_refresh()
 
         # Track cache write metrics
-        backend = BACKEND_CLUSTER if selection.is_cluster else BACKEND_DEFAULT
-        count_cache_write_data(self.team_id, data_size, backend=backend)
+        count_cache_write_data(self.team_id, data_size)
 
     def get_cache_data(self) -> Optional[dict]:
         from posthog.caching.fetch_from_cache import fetch_cached_response_by_key
 
         return fetch_cached_response_by_key(self.cache_key, self.team_id)
+
+    def get_cache_data_split(self) -> Optional["SplitCachedResponse"]:
+        from posthog.caching.fetch_from_cache import fetch_split_cached_response_by_key
+
+        return fetch_split_cached_response_by_key(self.cache_key, self.team_id)

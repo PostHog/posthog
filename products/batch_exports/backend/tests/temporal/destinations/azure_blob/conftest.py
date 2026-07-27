@@ -7,8 +7,9 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from azure.storage.blob.aio import BlobServiceClient
 
-from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.models.integration import Integration
+
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 

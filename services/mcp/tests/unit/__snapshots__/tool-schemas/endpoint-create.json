@@ -1,0 +1,67 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "data_freshness_seconds": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency."
+        },
+        "description": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Human-readable description of what this endpoint returns."
+        },
+        "is_materialized": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether query results are materialized to S3."
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars."
+        },
+        "query": {
+            "description": "HogQL or insight query this endpoint executes. Changing this auto-creates a new version."
+        },
+        "tags": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "List of tag names to associate with this endpoint. Replaces any existing tags."
+        }
+    },
+    "type": "object"
+}

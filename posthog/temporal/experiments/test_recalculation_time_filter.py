@@ -6,12 +6,12 @@ import pytest
 from unittest.mock import patch
 
 from posthog.models import Organization, Team, User
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.temporal.experiments.activities import _get_experiment_regular_metrics_for_hour_sync
 
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 def _create_running_experiment(team, user, flag_key, metrics=None):

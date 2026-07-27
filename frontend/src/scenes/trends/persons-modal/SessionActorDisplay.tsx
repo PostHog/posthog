@@ -1,5 +1,5 @@
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { gatherIconProperties, PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 

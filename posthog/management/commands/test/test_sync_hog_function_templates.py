@@ -9,7 +9,8 @@ from posthog.management.commands.sync_hog_function_templates import (
     TEST_INCLUDE_PYTHON_TEMPLATE_IDS,
     TYPES_WITH_JAVASCRIPT_SOURCE,
 )
-from posthog.models.hog_function_template import HogFunctionTemplate
+
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
 pytestmark = pytest.mark.django_db
 

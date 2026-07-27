@@ -2,8 +2,9 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from posthog.models import OrganizationMembership
-from posthog.models.plugin import Plugin, PluginConfig
 from posthog.tasks.plugin_server import _dispatch_plugin_disabled_realtime
+
+from products.cdp.backend.models.plugin import Plugin, PluginConfig
 
 
 class TestDispatchPluginDisabledRealtime(BaseTest):

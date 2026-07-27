@@ -1,19 +1,24 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useState } from 'react'
 
-import { IconBook, IconTerminal } from '@posthog/icons'
+import { IconSparkles, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { NotebookSyncStatus } from '../types'
+import { isKernelUiEnabled } from '../utils'
+import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
+import { NOTEBOOK_AI_PRESENCE_COLOR, type NotebookPresenceParticipant } from './notebookPresence'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
+
+const MAX_PRESENCE_BUBBLES = 6
 
 const syncStatusMap: Record<NotebookSyncStatus, { content: React.ReactNode; tooltip: React.ReactNode }> = {
     synced: {
@@ -88,68 +93,149 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
     ) : null
 }
 
+function notebookPresenceTooltip(participants: NotebookPresenceParticipant[]): string {
+    const visibleNames = participants.slice(0, MAX_PRESENCE_BUBBLES).map((participant) => participant.userName)
+    const overflowCount = participants.length - visibleNames.length
+    const names =
+        overflowCount > 0
+            ? `${formatNotebookPresenceNames(visibleNames)} and ${overflowCount} more`
+            : formatNotebookPresenceNames(visibleNames)
+    const verb = participants.length === 1 && !participants[0].isCurrentUser ? 'is' : 'are'
+    return `${names} ${verb} viewing this notebook`
+}
+
+function formatNotebookPresenceNames(names: string[]): string {
+    if (names.length <= 1) {
+        return names[0] ?? ''
+    }
+    if (names.length === 2) {
+        return `${names[0]} and ${names[1]}`
+    }
+    return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`
+}
+
+export const NotebookPresence = (props: NotebookLogicProps): JSX.Element | null => {
+    const { notebookPresenceParticipants: participants } = useValues(notebookLogic(props))
+
+    if (!participants.length) {
+        return null
+    }
+
+    const shownParticipants = participants.slice(0, MAX_PRESENCE_BUBBLES)
+    const overflowCount = participants.length - shownParticipants.length
+    const overflowTitle =
+        overflowCount > 0
+            ? participants
+                  .slice(MAX_PRESENCE_BUBBLES)
+                  .map((participant) => participant.userName)
+                  .join(', ')
+            : undefined
+    const tooltip = notebookPresenceTooltip(participants)
+    return (
+        <Tooltip title={tooltip} placement="left">
+            <div className="ProfileBubbles" aria-label={tooltip}>
+                {shownParticipants.map((participant) =>
+                    participant.isAI ? (
+                        <div
+                            key={`${participant.userId}-${participant.clientId}`}
+                            className="NotebookPresence__ai-bubble"
+                            title={participant.userName}
+                            aria-label={participant.userName}
+                            style={
+                                {
+                                    '--notebook-ai-presence-color': NOTEBOOK_AI_PRESENCE_COLOR,
+                                } as React.CSSProperties
+                            }
+                        >
+                            <IconSparkles className="size-3" />
+                        </div>
+                    ) : (
+                        <ProfilePicture
+                            key={`${participant.userId}-${participant.clientId}`}
+                            user={participant.profileUser}
+                            name={participant.userName}
+                            title={participant.userName}
+                            size="md"
+                            index={participant.userId}
+                        />
+                    )
+                )}
+                {overflowCount > 0 ? (
+                    <div className="ProfileBubbles__more" title={overflowTitle}>
+                        +{overflowCount}
+                    </div>
+                ) : null}
+            </div>
+        </Tooltip>
+    )
+}
+
 interface NotebookExpandButtonProps extends Pick<LemonButtonProps, 'size' | 'type'> {
     inPanel: boolean
 }
 
-export const NotebookExpandButton = (props: NotebookExpandButtonProps): JSX.Element => {
-    const { isExpanded } = useValues(notebookSettingsLogic)
-    const { setIsExpanded } = useActions(notebookSettingsLogic)
+export const NotebookExpandButton = ({ inPanel, ...buttonProps }: NotebookExpandButtonProps): JSX.Element => {
+    const { isMarkdownExpanded: isContentWidthExpanded } = useValues(notebookSettingsLogic)
+    const { setIsMarkdownExpanded } = useActions(notebookSettingsLogic)
+    const toggleContentWidth = (): void => {
+        setIsMarkdownExpanded(!isContentWidthExpanded)
+    }
 
-    if (props.inPanel) {
+    if (inPanel) {
         return (
             <ButtonPrimitive
-                onClick={() => setIsExpanded(!isExpanded)}
+                onClick={toggleContentWidth}
                 iconOnly
-                tooltip={isExpanded ? 'Fix content width' : 'Fill content width'}
+                tooltip={isContentWidthExpanded ? 'Fix content width' : 'Fill content width'}
                 tooltipPlacement="left"
             >
                 <IconDocumentExpand
                     className="text-tertiary size-4 group-hover:text-primary z-10"
-                    mode={isExpanded ? 'expand' : 'collapse'}
+                    mode={isContentWidthExpanded ? 'expand' : 'collapse'}
                 />
             </ButtonPrimitive>
         )
     }
     return (
         <LemonButton
-            {...props}
-            onClick={() => setIsExpanded(!isExpanded)}
-            icon={<IconDocumentExpand mode={isExpanded ? 'expand' : 'collapse'} />}
-            tooltip={isExpanded ? 'Fix content width' : 'Fill content width'}
+            {...buttonProps}
+            onClick={toggleContentWidth}
+            icon={<IconDocumentExpand mode={isContentWidthExpanded ? 'expand' : 'collapse'} />}
+            tooltip={isContentWidthExpanded ? 'Fix content width' : 'Fill content width'}
             tooltipPlacement="left"
         />
     )
 }
 
-export const NotebookTableOfContentsButton = (props: Pick<LemonButtonProps, 'size' | 'type'>): JSX.Element => {
-    const { showTableOfContents } = useValues(notebookSettingsLogic)
-    const { setShowTableOfContents } = useActions(notebookSettingsLogic)
-
-    return (
-        <LemonButton
-            {...props}
-            onClick={() => setShowTableOfContents(!showTableOfContents)}
-            icon={<IconBook />}
-            tooltip={showTableOfContents ? 'Hide table of contents' : 'Show table of contents'}
-            tooltipPlacement="left"
-        />
-    )
+type NotebookKernelInfoButtonProps = Pick<LemonButtonProps, 'children' | 'size' | 'type'> & {
+    onBeforeShowKernelInfo?: () => void
 }
 
-export const NotebookKernelInfoButton = (props: Pick<LemonButtonProps, 'size' | 'type'>): JSX.Element | null => {
+export const NotebookKernelInfoButton = ({
+    onBeforeShowKernelInfo,
+    ...props
+}: NotebookKernelInfoButtonProps): JSX.Element | null => {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { content } = useValues(notebookLogic)
     const { showKernelInfo } = useValues(notebookSettingsLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
 
-    if (!featureFlags[FEATURE_FLAGS.NOTEBOOK_PYTHON]) {
+    // The kernel info panel only renders for markdown (V2) notebooks, so hide the toggle elsewhere
+    if (!isKernelUiEnabled(featureFlags) || !isMarkdownNotebookContent(content)) {
         return null
     }
 
     return (
         <LemonButton
             {...props}
-            onClick={() => setShowKernelInfo(!showKernelInfo)}
+            onClick={() => {
+                const nextShowKernelInfo = !showKernelInfo
+                if (nextShowKernelInfo) {
+                    onBeforeShowKernelInfo?.()
+                }
+                setShowKernelInfo(nextShowKernelInfo)
+            }}
+            active={showKernelInfo}
             icon={<IconTerminal />}
             tooltip={showKernelInfo ? 'Hide kernel info' : 'Show kernel info'}
             tooltipPlacement="left"

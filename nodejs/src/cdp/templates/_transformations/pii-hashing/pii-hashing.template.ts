@@ -8,7 +8,7 @@ export const template: HogFunctionTemplate = {
     name: 'PII Data Hashing',
     description:
         'This transformation hashes sensitive personal data (PII) like email, phone numbers, etc. using SHA-256 to protect user privacy.',
-    icon_url: '/static/hedgehog/builder-hog-02.png',
+    icon_url: 'https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/builder_hog_02_13ef93b4cb.png',
     category: ['Custom'],
     code_language: 'hog',
     code: `

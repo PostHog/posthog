@@ -322,11 +322,11 @@ class _KafkaProducer:
 
         return result
 
-    def flush(self, timeout: Optional[float] = None):
-        if timeout is not None:
-            self.producer.flush(timeout)
-        else:
-            self.producer.flush()
+    def flush(self, timeout: Optional[float] = None) -> int:
+        # confluent's flush() returns the count still undelivered (0 once acked);
+        # surface it so callers can detect a partial flush. It rejects a None
+        # timeout, so only pass one when set.
+        return self.producer.flush(timeout) if timeout is not None else self.producer.flush()
 
     def close(self):
         self.producer.flush()

@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.models.health_issue import HealthIssue
 
-from products.web_analytics.dags.no_pageleave_events import detect_no_pageleave_events
+from products.web_analytics.backend.temporal.health_checks.no_pageleave_events import NoPageleaveEventsCheck
 
 
 @pytest.mark.parametrize(
@@ -15,12 +15,11 @@ from products.web_analytics.dags.no_pageleave_events import detect_no_pageleave_
     ],
     ids=["all_healthy", "single_team_missing_pageleave", "multiple_teams_mixed"],
 )
-@patch("products.web_analytics.dags.no_pageleave_events.execute_clickhouse_health_team_query")
+@patch("products.web_analytics.backend.temporal.health_checks.no_pageleave_events.execute_clickhouse_health_team_query")
 def test_detect_no_pageleave_events(mock_query: MagicMock, mock_rows: list, expected_teams: set) -> None:
     mock_query.return_value = mock_rows
-    context = MagicMock()
 
-    result = detect_no_pageleave_events([1, 2, 3, 42], context)
+    result = NoPageleaveEventsCheck().detect([1, 2, 3, 42])
 
     assert set(result.keys()) == expected_teams
     for team_id in expected_teams:

@@ -1,0 +1,1 @@
+export { SelfReadOnlyNotice } from './SelfReadOnlyNotice'

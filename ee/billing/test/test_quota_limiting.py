@@ -1,11 +1,12 @@
-import time
+import datetime
 from typing import Any, cast
 from uuid import uuid4
 
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, FuzzyInt, _create_event
+from posthog.test.base import BaseTest, FuzzyInt, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.apps import apps
 from django.test import override_settings
 from django.utils import timezone
 from django.utils.timezone import now
@@ -102,7 +103,7 @@ class TestQuotaLimiting(BaseTest):
                 )
 
         org_id = str(self.organization.id)
-        time.sleep(1)
+        flush_persons_and_events()
 
         quota_limited_orgs, quota_limiting_suspended_orgs, _stats = update_all_orgs_billing_quotas()
         # feature_enabled will be called for AI billing check and then for data retention flag
@@ -225,8 +226,8 @@ class TestQuotaLimiting(BaseTest):
         self.organization.customer_trust_scores = zero_trust_scores()
         self.organization.save()
 
-        time.sleep(1)
-        with self.assertNumQueries(FuzzyInt(3, 6)):
+        flush_persons_and_events()
+        with self.assertNumQueries(FuzzyInt(3, 9)):
             quota_limited_orgs, quota_limiting_suspended_orgs, _stats = update_all_orgs_billing_quotas()
         assert patch_capture.call_count == 0  # No events should be captured since org won't be limited
         assert quota_limited_orgs["events"] == {}
@@ -333,7 +334,7 @@ class TestQuotaLimiting(BaseTest):
                     timestamp=now(),
                     team=self.team,
                 )
-            time.sleep(1)
+            flush_persons_and_events()
             quota_limited_orgs, quota_limiting_suspended_orgs, _stats = update_all_orgs_billing_quotas()
             # Will be immediately rate limited as trust score was unset.
             org_id = str(self.organization.id)
@@ -734,6 +735,8 @@ class TestQuotaLimiting(BaseTest):
             )
             is None
         )
+        assert self.organization.usage["events"].get("quota_limited_until") is None
+        assert self.organization.usage["events"].get("quota_limiting_suspended_until") is None
 
         # Not over quota
         self.organization.usage["exceptions"]["usage"] = 99
@@ -972,6 +975,30 @@ class TestQuotaLimiting(BaseTest):
 
         # reset for subsequent tests
         self.organization.never_drop_data = False
+
+    def test_update_org_billing_quotas_invalidates_llm_gateway_quota_cache(self) -> None:
+        gateway_redis_url = "redis://llm-gateway-redis-test/"
+        cache_keys = [
+            f"quota:posthog_code_credits:team:{self.team.id}",
+            f"quota:ai_credits:team:{self.team.id}",
+            f"quota:code_usage_billing:team:{self.team.id}",
+        ]
+        with self.settings(LLM_GATEWAY_REDIS_URL=gateway_redis_url):
+            gateway_redis = get_client(gateway_redis_url)
+            gateway_redis.mset(dict.fromkeys(cache_keys, "stale"))
+            # Seed the central Redis too: eviction must target the gateway's own
+            # instance, not the default client (which would silently no-op in prod).
+            self.redis_client.mset(dict.fromkeys(cache_keys, "central"))
+            self.organization.usage = {
+                "events": {"usage": 1, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+
+            update_org_billing_quotas(self.organization)
+
+            assert gateway_redis.mget(cache_keys) == [None] * len(cache_keys)
+            assert self.redis_client.mget(cache_keys) == [b"central"] * len(cache_keys)
+        self.redis_client.delete(*cache_keys)
 
     def test_update_org_billing_quotas(self):
         with freeze_time("2021-01-01T12:59:59Z"):
@@ -1827,7 +1854,7 @@ class TestQuotaLimiting(BaseTest):
                     timestamp=now() - relativedelta(hours=1),
                     team=self.team,
                 )
-            time.sleep(1)
+            flush_persons_and_events()
 
             fresh_usage = {
                 "events": {"usage": 0, "limit": 10_000_000, "todays_usage": 0},
@@ -1908,7 +1935,7 @@ class TestQuotaLimiting(BaseTest):
                     timestamp=now() - relativedelta(hours=1),
                     team=self.team,
                 )
-            time.sleep(1)
+            flush_persons_and_events()
 
             mid_loop_webhook = {
                 "events": {"usage": 0, "limit": 50_000_000, "todays_usage": 0},
@@ -1978,7 +2005,7 @@ class TestQuotaLimiting(BaseTest):
                     timestamp=now() - relativedelta(hours=1),
                     team=self.team,
                 )
-            time.sleep(1)
+            flush_persons_and_events()
 
             # A billing webhook lands a fresh paid plan with much higher limits before
             # the org loop reaches this org.
@@ -2043,7 +2070,7 @@ class TestQuotaLimiting(BaseTest):
                     timestamp=now() - relativedelta(hours=1),
                     team=self.team,
                 )
-            time.sleep(1)
+            flush_persons_and_events()
 
             # Mid-loop downgrade lands a much lower limit; the 50 events from
             # ClickHouse now exceed it. A candidate-refresh would catch this; a
@@ -2077,6 +2104,222 @@ class TestQuotaLimiting(BaseTest):
             # flip it to `in quota_limited_orgs["events"]` in the same PR.
             assert str(org_id) not in quota_limited_orgs["events"]
 
+    # `update_team_remote_config` is lazy-imported inside `dispatch_recordings_remote_config_sync`,
+    # so patches target `posthog.tasks.remote_config.update_team_remote_config` directly.
+
+    @parameterized.expand(
+        [
+            (
+                "newly_limited",
+                None,
+                {"events": {"usage": 1, "limit": 100}, "recordings": {"usage": 6_000, "limit": 5_000}},
+                1,
+            ),
+            (
+                "active_member_becomes_unlimited",
+                10_000,
+                {"events": {"usage": 1, "limit": 100}, "recordings": {"usage": 1, "limit": 5_000}},
+                1,
+            ),
+            (
+                "expired_member_becomes_unlimited",
+                -10_000,
+                {"events": {"usage": 1, "limit": 100}, "recordings": {"usage": 1, "limit": 5_000}},
+                1,
+            ),
+            (
+                "still_limited_no_transition",
+                10_000,
+                {"events": {"usage": 1, "limit": 100}, "recordings": {"usage": 6_000, "limit": 5_000}},
+                0,
+            ),
+            (
+                "non_recordings_resource_over_limit",
+                None,
+                {"events": {"usage": 1_000_000, "limit": 100}, "recordings": {"usage": 0, "limit": 5_000}},
+                0,
+            ),
+        ]
+    )
+    @freeze_time("2021-01-25T00:00:00Z")
+    @patch("posthog.tasks.remote_config.update_team_remote_config")
+    def test_update_org_billing_quotas_recordings_remote_config_dispatch(
+        self,
+        _name,
+        prepopulate_zset_score_offset,
+        usage_overrides,
+        expected_dispatch_count,
+        mock_update_remote_config,
+    ) -> None:
+        if prepopulate_zset_score_offset is not None:
+            score = int(timezone.now().timestamp()) + prepopulate_zset_score_offset
+            replace_limited_team_tokens(
+                QuotaResource.RECORDINGS,
+                {self.team.api_token: score},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            )
+
+        self.organization.usage = {
+            **usage_overrides,
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
+
+        update_org_billing_quotas(self.organization)
+
+        assert mock_update_remote_config.apply_async.call_count == expected_dispatch_count
+        if expected_dispatch_count > 0:
+            mock_update_remote_config.apply_async.assert_called_with(
+                args=[self.team.id],
+                kwargs={"bypass_recordings_quota_cache": True},
+                countdown=35,
+            )
+
+    @freeze_time("2021-01-25T00:00:00Z")
+    @patch("posthog.tasks.remote_config.update_team_remote_config")
+    def test_update_org_billing_quotas_no_teams_no_dispatch(self, mock_update_remote_config) -> None:
+        """An org with no teams (or only teams with empty api_tokens) takes the observe-only
+        branch — no Redis mutations, no dispatch, no crash."""
+        self.organization.teams.all().delete()
+        self.organization.usage = {
+            "events": {"usage": 1, "limit": 100},
+            "recordings": {"usage": 6_000, "limit": 5_000},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
+
+        update_org_billing_quotas(self.organization)
+
+        mock_update_remote_config.apply_async.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("active_member_becomes_unlimited", 10_000, 1, 1, False, 1, False),
+            ("expired_member_becomes_unlimited", -10_000, 1, 1, False, 1, False),
+            ("still_limited_no_dispatch", 10_000, 6_000, 1, False, 0, True),
+            ("non_recordings_over_limit_no_dispatch", None, 1, 1_000_000, False, 0, False),
+            ("dry_run_skips_dispatch_and_mutation", 10_000, 1, 1, True, 0, True),
+        ]
+    )
+    @patch("posthog.tasks.remote_config.update_team_remote_config")
+    @patch("posthoganalytics.capture")
+    @freeze_time("2021-01-25T00:00:00Z")
+    def test_update_all_orgs_billing_quotas_recordings_remote_config_dispatch(
+        self,
+        _name,
+        prepopulate_zset_score_offset,
+        usage_recordings,
+        usage_events,
+        dry_run,
+        expected_dispatch_count,
+        expected_token_in_recordings_zset_after,
+        patch_capture,
+        mock_update_remote_config,
+    ) -> None:
+        recordings_zset_key = "@posthog/quota-limits/recordings"
+
+        if prepopulate_zset_score_offset is not None:
+            score = int(timezone.now().timestamp()) + prepopulate_zset_score_offset
+            replace_limited_team_tokens(
+                QuotaResource.RECORDINGS,
+                {self.team.api_token: score},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            )
+
+        with self.settings(USE_TZ=False):
+            self.organization.usage = {
+                "events": {"usage": usage_events, "limit": 100, "todays_usage": 0},
+                "recordings": {"usage": usage_recordings, "limit": 5_000, "todays_usage": 0},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            update_all_orgs_billing_quotas(dry_run=dry_run)
+
+        assert mock_update_remote_config.apply_async.call_count == expected_dispatch_count
+        if expected_dispatch_count > 0:
+            mock_update_remote_config.apply_async.assert_called_with(
+                args=[self.team.id],
+                kwargs={"bypass_recordings_quota_cache": True},
+                countdown=35,
+            )
+
+        members_after = {member.decode("utf-8") for member in self.redis_client.zrange(recordings_zset_key, 0, -1)}
+        assert (self.team.api_token in members_after) is expected_token_in_recordings_zset_after
+
+    @patch("posthog.tasks.remote_config.update_team_remote_config")
+    def test_update_org_billing_quotas_recordings_limit_removed_clears_usage_marker(
+        self, mock_update_remote_config
+    ) -> None:
+        recordings_zset_key = "@posthog/quota-limits/recordings"
+        score = int(timezone.now().timestamp()) + 10_000
+        replace_limited_team_tokens(
+            QuotaResource.RECORDINGS,
+            {self.team.api_token: score},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+        self.organization.usage = {
+            "events": {"usage": 0, "limit": 100, "todays_usage": 0},
+            "recordings": {
+                # Legacy/partial usage blobs can store explicit JSON null counters.
+                "usage": None,
+                "limit": None,
+                "todays_usage": None,
+                "quota_limited_until": score,
+            },
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
+
+        update_org_billing_quotas(self.organization)
+
+        assert self.organization.usage["recordings"].get("quota_limited_until") is None
+        assert self.organization.usage["recordings"].get("quota_limiting_suspended_until") is None
+        members_after = {member.decode("utf-8") for member in self.redis_client.zrange(recordings_zset_key, 0, -1)}
+        assert self.team.api_token not in members_after
+        mock_update_remote_config.apply_async.assert_called_once_with(
+            args=[self.team.id],
+            kwargs={"bypass_recordings_quota_cache": True},
+            countdown=35,
+        )
+
+    @patch("posthog.tasks.remote_config.update_team_remote_config")
+    def test_update_org_billing_quotas_recordings_free_allocation_keeps_limited_marker(
+        self, mock_update_remote_config
+    ) -> None:
+        recordings_zset_key = "@posthog/quota-limits/recordings"
+        score = int(timezone.now().timestamp()) + 10_000
+        replace_limited_team_tokens(
+            QuotaResource.RECORDINGS,
+            {self.team.api_token: score},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+        self.organization.usage = {
+            "events": {"usage": 0, "limit": 100, "todays_usage": 0},
+            "recordings": {
+                "usage": 6_000,
+                "limit": 5_000,
+                "todays_usage": 0,
+                "quota_limited_until": score,
+            },
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
+
+        update_org_billing_quotas(self.organization)
+
+        assert self.organization.usage["recordings"].get("quota_limited_until") is not None
+        members_after = {member.decode("utf-8") for member in self.redis_client.zrange(recordings_zset_key, 0, -1)}
+        assert self.team.api_token in members_after
+        mock_update_remote_config.apply_async.assert_not_called()
+
 
 def _full_usage_counters(**overrides: int) -> UsageCounters:
     base = UsageCounters(
@@ -2089,11 +2332,15 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         survey_responses=0,
         llm_events=0,
         ai_credits=0,
+        signals_credits=0,
+        posthog_code_credits=0,
         cdp_trigger_events=0,
         rows_exported=0,
         workflow_emails=0,
+        workflow_push=0,
         workflow_destinations_dispatched=0,
         logs_mb_ingested=0,
+        replay_vision_credits=0,
     )
     base.update(overrides)  # type: ignore[typeddict-item]
     return base
@@ -2536,3 +2783,89 @@ class TestUpdateOrganizationUsageFields(BaseTest):
         assert fresh.usage["events"]["usage"] == 0
         assert fresh.usage["events"]["limit"] == 10_000_000
         assert fresh.usage["period"] == ["2021-02-01T00:00:00Z", "2021-02-28T23:59:59Z"]
+
+
+class TestSignalsRefundQuotaOffset(BaseTest):
+    # A free-plan signals org: limit == the 4500-credit free allocation (3 PRs).
+    def _set_signals_usage(self, usage: int, *, todays_usage: int = 0) -> None:
+        self.organization.usage = {
+            "signals_credits": {"usage": usage, "todays_usage": todays_usage, "limit": 4500},
+            "period": ["2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z"],
+        }
+        self.organization.customer_trust_scores = {}
+        self.organization.save()
+
+    def _credited_refund(self, *, pr_run_created_at: datetime.datetime) -> None:
+        # `ee` may not import `products.signals` (module boundaries), so reach its models via the
+        # app registry at runtime — same pattern the signals tests use for the tasks product.
+        SignalReport = apps.get_model("signals", "SignalReport")
+        SignalReportRefund = apps.get_model("signals", "SignalReportRefund")
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.SUPPRESSED)
+        SignalReportRefund.all_teams.create(
+            team=self.team,
+            report=report,
+            reason=SignalReportRefund.Reason.PR_INCORRECT,
+            billing_path=SignalReportRefund.BillingPath.CREDITED,
+            credits=1500,
+            pr_url="https://github.com/x/y/pull/1",
+            pr_run_created_at=pr_run_created_at,
+        )
+
+    @parameterized.expand(
+        [
+            # At the free-tier limit (3 PRs billed), a credited refund of one PR frees the slot.
+            ("in_period_refund_unlimits", datetime.datetime(2026, 6, 10, tzinfo=datetime.UTC), False),
+            # A refund whose PR run predates the period must not grant this period a free slot.
+            ("out_of_period_refund_keeps_limit", datetime.datetime(2026, 5, 10, tzinfo=datetime.UTC), True),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_credited_refund_offsets_quota_decision(
+        self, _name, pr_run_created_at, expect_limited, _feature_enabled, _capture
+    ) -> None:
+        self._set_signals_usage(4500)
+        self._credited_refund(pr_run_created_at=pr_run_created_at)
+
+        result = org_quota_limited_until(self.organization, QuotaResource.SIGNALS_CREDITS, [], [])
+
+        if expect_limited:
+            assert result is not None
+            assert result["quota_limited_until"] is not None
+        else:
+            assert result is None
+        # The corruption regression: the offset lives only in the boolean decision — the stored
+        # usage summary (what billing syncs and the UI reads) must stay untouched.
+        self.organization.refresh_from_db()
+        stored_usage = self.organization.usage
+        assert stored_usage is not None
+        assert stored_usage["signals_credits"]["usage"] == 4500
+        assert stored_usage["signals_credits"]["todays_usage"] == 0
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_refund_lookup_skipped_when_under_limit(self, _feature_enabled, _capture) -> None:
+        # The offset query must not run once per org in the all-orgs cron — only for orgs that
+        # would otherwise be limited.
+        self._set_signals_usage(1000)
+        with patch("ee.billing.quota_limiting.get_signals_credited_refund_credits_for_org") as mock_offset:
+            result = org_quota_limited_until(self.organization, QuotaResource.SIGNALS_CREDITS, [], [])
+        assert result is None
+        mock_offset.assert_not_called()
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_offset_ignores_other_resources(self, _feature_enabled, _capture) -> None:
+        # An over-limit events org must never trigger the signals refund lookup.
+        self.organization.usage = {
+            "events": {"usage": 200, "todays_usage": 0, "limit": 100},
+            "period": ["2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z"],
+        }
+        self.organization.customer_trust_scores = {}
+        self.organization.save()
+        with patch("ee.billing.quota_limiting.get_signals_credited_refund_credits_for_org") as mock_offset:
+            org_quota_limited_until(self.organization, QuotaResource.EVENTS, [], [])
+        mock_offset.assert_not_called()

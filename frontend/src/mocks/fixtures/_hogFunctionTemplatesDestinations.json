@@ -20360,7 +20360,7 @@
             "type": "destination",
             "id": "template-meta-ads",
             "name": "Meta Ads Conversions",
-            "hog": "let body := {\n    'data': [\n        {\n            'event_name': inputs.eventName,\n            'event_id': inputs.eventId,\n            'event_time': inputs.eventTime,\n            'action_source': inputs.actionSource,\n            'user_data': {},\n            'custom_data': {}\n        }\n    ],\n    'access_token': inputs.accessToken\n}\n\nif (not empty(inputs.testEventCode)) {\n    body.test_event_code := inputs.testEventCode\n}\n\nif (not empty(inputs.eventSourceUrl)) {\n    body.data.1.event_source_url := inputs.eventSourceUrl\n}\n\nfor (let key, value in inputs.userData) {\n    if (not empty(value)) {\n        body.data.1.user_data[key] := value\n    }\n}\n\nfor (let key, value in inputs.customData) {\n    if (not empty(value)) {\n        body.data.1.custom_data[key] := value\n    }\n}\n\nlet res := fetch(f'https://graph.facebook.com/v21.0/{inputs.pixelId}/events', {\n    'method': 'POST',\n    'headers': {\n        'Content-Type': 'application/json',\n    },\n    'body': body\n})\nif (res.status >= 400) {\n    throw Error(f'Error from graph.facebook.com (status {res.status}): {res.body}')\n}",
+            "hog": "let body := {\n    'data': [\n        {\n            'event_name': inputs.eventName,\n            'event_id': inputs.eventId,\n            'event_time': inputs.eventTime,\n            'action_source': inputs.actionSource,\n            'user_data': {},\n            'custom_data': {}\n        }\n    ],\n    'access_token': inputs.accessToken\n}\n\nif (not empty(inputs.testEventCode)) {\n    body.test_event_code := inputs.testEventCode\n}\n\nif (not empty(inputs.eventSourceUrl)) {\n    body.data.1.event_source_url := inputs.eventSourceUrl\n}\n\nfor (let key, value in inputs.userData) {\n    if (not empty(value)) {\n        body.data.1.user_data[key] := value\n    }\n}\n\nfor (let key, value in inputs.customData) {\n    if (not empty(value)) {\n        body.data.1.custom_data[key] := value\n    }\n}\n\nlet res := fetch(f'https://graph.facebook.com/v25.0/{inputs.pixelId}/events', {\n    'method': 'POST',\n    'headers': {\n        'Content-Type': 'application/json',\n    },\n    'body': body\n})\nif (res.status >= 400) {\n    throw Error(f'Error from graph.facebook.com (status {res.status}): {res.body}')\n}",
             "inputs_schema": [
                 {
                     "key": "accessToken",
@@ -24942,7 +24942,7 @@
             "description": "New destination with complex event mapping. Works only with posthog-js when opt_in_site_apps is set to true.",
             "filters": null,
             "masking": null,
-            "icon_url": "/static/hedgehog/builder-hog-01.png"
+            "icon_url": "https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/builder_hog_01_955c082cad.png"
         },
         {
             "mapping_templates": null,

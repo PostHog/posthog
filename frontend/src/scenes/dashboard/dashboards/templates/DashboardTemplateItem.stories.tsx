@@ -1,8 +1,14 @@
-import { action } from '@storybook/addon-actions'
 import { Meta, StoryObj } from '@storybook/react'
+
+import { action } from 'storybook/actions'
 
 import type { DashboardTemplateItemProps } from './DashboardTemplateItem'
 import { TemplateItem } from './DashboardTemplateItem'
+
+// A small inline SVG data URI so stories don't depend on external network requests (picsum.photos)
+// which cause flaky timeouts in CI when waiting for image naturalWidth.
+const PLACEHOLDER_IMAGE =
+    'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="240"%3E%3Crect fill="%23ccc" width="400" height="240"/%3E%3C/svg%3E'
 
 const sampleTemplate: DashboardTemplateItemProps['template'] = {
     template_name: 'Weekly KPIs',
@@ -36,7 +42,7 @@ function DashboardTemplateItemGallery(): JSX.Element {
                     <TemplateItem
                         template={{
                             ...sampleTemplate,
-                            image_url: 'https://picsum.photos/seed/posthog-dashboard-template/400/240',
+                            image_url: PLACEHOLDER_IMAGE,
                         }}
                         onClick={onClick}
                         index={1}
@@ -83,7 +89,7 @@ function DashboardTemplateItemGallery(): JSX.Element {
                             template_name: 'Starter pack',
                             dashboard_description:
                                 'Horizontal layout with image column used in featured template choosers.',
-                            image_url: 'https://picsum.photos/seed/posthog-featured-template/400/240',
+                            image_url: PLACEHOLDER_IMAGE,
                             tags: ['product', 'onboarding'],
                         }}
                         onClick={onClick}

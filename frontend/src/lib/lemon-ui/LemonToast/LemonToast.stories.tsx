@@ -3,11 +3,11 @@ import { useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
-import { INCIDENT_IO_STATUS_PAGE_BASE } from 'lib/components/HealthMenu/incidentStatusLogic'
-import { incidentStatusLogic } from 'lib/components/HealthMenu/incidentStatusLogic'
+import { STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatusLogic'
+import { incidentStatusLogic } from 'lib/components/HelpMenu/incidentStatusLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import * as incidentIoStatusPageCritical from '~/mocks/fixtures/_incident_io_status_page_critical.json'
+import * as statusPageCritical from '~/mocks/fixtures/_status_page_critical.json'
 
 import { ToastCloseButton, ToastContent, ToastContentProps, lemonToast } from './LemonToast'
 
@@ -146,7 +146,7 @@ export const ErrorWithIncidentNote: Story = {
         // eslint-disable-next-line react-hooks/rules-of-hooks
         useStorybookMocks({
             get: {
-                [`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`]: incidentIoStatusPageCritical,
+                [`${STATUS_PAGE_BASE}/api/v1/summary`]: statusPageCritical,
             },
         })
 

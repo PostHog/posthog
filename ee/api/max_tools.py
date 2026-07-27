@@ -17,8 +17,9 @@ from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.utils.types import AssistantState
-from ee.models.assistant import Conversation
 
 
 class InsightsToolCallSerializer(serializers.Serializer):

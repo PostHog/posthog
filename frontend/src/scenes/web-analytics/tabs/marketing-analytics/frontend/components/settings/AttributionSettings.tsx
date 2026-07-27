@@ -9,7 +9,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { debounce } from 'lib/utils'
+import { debounce } from 'lib/utils/async'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AttributionMode } from '~/queries/schema/schema-general'

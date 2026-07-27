@@ -1,0 +1,185 @@
+# serializer version: 1
+# name: TestHooksAPI.test_create_hog_function_via_hook
+  tuple(
+    '''
+      let hook_path := inputs.hook;
+      let prefix := 'https://hooks.zapier.com/';
+      // Remove the prefix if it exists
+      if (position(hook_path, prefix) == 1) {
+        hook_path := replaceOne(hook_path, prefix, '');
+      }
+      
+      // Remove leading slash if present to avoid double slashes
+      if (position(hook_path, '/') == 1) {
+        hook_path := replaceOne(hook_path, '/', '');
+      }
+      
+      let res := fetch(f'https://hooks.zapier.com/{hook_path}', {
+        'method': 'POST',
+        'body': inputs.body
+      });
+      
+      if (inputs.debug) {
+        print('Response', res.status, res.body);
+      }
+    ''',
+    dict({
+      'body': dict({
+        'bytecode': dict({
+          'data': dict({
+            'distinctId': list([
+              '_H',
+              1,
+              32,
+              'distinct_id',
+              32,
+              'event',
+              1,
+              2,
+            ]),
+            'event': list([
+              '_H',
+              1,
+              32,
+              'event',
+              32,
+              'event',
+              1,
+              2,
+            ]),
+            'eventUuid': list([
+              '_H',
+              1,
+              32,
+              'uuid',
+              32,
+              'event',
+              1,
+              2,
+            ]),
+            'person': dict({
+              'properties': list([
+                '_H',
+                1,
+                32,
+                'properties',
+                32,
+                'person',
+                1,
+                2,
+              ]),
+              'uuid': list([
+                '_H',
+                1,
+                32,
+                'id',
+                32,
+                'person',
+                1,
+                2,
+              ]),
+            }),
+            'properties': list([
+              '_H',
+              1,
+              32,
+              'properties',
+              32,
+              'event',
+              1,
+              2,
+            ]),
+            'teamId': list([
+              '_H',
+              1,
+              32,
+              'id',
+              32,
+              'project',
+              1,
+              2,
+            ]),
+            'timestamp': list([
+              '_H',
+              1,
+              32,
+              'timestamp',
+              32,
+              'event',
+              1,
+              2,
+            ]),
+          }),
+          'hook': dict({
+            'event': list([
+              '_H',
+              1,
+              32,
+              'event',
+              32,
+              'event',
+              1,
+              2,
+            ]),
+            'id': list([
+              '_H',
+              1,
+              32,
+              'uuid',
+              32,
+              'event',
+              1,
+              2,
+            ]),
+            'target': list([
+              '_H',
+              1,
+              32,
+              'https://hooks.zapier.com/',
+              32,
+              'hook',
+              32,
+              'inputs',
+              1,
+              2,
+              2,
+              'concat',
+              2,
+            ]),
+          }),
+        }),
+        'order': 1,
+        'value': dict({
+          'data': dict({
+            'distinctId': '{event.distinct_id}',
+            'event': '{event.event}',
+            'eventUuid': '{event.uuid}',
+            'person': dict({
+              'properties': '{person.properties}',
+              'uuid': '{person.id}',
+            }),
+            'properties': '{event.properties}',
+            'teamId': '{project.id}',
+            'timestamp': '{event.timestamp}',
+          }),
+          'hook': dict({
+            'event': '{event.event}',
+            'id': '{event.uuid}',
+            'target': 'https://hooks.zapier.com/{inputs.hook}',
+          }),
+        }),
+      }),
+      'debug': None,
+      'hook': dict({
+        'bytecode': list([
+          '_H',
+          1,
+          32,
+          'hooks/standard/1234/abcd',
+        ]),
+        'order': 0,
+        'value': 'hooks/standard/1234/abcd',
+      }),
+    }),
+  )
+# ---

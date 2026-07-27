@@ -1,11 +1,20 @@
+from typing import TYPE_CHECKING
+
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import ANY, patch
+
+from django.apps import apps
 
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.entity_search.context import ENTITY_MAP
 from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
+
+if TYPE_CHECKING:
+    from products.customer_analytics.backend.models import Account
+else:
+    Account = apps.get_model("customer_analytics", "Account")
 from ee.hogai.tools.full_text_search.tool import EntityKind, EntitySearchTool
 from ee.hogai.utils.types.base import AssistantState
 
@@ -102,3 +111,11 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
         result = await self.toolkit.execute(query="test query", search_kind="invalid_type")  # type: ignore
 
         assert "Invalid entity kind: invalid_type. Please provide a valid entity kind for the tool." in result
+
+    async def test_search_accounts_end_to_end(self):
+        await Account.objects.unscoped().acreate(team=self.team, name="Globex", external_id="globex-1")
+
+        result = await self.toolkit.execute(query="globex", search_kind=EntityKind.ACCOUNTS)
+
+        assert "Globex" in result
+        assert "globex-1" in result

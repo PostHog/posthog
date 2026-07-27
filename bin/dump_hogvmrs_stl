@@ -10,4 +10,4 @@ if ! cd "$SCRIPT_DIR/../rust/common/hogvm"; then
 fi
 
 # Run cargo command with script location as parameter
-cargo run stl_dump -- "$SCRIPT_DIR/../posthog/models/error_tracking/hogvm_stl.py"
+cargo run --bin stl_dump -- "$SCRIPT_DIR/../products/error_tracking/backend/hogvm_stl.py"

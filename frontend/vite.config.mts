@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { dirname, resolve } from 'node:path'
 import { URL, fileURLToPath } from 'node:url'
@@ -17,6 +18,7 @@ export default defineConfig(({ mode }) => {
     return {
         plugins: [
             react(),
+            tailwindcss(),
             // We delete and copy the HTML files for development
             htmlGenerationPlugin(),
             // Copy public assets to src/assets for development
@@ -42,7 +44,9 @@ export default defineConfig(({ mode }) => {
             },
         ],
         resolve: {
+            dedupe: ['@base-ui/react'],
             alias: {
+                '@base-ui/react': resolve(__dirname, 'node_modules/@base-ui/react'),
                 '~': fileURLToPath(new URL('./src', import.meta.url)),
                 '@': fileURLToPath(new URL('./src', import.meta.url)),
                 // Add direct mappings for PostHog's import structure from tsconfig.json
@@ -55,7 +59,6 @@ export default defineConfig(({ mode }) => {
                 models: resolve(__dirname, 'src/models'),
                 mocks: resolve(__dirname, 'src/mocks'),
                 exporter: resolve(__dirname, 'src/exporter'),
-                stories: resolve(__dirname, 'src/stories'),
                 types: resolve(__dirname, 'src/types.ts'),
                 // @posthog/lemon-ui aliases
                 '@posthog/lemon-ui': resolve(__dirname, '@posthog/lemon-ui/src/index'),
@@ -64,6 +67,8 @@ export default defineConfig(({ mode }) => {
                 storybook: resolve(__dirname, '../.storybook'),
                 // Just for Vite: we copy public assets to src/assets, we need to alias it to the correct path
                 public: resolve(__dirname, 'src/assets'),
+                // Required for production builds — @posthog/icons is in the pnpm store, not node_modules root
+                '@posthog/icons': resolve(__dirname, 'node_modules/@posthog/icons'),
                 products: resolve(__dirname, '../products'),
                 '@posthog/shared-onboarding': resolve(__dirname, '../docs/onboarding'),
                 '@posthog/shared-onboarding/*': resolve(__dirname, '../docs/onboarding/*'),
@@ -101,6 +106,10 @@ export default defineConfig(({ mode }) => {
         },
         server: {
             port: 8234,
+            // The rest of the stack hardcodes 8234, so falling back to another port serves a
+            // broken app (the browser keeps talking to whatever squats 8234). Fail loudly instead;
+            // bin/start-frontend reclaims the port from stale processes before launching.
+            strictPort: true,
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
             allowedHosts: process.env.VITE_ALLOWED_HOSTS?.split(',')
                 .map((s) => s.trim())
@@ -126,7 +135,11 @@ export default defineConfig(({ mode }) => {
         },
         optimizeDeps: {
             include: ['react', 'react-dom', 'buffer'],
-            exclude: ['snappy-wasm'], // Don't pre-bundle snappy-wasm so WASM file stays with JS
+            // snappy-wasm: don't pre-bundle so the WASM file stays with the JS.
+            // @posthog/brand: its PNG stubs resolve assets via `new URL(..., import.meta.url)`,
+            // which pre-bundling rewrites to .vite/deps/ where the images don't exist — hoggie
+            // art silently 404s in dev serve (production builds are unaffected).
+            exclude: ['snappy-wasm', '@posthog/brand'],
         },
     }
 })

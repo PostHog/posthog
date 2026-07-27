@@ -105,6 +105,46 @@ describe('useGroupList', () => {
             expect(result.current.isLoading).toBe(false)
         })
 
+        it.each([
+            {
+                name: 'different excludedProperties do not share a cache entry',
+                a: { excludedProperties: ['$mcp_tool_name'] },
+                b: { excludedProperties: [] },
+                expectedFetches: 2,
+            },
+            {
+                name: 'different propertyAllowList do not share a cache entry',
+                a: { propertyAllowList: ['$mcp_tool_name'] },
+                b: {},
+                expectedFetches: 2,
+            },
+            {
+                name: 'reordered content-equal excludedProperties share a cache entry',
+                a: { excludedProperties: ['$mcp_tool_name', '$mcp_is_error'] },
+                b: { excludedProperties: ['$mcp_is_error', '$mcp_tool_name'] },
+                expectedFetches: 1,
+            },
+        ])('$name', async ({ a, b, expectedFetches }) => {
+            // Exclusions/allowlists are fetch-time params: dropping them from the cache key
+            // would let one picker silently serve another's list for the whole staleTime
+            // window, while keying on order would double-fetch content-equal sets.
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+            const base = {
+                type: TaxonomicFilterGroupType.EventProperties,
+                endpoint: 'api/projects/1/property_definitions',
+            }
+            renderHook(() => useGroupList({ group: makeGroup({ ...base, ...a }), searchQuery: '' }))
+            renderHook(() => useGroupList({ group: makeGroup({ ...base, ...b }), searchQuery: '' }))
+            // The exact count is deterministic: fetches fire synchronously from act-flushed
+            // effects, so both hooks' requests (or cache hits) precede waitFor's first poll.
+            await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(expectedFetches))
+            if (expectedFetches === 2) {
+                // The differing params must actually reach the request, not just the cache key.
+                const [firstUrl, secondUrl] = apiGet.mock.calls.map(([url]) => url)
+                expect(firstUrl).not.toEqual(secondUrl)
+            }
+        })
+
         it('respects minSearchQueryLength gating', () => {
             const group = makeGroup({
                 endpoint: 'api/projects/1/whatever',
@@ -161,6 +201,51 @@ describe('useGroupList', () => {
             await waitFor(() => expect(result.current.totalResultCount).toBe(1))
             act(() => result.current.expand())
             await waitFor(() => expect(result.current.totalResultCount).toBe(9))
+        })
+    })
+
+    describe('clientFilterFirstPage', () => {
+        it('filters the cached first page locally without refetching when the whole list fits one page', async () => {
+            apiGet.mockResolvedValue({
+                results: [{ name: 'Internal team' }, { name: 'Power users' }, { name: 'Zzzbeta' }],
+                count: 3,
+            })
+            const group = makeGroup({
+                type: TaxonomicFilterGroupType.Cohorts,
+                endpoint: 'api/projects/1/cohorts/',
+                clientFilterFirstPage: true,
+            })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: '' },
+            })
+            await waitFor(() => expect(result.current.totalResultCount).toBe(3))
+            rerender({ q: 'zzzbeta' })
+            await waitFor(() => expect(result.current.items.map((i: any) => i.name)).toEqual(['Zzzbeta']))
+            // First page covered the whole list — no extra request for the typed query.
+            expect(apiGet).toHaveBeenCalledTimes(1)
+        })
+
+        it('falls back to a server search when the dataset is larger than the cached first page', async () => {
+            const firstPage = Array.from({ length: 100 }, (_, i) => ({ name: `Cohort ${i + 1}` }))
+            apiGet.mockImplementation((url: string) => {
+                if (url.includes('search=needle')) {
+                    return Promise.resolve({ results: [{ name: 'Needle cohort' }], count: 1 })
+                }
+                // Empty-query first page: 100 of 150 total.
+                return Promise.resolve({ results: firstPage, count: 150 })
+            })
+            const group = makeGroup({
+                type: TaxonomicFilterGroupType.Cohorts,
+                endpoint: 'api/projects/1/cohorts/',
+                clientFilterFirstPage: true,
+            })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: '' },
+            })
+            await waitFor(() => expect(result.current.totalResultCount).toBe(150))
+            // "Needle cohort" is not in the first page — only a server search finds it.
+            rerender({ q: 'needle' })
+            await waitFor(() => expect(result.current.items.map((i: any) => i.name)).toEqual(['Needle cohort']))
         })
     })
 

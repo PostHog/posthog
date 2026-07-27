@@ -1,8 +1,8 @@
 import { Browser, Page } from 'puppeteer'
 
-import { BrowserPool } from '../capture/browser-pool'
+import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
 
-jest.mock('../logger', () => {
+jest.mock('~/session-replay/recording-rasterizer/logger', () => {
     const info = jest.fn()
     return {
         __mockLogInfo: info,
@@ -26,6 +26,8 @@ jest.mock(
 
 const puppeteerCapture = require('puppeteer-capture')
 
+const ORIGINAL_ENV = process.env
+
 function mockBrowser(): jest.Mocked<Browser> {
     return {
         newPage: jest.fn(),
@@ -44,13 +46,20 @@ describe('BrowserPool', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
+        process.env = { ...ORIGINAL_ENV }
+        delete process.env.HTTPS_PROXY
+        delete process.env.HTTP_PROXY
+        delete process.env.https_proxy
+        delete process.env.http_proxy
+        delete process.env.RASTERIZER_USE_PROXY
     })
 
     afterEach(async () => {
         await pool?.shutdown()
+        process.env = ORIGINAL_ENV
     })
 
-    it('launches a browser on getPage', async () => {
+    it('launches a browser on getPage with no --proxy-server when no proxy env is set', async () => {
         const browser = mockBrowser()
         const page = mockPage()
         browser.newPage.mockResolvedValue(page)
@@ -62,6 +71,9 @@ describe('BrowserPool', () => {
         expect(puppeteerCapture.launch).toHaveBeenCalledTimes(1)
         expect(result).toBe(page)
         expect(pool.stats).toEqual({ usageCount: 1, activePages: 1 })
+        const launchArgs = puppeteerCapture.launch.mock.calls[0][0].args as string[]
+        expect(launchArgs.some((a) => a.startsWith('--proxy-server'))).toBe(false)
+        expect(launchArgs).toContain('--crash-dumps-dir=/tmp/chrome-crash-dumps')
     })
 
     it('launches separate browsers for concurrent pages', async () => {
@@ -192,5 +204,88 @@ describe('BrowserPool', () => {
 
         await expect(pool.releaseAllPages()).resolves.not.toThrow()
         expect(pool.stats.activePages).toBe(0)
+    })
+
+    describe('proxy resolution', () => {
+        it.each([
+            { source: 'HTTPS_PROXY', env: 'HTTPS_PROXY' as const },
+            { source: 'HTTP_PROXY fallback', env: 'HTTP_PROXY' as const },
+            { source: 'lowercase https_proxy', env: 'https_proxy' as const },
+            { source: 'lowercase http_proxy', env: 'http_proxy' as const },
+        ])('points Chrome at upstream from $source', async ({ env }) => {
+            process.env[env] = 'http://smokescreen.smokescreen.svc.cluster.local:4750/'
+            const browser = mockBrowser()
+            browser.newPage.mockResolvedValue(mockPage())
+            puppeteerCapture.launch.mockResolvedValue(browser)
+
+            pool = new BrowserPool(100)
+            await pool.launch()
+
+            const launchArgs = puppeteerCapture.launch.mock.calls[0][0].args as string[]
+            expect(launchArgs).toContain('--proxy-server=http://smokescreen.smokescreen.svc.cluster.local:4750')
+            // Override Chrome's implicit loopback bypass so loopback /
+            // link-local destinations still go through the proxy.
+            expect(launchArgs).toContain('--proxy-bypass-list=<-loopback>')
+        })
+
+        it.each(['smokescreen:4750', 'not a url'])(
+            'throws fast at construction when proxy env var %j is not a valid URL with a host',
+            (value) => {
+                process.env.HTTPS_PROXY = value
+                expect(() => new BrowserPool(100)).toThrow()
+            }
+        )
+
+        it('strips userinfo and path from upstream when forming --proxy-server', async () => {
+            process.env.HTTPS_PROXY = 'http://user:pass@smokescreen:4750/somepath'
+            const browser = mockBrowser()
+            browser.newPage.mockResolvedValue(mockPage())
+            puppeteerCapture.launch.mockResolvedValue(browser)
+
+            pool = new BrowserPool(100)
+            await pool.launch()
+
+            const launchArgs = puppeteerCapture.launch.mock.calls[0][0].args as string[]
+            expect(launchArgs).toContain('--proxy-server=http://smokescreen:4750')
+            // Make sure nothing matching user:pass leaked
+            expect(launchArgs.find((a) => a.includes('user:pass'))).toBeUndefined()
+        })
+
+        it.each(['false', 'False', 'FALSE', '0', 'no', 'off', ' false '])(
+            'RASTERIZER_USE_PROXY=%j short-circuits the proxy even when HTTPS_PROXY is set',
+            async (value) => {
+                process.env.HTTPS_PROXY = 'http://smokescreen:4750/'
+                process.env.RASTERIZER_USE_PROXY = value
+                const browser = mockBrowser()
+                browser.newPage.mockResolvedValue(mockPage())
+                puppeteerCapture.launch.mockResolvedValue(browser)
+
+                pool = new BrowserPool(100)
+                await pool.launch()
+
+                const launchArgs = puppeteerCapture.launch.mock.calls[0][0].args as string[]
+                expect(launchArgs.some((a) => a.startsWith('--proxy-server'))).toBe(false)
+                expect(launchArgs.some((a) => a.startsWith('--proxy-bypass-list'))).toBe(false)
+            }
+        )
+
+        it.each(['true', '1', '', 'enabled', 'disabled', 'yes'])(
+            'RASTERIZER_USE_PROXY=%j leaves proxy on (only known falsy values disable)',
+            async (value) => {
+                process.env.HTTPS_PROXY = 'http://smokescreen:4750/'
+                if (value !== '') {
+                    process.env.RASTERIZER_USE_PROXY = value
+                }
+                const browser = mockBrowser()
+                browser.newPage.mockResolvedValue(mockPage())
+                puppeteerCapture.launch.mockResolvedValue(browser)
+
+                pool = new BrowserPool(100)
+                await pool.launch()
+
+                const launchArgs = puppeteerCapture.launch.mock.calls[0][0].args as string[]
+                expect(launchArgs).toContain('--proxy-server=http://smokescreen:4750')
+            }
+        )
     })
 })

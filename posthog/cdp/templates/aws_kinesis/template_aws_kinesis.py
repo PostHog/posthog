@@ -11,74 +11,26 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     category=["Analytics"],
     code_language="hog",
     code="""
-fun getPayload() {
-  let region := inputs.aws_region
-  let service := 'kinesis'
-  let amzDate := formatDateTime(now(), '%Y%m%dT%H%i%sZ')
-  let date := formatDateTime(now(), '%Y%m%d')
+let payload := jsonStringify({
+  'StreamName': inputs.aws_kinesis_stream_name,
+  'PartitionKey': inputs.aws_kinesis_partition_key ?? generateUUIDv4(),
+  'Data': base64Encode(jsonStringify(inputs.payload)),
+})
 
-  let payload := jsonStringify({
-    'StreamName': inputs.aws_kinesis_stream_name,
-    'PartitionKey': inputs.aws_kinesis_partition_key ?? generateUUIDv4(),
-    'Data': base64Encode(jsonStringify(inputs.payload)),
-  })
-
-  let requestHeaders := {
+let res := fetch(f'https://kinesis.{inputs.aws_region}.amazonaws.com', {
+  'method': 'POST',
+  'headers': {
     'Content-Type': 'application/x-amz-json-1.1',
     'X-Amz-Target': 'Kinesis_20131202.PutRecord',
-    'X-Amz-Date': amzDate,
-    'Host': f'kinesis.{region}.amazonaws.com',
-  }
-
-  let canonicalHeaderParts := []
-  for (let key, value in requestHeaders) {
-    let val := replaceAll(trim(value), '\\\\s+', ' ')
-    canonicalHeaderParts := arrayPushBack(canonicalHeaderParts, f'{lower(key)}:{val}')
-  }
-  let canonicalHeaders := arrayStringConcat(arraySort(canonicalHeaderParts), '\\n') || '\\n'
-
-  let signedHeaderParts := []
-  for (let key, value in requestHeaders) {
-    signedHeaderParts := arrayPushBack(signedHeaderParts, lower(key))
-  }
-  let signedHeaders := arrayStringConcat(arraySort(signedHeaderParts), ';')
-
-  let canonicalRequest := arrayStringConcat([
-    'POST',
-    '/',
-    '',
-    canonicalHeaders,
-    signedHeaders,
-    sha256Hex(payload),
-  ], '\\n')
-
-  let credentialScope := f'{date}/{region}/{service}/aws4_request'
-  let stringToSign := arrayStringConcat([
-    'AWS4-HMAC-SHA256',
-    amzDate,
-    credentialScope,
-    sha256Hex(canonicalRequest),
-  ], '\\n')
-
-  let signature := sha256HmacChainHex([
-    f'AWS4{inputs.aws_secret_access_key}', date, region, service, 'aws4_request', stringToSign
-  ])
-
-  let authorizationHeader :=
-      f'AWS4-HMAC-SHA256 Credential={inputs.aws_access_key_id}/{credentialScope}, ' ||
-      f'SignedHeaders={signedHeaders}, ' ||
-      f'Signature={signature}'
-
-  requestHeaders['Authorization'] := authorizationHeader
-
-  return {
-    'headers': requestHeaders,
-    'body': payload,
-    'method': 'POST'
-  }
-}
-
-let res := fetch(f'https://kinesis.{inputs.aws_region}.amazonaws.com', getPayload())
+  },
+  'body': payload,
+  'aws_sigv4': {
+    'service': 'kinesis',
+    'region': inputs.aws_region,
+    'access_key_id_input': 'aws_access_key_id',
+    'secret_access_key_input': 'aws_secret_access_key',
+  },
+})
 
 if (res.status >= 200 and res.status < 300) {
   print('Event sent successfully!')

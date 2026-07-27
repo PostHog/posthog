@@ -3,6 +3,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { useStorybookMocks } from '~/mocks/browser'
+import type { MockResolverInfo } from '~/mocks/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import { PersonSelectList } from './PersonSelectList'
@@ -45,20 +46,22 @@ const DEFAULT_QUERY = {
 }
 
 const noop = (): void => {}
-const actorsQueryHandler = (req: {
-    body?: { query?: { kind?: string; source?: { kind?: string } } }
-}): [number, typeof mockQueryResponse] | undefined => {
-    const queryKind = req.body?.query?.source?.kind ?? req.body?.query?.kind
+const actorsQueryHandler = async ({
+    request,
+}: MockResolverInfo): Promise<[number, typeof mockQueryResponse] | undefined> => {
+    const body = (await request.json()) as { query?: { kind?: string; source?: { kind?: string } } }
+    const queryKind = body?.query?.source?.kind ?? body?.query?.kind
 
     if (queryKind === 'ActorsQuery') {
         return [200, mockQueryResponse]
     }
 }
 
-const emptyActorsQueryHandler = (req: {
-    body?: { query?: { kind?: string; source?: { kind?: string } } }
-}): [number, typeof mockQueryResponse] | undefined => {
-    const queryKind = req.body?.query?.source?.kind ?? req.body?.query?.kind
+const emptyActorsQueryHandler = async ({
+    request,
+}: MockResolverInfo): Promise<[number, typeof mockQueryResponse] | undefined> => {
+    const body = (await request.json()) as { query?: { kind?: string; source?: { kind?: string } } }
+    const queryKind = body?.query?.source?.kind ?? body?.query?.kind
 
     if (queryKind === 'ActorsQuery') {
         return [

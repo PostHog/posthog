@@ -1,0 +1,1010 @@
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+
+import { dayjs } from 'lib/dayjs'
+import { getAppContext } from 'lib/utils/getAppContext'
+
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import {
+    AnyResponseType,
+    DataTableNode,
+    LLMTrace,
+    LLMTraceEvent,
+    NodeKind,
+    TraceQuery,
+    TraceQueryResponse,
+} from '~/queries/schema/schema-general'
+import { InsightLogicProps } from '~/types'
+
+import type {
+    ErrorTrackingQueryResponse,
+    HogQLAutocompleteResponse,
+    HogQLMetadataResponse,
+    HogQLQueryResponse,
+    HogQueryResponse,
+    LogAttributesQueryResponse,
+    LogValuesQueryResponse,
+    MetricsQueryResponse,
+    SessionsQueryResponse,
+    TraceSpansAggregationQueryResponse,
+    TraceSpansAttributeBreakdownQueryResponse,
+    TraceSpansQueryResponse,
+} from '../../../frontend/src/queries/schema/schema-general'
+import { type TraceGitMetadata, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { captureNormalizationFailure, normalizeMessages } from './messageNormalization'
+import {
+    SearchOccurrence,
+    eventMatchesSearch,
+    findMessageOccurrences,
+    findSidebarOccurrences,
+    findTraceOccurrences,
+} from './searchUtils'
+import { formatLLMUsage, getEventType, getSessionID, isLLMEvent, operationStartMs } from './utils'
+
+export interface TraceDataLogicProps {
+    traceId: string
+    query?: DataTableNode | null
+    cachedResults?: AnyResponseType | null
+    searchQuery: string
+}
+
+function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogicProps): DataNodeLogicProps {
+    const fallbackTraceQuery: TraceQuery = {
+        kind: NodeKind.TraceQuery,
+        traceId,
+        includeSentiment: true,
+        // Match trace logic defaults so we still fetch data if query is briefly undefined.
+        dateRange: {
+            date_from: dayjs.utc().subtract(1, 'year').startOf('day').toISOString(),
+        },
+    }
+
+    const insightProps: InsightLogicProps<DataTableNode> = {
+        dashboardItemId: `new-Trace.${traceId}`,
+        dataNodeCollectionId: traceId,
+    }
+    const vizKey = insightVizDataNodeKey(insightProps)
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: query?.source ?? fallbackTraceQuery,
+        key: vizKey,
+        dataNodeCollectionId: traceId,
+        cachedResults: cachedResults || undefined,
+    }
+    return dataNodeLogicProps
+}
+
+const FEEDBACK_EVENTS = new Set(['$ai_feedback', '$ai_metric'])
+const SINGLE_TRACE_PAGE_LOADED_EVENT = 'llma single trace loaded'
+
+export interface SingleTraceLoadTiming {
+    min_trace_timestamp_utc: string | null
+    max_trace_timestamp_utc: string | null
+    now_timestamp_utc: string | null
+    trace_age_minutes: number | null
+    trace_timespan_seconds: number | null
+    trace_query_runner_load_duration_ms: number | null
+}
+
+export function getSingleTraceLoadTiming(
+    trace: LLMTrace,
+    nowTimestamp: string,
+    traceQueryRunnerLoadDurationMs: number | null
+): SingleTraceLoadTiming {
+    const eventTimestampsUTC = trace.events
+        .map((event) => dayjs.utc(event.createdAt))
+        .filter((timestamp): timestamp is dayjs.Dayjs => timestamp.isValid())
+
+    const minEventTimestampUTC = eventTimestampsUTC.reduce(
+        (earliest, timestamp) => (earliest === null || timestamp.isBefore(earliest) ? timestamp : earliest),
+        null as dayjs.Dayjs | null
+    )
+
+    const maxEventTimestampUTC = eventTimestampsUTC.reduce(
+        (latest, timestamp) => (latest === null || timestamp.isAfter(latest) ? timestamp : latest),
+        null as dayjs.Dayjs | null
+    )
+
+    const fallbackTraceTimestampUTC = dayjs.utc(trace.createdAt)
+    const minTraceTimestampUTC =
+        minEventTimestampUTC ?? (fallbackTraceTimestampUTC.isValid() ? fallbackTraceTimestampUTC : null)
+    const maxTraceTimestampUTC =
+        maxEventTimestampUTC ?? (fallbackTraceTimestampUTC.isValid() ? fallbackTraceTimestampUTC : null)
+
+    const nowTimestampUTC = dayjs.utc(nowTimestamp)
+
+    if (!minTraceTimestampUTC?.isValid() || !maxTraceTimestampUTC?.isValid() || !nowTimestampUTC.isValid()) {
+        return {
+            min_trace_timestamp_utc: null,
+            max_trace_timestamp_utc: null,
+            now_timestamp_utc: null,
+            trace_age_minutes: null,
+            trace_timespan_seconds: null,
+            trace_query_runner_load_duration_ms: traceQueryRunnerLoadDurationMs,
+        }
+    }
+
+    const traceAgeMinutes = nowTimestampUTC.diff(minTraceTimestampUTC, 'minute', true)
+    const traceTimespanSeconds = maxTraceTimestampUTC.diff(minTraceTimestampUTC, 'second', true)
+
+    return {
+        min_trace_timestamp_utc: minTraceTimestampUTC.toISOString(),
+        max_trace_timestamp_utc: maxTraceTimestampUTC.toISOString(),
+        now_timestamp_utc: nowTimestampUTC.toISOString(),
+        trace_age_minutes: traceAgeMinutes,
+        trace_timespan_seconds: traceTimespanSeconds,
+        trace_query_runner_load_duration_ms: traceQueryRunnerLoadDurationMs,
+    }
+}
+
+/**
+ * Find all parent events for a given event, including the event itself
+ */
+function findEventWithParents(
+    targetEvent: LLMTraceEvent,
+    allEvents: LLMTraceEvent[],
+    traceId: string
+): LLMTraceEvent[] {
+    const eventMap = new Map<string, LLMTraceEvent>()
+
+    // Build map of eventId -> event
+    for (const event of allEvents) {
+        const eventId = event.properties.$ai_generation_id ?? event.properties.$ai_span_id ?? event.id
+        eventMap.set(eventId, event)
+    }
+
+    const parentChain: LLMTraceEvent[] = []
+    let currentEvent: LLMTraceEvent | null = targetEvent
+
+    // Walk up the parent chain
+    while (currentEvent) {
+        parentChain.push(currentEvent)
+
+        const parentId: string | undefined =
+            currentEvent.properties.$ai_parent_id ?? currentEvent.properties.$ai_trace_id
+        if (!parentId || parentId === traceId) {
+            break
+        }
+
+        currentEvent = eventMap.get(parentId) || null
+    }
+
+    return parentChain
+}
+
+// Generations should always be conversations, so one whose input or output no recipe
+// recognizes is a parse gap worth surfacing. Spans/embeddings carry opaque state and
+// are skipped. Runs once per trace load over every generation, viewed or not.
+export function reportTraceNormalizationFailures(trace: LLMTrace): void {
+    for (const event of trace.events) {
+        if (event.event !== '$ai_generation') {
+            continue
+        }
+        const input = event.properties.$ai_input
+        const output = event.properties.$ai_output_choices ?? event.properties.$ai_output
+        if (!normalizeMessages(input, 'user', event.properties.$ai_tools).recognized) {
+            captureNormalizationFailure(input)
+        }
+        if (!normalizeMessages(output, 'assistant').recognized) {
+            captureNormalizationFailure(output)
+        }
+    }
+}
+
+function nonEmptyStringProp(value: unknown): string | null {
+    return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+// Default-branch names to look past when a trace spans a branch switch. The frontend doesn't know
+// the repo's real base ref; these cover GitHub's defaults, and a trace stamped only with them still
+// surfaces that stamp via the fallback below.
+const DEFAULT_BRANCHES = new Set(['master', 'main'])
+
+// A coding agent often starts a session on the default branch and creates the feature branch
+// mid-trace, so the first stamped event can carry master/main while the work (and the PR the spend
+// belongs to) lives on a later stamp. Prefer the latest non-default branch stamp — the branch the
+// trace's most recent work happened on — and fall back to the first stamped event when the trace
+// never left the default branch.
+export function deriveTraceGitMetadata(trace: LLMTrace | undefined): TraceGitMetadata | null {
+    if (!trace) {
+        return null
+    }
+    // The trace's capture time scopes branch→PR resolution to the moment the work ran, so a reused
+    // branch name resolves to the PR active then rather than whichever PR is newest now.
+    const timestamp = nonEmptyStringProp(trace.createdAt)
+    let first: TraceGitMetadata | null = null
+    let lastFeature: TraceGitMetadata | null = null
+    for (const event of trace.events) {
+        const branch = nonEmptyStringProp(event.properties.$ai_git_branch)
+        const repo = nonEmptyStringProp(event.properties.$ai_git_repo)
+        if (!branch && !repo) {
+            continue
+        }
+        first = first ?? { branch, repo, timestamp }
+        if (branch && !DEFAULT_BRANCHES.has(branch)) {
+            lastFeature = { branch, repo, timestamp }
+        }
+    }
+    return lastFeature ?? first
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface aiObservabilityTraceDataLogicValues {
+    eventId: string | null // aiObservabilityTraceLogic
+    initialTab: string | null // aiObservabilityTraceLogic
+    searchQuery: string // aiObservabilityTraceLogic
+    elapsedTime: number | null // dataNodeLogic
+    response:
+        | ErrorTrackingQueryResponse
+        | HogQLAutocompleteResponse
+        | HogQLMetadataResponse
+        | HogQLQueryResponse<any[]>
+        | HogQueryResponse
+        | LogAttributesQueryResponse
+        | LogValuesQueryResponse
+        | MetricsQueryResponse
+        | Record<string, any>
+        | SessionsQueryResponse
+        | TraceSpansAggregationQueryResponse
+        | TraceSpansAttributeBreakdownQueryResponse
+        | TraceSpansQueryResponse
+        | null // dataNodeLogic
+    responseError: string | null // dataNodeLogic
+    responseLoading: boolean // dataNodeLogic
+    availableEventTypes: string[]
+    effectiveEventId: string | null
+    enrichedTree: EnrichedTraceTreeNode[]
+    event: LLMTrace | LLMTraceEvent | null
+    eventMetadata: Record<string, unknown> | undefined
+    feedbackEvents: LLMTraceEvent[] | undefined
+    filteredEvents: LLMTraceEvent[]
+    filteredTree: TraceTreeNode[]
+    hasScrolledToEvent: boolean
+    highlightedEventId: string | null
+    initialFocusEventId: string | null
+    metricEvents: LLMTraceEvent[] | undefined
+    metricsAndFeedbackEvents: {
+        metric: string
+        value: any
+    }[]
+    mostRelevantEvent: LLMTraceEvent | null
+    searchOccurrences: SearchOccurrence[]
+    selectedNode: EnrichedTraceTreeNode | null
+    sessionId: string | null
+    showableEvents: LLMTraceEvent[]
+    singleTraceLoadReported: boolean
+    trace: LLMTrace | undefined
+    traceGitMetadata: TraceGitMetadata | null
+    tree: TraceTreeNode[]
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface aiObservabilityTraceDataLogicActions {
+    setEventId: (eventId: string | null) => {
+        eventId: string | null
+    } // aiObservabilityTraceLogic
+    reportSingleTraceLoadIfReady: () => {
+        value: true
+    }
+    setHasScrolledToEvent: () => {
+        value: true
+    }
+    setSingleTraceLoadReported: () => {
+        value: true
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface aiObservabilityTraceDataLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        trace: (
+            response:
+                | ErrorTrackingQueryResponse
+                | HogQLAutocompleteResponse
+                | HogQLMetadataResponse
+                | HogQLQueryResponse<any[]>
+                | HogQueryResponse
+                | LogAttributesQueryResponse
+                | LogValuesQueryResponse
+                | MetricsQueryResponse
+                | Record<string, any>
+                | SessionsQueryResponse
+                | TraceSpansAggregationQueryResponse
+                | TraceSpansAttributeBreakdownQueryResponse
+                | TraceSpansQueryResponse
+                | null
+        ) => LLMTrace | undefined
+        showableEvents: (trace: LLMTrace | undefined) => LLMTraceEvent[]
+        filteredEvents: (showableEvents: LLMTraceEvent[], searchQuery: string, traceId: string) => LLMTraceEvent[]
+        filteredTree: (
+            traceId: string,
+            trace: LLMTrace | undefined,
+            searchQuery: string,
+            filteredEvents: LLMTraceEvent[]
+        ) => TraceTreeNode[]
+        mostRelevantEvent: (filteredEvents: LLMTraceEvent[], searchQuery: string) => LLMTraceEvent | null
+        searchOccurrences: (
+            showableEvents: LLMTraceEvent[],
+            searchQuery: string,
+            trace: LLMTrace | undefined
+        ) => SearchOccurrence[]
+        metricEvents: (trace: LLMTrace | undefined) => LLMTraceEvent[] | undefined
+        feedbackEvents: (trace: LLMTrace | undefined) => LLMTraceEvent[] | undefined
+        traceGitMetadata: (trace: LLMTrace | undefined) => TraceGitMetadata | null
+        metricsAndFeedbackEvents: (
+            metricEvents: LLMTraceEvent[] | undefined,
+            feedbackEvents: LLMTraceEvent[] | undefined
+        ) => {
+            metric: string
+            value: any
+        }[]
+        initialFocusEventId: (
+            trace: LLMTrace | undefined,
+            filteredTree: TraceTreeNode[],
+            initialTab: string | null
+        ) => string | null
+        effectiveEventId: (eventId: string | null, initialFocusEventId: string | null) => string | null
+        event: (
+            traceId: string,
+            effectiveEventId: string | null,
+            trace: LLMTrace | undefined,
+            showableEvents: LLMTraceEvent[]
+        ) => LLMTrace | LLMTraceEvent | null
+        tree: (filteredTree: TraceTreeNode[]) => TraceTreeNode[]
+        enrichedTree: (filteredTree: TraceTreeNode[]) => EnrichedTraceTreeNode[]
+        eventMetadata: (event: LLMTrace | LLMTraceEvent | null) => Record<string, unknown> | undefined
+        highlightedEventId: (event: LLMTrace | LLMTraceEvent | null) => string | null
+        selectedNode: (
+            event: LLMTrace | LLMTraceEvent | null,
+            enrichedTree: EnrichedTraceTreeNode[]
+        ) => EnrichedTraceTreeNode | null
+        sessionId: (selectedNode: EnrichedTraceTreeNode | null, event: LLMTrace | LLMTraceEvent | null) => string | null
+        availableEventTypes: (enrichedTree: EnrichedTraceTreeNode[]) => string[]
+    }
+}
+
+export type aiObservabilityTraceDataLogicType = MakeLogicType<
+    aiObservabilityTraceDataLogicValues,
+    aiObservabilityTraceDataLogicActions,
+    TraceDataLogicProps,
+    aiObservabilityTraceDataLogicMeta
+>
+
+export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicType>([
+    path(['scenes', 'ai-observability', 'aiObservabilityTraceDataLogic']),
+    props({} as TraceDataLogicProps),
+    key((props) => props.traceId),
+    connect((props: TraceDataLogicProps) => ({
+        values: [
+            aiObservabilityTraceLogic,
+            ['eventId', 'searchQuery', 'initialTab'],
+            dataNodeLogic(getDataNodeLogicProps(props)),
+            ['elapsedTime', 'response', 'responseLoading', 'responseError'],
+        ],
+        actions: [aiObservabilityTraceLogic, ['setEventId']],
+    })),
+    actions({
+        reportSingleTraceLoadIfReady: true,
+        setSingleTraceLoadReported: true,
+        setHasScrolledToEvent: true,
+    }),
+    reducers({
+        singleTraceLoadReported: [
+            false,
+            {
+                setSingleTraceLoadReported: () => true,
+            },
+        ],
+        hasScrolledToEvent: [
+            false,
+            {
+                setHasScrolledToEvent: () => true,
+            },
+        ],
+    }),
+    selectors({
+        trace: [
+            (s) => [s.response],
+            (
+                response:
+                    | Record<string, any>
+                    | null
+                    | import('~/queries/schema').ErrorTrackingQueryResponse
+                    | import('~/queries/schema').HogQLAutocompleteResponse
+                    | import('~/queries/schema').HogQLMetadataResponse
+                    | import('~/queries/schema').HogQLQueryResponse<any[]>
+                    | import('~/queries/schema').HogQueryResponse
+                    | import('~/queries/schema').LogAttributesQueryResponse
+                    | import('~/queries/schema').LogValuesQueryResponse
+                    | import('~/queries/schema').MetricsQueryResponse
+                    | import('~/queries/schema').SessionsQueryResponse
+                    | import('~/queries/schema').TraceSpansAggregationQueryResponse
+                    | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
+                    | import('~/queries/schema').TraceSpansQueryResponse
+            ): LLMTrace | undefined => {
+                const traceResponse = response as TraceQueryResponse | null
+                return traceResponse?.results?.[0]
+            },
+        ],
+        showableEvents: [
+            (s) => [s.trace],
+            (trace: LLMTrace | undefined): LLMTraceEvent[] =>
+                trace ? trace.events.filter((event) => !FEEDBACK_EVENTS.has(event.event)) : [],
+        ],
+        filteredEvents: [
+            (s, p) => [s.showableEvents, s.searchQuery, p.traceId],
+            (showableEvents: LLMTraceEvent[], searchQuery: string, traceId: string): LLMTraceEvent[] => {
+                if (!searchQuery.trim()) {
+                    return showableEvents
+                }
+
+                // Find events that match the search
+                const matchingEvents = showableEvents.filter((event: LLMTraceEvent) =>
+                    eventMatchesSearch(event, searchQuery)
+                )
+
+                // For each matching event, include its parent chain
+                const eventsWithParents = new Set<LLMTraceEvent>()
+
+                for (const matchingEvent of matchingEvents) {
+                    const parentChain = findEventWithParents(matchingEvent, showableEvents, traceId)
+                    for (const event of parentChain) {
+                        eventsWithParents.add(event)
+                    }
+                }
+
+                return Array.from(eventsWithParents)
+            },
+        ],
+        filteredTree: [
+            (s, p) => [p.traceId, s.trace, s.searchQuery, s.filteredEvents],
+            (
+                traceId: string,
+                trace: LLMTrace | undefined,
+                searchQuery: string,
+                filteredEvents: LLMTraceEvent[]
+            ): TraceTreeNode[] => {
+                if (!searchQuery.trim()) {
+                    return restoreTree(trace?.events || [], traceId)
+                }
+                return restoreTree(filteredEvents, traceId)
+            },
+        ],
+        mostRelevantEvent: [
+            (s) => [s.filteredEvents, s.searchQuery],
+            (filteredEvents: LLMTraceEvent[], searchQuery: string): LLMTraceEvent | null => {
+                if (!searchQuery.trim() || !filteredEvents.length) {
+                    return null
+                }
+
+                const query = searchQuery.toLowerCase().trim()
+
+                // Score events by relevance (sort of doing a random scoring for now but i feel like this is directionally correct)
+                const scoredEvents = filteredEvents.map((event) => {
+                    let score = 0
+
+                    // Higher score for generation events
+                    if (event.event === '$ai_generation') {
+                        score += 10
+                    }
+
+                    // Higher score for title matches
+                    const title = event.properties.$ai_span_name || event.event || ''
+                    if (title.toLowerCase().includes(query)) {
+                        score += 5
+                    }
+
+                    // Score for model matches
+                    const model = event.properties.$ai_model || ''
+                    if (model.toLowerCase().includes(query)) {
+                        score += 3
+                    }
+
+                    // Score for input/output content matches
+                    const input = JSON.stringify(
+                        event.properties.$ai_input || event.properties.$ai_input_state || ''
+                    ).toLowerCase()
+                    if (input.includes(query)) {
+                        score += 2
+                    }
+
+                    const output = JSON.stringify(
+                        event.properties.$ai_output ||
+                            event.properties.$ai_output_choices ||
+                            event.properties.$ai_output_state ||
+                            ''
+                    ).toLowerCase()
+                    if (output.includes(query)) {
+                        score += 2
+                    }
+
+                    return { event, score }
+                })
+
+                // Return the highest scoring event
+                const best = scoredEvents.sort((a, b) => b.score - a.score)[0]
+                return best?.event || null
+            },
+        ],
+        searchOccurrences: [
+            (s) => [s.showableEvents, s.searchQuery, s.trace],
+            (showableEvents: LLMTraceEvent[], searchQuery: string, trace: LLMTrace | undefined): SearchOccurrence[] => {
+                if (!searchQuery.trim()) {
+                    return []
+                }
+
+                const query = searchQuery.toLowerCase().trim()
+
+                // Collect occurrences from different sources
+                const traceOccurrences = findTraceOccurrences(trace, query)
+                const sidebarOccurrences = findSidebarOccurrences(showableEvents, query)
+                const messageOccurrences = findMessageOccurrences(showableEvents, query, normalizeMessages)
+
+                // Combine all occurrences
+                return [...traceOccurrences, ...sidebarOccurrences, ...messageOccurrences]
+            },
+        ],
+        metricEvents: [
+            (s) => [s.trace],
+            (trace: LLMTrace | undefined): LLMTraceEvent[] | undefined =>
+                trace?.events.filter((event) => event.event === '$ai_metric' && event.properties.$ai_metric_value),
+        ],
+        feedbackEvents: [
+            (s) => [s.trace],
+            (trace: LLMTrace | undefined): LLMTraceEvent[] | undefined =>
+                trace?.events.filter((event) => event.event === '$ai_feedback' && event.properties.$ai_feedback_text),
+        ],
+        traceGitMetadata: [
+            (s) => [s.trace],
+            (trace: LLMTrace | undefined): TraceGitMetadata | null => deriveTraceGitMetadata(trace),
+        ],
+        metricsAndFeedbackEvents: [
+            (s) => [s.metricEvents, s.feedbackEvents],
+            (
+                metricEvents: LLMTraceEvent[] | undefined,
+                feedbackEvents: LLMTraceEvent[] | undefined
+            ): { metric: string; value: any }[] =>
+                [...(metricEvents ?? []), ...(feedbackEvents ?? [])].map((event) => ({
+                    metric:
+                        event.event === '$ai_metric' ? (event.properties.$ai_metric_name ?? 'Metric') : 'User feedback',
+                    value: event.properties.$ai_metric_value ?? event.properties.$ai_feedback_text,
+                })),
+        ],
+        initialFocusEventId: [
+            (s) => [s.trace, s.filteredTree, s.initialTab],
+            (trace: LLMTrace | undefined, filteredTree: TraceTreeNode[], initialTab: string | null): string | null =>
+                getInitialFocusEventId(trace, filteredTree, initialTab),
+        ],
+        effectiveEventId: [
+            (s) => [s.eventId, s.initialFocusEventId],
+            (eventId: string | null, initialFocusEventId: string | null): string | null =>
+                getEffectiveEventId(eventId, initialFocusEventId),
+        ],
+        event: [
+            (s, p) => [p.traceId, s.effectiveEventId, s.trace, s.showableEvents],
+            (
+                traceId: string,
+                effectiveEventId: string | null,
+                trace: LLMTrace | undefined,
+                showableEvents: LLMTraceEvent[]
+            ): LLMTrace | LLMTraceEvent | null => {
+                if (!effectiveEventId || effectiveEventId === traceId) {
+                    return trace || null
+                }
+
+                if (!showableEvents?.length) {
+                    return trace || null
+                }
+
+                const matchedEvent = resolveTraceEventById(showableEvents, effectiveEventId)
+
+                // If URL carries a stale/invalid event id, fall back to trace root instead of hard-failing.
+                return matchedEvent || trace || null
+            },
+        ],
+        tree: [(s) => [s.filteredTree], (filteredTree: TraceTreeNode[]): TraceTreeNode[] => filteredTree],
+        enrichedTree: [
+            (s) => [s.filteredTree],
+            (filteredTree: TraceTreeNode[]): EnrichedTraceTreeNode[] => filteredTree.map(enrichNode),
+        ],
+        eventMetadata: [
+            (s) => [s.event],
+            (event: LLMTrace | LLMTraceEvent | null): Record<string, unknown> | undefined => {
+                if (event && isLLMEvent(event)) {
+                    // Filter out all system properties as they're typically useless for datasets.
+                    return Object.fromEntries(Object.entries(event.properties).filter(([key]) => !key.startsWith('$')))
+                }
+                return undefined
+            },
+        ],
+        highlightedEventId: [
+            (s) => [s.event],
+            (event: LLMTrace | LLMTraceEvent | null): string | null => getHighlightedEventId(event),
+        ],
+        selectedNode: [
+            (s) => [s.event, s.enrichedTree],
+            (
+                event: LLMTrace | LLMTraceEvent | null,
+                enrichedTree: EnrichedTraceTreeNode[]
+            ): EnrichedTraceTreeNode | null => {
+                if (!event || !isLLMEvent(event)) {
+                    return null
+                }
+                return findNodeForEvent(enrichedTree, event.id)
+            },
+        ],
+        sessionId: [
+            (s) => [s.selectedNode, s.event],
+            (node: EnrichedTraceTreeNode | null, event: LLMTrace | LLMTraceEvent | null): string | null => {
+                if (!event) {
+                    return null
+                }
+                const childEvents = node?.children?.map((child) => child.event)
+                return getSessionID(event, childEvents)
+            },
+        ],
+        availableEventTypes: [
+            (s) => [s.enrichedTree],
+            (enrichedTree: EnrichedTraceTreeNode[]): string[] => {
+                const types = new Set<string>()
+                const addTypesFromTree = (nodes: EnrichedTraceTreeNode[]): void => {
+                    for (const node of nodes) {
+                        types.add(getEventType(node.event))
+                        if (node.children) {
+                            addTypesFromTree(node.children)
+                        }
+                    }
+                }
+                addTypesFromTree(enrichedTree)
+                types.delete('trace')
+                return [...types]
+            },
+        ],
+    }),
+
+    listeners(({ actions, props, values }) => ({
+        reportSingleTraceLoadIfReady: () => {
+            const trace = values.trace
+            if (!trace || !props.traceId || values.singleTraceLoadReported) {
+                return
+            }
+
+            actions.setSingleTraceLoadReported()
+
+            const nowTimestamp = dayjs.utc().toISOString()
+            const appContext = getAppContext()
+            const traceQueryRunnerLoadDurationMs = values.elapsedTime ?? null
+            const timing = getSingleTraceLoadTiming(trace, nowTimestamp, traceQueryRunnerLoadDurationMs)
+
+            posthog.capture(SINGLE_TRACE_PAGE_LOADED_EVENT, {
+                trace_id: trace.id,
+                team_id: appContext?.current_team?.id ?? null,
+                project_id: appContext?.current_team?.project_id ?? null,
+                organization_id: appContext?.current_team?.organization ?? null,
+                organization_name: appContext?.current_user?.organization?.name ?? null,
+                ...timing,
+            })
+
+            reportTraceNormalizationFailures(trace)
+        },
+    })),
+    subscriptions(({ actions, props, values }) => ({
+        enrichedTree: (enrichedTree: EnrichedTraceTreeNode[]) => {
+            // On initial load with a deep-linked event, scroll to the bottom to show the latest message
+            if (enrichedTree.length > 0 && values.eventId && !values.hasScrolledToEvent) {
+                actions.setHasScrolledToEvent()
+                // rAF assumes conversation DOM is committed in the same render as the tree.
+                // If conversation content ever loads async, this may scroll slightly short.
+                requestAnimationFrame(() => {
+                    const mainContent = document.getElementById('main-content')
+                    if (mainContent) {
+                        mainContent.scrollTo({ top: mainContent.scrollHeight })
+                    }
+                })
+            }
+        },
+        eventId: (eventId: string | null) => {
+            // When the selected event changes, scroll the sidebar tree to keep it visible
+            if (eventId) {
+                requestAnimationFrame(() => {
+                    const sidebar = document.getElementById('trace-events-sidebar')
+                    const selectedNode = sidebar?.querySelector('[aria-current=true]')
+                    if (selectedNode) {
+                        selectedNode.scrollIntoView({ block: 'center' })
+                    }
+                })
+            }
+        },
+        mostRelevantEvent: (mostRelevantEvent: LLMTraceEvent | null) => {
+            // When search finds a most relevant event, navigate to it
+            if (mostRelevantEvent && values.searchQuery.trim()) {
+                actions.setEventId(mostRelevantEvent.id)
+            }
+        },
+        trace: (trace: LLMTrace | undefined, oldTrace: LLMTrace | undefined) => {
+            if (trace?.createdAt && props.traceId) {
+                aiObservabilityTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
+            }
+
+            if (trace?.distinctId) {
+                llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
+            }
+
+            // Resolve the branch to a PR only when the branch or repo actually changed — re-dispatching
+            // on an unrelated trace update would refire the same resolution request.
+            const gitMetadata = values.traceGitMetadata
+            const previous = deriveTraceGitMetadata(oldTrace)
+            if (gitMetadata?.branch !== previous?.branch || gitMetadata?.repo !== previous?.repo) {
+                aiObservabilityTraceLogic.actions.loadBranchPRMatches(gitMetadata)
+            }
+
+            actions.reportSingleTraceLoadIfReady()
+        },
+    })),
+])
+
+export interface TraceTreeNode {
+    event: LLMTraceEvent
+    children?: TraceTreeNode[]
+    aggregation?: SpanAggregation
+}
+
+export interface EnrichedTraceTreeNode extends TraceTreeNode {
+    children?: EnrichedTraceTreeNode[]
+    displayTotalCost: number
+    displayLatency: number
+    displayUsage: string | null
+}
+
+export interface SpanAggregation {
+    totalCost: number
+    totalLatency: number
+    inputTokens: number
+    outputTokens: number
+    hasGenerationChildren: boolean
+}
+
+function extractTotalCost(event: LLMTraceEvent): number {
+    return event.properties.$ai_total_cost_usd || 0
+}
+
+function extractLatency(event: LLMTraceEvent): number {
+    return event.properties.$ai_latency || 0
+}
+
+function enrichNode(node: TraceTreeNode): EnrichedTraceTreeNode {
+    return {
+        ...node,
+        children: node.children?.map(enrichNode),
+        displayTotalCost: node.aggregation?.totalCost ?? extractTotalCost(node.event),
+        displayLatency: node.aggregation?.totalLatency ?? extractLatency(node.event),
+        displayUsage: node.aggregation ? formatLLMUsage(node.aggregation) : formatLLMUsage(node.event),
+    }
+}
+
+function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
+    const event = node.event
+    let hasGenerationChildren = false
+
+    // Use direct values if available, otherwise start with 0 for aggregation
+    let totalCost = event.properties.$ai_total_cost_usd ?? 0
+    let totalLatency = event.properties.$ai_latency ?? 0
+    let inputTokens = event.properties.$ai_input_tokens ?? 0
+    let outputTokens = event.properties.$ai_output_tokens ?? 0
+
+    // Only aggregate from children if parent doesn't have direct values
+    const shouldAggregateCost = event.properties.$ai_total_cost_usd === undefined
+    const shouldAggregateLatency = event.properties.$ai_latency === undefined
+    const shouldAggregateInputTokens = event.properties.$ai_input_tokens === undefined
+    const shouldAggregateOutputTokens = event.properties.$ai_output_tokens === undefined
+
+    if (node.children && node.children.length > 0) {
+        for (const child of node.children) {
+            if (child.event.event === '$ai_generation') {
+                hasGenerationChildren = true
+            }
+
+            // Use aggregated metrics if child has children, otherwise use direct metrics
+            if (child.children && child.children.length > 0) {
+                const childAgg = aggregateSpanMetrics(child)
+                if (shouldAggregateCost) {
+                    totalCost += childAgg.totalCost
+                }
+                if (shouldAggregateLatency) {
+                    totalLatency += childAgg.totalLatency
+                }
+                if (shouldAggregateInputTokens) {
+                    inputTokens += childAgg.inputTokens
+                }
+                if (shouldAggregateOutputTokens) {
+                    outputTokens += childAgg.outputTokens
+                }
+                if (childAgg.hasGenerationChildren) {
+                    hasGenerationChildren = true
+                }
+            } else {
+                // Child has no children, use its direct metrics
+                if (shouldAggregateCost) {
+                    totalCost += child.event.properties.$ai_total_cost_usd || 0
+                }
+                if (shouldAggregateLatency) {
+                    totalLatency += child.event.properties.$ai_latency || 0
+                }
+                if (shouldAggregateInputTokens) {
+                    inputTokens += child.event.properties.$ai_input_tokens || 0
+                }
+                if (shouldAggregateOutputTokens) {
+                    outputTokens += child.event.properties.$ai_output_tokens || 0
+                }
+            }
+        }
+    }
+
+    return { totalCost, totalLatency, inputTokens, outputTokens, hasGenerationChildren }
+}
+
+// Export functions for testing
+export { findEventWithParents }
+
+export function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string): EnrichedTraceTreeNode | null {
+    for (const node of tree) {
+        if (node.event.id === eventId) {
+            return node
+        }
+        if (node.children) {
+            const result = findNodeForEvent(node.children, eventId)
+            if (result) {
+                return result
+            }
+        }
+    }
+    return null
+}
+
+// The trace query runner folds the $ai_trace event into the trace itself (its
+// `inputState`/`outputState`) and drops it from `events`, so populated state is the
+// only signal left that a real $ai_trace event existed. Mirrors the scene's
+// `isTopLevelTraceWithoutContent` so the focus decision and the rendered root agree.
+export function traceHasRootContent(trace: LLMTrace | undefined): boolean {
+    return !!trace && (!!trace.inputState || !!trace.outputState)
+}
+
+export function getInitialFocusEventId(
+    trace: LLMTrace | undefined,
+    filteredTree: TraceTreeNode[],
+    initialTab: string | null
+): string | null {
+    // A real trace renders its whole conversation at the root, so focus the root
+    // (null) instead of diving into a child node.
+    if (traceHasRootContent(trace)) {
+        return null
+    }
+
+    // tab=summary means the user explicitly asked to stay at the trace level (e.g. from clusters view).
+    if (initialTab === 'summary') {
+        return null
+    }
+
+    // Pseudo-trace: bare generations grouped by trace_id with no $ai_trace event.
+    // The first generation is the most useful default here.
+    const firstGenerationNode = filteredTree.find((node) => node.event.event === '$ai_generation')
+    if (firstGenerationNode) {
+        return firstGenerationNode.event.id
+    }
+
+    return filteredTree[0]?.event.id ?? null
+}
+
+export function getEffectiveEventId(eventId: string | null, initialFocusEventId: string | null): string | null {
+    // If user selected a specific event (including the trace itself), use that
+    if (eventId) {
+        return eventId
+    }
+
+    // Otherwise, use the initial focus event
+    return initialFocusEventId
+}
+
+export function resolveTraceEventById(showableEvents: LLMTraceEvent[], effectiveEventId: string): LLMTraceEvent | null {
+    return (
+        showableEvents.find(
+            (event) =>
+                event.id === effectiveEventId ||
+                event.properties.$ai_generation_id === effectiveEventId ||
+                event.properties.$ai_span_id === effectiveEventId
+        ) || null
+    )
+}
+
+export function getHighlightedEventId(event: LLMTrace | LLMTraceEvent | null): string | null {
+    return event && isLLMEvent(event) ? event.id : null
+}
+
+function findOrphanedRoots(idMap: Map<string, LLMTraceEvent>, traceId: string): string[] {
+    const orphanedRoots: string[] = []
+    for (const [eventId, event] of idMap) {
+        const parentId = event.properties.$ai_parent_id ?? event.properties.$ai_trace_id
+        if (parentId !== traceId && parentId && !idMap.has(parentId)) {
+            orphanedRoots.push(eventId)
+        }
+    }
+    return orphanedRoots
+}
+
+export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTreeNode[] {
+    const childrenMap = new Map<any, any[]>()
+    const idMap = new Map<any, LLMTraceEvent>()
+    const visitedNodes = new Set<any>()
+
+    for (const event of events) {
+        if (FEEDBACK_EVENTS.has(event.event)) {
+            continue
+        }
+
+        const eventId = event.properties.$ai_generation_id ?? event.properties.$ai_span_id ?? event.id
+        idMap.set(eventId, event)
+
+        const parentId = event.properties.$ai_parent_id ?? event.properties.$ai_trace_id
+
+        if (parentId !== undefined && parentId !== null) {
+            const existingEvents = childrenMap.get(parentId)
+            if (existingEvents) {
+                existingEvents.push(eventId)
+            } else {
+                childrenMap.set(parentId, [eventId])
+            }
+        }
+    }
+
+    // Order siblings by when their operation began (longer first on ties),
+    // matching the timeline — events are captured at completion, so raw
+    // timestamp order can differ.
+    const byOperationStart = (a: string, b: string): number => {
+        const eventA = idMap.get(a)
+        const eventB = idMap.get(b)
+        if (!eventA || !eventB) {
+            return 0
+        }
+        return (
+            operationStartMs(eventA) - operationStartMs(eventB) ||
+            (Number(eventB.properties.$ai_latency) || 0) - (Number(eventA.properties.$ai_latency) || 0)
+        )
+    }
+
+    function traverse(spanId: any): TraceTreeNode | null {
+        if (visitedNodes.has(spanId)) {
+            console.warn('Circular reference detected in trace tree:', spanId)
+            return null
+        }
+
+        const event = idMap.get(spanId)
+        if (!event) {
+            return null
+        }
+
+        visitedNodes.add(spanId)
+        const children = childrenMap.get(spanId)
+        const result: TraceTreeNode = {
+            event,
+            children: children
+                ?.slice()
+                .sort(byOperationStart)
+                .map((child) => traverse(child))
+                .filter((node): node is TraceTreeNode => node !== null),
+        }
+
+        if (result.children && result.children.length > 0 && event.event !== '$ai_generation') {
+            result.aggregation = aggregateSpanMetrics(result)
+        }
+
+        visitedNodes.delete(spanId)
+        return result
+    }
+
+    const directChildren = childrenMap.get(traceId) || []
+    const rootIds = [...directChildren, ...findOrphanedRoots(idMap, traceId)].sort(byOperationStart)
+    return rootIds.map((childId) => traverse(childId)).filter((node): node is TraceTreeNode => node !== null)
+}

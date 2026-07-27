@@ -11,6 +11,7 @@ class LimitKey(StrEnum):
 
     MAX_DASHBOARDS_PER_TEAM = "analytics.max_dashboards_per_team"
     MAX_INSIGHTS_PER_DASHBOARD = "analytics.max_insights_per_dashboard"
+    MAX_WIDGETS_PER_DASHBOARD = "analytics.max_widgets_per_dashboard"
     MAX_ALERTS_PER_TEAM = "analytics.max_alerts_per_team"
     MAX_SUBSCRIPTIONS_PER_TEAM = "analytics.max_subscriptions_per_team"
     MAX_ACTIONS_PER_TEAM = "analytics.max_actions_per_team"
@@ -51,6 +52,11 @@ REGISTRY: dict[str, LimitDefinition] = {
         key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
         description="Insight tiles attached to a single dashboard",
         default=100,
+    ),
+    LimitKey.MAX_WIDGETS_PER_DASHBOARD: LimitDefinition(
+        key=LimitKey.MAX_WIDGETS_PER_DASHBOARD,
+        description="Widget tiles attached to a single dashboard",
+        default=20,
     ),
     LimitKey.MAX_ALERTS_PER_TEAM: LimitDefinition(
         key=LimitKey.MAX_ALERTS_PER_TEAM,

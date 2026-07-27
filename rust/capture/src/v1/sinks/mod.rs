@@ -1,6 +1,7 @@
 pub mod constants;
 pub mod event;
 pub mod kafka;
+pub mod prepare;
 pub mod router;
 pub mod sink;
 pub mod types;
@@ -13,9 +14,10 @@ use envconfig::Envconfig;
 
 pub use event::Event;
 pub use kafka::KafkaSink;
+pub use prepare::{serialize_batch, SerializedBatch, DEFAULT_SCATTER_GATHER_MIN_BATCH};
 pub use router::{Router, RouterError};
 pub use sink::Sink;
-pub use types::{Destination, Outcome, SinkResult};
+pub use types::{Destination, Outcome, PreparedEvent, SerializationFailure, SinkResult};
 
 // ---------------------------------------------------------------------------
 // SinkName
@@ -39,6 +41,14 @@ impl SinkName {
             Self::Msk => "msk",
             Self::MskAlt => "msk_alt",
             Self::Ws => "ws",
+        }
+    }
+
+    pub fn lifecycle_tag(&self) -> &'static str {
+        match self {
+            Self::Msk => "v1-sink-msk",
+            Self::MskAlt => "v1-sink-msk_alt",
+            Self::Ws => "v1-sink-ws",
         }
     }
 
@@ -134,8 +144,10 @@ pub fn load_sinks(sinks_csv: &str) -> anyhow::Result<Sinks> {
     load_sinks_from(sinks_csv, &env)
 }
 
-/// Testable core: loads sink configs from a provided env snapshot.
-pub fn load_sinks_from(sinks_csv: &str, env: &HashMap<String, String>) -> anyhow::Result<Sinks> {
+/// Parse the comma-separated sink names without loading per-sink configs.
+/// Used by `register_components` to register lifecycle handles before the
+/// full config is available.
+pub fn parse_sink_names(sinks_csv: &str) -> anyhow::Result<Vec<SinkName>> {
     let names: Vec<SinkName> = sinks_csv
         .split(',')
         .filter(|s| !s.trim().is_empty())
@@ -144,6 +156,12 @@ pub fn load_sinks_from(sinks_csv: &str, env: &HashMap<String, String>) -> anyhow
         .map_err(|e| anyhow::anyhow!("bad CAPTURE_V1_SINKS: {e}"))?;
 
     anyhow::ensure!(!names.is_empty(), "CAPTURE_V1_SINKS is empty");
+    Ok(names)
+}
+
+/// Testable core: loads sink configs from a provided env snapshot.
+pub fn load_sinks_from(sinks_csv: &str, env: &HashMap<String, String>) -> anyhow::Result<Sinks> {
+    let names = parse_sink_names(sinks_csv)?;
     let default = names[0];
 
     let mut configs = HashMap::new();

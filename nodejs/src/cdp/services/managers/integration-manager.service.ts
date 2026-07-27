@@ -1,10 +1,9 @@
 import { IntegrationType } from '~/cdp/types'
 import { EncryptedFields } from '~/cdp/utils/encryption-utils'
-import { PubSub } from '~/utils/pubsub'
-
-import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
-import { LazyLoader } from '../../../utils/lazy-loader'
-import { logger } from '../../../utils/logger'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { LazyLoader } from '~/common/utils/lazy-loader'
+import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
 
 export class IntegrationManagerService {
     private lazyLoader: LazyLoader<IntegrationType>

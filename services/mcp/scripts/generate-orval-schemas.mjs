@@ -26,7 +26,7 @@ import {
 } from '@posthog/openapi-codegen'
 
 import { discoverDefinitions, resolveSchemaPath } from './lib/definitions.mjs'
-import { stripEnumMinLength } from './lib/schema-transforms.mjs'
+import { stripEnumMinLength, stripUuidFormat } from './lib/schema-transforms.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const mcpRoot = path.resolve(__dirname, '..')
@@ -72,31 +72,6 @@ function parseToolDefinition(filePath) {
 // ------------------------------------------------------------------
 // OpenAPI post-processing (MCP-specific)
 // ------------------------------------------------------------------
-
-/**
- * Strip 'default: null' from nullable properties in OpenAPI schemas.
- *
- * Orval generates invalid Zod like `.string().default(null)` when it sees
- * `nullable: true` with `default: null`. Removing the null default causes
- * Orval to correctly generate `.nullable()` instead.
- */
-function stripNullDefaults(obj) {
-    if (!obj || typeof obj !== 'object') {
-        return obj
-    }
-    if (Array.isArray(obj)) {
-        return obj.map(stripNullDefaults)
-    }
-    const result = {}
-    for (const [key, value] of Object.entries(obj)) {
-        // Skip 'default' key if value is null and sibling 'nullable' is true
-        if (key === 'default' && value === null && obj.nullable === true) {
-            continue
-        }
-        result[key] = stripNullDefaults(value)
-    }
-    return result
-}
 
 /**
  * Strip `default` values from Patched* (PATCH request body) schemas.
@@ -158,25 +133,6 @@ function stripReadOnlyFromRequired(obj) {
     }
     for (const value of Object.values(obj)) {
         stripReadOnlyFromRequired(value)
-    }
-}
-
-/**
- * Strip `format: "uuid"` from all string properties in the schema.
- * Zod 4's `.uuid()` enforces strict RFC 4122 version/variant bits,
- * which some PostHog UUID generation paths don't satisfy.
- * Since these are API response schemas, there's no value in
- * re-validating the UUID format client-side.
- */
-function stripUuidFormat(obj) {
-    if (!obj || typeof obj !== 'object') {
-        return
-    }
-    if (obj.type === 'string' && obj.format === 'uuid') {
-        delete obj.format
-    }
-    for (const value of Object.values(obj)) {
-        stripUuidFormat(value)
     }
 }
 
@@ -258,12 +214,11 @@ for (const def of definitions) {
     }
     totalEnabledOps += operationIds.size
 
-    let filtered = filterSchemaByOperationIds(fullSchema, operationIds, { includeResponseSchemas: false })
+    const filtered = filterSchemaByOperationIds(fullSchema, operationIds, { includeResponseSchemas: false })
 
     // Annotate title for easier debugging
     filtered.info.title = `${fullSchema.info?.title ?? 'API'} - MCP ${operationIds.size} enabled ops`
 
-    filtered = stripNullDefaults(filtered)
     stripDefaultsFromPatchedSchemas(filtered)
     stripUuidFormat(filtered)
     stripReadOnlyFromRequired(filtered)

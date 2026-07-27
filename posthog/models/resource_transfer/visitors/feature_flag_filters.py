@@ -1,4 +1,4 @@
-"""Cohort, action, and holdout references inside :class:`posthog.models.feature_flag.FeatureFlag` ``filters`` JSON."""
+"""Cohort, action, and holdout references inside :class:`products.feature_flags.backend.models.feature_flag.FeatureFlag` ``filters`` JSON."""
 
 from __future__ import annotations
 

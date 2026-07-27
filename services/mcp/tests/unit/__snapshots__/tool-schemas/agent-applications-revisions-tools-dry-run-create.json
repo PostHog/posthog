@@ -1,0 +1,31 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "application_id": {
+            "type": "string"
+        },
+        "args": {
+            "description": "Synthetic args the tool's `actions.default` is called with. Free-form JSON; the sandbox doesn't validate against the tool's `args_schema` — that's the author's responsibility to keep in sync."
+        },
+        "id": {
+            "description": "A UUID string identifying this agent revision.",
+            "type": "string"
+        },
+        "mock_secrets": {
+            "additionalProperties": {
+                "type": "string"
+            },
+            "description": "Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "tool_id": {
+            "pattern": "^[a-z0-9][a-z0-9_-]*$",
+            "type": "string"
+        }
+    },
+    "required": ["application_id", "id", "tool_id", "args"],
+    "type": "object"
+}

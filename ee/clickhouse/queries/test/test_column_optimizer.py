@@ -1,7 +1,10 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, cleanup_materialized_columns
 
-from posthog.models import Action
 from posthog.models.filters import Filter, RetentionFilter
+
+from products.actions.backend.models.action import Action
 
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
@@ -33,10 +36,15 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
 
         cleanup_materialized_columns()
 
+    def _legacy_events_schema_filter(self, data: dict[str, Any]) -> Filter:
+        legacy_filter = Filter(data=data)
+        legacy_filter.hogql_context.use_new_events_schema = False
+        return legacy_filter
+
     def test_properties_used_in_filter(self):
-        properties_used_in_filter = lambda filter: EnterpriseColumnOptimizer(
-            filter, self.team.id
-        ).properties_used_in_filter
+        properties_used_in_filter = lambda filter: (
+            EnterpriseColumnOptimizer(filter, self.team.id).properties_used_in_filter
+        )
 
         self.assertEqual(properties_used_in_filter(BASE_FILTER), {})
         self.assertEqual(
@@ -206,8 +214,12 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_materialized_columns_checks(self):
-        optimizer = lambda: EnterpriseColumnOptimizer(FILTER_WITH_PROPERTIES, self.team.id)
-        optimizer_groups = lambda: EnterpriseColumnOptimizer(FILTER_WITH_GROUPS, self.team.id)
+        optimizer = lambda: EnterpriseColumnOptimizer(
+            self._legacy_events_schema_filter(FILTER_WITH_PROPERTIES.to_dict()), self.team.id
+        )
+        optimizer_groups = lambda: EnterpriseColumnOptimizer(
+            self._legacy_events_schema_filter(FILTER_WITH_GROUPS.to_dict()), self.team.id
+        )
 
         self.assertEqual(optimizer().event_columns_to_query, {"properties"})
         self.assertEqual(optimizer().person_columns_to_query, {"properties"})
@@ -224,8 +236,9 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
 
     def test_materialized_columns_checks_person_on_events(self):
         optimizer = lambda: EnterpriseColumnOptimizer(
-            BASE_FILTER.shallow_clone(
+            self._legacy_events_schema_filter(
                 {
+                    **BASE_FILTER.to_dict(),
                     "properties": [
                         {
                             "key": "person_prop",
@@ -233,7 +246,7 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
                             "operator": "exact",
                             "type": "person",
                         },
-                    ]
+                    ],
                 }
             ),
             self.team.id,

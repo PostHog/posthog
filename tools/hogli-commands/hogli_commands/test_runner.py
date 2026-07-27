@@ -18,6 +18,8 @@ import click
 from hogli.command_types import _run
 from hogli.manifest import REPO_ROOT
 
+from hogli_commands.change_detection import changed_files
+
 _PYTHON_ROOTS = ("posthog/", "ee/", "products/", "common/", "dags/", "tools/", "services/")
 
 
@@ -368,14 +370,22 @@ def _detect_go_test(file_only: str) -> TestRunConfig:
 
 
 def _detect_jest_test(file_only: str, file_path: str, node_id: str | None = None) -> TestRunConfig:
-    """Detect Jest test configuration by finding the nearest package.json."""
-    package_json = _find_nearest(file_only, "package.json")
-    if not package_json:
-        raise click.UsageError(f"No package.json found for: {file_path}")
+    """Detect Jest test configuration by finding the nearest package.json.
 
-    pkg_name = _parse_package_json_name(package_json)
-    if not pkg_name:
-        raise click.UsageError(f"No name field in {package_json.relative_to(REPO_ROOT)}")
+    Tests under products/ are collected by the root @posthog/frontend jest config (its
+    `roots` include ../products), which carries the path aliases and transforms they
+    rely on. The product's own package.json has no jest config, so route them to
+    @posthog/frontend; jest treats the path as a testPathPattern and matches it there.
+    """
+    if file_only.startswith("products/"):
+        pkg_name: str | None = "@posthog/frontend"
+    else:
+        package_json = _find_nearest(file_only, "package.json")
+        if not package_json:
+            raise click.UsageError(f"No package.json found for: {file_path}")
+        pkg_name = _parse_package_json_name(package_json)
+        if not pkg_name:
+            raise click.UsageError(f"No name field in {package_json.relative_to(REPO_ROOT)}")
 
     command = ["pnpm", f"--filter={pkg_name}", "exec", "jest", file_only]
     if node_id:
@@ -515,58 +525,21 @@ def detect_test_type(file_path: str) -> TestRunConfig:
 # ---------------------------------------------------------------------------
 
 
-def _parse_porcelain_path(line: str) -> str:
-    """Extract the file path from a ``git status --porcelain`` line.
-
-    Handles renames/copies (``R  old -> new``) by taking the destination,
-    and strips quotes that git adds for paths with special characters.
-    """
-    raw = line[3:]
-    # Renames/copies: "old -> new" — take the destination
-    if " -> " in raw:
-        raw = raw.split(" -> ", 1)[1]
-    # Git quotes paths containing special chars
-    return raw.strip().strip('"')
-
-
 def _get_changed_files() -> list[str]:
-    """Get files changed on the current branch vs master, plus uncommitted changes."""
+    """Files changed on the current branch vs master, plus uncommitted changes.
+
+    ``--changed`` is meaningless on master, so guard that here; the diffing itself
+    is delegated to the shared change-detection module."""
     branch = subprocess.run(
         ["git", "branch", "--show-current"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
     ).stdout.strip()
-
     if branch == "master":
         raise click.UsageError("Cannot use --changed on the master branch.")
-
-    # Files changed between master and HEAD
-    diff_vs_master = (
-        subprocess.run(
-            ["git", "diff", "--name-only", "master...HEAD"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-        )
-        .stdout.strip()
-        .splitlines()
-    )
-
-    # Uncommitted / staged changes
-    porcelain = (
-        subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-        )
-        .stdout.strip()
-        .splitlines()
-    )
-    uncommitted = [_parse_porcelain_path(line) for line in porcelain if len(line) > 3]
-
-    return sorted(set(diff_vs_master + uncommitted))
+    # Drop deleted/renamed-away paths — pytest errors on files that no longer exist.
+    return [f for f in changed_files() if (REPO_ROOT / f).exists()]
 
 
 def _detect_all(test_files: list[str]) -> list[tuple[str, TestRunConfig]]:

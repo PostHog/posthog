@@ -1,4 +1,4 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { getReactNativeSteps as getReactNativeStepsPA } from '../product-analytics/react-native'
 import { StepDefinition } from '../steps'

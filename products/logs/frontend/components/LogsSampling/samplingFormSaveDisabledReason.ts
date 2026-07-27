@@ -1,5 +1,3 @@
-import { RuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
-
 import type { LogsSamplingFormType } from './logsSamplingFormLogic'
 
 /**
@@ -10,8 +8,8 @@ import type { LogsSamplingFormType } from './logsSamplingFormLogic'
  * and consumed directly by the scene's submit button.
  */
 export function samplingFormSaveDisabledReason(form: LogsSamplingFormType): string | null {
-    if (form.rule_type === RuleTypeEnumApi.PathDrop && form.filter_group.values.length === 0) {
-        return 'Add at least one filter to drop logs'
+    if (form.filter_group.values.length === 0) {
+        return 'Add at least one filter to match logs'
     }
     return null
 }

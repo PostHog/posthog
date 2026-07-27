@@ -4,6 +4,9 @@ import { router } from 'kea-router'
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TagSelect } from 'lib/components/TagSelect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -16,35 +19,27 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { isHogQLQuery } from '~/queries/utils'
-import { EndpointType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, EndpointType } from '~/types'
 
 import { humanizeQueryKind } from './common'
 import { EndpointFromInsightModal } from './EndpointFromInsightModal'
 import { endpointLogic } from './endpointLogic'
 import { endpointsLogic } from './endpointsLogic'
 
-interface EndpointsProps {
-    tabId: string
-}
-
-interface EndpointsTableProps {
-    tabId: string
-}
-
-export function Endpoints({ tabId }: EndpointsProps): JSX.Element {
+export function Endpoints(): JSX.Element {
     return (
         <>
-            <EndpointsTable tabId={tabId} />
+            <EndpointsTable />
         </>
     )
 }
 
-export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
-    const { setFilters, loadEndpoints } = useActions(endpointsLogic({ tabId }))
-    const { endpoints, allEndpointsLoading, filters } = useValues(endpointsLogic({ tabId }))
+export const EndpointsTable = (): JSX.Element => {
+    const { setFilters, loadEndpoints } = useActions(endpointsLogic)
+    const { endpoints, allEndpointsLoading, filters } = useValues(endpointsLogic)
 
-    const { deleteEndpoint, confirmToggleActive, setDuplicateEndpoint } = useActions(endpointLogic({ tabId }))
-    const { duplicateEndpoint } = useValues(endpointLogic({ tabId }))
+    const { deleteEndpoint, confirmToggleActive, setDuplicateEndpoint } = useActions(endpointLogic)
+    const { duplicateEndpoint } = useValues(endpointLogic)
 
     const handleDelete = (endpointName: string): void => {
         LemonDialog.open({
@@ -107,6 +102,14 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
             },
             sorter: (a: EndpointType, b: EndpointType) => a.name.localeCompare(b.name),
         },
+        {
+            title: 'Tags',
+            key: 'tags',
+            dataIndex: 'tags',
+            render: function RenderTags(tags: EndpointType['tags']) {
+                return tags && tags.length > 0 ? <ObjectTags tags={[...tags].sort()} staticOnly /> : null
+            },
+        } as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
         createdAtColumn<EndpointType>() as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
         createdByColumn<EndpointType>() as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
         atColumn<EndpointType>('last_executed_at', 'Last executed at') as LemonTableColumn<
@@ -167,30 +170,45 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                             >
                                 View usage
                             </LemonButton>
-                            <LemonButton onClick={() => handleDuplicate(record)} fullWidth>
-                                Duplicate endpoint
-                            </LemonButton>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Endpoint}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton onClick={() => handleDuplicate(record)} fullWidth>
+                                    Duplicate endpoint
+                                </LemonButton>
+                            </AccessControlAction>
 
                             <LemonDivider />
-                            <LemonButton
-                                onClick={() => {
-                                    handleEndpointActivation(record)
-                                }}
-                                fullWidth
-                                status="alt"
-                                data-attr="endpoint-activate"
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Endpoint}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                {record.is_active ? 'Deactivate endpoint' : 'Activate endpoint'}
-                            </LemonButton>
-                            <LemonButton
-                                onClick={() => {
-                                    handleDelete(record.name)
-                                }}
-                                fullWidth
-                                status="danger"
+                                <LemonButton
+                                    onClick={() => {
+                                        handleEndpointActivation(record)
+                                    }}
+                                    fullWidth
+                                    status="alt"
+                                    data-attr="endpoint-activate"
+                                >
+                                    {record.is_active ? 'Deactivate endpoint' : 'Activate endpoint'}
+                                </LemonButton>
+                            </AccessControlAction>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Endpoint}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                Delete endpoint
-                            </LemonButton>
+                                <LemonButton
+                                    onClick={() => {
+                                        handleDelete(record.name)
+                                    }}
+                                    fullWidth
+                                    status="danger"
+                                >
+                                    Delete endpoint
+                                </LemonButton>
+                            </AccessControlAction>
                         </>
                     }
                 />
@@ -200,23 +218,33 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
 
     return (
         <SceneContent>
-            <div className="flex justify-between gap-2 flex-wrap">
+            <div className="flex justify-between gap-2 flex-wrap items-center">
                 <LemonInput
                     type="search"
-                    className="w-1/3"
                     placeholder="Search for endpoints"
                     onChange={(x) => setFilters({ search: x })}
                     value={filters.search}
                 />
-                <LemonButton
-                    type="secondary"
-                    icon={<IconRefresh />}
-                    onClick={() => loadEndpoints()}
-                    loading={allEndpointsLoading}
-                    size="small"
-                >
-                    Reload
-                </LemonButton>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <span className="ml-1">
+                        <b>Tags</b>
+                    </span>
+                    <TagSelect
+                        defaultLabel="Any tags"
+                        value={filters.tags}
+                        onChange={(tags) => setFilters({ tags })}
+                        data-attr="endpoints-tag-filter"
+                    />
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconRefresh />}
+                        onClick={() => loadEndpoints()}
+                        loading={allEndpointsLoading}
+                        size="small"
+                    >
+                        Reload
+                    </LemonButton>
+                </div>
             </div>
             <LemonTable
                 data-attr="endpoints-table"
@@ -235,7 +263,6 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
             />
             {duplicateEndpoint && (
                 <EndpointFromInsightModal
-                    tabId={tabId}
                     insightQuery={duplicateEndpoint.query}
                     insightShortId={duplicateEndpoint.derived_from_insight ?? undefined}
                 />

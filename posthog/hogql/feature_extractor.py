@@ -1,7 +1,7 @@
 """Extract product-attribution features from a HogQL select query.
 
 Feeds ``add_fallback_query_tags`` so HogQL queries can be attributed to a
-product surface (LLM analytics, error tracking, web analytics, replay, …)
+product surface (AI observability, error tracking, web analytics, replay, …)
 based on what tables and event filters they reference.
 """
 

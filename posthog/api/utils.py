@@ -15,7 +15,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest
 
 import structlog
-from loginas.utils import is_impersonated_session
+from drf_spectacular.utils import empty
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
 from requests.adapters import HTTPAdapter
@@ -34,11 +34,13 @@ from posthog.exceptions import (
     UnspecifiedCompressionFallbackParsingError,
     generate_exception_response,
 )
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Entity, User
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
 
@@ -52,6 +54,33 @@ class ErrorResponseSerializer(serializers.Serializer):
 class PaginationMode(Enum):
     next = auto()
     previous = auto()
+
+
+class ServiceRequest:
+    """Minimal request-like object for DRF serializers used from a service layer.
+
+    Provides the subset of the DRF Request interface that serializers actually
+    use (request.user and friends), without DRF's authentication machinery.
+
+    ``is_system=True`` explicitly declares a system write with no acting user —
+    the approval gate skips only requests that declare this, never inferring it
+    from a merely absent user.
+
+    ``method`` must match the write's semantics: serializers branch on it (e.g.
+    create-only validation runs on "POST"), so an update shim must say "PATCH".
+    """
+
+    def __init__(self, user: Any, *, is_system: bool = False, method: str = "POST"):
+        self.user = user
+        self.is_system = is_system
+        self.method = method
+        self.successful_authenticator = None
+        self.path = "/"
+        self.data: dict = {}
+        self.GET: dict = {}
+        self.META: dict = {}
+        self.headers: dict = {}
+        self.session: dict = {}
 
 
 # This overrides a change in DRF 3.15 that alters our behavior. If the user passes an empty argument,
@@ -468,6 +497,8 @@ class PublicIPOnlyHttpAdapter(HTTPAdapter):
 
 
 def unparsed_hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
+    if hostname and has_authority_bypass_chars(hostname):
+        return False
     # if the browser url encodes the hostname, we need to decode it first
     hostname = urlparse(urllib.parse.unquote(hostname)).hostname if hostname else hostname
     return hostname_in_allowed_url_list(allowed_url_list, hostname)
@@ -524,7 +555,7 @@ def on_permitted_recording_domain(permitted_domains: list[str], request: HttpReq
 
 
 # By default, DRF spectacular uses the serializer of the view as the response format for actions. However, most actions don't return a version of the model, but something custom. This function removes the response from all actions in the documentation.
-def action(methods=None, detail=None, url_path=None, url_name=None, responses=None, **kwargs):
+def action(methods=None, detail=None, url_path=None, url_name=None, responses=None, request=empty, **kwargs):
     """
     Mark a ViewSet method as a routable action.
 
@@ -542,6 +573,8 @@ def action(methods=None, detail=None, url_path=None, url_name=None, responses=No
                      Defaults to the name of the method decorated with underscores
                      replaced with dashes.
     :param responses: Serializer or pydantic model of the response for documentation
+    :param request: Serializer/schema of the request body for documentation. Defaults to inferring
+                    from the viewset's ``serializer_class``; pass ``None`` for actions with no body.
     :param kwargs: Additional properties to set on the view.  This can be used
                    to override viewset-level *_classes settings, equivalent to
                    how the `@renderer_classes` etc. decorators work for function-
@@ -549,7 +582,7 @@ def action(methods=None, detail=None, url_path=None, url_name=None, responses=No
     """
 
     def decorator(func):
-        @extend_schema(responses=responses)
+        @extend_schema(request=request, responses=responses)
         @drf_action(
             methods=methods,
             detail=detail,
@@ -664,7 +697,7 @@ def log_activity_from_viewset(
             organization_id=viewset.organization.id,
             team_id=viewset.team.id,
             user=cast(User, viewset.request.user),
-            was_impersonated=is_impersonated_session(viewset.request),
+            was_impersonated=is_impersonated(viewset.request),
             item_id=str(instance.id),
             scope=model_class,
             activity=activity,

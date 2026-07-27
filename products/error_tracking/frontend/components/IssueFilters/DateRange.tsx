@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { dateMapping } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { dateMapping } from 'lib/utils/dateFilters'
 
 import { issueFiltersLogic } from './issueFiltersLogic'
 

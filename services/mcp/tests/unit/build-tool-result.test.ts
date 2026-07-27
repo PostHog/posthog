@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { EXEC_BUILT_PAYLOAD, markExecPayload, buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 // Simulates a `query-trends` handler return value: a UI-resource tool that
 // carries both the raw `results` object and a pre-formatted pipe-delimited table
@@ -54,7 +55,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: { series: [{ event: '$pageview', kind: 'EventsNode' }] },
-            clientName: 'claude-code',
+            suppressStructuredContentForFormattedResults: true,
             distinctId: 'test-distinct-id',
         })
 
@@ -65,40 +66,13 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
         expect(payload).not.toHaveProperty('structuredContent')
     })
 
-    it.each([
-        ['claude-code'],
-        ['Claude Code'], // whitespace variant — normalizer strips it
-        ['claude-code-cli'],
-        ['claude-code/1.2.3'],
-        ['cline'],
-        ['cline-bot'],
-        ['continue'],
-        ['codex'],
-        ['windsurf'],
-        ['zed'],
-        ['aider'],
-        ['github.copilot'],
-    ])('suppresses structuredContent for coding agent %s', (clientName) => {
+    it('keeps structuredContent when suppression is false', () => {
         const payload = buildToolResultPayload({
             handlerResult: queryTrendsHandlerResult(),
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: {},
-            clientName,
-            distinctId: 'd',
-        })
-
-        expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
-        expect(payload).not.toHaveProperty('structuredContent')
-    })
-
-    it('keeps structuredContent for Cursor (it reads text for the model, structured for UI)', () => {
-        const payload = buildToolResultPayload({
-            handlerResult: queryTrendsHandlerResult(),
-            toolMeta: queryTrendsToolMeta,
-            toolName: 'query-trends',
-            params: {},
-            clientName: 'cursor',
+            suppressStructuredContentForFormattedResults: false,
             distinctId: 'test-distinct-id',
         })
 
@@ -112,22 +86,18 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
         expect(payload.structuredContent).not.toHaveProperty(POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY)
     })
 
-    it.each([['Claude Desktop'], ['claude-desktop'], ['mcp-inspector'], [undefined]])(
-        'keeps structuredContent for non-coding client %s',
-        (clientName) => {
-            const payload = buildToolResultPayload({
-                handlerResult: queryTrendsHandlerResult(),
-                toolMeta: queryTrendsToolMeta,
-                toolName: 'query-trends',
-                params: {},
-                clientName,
-                distinctId: 'd',
-            })
+    it('keeps structuredContent when suppression is omitted', () => {
+        const payload = buildToolResultPayload({
+            handlerResult: queryTrendsHandlerResult(),
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            distinctId: 'd',
+        })
 
-            expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
-            expect(payload.structuredContent).not.toBeUndefined()
-        }
-    )
+        expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
+        expect(payload.structuredContent).not.toBeUndefined()
+    })
 
     it('keeps structuredContent when caller explicitly passes output_format=json (even on claude-code)', () => {
         const payload = buildToolResultPayload({
@@ -135,7 +105,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: { output_format: 'json' },
-            clientName: 'claude-code',
+            suppressStructuredContentForFormattedResults: true,
             distinctId: 'd',
         })
 
@@ -158,7 +128,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: {},
-            clientName: 'claude-code',
+            suppressStructuredContentForFormattedResults: true,
             distinctId: 'd',
         })
 
@@ -174,7 +144,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: {},
-            clientName: 'claude-desktop',
+            suppressStructuredContentForFormattedResults: false,
             distinctId: 'user-abc-123',
         })
 
@@ -194,7 +164,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             toolMeta: undefined,
             toolName: 'whatever',
             params: {},
-            clientName: 'cursor',
+            suppressStructuredContentForFormattedResults: false,
             distinctId: 'd',
         })
 
@@ -204,6 +174,23 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
 })
 
 describe('buildToolResultPayload — non-query use cases', () => {
+    it('preserves array handler results', () => {
+        const result = [{ id: 'template-1' }]
+        Object.defineProperty(result, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, {
+            value: 'informational result',
+            enumerable: false,
+        })
+
+        const payload = buildToolResultPayload({
+            handlerResult: result,
+            toolMeta: undefined,
+            toolName: 'templates-list',
+            params: {},
+        })
+
+        expect(payload.content).toEqual([{ type: 'text', text: 'informational result' }])
+    })
+
     it('passes string handler results through verbatim (no character-indexed expansion)', () => {
         // Regression guard for the original bug: `execute-sql` and other
         // string-returning handlers must not be object-rest-destructured.
@@ -214,7 +201,7 @@ describe('buildToolResultPayload — non-query use cases', () => {
             toolMeta: undefined,
             toolName: 'execute-sql',
             params: {},
-            clientName: 'claude-code',
+            suppressStructuredContentForFormattedResults: true,
             distinctId: undefined,
         })
 
@@ -231,7 +218,7 @@ describe('buildToolResultPayload — non-query use cases', () => {
             toolMeta: { [POSTHOG_META_KEY]: { outputFormat: 'json' } },
             toolName: 'query-llm-traces-list',
             params: {},
-            clientName: 'claude-code',
+            suppressStructuredContentForFormattedResults: true,
             distinctId: undefined,
         })
 
@@ -282,5 +269,46 @@ describe('isToolCallPayload — nominal brand', () => {
         expect(isToolCallPayload(null)).toBe(false)
         expect(isToolCallPayload('string-result')).toBe(false)
         expect(isToolCallPayload(42)).toBe(false)
+    })
+})
+
+describe('buildToolResultPayload — confirmed-action prepare results', () => {
+    const prepareResult = {
+        confirmation_hash: 'signed-token-abc',
+        confirmation_word: 'confirm',
+        action: 'create loop',
+        message: "About to create the loop 'Open PR Summary'. Reply 'confirm' to create it.",
+        next_steps: 'Surface the message above to the user.',
+    }
+
+    it('carries the prepare payload on _meta so UI apps can read the hash', () => {
+        const payload = buildToolResultPayload({
+            handlerResult: prepareResult,
+            toolMeta: undefined,
+            toolName: 'loops-create-prepare',
+            params: { name: 'Open PR Summary' },
+        })
+
+        expect(payload._meta?.[APP_DATA_META_KEY]).toMatchObject({
+            confirmation_hash: 'signed-token-abc',
+            confirmation_word: 'confirm',
+        })
+        expect(payload).not.toHaveProperty('structuredContent')
+        expect(payload.content[0]!.text).toContain('signed-token-abc')
+    })
+
+    it.each([
+        ['non-prepare object result', { results: [{ id: 1 }] }],
+        ['confirmation_hash without the confirm word', { confirmation_hash: 'abc', confirmation_word: 'yes' }],
+        ['non-string confirmation_hash', { confirmation_hash: 42, confirmation_word: 'confirm' }],
+    ])('does not attach _meta for %s', (_label, handlerResult) => {
+        const payload = buildToolResultPayload({
+            handlerResult,
+            toolMeta: undefined,
+            toolName: 'whatever',
+            params: {},
+        })
+
+        expect(payload).not.toHaveProperty('_meta')
     })
 })

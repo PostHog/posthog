@@ -1,0 +1,17 @@
+{
+    "compilerOptions": {
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "target": "ES2022",
+        "lib": ["ES2022"],
+        "noEmit": true,
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        "strict": true,
+        "skipLibCheck": true,
+        "useUnknownInCatchVariables": false,
+        "types": ["node", "vitest/globals"]
+    },
+    "include": ["src"],
+    "exclude": ["node_modules"]
+}

@@ -1,13 +1,17 @@
+import { decode } from 'he'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { DetectiveHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { IconKey } from 'lib/lemon-ui/icons'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { connectedAppsLogic, ConnectedApp } from './connectedAppsLogic'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 function sortScopesWriteFirst(scopes: string[]): string[] {
     return [...scopes].sort((a, b) => {
@@ -51,9 +55,12 @@ export function ConnectedApps(): JSX.Element {
     const { revokeApp } = useActions(connectedAppsLogic)
 
     const handleRevoke = (app: ConnectedApp): void => {
+        // Name is HTML-escaped at ingestion; decode for display (see posthog/api/oauth/client_name.py).
+        const name = decode(app.name)
+
         LemonDialog.open({
-            title: `Revoke access for ${app.name}?`,
-            description: `This will revoke all tokens and permissions granted to ${app.name}. The app will no longer be able to access your PostHog account. You can re-authorize it at any time through the application's own interface.`,
+            title: `Revoke access for ${name}?`,
+            description: `This will revoke all tokens and permissions granted to ${name}. The app will no longer be able to access your PostHog account. You can re-authorize it at any time through the application's own interface.`,
             primaryButton: {
                 children: 'Revoke',
                 status: 'danger',
@@ -79,16 +86,16 @@ export function ConnectedApps(): JSX.Element {
                                 <div className="w-8 h-8 shrink-0 rounded bg-bg-light border flex items-center justify-center p-1">
                                     <img
                                         src={app.logo_uri}
-                                        alt={`${app.name} logo`}
+                                        alt={`${decode(app.name)} logo`}
                                         className="w-full h-full object-contain"
                                     />
                                 </div>
                             ) : (
                                 <div className="w-8 h-8 shrink-0 rounded bg-border flex items-center justify-center text-sm font-bold text-muted">
-                                    {app.name.charAt(0).toUpperCase()}
+                                    {decode(app.name).charAt(0).toUpperCase()}
                                 </div>
                             )}
-                            <span className="font-medium">{app.name}</span>
+                            <span className="font-medium">{decode(app.name)}</span>
                             {app.is_first_party ? (
                                 <LemonTag type="highlight" size="small">
                                     PostHog
@@ -127,7 +134,7 @@ export function ConnectedApps(): JSX.Element {
             ]}
             emptyState={
                 <div className="flex items-center gap-4 py-4">
-                    <DetectiveHog className="w-16 h-16" />
+                    <HedgehogMagnifyingGlass className="w-16 h-16" />
                     <div>
                         <div className="flex items-center gap-2 font-semibold">
                             <IconKey className="text-xl text-secondary" />

@@ -12,14 +12,10 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-import { VisualReviewApiError, VisualReviewClient, type Run } from './client.js'
+import { VisualReviewClient, type Run } from './client.js'
 import { hashImageWithDimensions } from './hasher.js'
 import { scanDirectory } from './scanner.js'
 import { readBaselineHashes, readSnapshotsFile } from './snapshots.js'
-
-const RETRY_STATUS_CODES = new Set([429, 500, 502, 503, 504])
-const SUBMIT_API_RETRIES = 3
-const SUBMIT_API_RETRY_BASE_DELAY_MS = 1_000
 
 program.name('vr').description('Visual Review CLI for snapshot testing').version('0.0.1')
 
@@ -88,6 +84,10 @@ run.command('create')
     .option('--token <value>', 'Personal API token')
     .option('--cookie <value>', 'Session cookie')
     .option('--purpose <purpose>', 'Run purpose: review or observe', 'review')
+    .option(
+        '--partial',
+        'Mark the run as a subset. Identifiers in the baseline but not in this run are left untouched instead of flagged as removed.'
+    )
     .action(async (options: RunCreateOptions) => {
         if (!baselineExists(options.baseline)) {
             process.exit(0)
@@ -182,6 +182,7 @@ interface RunCreateOptions {
     token?: string
     cookie?: string
     purpose?: string
+    partial?: boolean
 }
 
 interface RunUploadOptions {
@@ -308,7 +309,7 @@ async function runCreate(options: RunCreateOptions): Promise<string> {
     const commit = options.commit ?? getCurrentCommit()
 
     log(
-        `Creating run: type=${options.type}, branch=${branch}, commit=${commit.slice(0, 10)}, purpose=${options.purpose ?? 'review'}`
+        `Creating run: type=${options.type}, branch=${branch}, commit=${commit.slice(0, 10)}, purpose=${options.purpose ?? 'review'}${options.partial ? ', partial' : ''}`
     )
 
     const result = await client.createRun({
@@ -320,6 +321,7 @@ async function runCreate(options: RunCreateOptions): Promise<string> {
         snapshots: [],
         purpose: options.purpose,
         metadata: collectCIMetadata(),
+        isPartial: options.partial,
     })
 
     log(`Run created: ${result.run_id}`)
@@ -510,39 +512,12 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function retrySubmitApiCall<T>(label: string, operation: () => Promise<T>): Promise<T> {
-    for (let attempt = 0; ; attempt++) {
-        try {
-            return await operation()
-        } catch (error) {
-            if (
-                !(error instanceof VisualReviewApiError) ||
-                !RETRY_STATUS_CODES.has(error.status) ||
-                attempt >= SUBMIT_API_RETRIES
-            ) {
-                throw error
-            }
-
-            const delayMs =
-                error.status === 429 && error.retryAfter
-                    ? error.retryAfter * 1000
-                    : SUBMIT_API_RETRY_BASE_DELAY_MS * 2 ** attempt
-            log(
-                `${label} returned ${error.status}, retrying in ${delayMs}ms (attempt ${attempt + 1}/${SUBMIT_API_RETRIES})`
-            )
-            await sleep(delayMs)
-        }
-    }
-}
-
-async function waitForCompletion(client: VisualReviewClient, runId: string, retryServerErrors = false): Promise<Run> {
+async function waitForCompletion(client: VisualReviewClient, runId: string): Promise<Run> {
     const maxAttempts = 120
     const intervalMs = 5000
 
     for (let i = 0; i < maxAttempts; i++) {
-        const run = retryServerErrors
-            ? await retrySubmitApiCall('Get run status', () => client.getRun(runId))
-            : await client.getRun(runId)
+        const run = await client.getRun(runId)
         if (run.status === 'completed' || run.status === 'failed') {
             return run
         }
@@ -611,23 +586,21 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         `Creating run: type=${options.type}, ${snapshots.length} snapshots, branch=${branch}, commit=${commit.slice(0, 10)}, purpose=${purpose}`
     )
 
-    const result = await retrySubmitApiCall('Create run', () =>
-        client.createRun({
-            repoId: repo,
-            runType: options.type,
-            commitSha: commit,
-            branch,
-            prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
-            purpose,
-            snapshots: snapshots.map((s) => ({
-                identifier: s.identifier,
-                content_hash: s.hash,
-                width: s.width,
-                height: s.height,
-            })),
-            metadata: collectCIMetadata(),
-        })
-    )
+    const result = await client.createRun({
+        repoId: repo,
+        runType: options.type,
+        commitSha: commit,
+        branch,
+        prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
+        purpose,
+        snapshots: snapshots.map((s) => ({
+            identifier: s.identifier,
+            content_hash: s.hash,
+            width: s.width,
+            height: s.height,
+        })),
+        metadata: collectCIMetadata(),
+    })
 
     const runId = result.run_id
     log(
@@ -664,12 +637,12 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         }
     }
 
-    let run = await retrySubmitApiCall('Complete run', () => client.completeRun(runId))
+    let run = await client.completeRun(runId)
     log(`[run:${runId}] Status: ${run.status}`)
 
     if (run.status !== 'completed' && run.status !== 'failed') {
         log(`[run:${runId}] Waiting for diff processing...`)
-        run = await waitForCompletion(client, runId, true)
+        run = await waitForCompletion(client, runId)
     }
 
     const s = run.summary
@@ -679,7 +652,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
 
     if (options.autoApprove) {
         log(`[run:${runId}] Auto-approving all changes...`)
-        const approveResult = await retrySubmitApiCall('Auto-approve run', () => client.autoApproveRun(runId))
+        const approveResult = await client.autoApproveRun(runId)
         const baselinePath = resolve(options.baseline)
         writeFileSync(baselinePath, approveResult.baseline_content, 'utf-8')
         log(`[run:${runId}] Baseline written to ${baselinePath}`)

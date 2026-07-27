@@ -1,4 +1,4 @@
-import { NodeType, serializedNodeWithId } from '@posthog/rrweb-types'
+import { NodeType, serializedNodeWithId } from 'posthog-js/rrweb-types'
 
 import { CHROME_EXTENSION_DENY_LIST, stripChromeExtensionDataFromNode } from './chrome-extension-stripping'
 
@@ -20,6 +20,19 @@ describe('stripChromeExtensionDataFromNode', () => {
         const matched = new Set<string>()
         expect(() => stripChromeExtensionDataFromNode(node, needles, matched)).not.toThrow()
         expect(matched.size).toBe(0)
+    })
+
+    it.each([
+        ['undefined', undefined],
+        ['null', null],
+        ['a string (undecoded full snapshot data.node)', 'not-a-node'],
+    ])('returns false without throwing when node is %s', (_label, node) => {
+        const matched = new Set<string>()
+        let stripped: boolean | undefined
+        expect(() => {
+            stripped = stripChromeExtensionDataFromNode(node as unknown as serializedNodeWithId, needles, matched)
+        }).not.toThrow()
+        expect(stripped).toBe(false)
     })
 
     it('does not throw or match when attributes object lacks relevant keys', () => {

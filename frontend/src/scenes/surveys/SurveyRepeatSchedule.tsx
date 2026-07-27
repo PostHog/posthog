@@ -5,11 +5,13 @@ import { useActions, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonInput, LemonSnack, Link } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { LinkToSurveyFormSection } from 'scenes/surveys/components/LinkToSurveyFormSection'
 import { SURVEY_FORM_INPUT_IDS } from 'scenes/surveys/constants'
+import { doesSurveyRepeatOnEveryEvent, getRecurringSurveyScheduleInfo } from 'scenes/surveys/utils'
 
 import { Survey, SurveySchedule, SurveyType } from '~/types'
 
@@ -84,6 +86,45 @@ function AlwaysScheduleBanner({
                 <Link onClick={handleWaitPeriodClick}>adding a wait period</Link>
                 &nbsp;or changing its frequency.
             </p>
+        </LemonBanner>
+    )
+}
+
+function SurveyAutoCloseHelper({
+    survey,
+}: {
+    survey: Pick<Survey, 'iteration_count' | 'iteration_frequency_days' | 'start_date' | 'end_date'>
+}): JSX.Element | null {
+    const scheduleInfo = getRecurringSurveyScheduleInfo(survey)
+
+    if (!scheduleInfo) {
+        return null
+    }
+
+    const { autoCloseDate, totalDurationDays } = scheduleInfo
+    const hasCloseDatePassed = autoCloseDate?.isBefore(dayjs()) ?? false
+
+    return (
+        <LemonBanner type={hasCloseDatePassed ? 'warning' : 'info'} className="text-xs">
+            {!autoCloseDate ? (
+                <span>
+                    Once launched, this survey will run for{' '}
+                    <span className="font-semibold">{pluralize(totalDurationDays, 'day')}</span> before it automatically
+                    closes.
+                </span>
+            ) : hasCloseDatePassed ? (
+                <span>
+                    This survey's schedule ended on{' '}
+                    <span className="font-semibold">{autoCloseDate.format('MMMM D, YYYY')}</span>, so it will close
+                    automatically soon.
+                </span>
+            ) : (
+                <span>
+                    This survey will automatically close on{' '}
+                    <span className="font-semibold">{autoCloseDate.format('MMMM D, YYYY')}</span>, after its last
+                    repeat.
+                </span>
+            )}
         </LemonBanner>
     )
 }
@@ -175,9 +216,10 @@ function SurveyIterationOptions(): JSX.Element {
                                         <div className="text-xs text-muted">
                                             {survey.iteration_count === 1
                                                 ? 'This survey will only be shown once (no repeats).'
-                                                : `This survey will be shown now, then ${survey.iteration_count - 1} more ${pluralize(survey.iteration_count - 1, 'time', 'times', false)} with ${pluralize(survey.iteration_frequency_days, 'day')} between each.`}
+                                                : `This survey runs for ${survey.iteration_count} iterations of ${pluralize(survey.iteration_frequency_days, 'day')} each, counted from the launch date. Each user can respond once per iteration.`}
                                         </div>
                                     )}
+                                    <SurveyAutoCloseHelper survey={survey} />
                                 </div>
                             ) : undefined,
                         },
@@ -199,13 +241,11 @@ function SurveyIterationOptions(): JSX.Element {
 export function SurveyRepeatSchedule(): JSX.Element {
     const { survey } = useValues(surveyLogic)
 
-    const canSurveyBeRepeated = Boolean(
-        survey.conditions?.events?.repeatedActivation && survey.conditions?.events?.values?.length > 0
-    )
+    const repeatsOnEveryEvent = doesSurveyRepeatOnEveryEvent(survey)
 
     return (
         <div className="mt-4">
-            {canSurveyBeRepeated ? (
+            {repeatsOnEveryEvent ? (
                 <span className="font-medium">
                     <h3 className="mb-0">How often should we show this survey to a person?</h3>
                     <IconInfo className="mr-0.5" /> This survey is displayed whenever the&nbsp;

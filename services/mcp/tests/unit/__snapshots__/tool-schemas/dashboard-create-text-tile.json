@@ -1,0 +1,79 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "body": {
+            "description": "Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.",
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+        },
+        "color": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional accent color name (e.g. 'blue', 'green', 'purple', 'black')."
+        },
+        "id": {
+            "description": "A unique integer value identifying this dashboard.",
+            "type": "number"
+        },
+        "layouts": {
+            "description": "Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1).",
+            "properties": {
+                "sm": {
+                    "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
+                    "properties": {
+                        "h": {
+                            "description": "Height in grid rows.",
+                            "type": "number"
+                        },
+                        "w": {
+                            "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                            "type": "number"
+                        },
+                        "x": {
+                            "description": "Column position in the dashboard grid (0-indexed).",
+                            "type": "number"
+                        },
+                        "y": {
+                            "description": "Row position in the dashboard grid (0-indexed).",
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                "xs": {
+                    "description": "Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
+                    "properties": {
+                        "h": {
+                            "description": "Height in grid rows.",
+                            "type": "number"
+                        },
+                        "w": {
+                            "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                            "type": "number"
+                        },
+                        "x": {
+                            "description": "Column position in the dashboard grid (0-indexed).",
+                            "type": "number"
+                        },
+                        "y": {
+                            "description": "Row position in the dashboard grid (0-indexed).",
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        }
+    },
+    "required": ["id", "body"],
+    "type": "object"
+}

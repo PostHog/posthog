@@ -13,8 +13,9 @@ import { Redis } from 'ioredis'
 //      per call; we save ~95% of EXPIRE dispatches. Stale keys live 2x
 //      longer in exchange.
 //
-// Public output (tokensBefore, tokensAfter) and stored-field semantics are
-// identical to V2; only the TTL ceiling and refresh cadence differ.
+// Public return matches V2 (tokensAfter=-1 on denial). Stored-pool on overdraft
+// differs: V3 floor-drains the available tokens and keeps the fractional remainder
+// so refill accumulates cross-batch (V2 preserved the full pre-overdraft balance).
 const LUA_TOKEN_BUCKET_V3 = `
 local key = KEYS[1]
 local now = tonumber(ARGV[1])
@@ -50,11 +51,19 @@ else
   tokensBefore = currentTokens + (timeDiffSeconds * fillRate)
 end
 
+-- On overdraft, drain floor(max(0, tokensBefore)) and keep the fractional remainder
+-- in the pool. Assumes per-input cost is an integer (≥1) — the fraction can never
+-- satisfy one input, so we let it accumulate cross-batch instead of getting wiped
+-- each call (which would starve everything under sustained overload).
 local tokensAfter
+local poolToStore
 if tokensBefore - cost >= 0 then
   tokensAfter = math.min(tokensBefore - cost, poolMax)
+  poolToStore = tokensAfter
 else
   tokensAfter = -1
+  local available = math.max(0, tokensBefore)
+  poolToStore = math.min(tokensBefore - math.floor(available), poolMax)
 end
 
 -- Don't regress ts when now < before; otherwise advance to now.
@@ -65,7 +74,7 @@ else
   tsToWrite = now
 end
 
-redis.call('hset', key, 'ts', tsToWrite, 'pool', tokensAfter)
+redis.call('hset', key, 'ts', tsToWrite, 'pool', poolToStore)
 
 -- Set TTL ceiling at (expiry * 2) on creation, then refresh when remaining
 -- TTL drops below expiry/2. PTTL returns -1 (no TTL) and -2 (missing key)

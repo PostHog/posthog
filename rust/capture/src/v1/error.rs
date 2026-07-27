@@ -6,9 +6,9 @@ use serde::Serialize;
 use thiserror::Error;
 use tracing::Level;
 
-use crate::v1::analytics::constants::{ACCEPT_ENCODING_ALL, ACCEPT_JSON, DEFAULT_RETRY_AFTER_SECS};
+use crate::v1::analytics::constants::DEFAULT_RETRY_AFTER_SECS;
 use crate::v1::constants::{CAPTURE_V1_ERROR_METRIC, CAPTURE_V1_UNKNOWN_PATH};
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ErrorResponse {
@@ -34,6 +34,10 @@ pub enum Error {
     MissingRequiredHeaders(Vec<String>),
     #[error("invalid header value: {0}")]
     InvalidHeaderValue(String),
+    #[error("invalid query parameter: {0}")]
+    InvalidQueryParam(String),
+    #[error("request is missing required query parameters: {0:?}")]
+    MissingQueryParam(Vec<String>),
     #[error("failed to decode request: {0}")]
     RequestDecodingError(String),
     #[error("failed to parse request: {0}")]
@@ -52,8 +56,6 @@ pub enum Error {
     MissingDistinctId,
     #[error("distinct_id exceeds maximum size")]
     DistinctIdTooLarge,
-    #[error("distinct_id is a known illegal value: {0}")]
-    InvalidDistinctId(String),
     #[error("event submitted without a uuid")]
     MissingEventUuid,
     #[error("event uuid is not valid: {0}")]
@@ -111,6 +113,8 @@ impl Error {
         match self {
             Self::MissingRequiredHeaders(_) => "missing_required_headers",
             Self::InvalidHeaderValue(_) => "invalid_header_value",
+            Self::InvalidQueryParam(_) => "invalid_query_param",
+            Self::MissingQueryParam(_) => "missing_query_params",
             Self::RequestDecodingError(_) => "request_decoding_error",
             Self::RequestParsingError(_) => "request_parsing_error",
             Self::EmptyBody => "empty_body",
@@ -120,7 +124,6 @@ impl Error {
             Self::EventNameTooLong => "event_name_too_long",
             Self::MissingDistinctId => "missing_distinct_id",
             Self::DistinctIdTooLarge => "distinct_id_too_large",
-            Self::InvalidDistinctId(_) => "invalid_distinct_id",
             Self::MissingEventUuid => "missing_event_uuid",
             Self::InvalidEventUuid(_) => "invalid_event_uuid",
             Self::DuplicateEventUuid(_) => "duplicate_event_uuid",
@@ -169,6 +172,8 @@ impl Error {
             // 4xx client errors: warn
             Self::MissingRequiredHeaders(_)
             | Self::InvalidHeaderValue(_)
+            | Self::InvalidQueryParam(_)
+            | Self::MissingQueryParam(_)
             | Self::RequestDecodingError(_)
             | Self::RequestParsingError(_)
             | Self::EmptyBody
@@ -178,7 +183,6 @@ impl Error {
             | Self::EventNameTooLong
             | Self::MissingDistinctId
             | Self::DistinctIdTooLarge
-            | Self::InvalidDistinctId(_)
             | Self::MissingEventUuid
             | Self::InvalidEventUuid(_)
             | Self::DuplicateEventUuid(_)
@@ -210,10 +214,8 @@ impl Error {
         }
     }
 
-    pub(crate) fn stat_error(&self, ctx: Option<&Context>) {
-        let path = ctx
-            .map(|c| c.path.clone())
-            .unwrap_or_else(|| CAPTURE_V1_UNKNOWN_PATH.to_owned());
+    pub(crate) fn stat_error(&self, ctx: Option<&RequestContext>) {
+        let path = ctx.map(|c| c.path).unwrap_or(CAPTURE_V1_UNKNOWN_PATH);
         let status = self.status_code().as_str().to_owned();
         counter!(
             CAPTURE_V1_ERROR_METRIC,
@@ -229,6 +231,8 @@ impl Error {
         match self {
             Self::MissingRequiredHeaders(_)
             | Self::InvalidHeaderValue(_)
+            | Self::InvalidQueryParam(_)
+            | Self::MissingQueryParam(_)
             | Self::RequestDecodingError(_)
             | Self::RequestParsingError(_)
             | Self::EmptyBody
@@ -238,7 +242,6 @@ impl Error {
             | Self::EventNameTooLong
             | Self::MissingDistinctId
             | Self::DistinctIdTooLarge
-            | Self::InvalidDistinctId(_)
             | Self::MissingEventUuid
             | Self::InvalidEventUuid(_)
             | Self::DuplicateEventUuid(_)
@@ -268,8 +271,6 @@ impl Error {
 
     pub fn response_headers(&self) -> HeaderMap {
         let mut headers = HeaderMap::new();
-        headers.insert(header::ACCEPT, ACCEPT_JSON);
-        headers.insert(header::ACCEPT_ENCODING, ACCEPT_ENCODING_ALL);
 
         // 402 (BillingLimitExceeded) is intentionally non-retryable per RFC, so no Retry-After.
         if matches!(
@@ -287,7 +288,7 @@ impl Error {
     }
 }
 
-/// Emits a `tracing::event!` at the given level with all `v1::Context`
+/// Emits a `tracing::event!` at the given level with all `RequestContext`
 /// fields expanded as structured log tags.
 ///
 /// Usage:
@@ -310,18 +311,18 @@ macro_rules! ctx_log {
             content_encoding = ?ctx.content_encoding,
             client_ip = %ctx.client_ip,
             method = %ctx.method,
-            query = ?ctx.query,
+            query = ?ctx.raw_query,
             path = %ctx.path,
             $($rest)+
         )
     }};
 }
 
-/// Logs at the error's `log_level()` with all `v1::Context` fields,
+/// Logs at the error's `log_level()` with all `RequestContext` fields,
 /// then bumps the error metric counter via `stat_error()`.
 ///
-/// Always requires a `&Context`. For the pre-Context header-error path,
-/// inline the tracing call directly.
+/// Always requires a context that derefs to `&RequestContext`. For the
+/// pre-context header-error path, inline the tracing call directly.
 ///
 /// Usage:
 ///   `log_stat_error!(err, &context)`
@@ -452,6 +453,8 @@ mod tests {
     #[case::empty_batch(Error::EmptyBatch)]
     #[case::payload_too_large(Error::PayloadTooLarge("big".into()))]
     #[case::unsupported_content_type(Error::UnsupportedContentType("text/plain".into()))]
+    #[case::invalid_query_param(Error::InvalidQueryParam("bad param".into()))]
+    #[case::missing_query_param(Error::MissingQueryParam(vec!["foo".into()]))]
     #[tokio::test]
     async fn non_retryable_errors_omit_retry_after(#[case] err: Error) {
         let resp = err.into_response();
@@ -460,5 +463,34 @@ mod tests {
             "Retry-After must NOT be present on non-retryable errors (status {})",
             resp.status()
         );
+    }
+
+    #[rstest]
+    #[case::invalid_query_param(
+        Error::InvalidQueryParam("invalid query string: missing field `x`".into()),
+        StatusCode::BAD_REQUEST,
+        "invalid_query_param",
+        "invalid query parameter: invalid query string: missing field `x`"
+    )]
+    #[case::missing_query_param(
+        Error::MissingQueryParam(vec!["foo".into(), "bar".into()]),
+        StatusCode::BAD_REQUEST,
+        "missing_query_params",
+        "request is missing required query parameters: [\"foo\", \"bar\"]"
+    )]
+    #[tokio::test]
+    async fn query_param_errors_status_tag_and_description(
+        #[case] err: Error,
+        #[case] expected_status: StatusCode,
+        #[case] expected_tag: &str,
+        #[case] expected_description: &str,
+    ) {
+        assert_eq!(err.status_code(), expected_status);
+        assert_eq!(err.tag(), expected_tag);
+        let resp = err.into_response();
+        assert_eq!(resp.status(), expected_status);
+        let body = response_body(resp).await;
+        assert_eq!(body["error"], expected_tag);
+        assert_eq!(body["error_description"], expected_description);
     }
 }

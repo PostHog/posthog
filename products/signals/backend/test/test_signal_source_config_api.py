@@ -304,23 +304,19 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "recording_filters must be a JSON object" in str(response.json())
 
-    def test_update_source_type_is_not_writable(self):
+    def test_update_source_keys_are_immutable(self):
         config = SignalSourceConfig.objects.create(
             team=self.team,
             source_product="session_replay",
             source_type="session_analysis_cluster",
             created_by=self.user,
         )
-        response = self.client.patch(
-            self._url(str(config.id)),
-            data={"source_type": "nonexistent_type"},
-            format="json",
-        )
-        # source_type is not read_only in serializer, so this may succeed
-        # but the value is validated
+        for field, value in (("source_type", "issue_created"), ("source_product", "error_tracking")):
+            response = self.client.patch(self._url(str(config.id)), data={field: value}, format="json")
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         config.refresh_from_db()
-        # Should either be rejected or keep original value
-        assert config.source_type == "session_analysis_cluster" or response.status_code == status.HTTP_400_BAD_REQUEST
+        assert config.source_product == "session_replay"
+        assert config.source_type == "session_analysis_cluster"
 
     def test_delete_other_teams_config_forbidden(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
@@ -370,6 +366,94 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
 
+class TestScoutSourceCanonicalization(APIBaseTest):
+    """The scout source config is a project-level singleton: the scout fleet canonicalizes child
+    environments to the parent team and the emit preflight gates on the parent team's row, so the
+    inbox toggle must read and write that same canonical row from any environment in the project."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        # A second environment within the same project, parented to the default team.
+        self.child_team = Team.objects.create(
+            organization=self.organization, project=self.project, parent_team=self.team, name="Child env"
+        )
+
+    def _child_url(self, config_id: str | None = None) -> str:
+        base = f"/api/projects/{self.child_team.id}/signals/source_configs/"
+        return f"{base}{config_id}/" if config_id else base
+
+    def test_create_from_child_env_writes_canonical_team(self):
+        response = self.client.post(
+            self._child_url(),
+            data={"source_product": "signals_scout", "source_type": "cross_source_issue", "enabled": True},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        config = SignalSourceConfig.objects.get(id=response.json()["id"])
+        # Written to the parent team, so the emit preflight (which canonicalizes) finds it.
+        assert config.team_id == self.team.id
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "signals_scout", "cross_source_issue") is True
+
+    def test_child_env_lists_canonical_scout_row(self):
+        config = SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="signals_scout",
+            source_type="cross_source_issue",
+            enabled=True,
+        )
+        results = self.client.get(self._child_url()).json()["results"]
+        assert [r["id"] for r in results] == [str(config.id)]
+
+    def test_child_env_updates_canonical_scout_row(self):
+        config = SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="signals_scout",
+            source_type="cross_source_issue",
+            enabled=True,
+        )
+        response = self.client.patch(self._child_url(str(config.id)), data={"enabled": False}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.enabled is False
+
+    def test_child_env_cannot_retag_config_into_scout_source(self):
+        # A child-environment row retagged to the scout source would otherwise stay on the child
+        # team, hidden by the read filter while the emit gate checks the parent — a hidden, broken
+        # scout config. Source keys are immutable on update, so the retag is rejected outright.
+        config = SignalSourceConfig.objects.create(
+            team=self.child_team,
+            source_product="session_replay",
+            source_type="session_analysis_cluster",
+            enabled=True,
+        )
+        response = self.client.patch(
+            self._child_url(str(config.id)),
+            data={"source_product": "signals_scout", "source_type": "cross_source_issue"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        config.refresh_from_db()
+        assert config.team_id == self.child_team.id
+        assert config.source_product == "session_replay"
+        assert config.source_type == "session_analysis_cluster"
+        # No stranded scout row exists on either team.
+        assert not SignalSourceConfig.objects.filter(
+            team_id__in=[self.team.id, self.child_team.id],
+            source_product="signals_scout",
+            source_type="cross_source_issue",
+        ).exists()
+
+    def test_non_scout_source_stays_environment_scoped(self):
+        # A parent-team session-analysis row must not leak into the child environment's list.
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="session_replay",
+            source_type="session_analysis_cluster",
+            enabled=True,
+        )
+        assert self.client.get(self._child_url()).json()["results"] == []
+
+
 class TestIsSourceEnabledGating(APIBaseTest):
     """Source-level gating quirks: session_problem routes through the session_analysis_cluster
     config rather than requiring its own SignalSourceConfig row."""
@@ -396,3 +480,47 @@ class TestIsSourceEnabledGating(APIBaseTest):
 
     def test_pganalyze_disabled_when_no_config(self):
         assert SignalSourceConfig.is_source_enabled(self.team.id, "pganalyze", "issue") is False
+
+    def test_replay_vision_scanner_finding_is_self_authorizing(self):
+        # The scanner's `emits_signals` flag is the config — no SignalSourceConfig row exists.
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "replay_vision", "scanner_finding") is True
+
+    @parameterized.expand(
+        [
+            ("evaluation_requires_row", SignalSourceConfig.SourceType.EVALUATION, None, False),
+            ("evaluation_enabled_row", SignalSourceConfig.SourceType.EVALUATION, True, True),
+            ("evaluation_report_requires_row", SignalSourceConfig.SourceType.EVALUATION_REPORT, None, False),
+            ("evaluation_report_enabled_row", SignalSourceConfig.SourceType.EVALUATION_REPORT, True, True),
+            ("evaluation_report_disabled_row", SignalSourceConfig.SourceType.EVALUATION_REPORT, False, False),
+        ]
+    )
+    def test_llm_analytics_gating(self, _name, source_type, existing_enabled, expected):
+        # llm_analytics has no always-on bypass: both evaluation and evaluation_report signals
+        # go through the standard config-row check.
+        if existing_enabled is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
+                source_type=source_type,
+                enabled=existing_enabled,
+            )
+
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "llm_analytics", source_type) is expected
+
+    @parameterized.expand(
+        [
+            ("no_row_defaults_on", None, True),
+            ("explicit_disabled_opts_out", False, False),
+            ("explicit_enabled_on", True, True),
+        ]
+    )
+    def test_scout_source_on_by_default(self, _name, existing_enabled, expected):
+        if existing_enabled is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
+                source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
+                enabled=existing_enabled,
+            )
+
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "signals_scout", "cross_source_issue") is expected

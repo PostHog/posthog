@@ -55,6 +55,10 @@ Magnitude check (do this before classifying):
     * the triggered value is in the single digits, or
     * the triggered value is within ~50% of recent typical buckets, or
     * the framing is "highest in window" but the runner-up is close behind.
+- Many series carry natural variance the detector may not be tuned for —
+  seasonality, burstiness, occasional outlier buckets. Sense-check the
+  firing against the series' broader shape, not just the triggered point
+  and its immediate neighbours.
 - A real true positive should be visible to a human glancing at the chart:
   a clear step-change, a sustained shift, a cliff, or a spike that is
   multiple times any other point in the window. If you have to squint, it

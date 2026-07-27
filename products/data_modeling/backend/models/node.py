@@ -4,7 +4,7 @@ from django.db.models import Q
 from posthog.models import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 from .dag import DAG
 

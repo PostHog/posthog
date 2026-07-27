@@ -7,6 +7,8 @@ Language-agnostic protobuf definitions for PostHog services.
 ```text
 proto/
 ├── buf.yaml
+├── cymbal/               # Cymbal internal services
+│   └── resolution/v1/    # Exception-level symbol resolution
 ├── kafka_assigner/       # Kafka partition assignment
 └── personhog/            # Person data service
     ├── types/v1/
@@ -18,6 +20,7 @@ proto/
 
 | Proto             | Rust                                         | Python                                                   |
 | ----------------- | -------------------------------------------- | -------------------------------------------------------- |
+| `cymbal/`         | `rust/cymbal-proto` (auto via tonic)         | —                                                        |
 | `personhog/`      | `rust/personhog-proto` (auto via tonic)      | `posthog/personhog_client/proto/generated/` (checked in) |
 | `kafka_assigner/` | `rust/kafka-assigner-proto` (auto via tonic) | —                                                        |
 

@@ -1,9 +1,8 @@
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from posthog.schema import PropertyOperator
-
 from posthog.constants import PropertyOperatorType
 from posthog.models.property import GroupTypeIndex, PropertyGroup
+from posthog.schema_enums import PropertyOperator
 
 if TYPE_CHECKING:  # Avoid circular import
     from posthog.models import Property, Team
@@ -104,8 +103,8 @@ class SimplifyFilterMixin:
 
     def _simplify_property(self, team: "Team", property: "Property", **kwargs) -> "PropertyGroup":
         if property.type == "cohort":
-            from posthog.models import Cohort
-            from posthog.models.cohort.util import simplified_cohort_filter_properties
+            from products.cohorts.backend.models.cohort import Cohort
+            from products.cohorts.backend.models.util import simplified_cohort_filter_properties
 
             try:
                 cohort = Cohort.objects.get(pk=cast(str | int, property.value), team__project_id=team.project_id)

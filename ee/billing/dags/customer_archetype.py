@@ -447,6 +447,8 @@ def archetype_account_data(
             team=team,
             query_type="archetype_account_data",
             limit_context=LimitContext.SAVED_QUERY,
+            # Internal billing DAG runs without a user; bypass warehouse ACL for this trusted ETL read.
+            bypass_warehouse_access_control=True,
         )
 
         if not response.results:

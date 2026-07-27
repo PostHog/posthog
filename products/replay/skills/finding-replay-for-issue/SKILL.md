@@ -17,13 +17,15 @@ or duplicate occurrences. This skill picks the most useful one.
 
 ## Available tools
 
-| Tool                                    | Purpose                                               |
-| --------------------------------------- | ----------------------------------------------------- |
-| `posthog:query-error-tracking-issue`    | Get issue details (fingerprint, status, volume)       |
-| `posthog:execute-sql`                   | Query exception events to find linked sessions        |
-| `posthog:query-session-recordings-list` | Fetch recording metadata for candidate sessions       |
-| `posthog:session-recording-get`         | Get full details for the selected recording           |
-| `posthog:session-recording-summarize`   | AI summary of the selected recording (optional, slow) |
+| Tool                                    | Purpose                                                    |
+| --------------------------------------- | ---------------------------------------------------------- |
+| `posthog:query-error-tracking-issue`    | Get issue details (fingerprint, status, volume)            |
+| `posthog:execute-sql`                   | Query exception events to find linked sessions             |
+| `posthog:query-session-recordings-list` | Fetch recording metadata for candidate sessions            |
+| `posthog:session-recording-get`         | Get full details for the selected recording                |
+| `posthog:vision-observations-list`      | Check for an existing Replay Vision AI summary             |
+| `posthog:vision-scanners-list`          | Find summarizer scanners (`scanner_type=summarizer`)       |
+| `posthog:vision-scanners-scan-session`  | Run a summarizer scanner on the recording (optional, slow) |
 
 ## Workflow
 
@@ -116,19 +118,47 @@ Present to the user:
   derived from the events query in step 2 (the `url` and `first_seen` columns)
 - **Error frequency** — how many times the error occurred in this session
 
-### Optional: AI summary
+### Optional: AI summary via Replay Vision
 
-If the user wants a narrative summary without watching:
+If the user wants a narrative summary without watching, use Replay Vision —
+"check-then-scan", since a scanner can only observe a given session once.
 
-```json
-posthog:session-recording-summarize
-{
-  "session_ids": ["<best_recording_id>"],
-  "focus_area": "<error description or type>"
-}
-```
+1. **Check for an existing summary** on the selected recording:
 
-Warn that this takes ~5 minutes for first-time summaries.
+   ```json
+   posthog:vision-observations-list
+   {
+     "session_id": "<best_recording_id>"
+   }
+   ```
+
+   If an observation has `scanner_snapshot.scanner_type` `summarizer` and
+   `status` `succeeded`, read `scanner_result.model_output` (`title`, `summary`,
+   `intent`, `outcome`, `friction_points`, `keywords`) — done.
+
+2. **Find a summarizer scanner** if none exists:
+
+   ```json
+   posthog:vision-scanners-list
+   {
+     "scanner_type": "summarizer"
+   }
+   ```
+
+   One → use it. More than one → ask the user which (show name + prompt). None →
+   offer to create one via the `creating-replay-vision-scanners` skill.
+
+3. **Scan the recording** with the chosen scanner (async, several minutes):
+
+   ```json
+   posthog:vision-scanners-scan-session
+   {
+     "id": "<scanner_id>",
+     "session_id": "<best_recording_id>"
+   }
+   ```
+
+4. **Retrieve** by polling `vision-observations-list` until `succeeded`.
 
 ## Tips
 
@@ -138,6 +168,7 @@ Warn that this takes ~5 minutes for first-time summaries.
   what's available with a note about the small sample.
 - If `$session_id` is null on many exception events, session replay may not be enabled
   for the affected users. Mention this as a possible gap.
-- The `focus_area` parameter on `session-recording-summarize` is powerful here —
-  pass the exception type or message so the summary focuses on the error context
-  rather than the entire session.
+- Replay Vision has no per-call focus parameter — a summarizer scanner's focus
+  comes from its own prompt. For error-focused summaries, prefer (or create) a
+  summarizer scanner whose prompt targets error/exception context rather than the
+  whole session.

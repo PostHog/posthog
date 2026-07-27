@@ -1,4 +1,4 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { getRubyOnRailsSteps as getRubyOnRailsStepsPA } from '../product-analytics/ruby-on-rails'
 import { StepDefinition } from '../steps'

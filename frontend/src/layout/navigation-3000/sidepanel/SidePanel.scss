@@ -9,6 +9,10 @@
             position: fixed;
             top: 0;
             right: 0;
+
+            // As a fixed overlay the panel escapes the content column and must sit above the
+            // left nav (--z-layout-panel: 761) instead of behind it at --z-main-nav (750).
+            z-index: calc(var(--z-layout-panel) + 1);
             box-shadow: 0 0 30px rgb(0 0 0 / 20%);
 
             [theme='dark'] & {

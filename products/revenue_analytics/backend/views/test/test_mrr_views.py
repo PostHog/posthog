@@ -18,21 +18,21 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.utils import uuid7
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
-    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
-    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
-)
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
-from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
+from products.revenue_analytics.backend.views.schemas.mrr import SCHEMA as MRR_SCHEMA
+from products.revenue_analytics.backend.views.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
     STRIPE_CHARGE_COLUMNS,
     STRIPE_INVOICE_COLUMNS,
     STRIPE_SUBSCRIPTION_COLUMNS,
 )
-from products.revenue_analytics.backend.views.schemas.mrr import SCHEMA as MRR_SCHEMA
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.sources import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+)
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.mrr_views.stripe_invoices"
 CHARGES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.mrr_views.stripe_charges"
@@ -50,7 +50,7 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
         self._setup_stripe_data()
 
     def _setup_stripe_data(self):
-        data_dir = Path(__file__).parent.parent.parent / "hogql_queries" / "test" / "data"
+        data_dir = Path(__file__).parent / "data"
 
         self.invoices_table, self.source, self.credential, _, self.invoices_cleanup = (
             create_data_warehouse_table_from_csv(

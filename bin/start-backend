@@ -21,6 +21,8 @@ else
     echo "🐧 Linux detected, binding to Docker bridge gateway: $HOST_BIND"
 fi
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 python ${DEBUG:+ -m debugpy --listen 127.0.0.1:5678} -m granian \
     --interface asgi \
     posthog.asgi:application \
@@ -29,6 +31,7 @@ python ${DEBUG:+ -m debugpy --listen 127.0.0.1:5678} -m granian \
     --reload-paths ./ee \
     --reload-paths ./products \
     --reload-paths ./frontend/src/products.json \
+    --reload-ignore-paths "$REPO_ROOT/products/agent_platform/services" \
     --host $HOST_BIND \
     --log-level debug \
     --workers 1

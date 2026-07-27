@@ -1,0 +1,208 @@
+import '@testing-library/jest-dom'
+
+import { cleanup, screen, waitFor } from '@testing-library/react'
+
+import { dragSelection, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+
+import { LifecycleQuery, LifecycleQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import {
+    chart,
+    getQuerySource,
+    type InsightQuery,
+    type MockResponse,
+    personsModal,
+    renderInsight,
+} from '~/test/insight-testing'
+
+let cleanupJsdom: () => void
+let cleanupRaf: () => void
+
+beforeEach(() => {
+    cleanupJsdom = setupJsdom()
+    cleanupRaf = setupSyncRaf()
+})
+
+afterEach(() => {
+    personsModal.cleanupAll()
+    cleanupRaf()
+    cleanupJsdom()
+    cleanup()
+})
+
+const LIFECYCLE_DAYS = ['2024-06-10', '2024-06-11', '2024-06-12', '2024-06-13', '2024-06-14']
+const LIFECYCLE_LABELS = ['10-Jun', '11-Jun', '12-Jun', '13-Jun', '14-Jun']
+
+const buildLifecycleSeries = (status: 'new' | 'returning' | 'resurrecting' | 'dormant', data: number[]): object => ({
+    action: { id: '$pageview', type: 'events', name: '$pageview', order: 0 },
+    label: `$pageview - ${status}`,
+    count: data.reduce((a, b) => a + b, 0),
+    aggregated_value: data.reduce((a, b) => a + b, 0),
+    data,
+    labels: LIFECYCLE_LABELS,
+    days: LIFECYCLE_DAYS,
+    status,
+})
+
+const lifecycleResponse: LifecycleQueryResponse = {
+    results: [
+        buildLifecycleSeries('new', [10, 12, 8, 14, 9]),
+        buildLifecycleSeries('returning', [5, 6, 7, 5, 6]),
+        buildLifecycleSeries('resurrecting', [2, 3, 4, 2, 3]),
+        buildLifecycleSeries('dormant', [-3, -4, -2, -5, -3]),
+    ],
+} as LifecycleQueryResponse
+
+const buildLifecycleQuery = (overrides: Partial<LifecycleQuery> = {}): LifecycleQuery => ({
+    kind: NodeKind.LifecycleQuery,
+    series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
+    ...overrides,
+})
+
+const lifecycleMocks: MockResponse[] = [
+    {
+        match: (q) => q.kind === NodeKind.LifecycleQuery,
+        response: lifecycleResponse,
+    },
+]
+
+describe('TrendsLifecycleChart', () => {
+    it('renders a stacked bar series for each lifecycle status', async () => {
+        renderInsight({
+            query: buildLifecycleQuery() as unknown as InsightQuery,
+            mocks: { additionalMockResponses: lifecycleMocks },
+        })
+
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('trend-lifecycle-graph')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+        await waitFor(
+            () => {
+                expect(screen.getByLabelText(/chart with 4 data series/i)).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+    })
+
+    it('shows the shortened lifecycle status in the tooltip rows', async () => {
+        renderInsight({
+            query: buildLifecycleQuery() as unknown as InsightQuery,
+            mocks: { additionalMockResponses: lifecycleMocks },
+        })
+
+        await screen.findByTestId('trend-lifecycle-graph')
+        const tooltip = await chart.hoverTooltip(2)
+        // Lifecycle status names appear capitalized — "New", "Returning", "Resurrecting", "Dormant".
+        expect(tooltip.row('New')).toBeTruthy()
+        expect(tooltip.row('Returning')).toBeTruthy()
+        expect(tooltip.row('Resurrecting')).toBeTruthy()
+        // Dormant data is emitted negative (-2 at this index) so it stacks below zero, but the
+        // tooltip shows the magnitude — the "Dormant" label carries the direction.
+        expect(tooltip.row('Dormant')).toBe('2')
+        // "Users" is the group type label.
+        expect(tooltip.element.textContent).toMatch(/Users/)
+    })
+
+    it('renders InsightEmptyState when every series count is zero', async () => {
+        renderInsight({
+            query: buildLifecycleQuery() as unknown as InsightQuery,
+            mocks: {
+                additionalMockResponses: [
+                    {
+                        match: (q) => q.kind === NodeKind.LifecycleQuery,
+                        response: {
+                            results: [
+                                buildLifecycleSeries('new', [0, 0, 0, 0, 0]),
+                                buildLifecycleSeries('returning', [0, 0, 0, 0, 0]),
+                                buildLifecycleSeries('resurrecting', [0, 0, 0, 0, 0]),
+                                buildLifecycleSeries('dormant', [0, 0, 0, 0, 0]),
+                            ],
+                        } as LifecycleQueryResponse,
+                    },
+                ],
+            },
+        })
+
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+    })
+
+    // Status order must match buildTrendsLifecycleSeries' sort: dormant → returning → resurrecting → new.
+    it.each([
+        {
+            name: 'renders the legend items in series order when showLegend is set',
+            showLegend: true,
+            expectedLabels: ['Dormant', 'Returning', 'Resurrecting', 'New'],
+        },
+        {
+            name: 'omits the legend when showLegend is not set',
+            showLegend: undefined,
+            expectedLabels: null,
+        },
+    ])('$name', async ({ showLegend, expectedLabels }) => {
+        renderInsight({
+            query: buildLifecycleQuery(
+                showLegend ? { lifecycleFilter: { showLegend } } : {}
+            ) as unknown as InsightQuery,
+            mocks: { additionalMockResponses: lifecycleMocks },
+        })
+
+        await screen.findByTestId('trend-lifecycle-graph')
+        if (expectedLabels) {
+            const legend = await screen.findByTestId('hog-chart-timeseries-bar-legend')
+            const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
+            expect(labels).toEqual(expectedLabels)
+        } else {
+            expect(screen.queryByTestId('hog-chart-timeseries-bar-legend')).not.toBeInTheDocument()
+        }
+    })
+
+    describe('drag-to-zoom', () => {
+        const zoomFlag = { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: true }
+
+        it('reports the dragged range as day strings to context.onDateRangeZoom', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({
+                query: buildLifecycleQuery() as unknown as InsightQuery,
+                mocks: { additionalMockResponses: lifecycleMocks },
+                context: { onDateRangeZoom },
+                featureFlags: zoomFlag,
+            })
+
+            const canvas = await screen.findByLabelText(/chart with/i)
+
+            // The chart commits its interactive scales/dimensions in a post-render effect
+            // (useChartCanvas) after the labeled canvas mounts, so a drag fired immediately
+            // can be silently dropped. Retry it (like hoverUntilTooltip) until it lands.
+            await waitFor(() => {
+                dragSelection(canvas.parentElement!, 1, 3, LIFECYCLE_LABELS.length)
+                expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-13')
+            })
+        })
+
+        it('ignores drags when the drag-to-zoom flag is off', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({
+                query: buildLifecycleQuery() as unknown as InsightQuery,
+                mocks: { additionalMockResponses: lifecycleMocks },
+                context: { onDateRangeZoom },
+                featureFlags: { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: false },
+            })
+
+            const canvas = await screen.findByLabelText(/chart with/i)
+            dragSelection(canvas.parentElement!, 1, 3, LIFECYCLE_LABELS.length)
+
+            // A regression dropping the flag gate would ship zoom to everyone.
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+            expect(getQuerySource().dateRange).toBeUndefined()
+        })
+    })
+})

@@ -2,7 +2,7 @@ from django.http import HttpRequest, JsonResponse
 
 import jwt
 
-from posthog.models.subscription import unsubscribe_using_token
+from products.exports.backend.models.subscription import unsubscribe_using_token
 
 
 def unsubscribe(request: HttpRequest):

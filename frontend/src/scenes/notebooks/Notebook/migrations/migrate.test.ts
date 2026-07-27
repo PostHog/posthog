@@ -2,6 +2,8 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { NotebookType } from 'scenes/notebooks/types'
 
 import { useMocks } from '~/mocks/jest'
+import { LATEST_VERSIONS } from '~/queries/latest-versions'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
@@ -12,9 +14,29 @@ describe('migrate()', () => {
     beforeEach(() => {
         useMocks({
             post: {
-                '/api/environments/:team_id/query/upgrade': (req) => {
-                    const data = req.body as any
-                    if (data?.query?.source?.kind === 'RetentionQuery') {
+                '/api/environments/:team_id/query/upgrade': async ({ request }) => {
+                    const data = (await request.json()) as any
+                    const kind = data?.query?.source?.kind
+                    // These fixtures have no result customizations and fully tagged series, so
+                    // the backend migrations are a no-op beyond the version bump they apply.
+                    if (
+                        kind === 'TrendsQuery' ||
+                        kind === 'StickinessQuery' ||
+                        kind === 'FunnelsQuery' ||
+                        kind === 'LifecycleQuery' ||
+                        kind === 'CalendarHeatmapQuery'
+                    ) {
+                        return [
+                            200,
+                            {
+                                query: {
+                                    ...data.query,
+                                    source: { ...data.query.source, version: LATEST_VERSIONS[kind as NodeKind] },
+                                },
+                            },
+                        ]
+                    }
+                    if (kind === 'RetentionQuery') {
                         return [
                             200,
                             {
@@ -60,6 +82,43 @@ describe('migrate()', () => {
 
     const contentToExpected: [string, JSONContent[], JSONContent[]][] = [
         ['migrates node without changes', [{ type: 'paragraph' }], [{ type: 'paragraph' }]],
+        [
+            'recovers a flattened markdown table from a literal paragraph',
+            [{ type: 'paragraph', content: [{ type: 'text', text: '| a | b | |---|---| | 1 | 2 |' }] }],
+            [
+                {
+                    type: 'table',
+                    content: [
+                        {
+                            type: 'tableRow',
+                            content: [
+                                {
+                                    type: 'tableHeader',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'a' }] }],
+                                },
+                                {
+                                    type: 'tableHeader',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'b' }] }],
+                                },
+                            ],
+                        },
+                        {
+                            type: 'tableRow',
+                            content: [
+                                {
+                                    type: 'tableCell',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: '1' }] }],
+                                },
+                                {
+                                    type: 'tableCell',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: '2' }] }],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        ],
         [
             'migrates query node with string content to object content',
             [
@@ -113,7 +172,7 @@ describe('migrate()', () => {
                                 breakdownFilter: { breakdown_type: 'event', breakdown: '$referring_domain' },
                                 trendsFilter: { display: 'ActionsBar' },
                                 compareFilter: { compare: true },
-                                version: 2,
+                                version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                             },
                         },
                         title: 'SEO trend last 90 days',
@@ -227,6 +286,7 @@ describe('migrate()', () => {
                                     funnelWindowIntervalUnit: 'day',
                                 },
                                 aggregation_group_type_index: 0,
+                                version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
                             },
                         },
                         title: 'Organisation signed up -> recording analyzed, last 6 weeks',
@@ -410,7 +470,7 @@ describe('migrate()', () => {
                                     showLegend: true,
                                 },
                                 filterTestAccounts: false,
-                                version: 2,
+                                version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                             },
                         },
                         title: 'Rollout of users on 3000',
@@ -533,7 +593,7 @@ describe('migrate()', () => {
                                 trendsFilter: { display: 'ActionsBar' },
                                 compareFilter: { compare: true, compare_to: '-4w' },
                                 filterTestAccounts: true,
-                                version: 2,
+                                version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                             },
                         },
                         title: 'SEO trend last 90 days',
@@ -855,7 +915,7 @@ describe('migrate()', () => {
                                 },
                                 compareFilter: { compare: true },
                                 filterTestAccounts: false,
-                                version: 2,
+                                version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                             },
                         },
                         title: 'Weekly Org Signups',
@@ -918,7 +978,7 @@ describe('migrate()', () => {
                                 compareFilter: {
                                     compare: true,
                                 },
-                                version: 2,
+                                version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                             },
                         },
                         title: 'Some insight',
@@ -982,7 +1042,7 @@ describe('migrate()', () => {
                                 compareFilter: {
                                     compare: true,
                                 },
-                                version: 2,
+                                version: LATEST_VERSIONS[NodeKind.StickinessQuery],
                             },
                         },
                         title: 'Some insight',

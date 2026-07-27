@@ -1,0 +1,36 @@
+rules:
+    - id: env-default-belongs-in-env-development
+      message: |
+          Static bare-default `export VAR=${VAR:-default}` lines belong in
+          `.env.development` (sourced by `bin/start`), not in startup scripts.
+
+          Why: dev env defaults were historically scattered across `bin/start`,
+          `bin/start-backend`, and `bin/start-celery`. The cleanup puts a single
+          source of truth in `.env.development` (committed) with `.env.local`
+          (gitignored) for overrides + 1Password secrets. Only computed or
+          conditional logic should remain in startup scripts.
+
+          Move the default to `.env.development` and delete the export here.
+
+          Legitimate exceptions:
+          - Values that need bash variable expansion in their default
+            (`${PGHOST:-db}`, `$PERSONS_DATABASE_URL`) — the `.env.development`
+            loader doesn't re-expand $-refs. Suppress with
+            `# nosemgrep: env-default-belongs-in-env-development -- bash variable ref`
+            on the line above.
+          - Computed/platform-conditional values (e.g., guarded by `uname`
+            checks, derived from `$REPOSITORY_ROOT`) — these don't match this
+            rule's regex anyway.
+      languages: [generic]
+      severity: ERROR
+      paths:
+          include:
+              - '/bin/start'
+              - '/bin/start-backend'
+              - '/bin/start-celery'
+              - '/bin/start-worker'
+      pattern-regex: '(?m)^\s*export\s+[A-Z_][A-Z0-9_]*=\$\{[A-Z_][A-Z0-9_]*:-[^}]+\}\s*$'
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

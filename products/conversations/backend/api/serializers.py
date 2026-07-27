@@ -7,6 +7,7 @@ from rest_framework import serializers
 
 from posthog.api.utils import on_permitted_recording_domain
 from posthog.models import Team
+from posthog.security.url_validation import has_authority_bypass_chars
 
 from products.conversations.backend.models import TicketAssignment
 from products.conversations.backend.models.constants import Status
@@ -73,7 +74,7 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
     """Serializer for incoming widget messages."""
 
     distinct_id = serializers.CharField(required=False, max_length=400, help_text="PostHog distinct_id")
-    message = serializers.CharField(required=True, max_length=5000, help_text="Message content")
+    message = serializers.CharField(required=True, max_length=10000, help_text="Message content")
     traits = serializers.DictField(required=False, default=dict, help_text="Customer traits")
     session_id = serializers.CharField(required=False, max_length=64, allow_null=True, help_text="PostHog session ID")
     session_context = serializers.DictField(
@@ -159,6 +160,9 @@ class WidgetMessagesQuerySerializer(WidgetAuthSerializer):
     limit = serializers.IntegerField(required=False, default=500, min_value=1, max_value=500)
 
 
+WIDGET_TICKETS_DEFAULT_LIMIT = 100
+
+
 class WidgetTicketsQuerySerializer(WidgetAuthSerializer):
     """Serializer for fetching tickets for a widget session."""
 
@@ -168,7 +172,7 @@ class WidgetTicketsQuerySerializer(WidgetAuthSerializer):
         allow_null=True,
         help_text="Filter by ticket status",
     )
-    limit = serializers.IntegerField(required=False, default=100, min_value=1, max_value=500)
+    limit = serializers.IntegerField(required=False, default=WIDGET_TICKETS_DEFAULT_LIMIT, min_value=1, max_value=500)
     offset = serializers.IntegerField(required=False, default=0, min_value=0)
 
 
@@ -205,6 +209,9 @@ def validate_url_domain(url: str, team: Team) -> bool:
     domains = settings.get("widget_domains") or []
 
     if not domains:
+        return False
+
+    if has_authority_bypass_chars(url):
         return False
 
     parsed = urlparse(url)
@@ -245,6 +252,10 @@ def validate_url_matches_request_origin(request, url: str) -> bool:
     """
 
     origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
+
+    if has_authority_bypass_chars(url):
+        return False
+
     parsed_url = urlparse(url)
 
     # Restrict request_url scheme — exotic schemes (javascript:, data:, file:) have

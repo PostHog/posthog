@@ -45,7 +45,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from ee.models import Conversation
+from products.posthog_ai.backend.models.assistant import Conversation
 
 
 class ArtifactRefMessage(BaseAssistantMessage):
@@ -557,8 +557,6 @@ class AssistantNodeName(StrEnum):
     HOGQL_GENERATOR_TOOLS = "hogql_generator_tools"
     SESSION_REPLAY_FILTER = "session_replay_filter"
     SESSION_REPLAY_FILTER_OPTIONS_TOOLS = "session_replay_filter_options_tools"
-    REVENUE_ANALYTICS_FILTER = "revenue_analytics_filter"
-    REVENUE_ANALYTICS_FILTER_OPTIONS_TOOLS = "revenue_analytics_filter_options_tools"
     WEB_ANALYTICS_FILTER = "web_analytics_filter"
     WEB_ANALYTICS_FILTER_OPTIONS_TOOLS = "web_analytics_filter_options_tools"
 
@@ -569,7 +567,6 @@ class AssistantGraphName(StrEnum):
     INSIGHTS = "insights_graph"
     TAXONOMY = "taxonomy_graph"
     DEEP_RESEARCH = "deep_research_graph"
-    SUPPORT = "support_graph"
 
 
 class AssistantMode(StrEnum):
@@ -615,6 +612,7 @@ class UpdateAction(BaseModel):
 class ConversationTitleAction(BaseModel):
     type: Literal["CONVERSATION_TITLE"] = "CONVERSATION_TITLE"
     title: str
+    topic: str | None = None
 
 
 AssistantActionUnion = (

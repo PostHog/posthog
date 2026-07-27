@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "rotate": {
+            "default": false,
+            "description": "Set true only when the user explicitly wants a fresh token (e.g. setting up a new machine): it rolls the caller's existing credential, invalidating their previous token. Leave false (default) to reuse the existing credential — the first call always mints one regardless.",
+            "type": "boolean"
+        }
+    },
+    "type": "object"
+}

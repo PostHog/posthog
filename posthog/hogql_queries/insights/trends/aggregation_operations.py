@@ -16,6 +16,7 @@ from posthog.hogql.database.schema.exchange_rate import convert_currency_call
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import replace_placeholders
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES
 from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
 from posthog.hogql_queries.insights.trends.utils import is_groups_math
@@ -74,11 +75,20 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
     def select_aggregation(self) -> ast.Expr:
         if self.series.math == "hogql" and self.series.math_hogql is not None:
+            tag_contains_user_hogql()
+            parsed = parse_expr(self.series.math_hogql)
+            # An outer alias on the user expression (`avg(x) as foo`) is shadowed by the
+            # `AS total` wrap added downstream. If we leave it in place, ClickHouse's
+            # new analyzer expands `ORDER BY total` into a copy of the SELECT expression
+            # with the inner alias stripped, producing two AST-different `AS total`
+            # projections and a MULTIPLE_EXPRESSIONS_FOR_ALIAS rejection.
+            if isinstance(parsed, ast.Alias):
+                parsed = parsed.expr
             # Wrap in ifNull to handle empty result sets - formulas can't handle NULL values
             return ast.Call(
                 name="ifNull",
                 args=[
-                    ast.Call(name="toFloat", args=[parse_expr(self.series.math_hogql)]),
+                    ast.Call(name="toFloat", args=[parsed]),
                     ast.Constant(value=0),
                 ],
             )

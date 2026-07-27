@@ -12,7 +12,7 @@ import { webAnalyticsLogic } from '../webAnalyticsLogic'
 
 interface HeatmapButtonProps {
     breakdownBy: WebStatsBreakdown
-    value: string
+    value: unknown
 }
 
 // Currently can only support breakdown where the value is a pathname
@@ -27,8 +27,9 @@ const VALID_BREAKDOWN_VALUES = new Set([
 export const HeatmapButton = ({ breakdownBy, value }: HeatmapButtonProps): JSX.Element => {
     const { domainFilter: webAnalyticsSelectedDomain } = useValues(webAnalyticsLogic)
 
-    // Doesn't make sense to show the button if there's no value
-    if (value === '') {
+    // Some breakdown strategies surface tuples or numbers in record[0] (e.g. Viewport),
+    // so guard before reaching string methods further down.
+    if (typeof value !== 'string' || value === '') {
         return <></>
     }
 

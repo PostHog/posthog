@@ -6,7 +6,8 @@ from posthog.cdp.templates.customerio.template_customerio import (
     template as template_customerio,
 )
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.models.plugin import PluginConfig
+
+from products.cdp.backend.models.plugin import PluginConfig
 
 from common.hogvm.python.utils import UncaughtHogVMException
 

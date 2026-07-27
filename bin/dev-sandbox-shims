@@ -1,0 +1,77 @@
+# Route manually-run dependency installs through bin/dev-sandbox.
+#
+# Sourced by the flox profile (bash/zsh), this defines uv()/pnpm() shell
+# functions that wrap dependency-mutating subcommands — the install-time moment
+# when untrusted package build/postinstall scripts execute — in the macOS
+# Seatbelt sandbox, so a poisoned lockfile can't read credentials (~/.ssh,
+# ~/.aws, ...) outside the repo. Everything else passes straight through.
+#
+# Wrapped:   uv {sync, add, lock, pip install, pip sync}
+#            pnpm {install, i, add, update, up}
+# Untouched: uv run, uv pip list, uv tool ...; pnpm dev/exec/<script> ...
+#
+# macOS-only: the uv()/pnpm() functions are defined only on Darwin (the sandbox
+# is a no-op elsewhere). Opt out with POSTHOG_DEV_SANDBOX=0. Bypass a single call
+# with `command uv ...` / `\uv ...`. Only the interactive shell is affected —
+# scripts, Makefiles, and the already-sandboxed dev stack are untouched.
+#
+# Limitation: the subcommand is detected as the first non-flag token (so the
+# common `pnpm --filter=x install` works). A global flag that takes a *separate*
+# value (`pnpm -F x install`) hides the subcommand and fails open — the install
+# runs, just unsandboxed. The `=`-joined form is the norm in this repo.
+
+# Pure decision logic — defined on every platform so it stays unit-testable on
+# Linux CI (see bin/dev-sandbox-shims-selftest). Returns 0 = sandbox, 1 = passthrough.
+_ph_sandbox_should_wrap() {
+    [ "${POSTHOG_DEV_SANDBOX:-}" = "0" ] && return 1
+    local tool="$1"
+    shift
+    # First two non-flag tokens: sub1 is the subcommand, sub2 disambiguates `uv pip ...`.
+    local sub1="" sub2="" tok
+    for tok in "$@"; do
+        case "$tok" in
+        -*) continue ;;
+        *)
+            if [ -z "$sub1" ]; then
+                sub1="$tok"
+            else
+                sub2="$tok"
+                break
+            fi
+            ;;
+        esac
+    done
+    case "$tool" in
+    uv)
+        case "$sub1" in
+        sync | add | lock) return 0 ;;
+        pip) [ "$sub2" = "install" ] || [ "$sub2" = "sync" ] && return 0 ;;
+        esac
+        ;;
+    pnpm)
+        case "$sub1" in
+        install | i | add | update | up) return 0 ;;
+        esac
+        ;;
+    esac
+    return 1
+}
+
+# The user-facing shims only make sense where the sandbox actually sandboxes.
+if [ "$(uname -s)" = "Darwin" ]; then
+    _PH_SANDBOX_PROJECT="${FLOX_ENV_PROJECT:-}"
+
+    _ph_sandbox_run() {
+        local tool="$1"
+        shift
+        if [ -n "$_PH_SANDBOX_PROJECT" ] && _ph_sandbox_should_wrap "$tool" "$@"; then
+            printf '\033[2m↪ running %s under dev sandbox (POSTHOG_DEV_SANDBOX=0 to disable)\033[0m\n' "$tool" >&2
+            "$_PH_SANDBOX_PROJECT/bin/dev-sandbox" "$(printf '%q ' "$tool" "$@")"
+        else
+            command "$tool" "$@"
+        fi
+    }
+
+    uv() { _ph_sandbox_run uv "$@"; }
+    pnpm() { _ph_sandbox_run pnpm "$@"; }
+fi

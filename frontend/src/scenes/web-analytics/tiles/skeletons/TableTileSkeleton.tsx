@@ -1,5 +1,5 @@
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
 
 export interface TableTileSkeletonProps {
     rows?: number

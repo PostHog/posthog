@@ -10,6 +10,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
@@ -22,10 +23,14 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getPrimaryPropertyForEvent, hasTaxonomyPrimaryProperty } from 'lib/utils/events'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { getPrimaryPropertyForEvent, hasTaxonomyPrimaryProperty } from 'lib/utils/primaryEventProperty'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
-import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
+import {
+    DefinitionLogicProps,
+    decodeDefinitionId,
+    definitionLogic,
+} from 'scenes/data-management/definition/definitionLogic'
 import { PropertyAccessControl } from 'scenes/data-management/definition/PropertyAccessControl'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -38,20 +43,22 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { isCoreFilter } from '~/taxonomy/helpers'
-import { ObjectMediaPreview } from '~/types'
+import { AvailableFeature, ObjectMediaPreview } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionEdit,
     logic: definitionLogic,
-    paramsToProps: ({ params: { id } }) => ({ id }),
+    paramsToProps: ({ params: { id } }) => ({ id: decodeDefinitionId(id) }),
 }
 
-export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
+export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
+    // The app renders scene components with raw route params, so decode the id like paramsToProps does
+    const props = { ...rawProps, id: decodeDefinitionId(rawProps.id) }
     const logic = definitionEditLogic(props)
     const definitionLogicInstance = definitionLogic(props)
-    const { definitionLoading, definitionMissing, isProperty } = useValues(definitionLogicInstance)
+    const { definitionLoading, definitionMissing, isProperty, singular } = useValues(definitionLogicInstance)
     const { editDefinition } = useValues(logic)
     const { saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
@@ -79,7 +86,7 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
     const mediaPreviewDragTarget = createRef<HTMLDivElement>()
 
     if (definitionMissing) {
-        return <NotFound object="event" />
+        return <NotFound object={singular} />
     }
     return (
         <Form logic={definitionEditLogic} props={props} formKey="editDefinition">
@@ -345,7 +352,12 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                             title="Access control"
                             description="Control who can see this property's values, and who can edit them from the PostHog UI."
                         >
-                            <PropertyAccessControl propertyDefinitionId={editDefinition.id} teamId={currentTeamId} />
+                            <PayGateMini feature={AvailableFeature.PROPERTY_ACCESS_CONTROL}>
+                                <PropertyAccessControl
+                                    propertyDefinitionId={editDefinition.id}
+                                    teamId={currentTeamId}
+                                />
+                            </PayGateMini>
                         </SceneSection>
                     </FlaggedFeature>
                 )}

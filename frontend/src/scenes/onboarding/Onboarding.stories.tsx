@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
+import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -14,11 +15,10 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
-import { onboardingLogic } from './onboardingLogic'
-import { availableOnboardingProducts } from './utils'
+import { onboardingLogic } from './legacy/onboardingLogic'
 
 const meta: Meta = {
-    title: 'Scenes-Other/Onboarding',
+    title: 'Scenes-Other/Onboarding/Legacy',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -130,15 +130,15 @@ export const SDKInstall: Story = {
     },
 }
 
-export const LLMAnalyticsSDKInstall: Story = {
+export const AIObservabilitySDKInstall: Story = {
     render: () => {
         useMountedLogic(onboardingLogic)
         const { setProduct } = useActions(onboardingLogic)
 
         useDelayedOnMountEffect(() => {
-            setProduct(availableOnboardingProducts[ProductKey.LLM_ANALYTICS])
+            setProduct(availableOnboardingProducts[ProductKey.AI_OBSERVABILITY])
             router.actions.push(
-                urls.onboarding({ productKey: ProductKey.LLM_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
+                urls.onboarding({ productKey: ProductKey.AI_OBSERVABILITY, stepKey: OnboardingStepKey.INSTALL })
             )
         })
 
@@ -322,12 +322,14 @@ export const BillingPlans: Story = {
             },
         })
 
-        const { setProduct } = useActions(onboardingLogic)
-
         useDelayedOnMountEffect(() => {
-            setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
             router.actions.push(
-                urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.PLANS })
+                urls.onboarding({
+                    productKey: ProductKey.PRODUCT_ANALYTICS,
+                    // Use the namespaced id so currentFlowStep resolves via exact match
+                    // (loose-match by bare stepKey races with the billing-gated flow rebuild).
+                    step: `${OnboardingStepKey.PLANS}:${ProductKey.PRODUCT_ANALYTICS}`,
+                })
             )
         })
 

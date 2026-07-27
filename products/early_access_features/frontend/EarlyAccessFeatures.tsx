@@ -3,10 +3,13 @@ import { router } from 'kea-router'
 
 import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { LemonTableColumn } from 'lib/lemon-ui/LemonTable/types'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -14,7 +17,9 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { EarlyAccessFeatureType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, EarlyAccessFeatureType } from '~/types'
+
+import { AssigneeDisplay, AssigneeResolver } from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
 
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
@@ -38,6 +43,12 @@ export function EarlyAccessFeatures(): JSX.Element {
     const { setSearchTerm } = useActions(earlyAccessFeaturesLogic)
     const shouldShowEmptyState = filteredEarlyAccessFeatures.length == 0 && !earlyAccessFeaturesLoading && !searchTerm
 
+    // Creating an early access feature requires editor access to the resource.
+    const accessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.EarlyAccessFeature,
+        AccessControlLevel.Editor
+    )
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -47,7 +58,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                     type: sceneConfigurations[Scene.EarlyAccessFeatures].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <AppShortcut
+                    <Shortcut
                         name="NewEarlyAccessFeature"
                         keybind={[keyBinds.new]}
                         intent="New early access feature"
@@ -60,10 +71,11 @@ export function EarlyAccessFeatures(): JSX.Element {
                             to={urls.earlyAccessFeature('new')}
                             tooltip="New feature"
                             data-attr="create-feature"
+                            disabledReason={accessControlDisabledReason ?? undefined}
                         >
                             New feature
                         </LemonButton>
-                    </AppShortcut>
+                    </Shortcut>
                 }
             />
 
@@ -76,6 +88,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                 docsURL="https://posthog.com/docs/feature-flags/early-access-feature-management"
                 action={() => router.actions.push(urls.earlyAccessFeature('new'))}
                 className="my-0"
+                mcpSurfaceKey="early_access_features.create"
             />
             {!shouldShowEmptyState && (
                 <>
@@ -127,6 +140,23 @@ export function EarlyAccessFeatures(): JSX.Element {
                                 },
                                 sorter: (a, b) => STAGES_IN_ORDER[a.stage] - STAGES_IN_ORDER[b.stage],
                             },
+                            {
+                                title: 'Assignee',
+                                key: 'assignee',
+                                render(_, { assignee }) {
+                                    return (
+                                        <AssigneeResolver assignee={assignee ?? null}>
+                                            {({ assignee: resolvedAssignee }) => (
+                                                <AssigneeDisplay assignee={resolvedAssignee} size="small" />
+                                            )}
+                                        </AssigneeResolver>
+                                    )
+                                },
+                            },
+                            createdAtColumn<EarlyAccessFeatureType>() as LemonTableColumn<
+                                EarlyAccessFeatureType,
+                                keyof EarlyAccessFeatureType | undefined
+                            >,
                         ]}
                         dataSource={filteredEarlyAccessFeatures}
                         emptyState={

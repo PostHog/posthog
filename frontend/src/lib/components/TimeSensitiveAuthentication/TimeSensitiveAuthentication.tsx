@@ -161,14 +161,22 @@ export function TimeSensitiveAuthenticationArea({ children }: { children: JSX.El
     useOnMountEffect(checkReauthentication)
 
     return timeSensitiveAuthenticationRequired ? (
-        <div className="flex-1 bg-primary border border-primary rounded flex flex-col items-center p-6 text-center w-full">
-            <h2>Re-authentication required</h2>
+        <div className="w-full">
+            <div className="max-w-3xl rounded border border-primary bg-primary p-8">
+                <div className="flex flex-col items-start gap-4 text-left">
+                    <div>
+                        <h2 className="text-2xl font-semibold m-0 mb-4">Re-authentication required</h2>
+                        <p className="m-0 text-base text-secondary">
+                            This settings area contains sensitive information, so we need you to re-authenticate before
+                            continuing.
+                        </p>
+                    </div>
 
-            <p>This area requires that you re-authenticate.</p>
-
-            <LemonButton type="primary" onClick={() => setDismissedReauthentication(false)}>
-                Re-authenticate
-            </LemonButton>
+                    <LemonButton type="primary" onClick={() => setDismissedReauthentication(false)}>
+                        Re-authenticate
+                    </LemonButton>
+                </div>
+            </div>
         </div>
     ) : (
         children

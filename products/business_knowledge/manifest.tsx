@@ -3,7 +3,12 @@
  *
  * Defines scenes, routes, URLs, and navigation for this product.
  */
-import { ProductManifest } from '../../frontend/src/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
+
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
+
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'BusinessKnowledge',
@@ -14,7 +19,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             activityScope: 'KnowledgeSource',
             description:
-                'Upload text, public URLs, or files your AI support agent can cite when answering customer tickets.',
+                'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
         },
     },
     routes: {
@@ -26,5 +31,17 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {},
     treeItemsNew: [],
-    treeItemsProducts: [],
+    treeItemsProducts: [
+        {
+            path: 'Business knowledge',
+            intents: [ProductKey.CONVERSATIONS],
+            category: ProductItemCategory.AI_ENGINEERING,
+            href: urls.businessKnowledge(),
+            tags: ['alpha'],
+            iconType: 'conversations',
+            iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
+            flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
+            sceneKey: 'BusinessKnowledge',
+        },
+    ],
 }

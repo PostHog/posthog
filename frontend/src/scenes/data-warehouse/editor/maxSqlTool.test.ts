@@ -1,4 +1,5 @@
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 
 import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 
@@ -52,6 +53,25 @@ describe('maxSqlTool', () => {
                 },
             },
             expectedSuggestedQueryInput: ['SELECT event FROM events WHERE {filters}', 'max_ai'],
+        },
+        {
+            name: 'applies display and chart settings from DataVisualizationNode tool output',
+            toolOutput: {
+                kind: NodeKind.DataVisualizationNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT event, count() FROM events GROUP BY event',
+                },
+                display: ChartDisplayType.ActionsBar,
+                chartSettings: { xAxisLabel: 'Event name' },
+            },
+            queryInput: 'SELECT count() FROM events',
+            expectedSourceQuery: {
+                ...sourceQuery,
+                display: ChartDisplayType.ActionsBar,
+                chartSettings: { xAxisLabel: 'Event name' },
+            },
+            expectedSuggestedQueryInput: ['SELECT event, count() FROM events GROUP BY event', 'max_ai'],
         },
         {
             name: 'clears filters from empty backend filters payload',

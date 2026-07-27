@@ -56,6 +56,13 @@ const EARLY_ACCESS_FEATURE_RESULT = [
         stage: 'alpha',
         documentation_url: '',
         created_at: '2023-04-27T10:04:37.977401Z',
+        created_by: {
+            id: 1,
+            uuid: '0187c22c-06d9-0000-34fe-000000000000',
+            distinct_id: 'abc',
+            first_name: 'Ada',
+            email: 'ada@posthog.com',
+        },
     },
     {
         id: '0187c279-bcae-0000-34f5-4f121921f005',
@@ -113,6 +120,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
         pageUrl: urls.earlyAccessFeatures(),
+        testOptions: { viewport: { width: 1300, height: 2000 } },
     },
     decorators: [
         mswDecorator({

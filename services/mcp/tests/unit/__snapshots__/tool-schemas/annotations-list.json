@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "default": 100,
+            "description": "Number of annotations to return per page (default 100).",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "search": {
+            "description": "A search term.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

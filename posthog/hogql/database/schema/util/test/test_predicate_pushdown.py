@@ -1,0 +1,264 @@
+from typing import Optional
+
+from parameterized import parameterized
+
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
+from posthog.hogql.database.models import LazyJoin
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    EventsPredicatePushdownExtractor,
+    JoinedTableReferenceFinder,
+    contains_subquery,
+    references_joined_table,
+)
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.printer import print_prepared_ast
+
+
+def make_field(chain: list[str | int], table_type: Optional[ast.TableType] = None) -> ast.Field:
+    """Create a field with optional type information."""
+    field_type = None
+    if table_type is not None and len(chain) > 0:
+        last = chain[-1]
+        field_type = ast.FieldType(name=str(last), table_type=table_type)
+    return ast.Field(chain=chain, type=field_type)
+
+
+def make_events_table_type() -> ast.TableType:
+    """Create a TableType for the events table."""
+    return ast.TableType(table=EventsTable())
+
+
+def make_lazy_join_type(field: str) -> ast.LazyJoinType:
+    """Create a mock LazyJoinType for testing."""
+    return ast.LazyJoinType(
+        table_type=make_events_table_type(),
+        field=field,
+        lazy_join=LazyJoin(from_field=["id"], join_table=EventsTable(), resolver=FOREIGN_KEY),
+    )
+
+
+def make_select_query_alias_type(alias: str) -> ast.SelectQueryAliasType:
+    """Create a SelectQueryAliasType for testing."""
+    return ast.SelectQueryAliasType(alias=alias, select_query_type=None)  # type: ignore[arg-type]
+
+
+class TestJoinedTableReferenceFinder:
+    @parameterized.expand(
+        [
+            # (test_name, field_chain, joined_aliases, expected_found)
+            ("field_in_joined_aliases", ["session", "duration"], {"session"}, True),
+            ("field_not_in_joined_aliases", ["events", "timestamp"], {"session"}, False),
+            ("nested_field_in_joined_aliases", ["events__session", "id"], {"events__session"}, True),
+            ("empty_joined_aliases", ["session", "duration"], set(), False),
+            ("multiple_aliases_match_first", ["person", "id"], {"person", "session"}, True),
+            ("multiple_aliases_no_match", ["events", "id"], {"person", "session"}, False),
+        ]
+    )
+    def test_field_chain_detection(self, _name, field_chain, joined_aliases, expected_found):
+        field = make_field(field_chain)
+        finder = JoinedTableReferenceFinder(joined_aliases)
+        finder.visit(field)
+        assert finder.found_joined_reference == expected_found
+
+    def test_lazy_join_type_detected_via_type_system(self):
+        """Fields typed with LazyJoinType should be detected even if chain doesn't match."""
+        lazy_join_type = make_lazy_join_type("session")
+        field = ast.Field(
+            chain=["custom_alias", "duration"],
+            type=ast.FieldType(name="duration", table_type=lazy_join_type),
+        )
+        finder = JoinedTableReferenceFinder(set())  # Empty set - rely on type system
+        finder.visit(field)
+        assert finder.found_joined_reference is True
+
+    def test_select_query_alias_type_detected_via_type_system(self):
+        """Fields typed with SelectQueryAliasType should be detected."""
+        subquery_type = make_select_query_alias_type("subquery")
+        field = ast.Field(
+            chain=["subquery", "id"],
+            type=ast.FieldType(name="id", table_type=subquery_type),
+        )
+        finder = JoinedTableReferenceFinder(set())
+        finder.visit(field)
+        assert finder.found_joined_reference is True
+
+    def test_property_type_with_lazy_join_detected(self):
+        """PropertyType wrapping a LazyJoinType should be detected."""
+        lazy_join_type = make_lazy_join_type("person")
+        field_type = ast.FieldType(name="properties", table_type=lazy_join_type)
+        property_type = ast.PropertyType(chain=["email"], field_type=field_type)
+        field = ast.Field(chain=["person", "properties", "email"], type=property_type)
+
+        finder = JoinedTableReferenceFinder(set())
+        finder.visit(field)
+        assert finder.found_joined_reference is True
+
+    def test_table_type_not_detected_as_joined(self):
+        """Fields typed with plain TableType should not be detected as joined."""
+        table_type = make_events_table_type()
+        field = ast.Field(
+            chain=["events", "timestamp"],
+            type=ast.FieldType(name="timestamp", table_type=table_type),
+        )
+        finder = JoinedTableReferenceFinder(set())
+        finder.visit(field)
+        assert finder.found_joined_reference is False
+
+
+class TestReferencesJoinedTable:
+    @parameterized.expand(
+        [
+            # (test_name, expr_str, joined_aliases, expected)
+            ("comparison_with_joined_field", "session.duration > 0", {"session"}, True),
+            ("comparison_without_joined_field", "timestamp > '2024-01-01'", {"session"}, False),
+            ("and_with_joined_field", "timestamp > '2024-01-01' AND session.duration > 0", {"session"}, True),
+            ("nested_function_with_joined_field", "ifNull(session.duration, 0) > 0", {"session"}, True),
+        ]
+    )
+    def test_references_joined_table(self, _name, expr_str, joined_aliases, expected):
+        expr = parse_expr(expr_str)
+        assert references_joined_table(expr, joined_aliases) is expected
+
+
+def print_expr(expr: Optional[ast.Expr]) -> Optional[str]:
+    """Print an expression to HogQL string for comparison."""
+    if expr is None:
+        return None
+    context = HogQLContext(team_id=1)
+    return print_prepared_ast(node=expr, context=context, dialect="hogql")
+
+
+class TestEventsPredicatePushdownExtractor:
+    @parameterized.expand(
+        [
+            # (test_name, expr_str, joined_aliases, expected_inner, expected_outer)
+            (
+                "simple_timestamp_filter_pushable",
+                "timestamp >= '2024-01-01'",
+                set(),
+                "greaterOrEquals(timestamp, '2024-01-01')",
+                None,
+            ),
+            (
+                "joined_field_not_pushable",
+                "session.duration > 0",
+                {"session"},
+                None,
+                "greater(session.duration, 0)",
+            ),
+            (
+                "and_with_all_pushable",
+                "timestamp >= '2024-01-01' AND event = 'click'",
+                set(),
+                "and(greaterOrEquals(timestamp, '2024-01-01'), equals(event, 'click'))",
+                None,
+            ),
+            (
+                "and_splits_pushable_from_joined",
+                "timestamp >= '2024-01-01' AND session.duration > 0",
+                {"session"},
+                "greaterOrEquals(timestamp, '2024-01-01')",
+                "greater(session.duration, 0)",
+            ),
+            (
+                "or_with_joined_stays_in_outer",
+                "timestamp >= '2024-01-01' OR session.duration > 0",
+                {"session"},
+                None,
+                "or(greaterOrEquals(timestamp, '2024-01-01'), greater(session.duration, 0))",
+            ),
+            (
+                "multiple_pushable_predicates",
+                "timestamp >= '2024-01-01' AND timestamp < '2024-02-01' AND event = 'click'",
+                set(),
+                "and(greaterOrEquals(timestamp, '2024-01-01'), less(timestamp, '2024-02-01'), equals(event, 'click'))",
+                None,
+            ),
+            (
+                "nested_and_with_joined",
+                "(timestamp >= '2024-01-01' AND event = 'click') AND session.duration > 0",
+                {"session"},
+                "and(greaterOrEquals(timestamp, '2024-01-01'), equals(event, 'click'))",
+                "greater(session.duration, 0)",
+            ),
+            (
+                "function_with_joined_field_not_pushable",
+                "ifNull(session.duration, 0) > 0",
+                {"session"},
+                None,
+                "greater(ifNull(session.duration, 0), 0)",
+            ),
+        ]
+    )
+    def test_predicate_splitting(self, _name, expr_str, joined_aliases, expected_inner, expected_outer):
+        expr = parse_expr(expr_str)
+
+        extractor = EventsPredicatePushdownExtractor(joined_aliases)
+        inner_where, outer_where = extractor.get_pushdown_predicates(expr)
+
+        assert print_expr(inner_where) == expected_inner
+        assert print_expr(outer_where) == expected_outer
+
+    def test_empty_joined_aliases_relies_on_type_system(self):
+        """With empty joined_aliases, detection relies entirely on type system."""
+        # Create a field with LazyJoinType
+        lazy_join_type = make_lazy_join_type("session")
+        field = ast.Field(
+            chain=["session", "duration"],
+            type=ast.FieldType(name="duration", table_type=lazy_join_type),
+        )
+        comparison = ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=field,
+            right=ast.Constant(value=0),
+        )
+
+        extractor = EventsPredicatePushdownExtractor(set())
+        inner_where, outer_where = extractor.get_pushdown_predicates(comparison)
+
+        # Should detect via type system even with empty joined_aliases
+        assert inner_where is None
+        assert outer_where is not None
+
+    def test_in_cohort_predicate_stays_outer(self):
+        """An unresolved IN COHORT op (inCohortVia=LEFTJOIN) becomes a cohort LEFT JOIN after pushdown, so it
+        must not be pushed into the events subquery; the events-only timestamp predicate still pushes."""
+        timestamp = ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value="2024-01-01"),
+        )
+        in_cohort = ast.CompareOperation(
+            op=ast.CompareOperationOp.InCohort,
+            left=ast.Field(chain=["person_id"]),
+            right=ast.Constant(value=1),
+        )
+        extractor = EventsPredicatePushdownExtractor(set())
+        inner_where, outer_where = extractor.get_pushdown_predicates(ast.And(exprs=[timestamp, in_cohort]))
+
+        assert isinstance(inner_where, ast.CompareOperation) and inner_where.op == ast.CompareOperationOp.GtEq
+        assert isinstance(outer_where, ast.CompareOperation) and outer_where.op == ast.CompareOperationOp.InCohort
+
+    def test_in_cohort_only_predicate_not_pushable(self):
+        """A standalone IN COHORT / NOT IN COHORT predicate is non-pushable (nothing left to push)."""
+        for op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+            in_cohort = ast.CompareOperation(op=op, left=ast.Field(chain=["person_id"]), right=ast.Constant(value=1))
+            extractor = EventsPredicatePushdownExtractor(set())
+            inner_where, outer_where = extractor.get_pushdown_predicates(in_cohort)
+
+            assert inner_where is None, f"{op}: should not be pushable"
+            assert isinstance(outer_where, ast.CompareOperation) and outer_where.op == op
+
+    def test_subquery_predicate_stays_outer(self):
+        """A predicate with a nested subquery (e.g. inCohortVia=SUBQUERY's IN (SELECT ...)) is not pushable;
+        a plain events predicate alongside it still pushes."""
+        expr = parse_expr("event = 'x' AND person_id IN (SELECT person_id FROM raw_cohortpeople)")
+        extractor = EventsPredicatePushdownExtractor(set())
+        inner_where, outer_where = extractor.get_pushdown_predicates(expr)
+
+        # the bare `event = 'x'` pushes; the IN (SELECT ...) stays outer
+        assert inner_where is not None and not contains_subquery(inner_where)
+        assert outer_where is not None and contains_subquery(outer_where)

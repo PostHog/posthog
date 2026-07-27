@@ -1,9 +1,11 @@
 import * as schedule from 'node-schedule'
 
+import { coerceActionIds } from '~/common/utils/coerce-action-ids'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
+
 import { Action, Hook, RawAction, Team } from '../../types'
-import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { logger } from '../../utils/logger'
-import { PubSub } from '../../utils/pubsub'
 
 export type ActionMap = Record<Action['id'], Action>
 type ActionCache = Record<Team['id'], ActionMap>
@@ -148,6 +150,8 @@ export async function fetchAllActionsGroupedByTeam(
 
     const actions: Record<Team['id'], Record<Action['id'], Action>> = {}
     for (const rawAction of rawActions) {
+        coerceActionIds(rawAction)
+
         if (!actions[rawAction.team_id]) {
             actions[rawAction.team_id] = {}
         }
@@ -202,6 +206,8 @@ export async function fetchAction(client: PostgresRouter, id: Action['id']): Pro
     if (!rawActions.length) {
         return null
     }
+
+    coerceActionIds(rawActions[0])
 
     const hooks = await fetchActionRestHooks(client, id)
 

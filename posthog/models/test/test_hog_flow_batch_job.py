@@ -2,9 +2,9 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
-from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.user import User
 
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
 

@@ -8,6 +8,7 @@ from django.test import override_settings
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
@@ -42,6 +43,98 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
     #         response = self.client.get("/api/organizations/@current/members/")
 
     #     assert len(response.json()["results"]) == 2
+
+    def _restrict_member_list_visibility(self) -> tuple[User, User, User]:
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        project_mate = User.objects.create_and_join(self.organization, "mate@posthog.com", None)
+        outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
+        admin = User.objects.create_and_join(
+            self.organization, "admin@posthog.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        # Private project: default "none" with explicit grants for the requester and one project mate
+        AccessControl.objects.create(team=self.team, resource="project", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            organization_member=self.organization_membership,
+            access_level="member",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            organization_member=project_mate.organization_memberships.get(organization=self.organization),
+            access_level="member",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+        return project_mate, outsider, admin
+
+    def test_members_only_see_project_mates_when_org_restricts_member_list_visibility(self):
+        project_mate, outsider, admin = self._restrict_member_list_visibility()
+
+        # Restricted members see themselves and their project mates — not org admins or other members
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {self.user.email, project_mate.email}
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {
+            self.user.email,
+            project_mate.email,
+            outsider.email,
+            admin.email,
+        }
+
+    def test_stale_access_control_rules_are_ignored_without_the_entitlement(self):
+        project_mate, outsider, admin = self._restrict_member_list_visibility()
+        # Plan downgrade: the private-project rows stay in the DB but must stop being enforced
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {
+            self.user.email,
+            project_mate.email,
+            outsider.email,
+            admin.email,
+        }
+
+    def test_open_project_keeps_all_members_visible_when_restricted(self):
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        other = User.objects.create_and_join(self.organization, "1@posthog.com", None)
+        demoted = User.objects.create_and_join(self.organization, "demoted@posthog.com", None)
+        AccessControl.objects.create(team=self.team, resource="project", access_level="member")
+        # An explicit "none" override can't lower access below an open default today (max-wins);
+        # this pins the open-team visibility path — expectations flip if more-specific-wins lands.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            organization_member=demoted.organization_memberships.get(organization=self.organization),
+            access_level="none",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {
+            self.user.email,
+            other.email,
+            demoted.email,
+        }
 
     def test_cant_list_members_for_an_alien_organization(self):
         org = Organization.objects.create(name="Alien Org")
@@ -92,6 +185,27 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             groups={"instance": "http://localhost:8010", "organization": str(self.organization.id)},
         )
         mock_sync_delay.assert_called_once_with(str(self.organization.id))
+
+    def test_github_login_endpoint(self):
+        # A different member than the requester — proves the lookup is org-scoped, not self-only
+        member = User.objects.create_and_join(self.organization, "gh@x.com", None, "X")
+
+        response = self.client.get(f"/api/organizations/@current/members/{member.uuid}/github_login/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"github_login": None})
+
+        UserSocialAuth.objects.create(user=member, provider="github", uid="123", extra_data={"login": "octocat"})
+
+        response = self.client.get(f"/api/organizations/@current/members/{member.uuid}/github_login/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"github_login": "octocat"})
+
+        # `@me` resolves the requesting user via a separate branch in safely_get_object
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="456", extra_data={"login": "hedgehog"})
+
+        response = self.client.get("/api/organizations/@current/members/@me/github_login/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"github_login": "hedgehog"})
 
     def test_scoped_api_keys_endpoint(self):
         # Create a user who is a member of the organization
@@ -524,6 +638,58 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             body = response.json()
             assert body["attr"] == "search", f"expected error scoped to 'search', got {body}"
             assert "200 characters" in body["detail"], f"expected error detail to mention the cap, got {body['detail']}"
+
+    @parameterized.expand(
+        [
+            ("email with plus tag", "alice+ops@example.com"),
+            ("dotted email local part", "jane.q.public@example.com"),
+        ]
+    )
+    def test_list_organization_members_search_matches_literal_substring_below_trigram_threshold(self, _name, email):
+        User.objects.create_and_join(self.organization, email, None, first_name="Real", last_name="Person")
+        User.objects.create_and_join(
+            self.organization, "nomatch@unrelated.test", None, first_name="Bob", last_name="Jones"
+        )
+
+        response = self.client.get("/api/organizations/@current/members/", {"search": email})
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        match_type_by_email = {r["user"]["email"]: r["search_match_type"] for r in results}
+        assert match_type_by_email.get(email) == "exact", (
+            "a literal email substring must match and be labelled exact even when it scores below the trigram thresholds"
+        )
+        assert "nomatch@unrelated.test" not in match_type_by_email
+
+    def test_list_organization_members_search_hides_similar_matches_when_exact_matches_exist(self):
+        User.objects.create_and_join(
+            self.organization, "marketing@example.com", None, first_name="Marketing", last_name="Director"
+        )
+        User.objects.create_and_join(
+            self.organization, "promo@example.com", None, first_name="Marekting", last_name="Lead"
+        )
+        User.objects.create_and_join(
+            self.organization, "unrelated@example.com", None, first_name="Bob", last_name="Jones"
+        )
+
+        response = self.client.get("/api/organizations/@current/members/?search=marketing")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        assert [r["user"]["email"] for r in results] == ["marketing@example.com"], (
+            "similar matches must be hidden when exact matches exist"
+        )
+        assert results[0]["search_match_type"] == "exact"
+
+    def test_list_organization_members_search_match_type_absent_without_search(self):
+        User.objects.create_and_join(self.organization, "extra@posthog.com", None)
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        assert results
+        assert all("search_match_type" not in r for r in results)
 
     @parameterized.expand(
         [

@@ -4,23 +4,27 @@ Fields returned by `apm-trace-get` and `query-apm-spans`.
 
 ## Span fields
 
-| Field            | Type       | Description                                                                  |
-| ---------------- | ---------- | ---------------------------------------------------------------------------- |
-| `uuid`           | string     | Internal row UUID (rarely useful for analysis)                               |
-| `trace_id`       | hex string | 32-char hex ID linking every span in one trace                               |
-| `span_id`        | hex string | 16-char hex ID for this span                                                 |
-| `parent_span_id` | hex string | Parent span's hex ID. Zero-padded `"00000000…"` for root spans               |
-| `name`           | string     | Operation name (e.g. `HTTP GET /api/users`, `db.query`)                      |
-| `kind`           | int 0–5    | OpenTelemetry span kind (see enum below)                                     |
-| `service_name`   | string     | Service that emitted the span                                                |
-| `status_code`    | int 0–2    | OpenTelemetry status (see enum below). `2` is the only error indicator       |
-| `timestamp`      | ISO 8601   | Start time                                                                   |
-| `end_time`       | ISO 8601   | End time                                                                     |
-| `duration_nano`  | int        | Duration in **nanoseconds** (1s = 1_000_000_000)                             |
-| `is_root_span`   | bool       | Convenience flag for the trace entry — prefer this over comparing parent ID  |
-| `matched_filter` | bool       | Only meaningful when `query-apm-spans` prefetches children of matching spans |
+| Field            | Type       | Description                                                                                                                                                                                                                    |
+| ---------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `uuid`           | string     | Internal row UUID (rarely useful for analysis)                                                                                                                                                                                 |
+| `trace_id`       | hex string | 32-char hex ID linking every span in one trace                                                                                                                                                                                 |
+| `span_id`        | hex string | 16-char hex ID for this span                                                                                                                                                                                                   |
+| `parent_span_id` | hex string | Parent span's hex ID. Zero-padded `"00000000…"` for root spans                                                                                                                                                                 |
+| `name`           | string     | Operation name (e.g. `HTTP GET /api/users`, `db.query`)                                                                                                                                                                        |
+| `kind`           | int 0–5    | OpenTelemetry span kind (see enum below)                                                                                                                                                                                       |
+| `service_name`   | string     | Service that emitted the span                                                                                                                                                                                                  |
+| `status_code`    | int 0–2    | OpenTelemetry status (see enum below). `2` is the only error indicator                                                                                                                                                         |
+| `timestamp`      | ISO 8601   | Start time                                                                                                                                                                                                                     |
+| `end_time`       | ISO 8601   | End time                                                                                                                                                                                                                       |
+| `duration_nano`  | int        | Duration in **nanoseconds** (1s = 1_000_000_000)                                                                                                                                                                               |
+| `is_root_span`   | bool       | Convenience flag for the trace entry — prefer this over comparing parent ID                                                                                                                                                    |
+| `matched_filter` | int 0/1    | `1` if this span matched the `query-apm-spans` filter; `0` if it only shares a trace with a match (root/prefetched sibling). Always present; only meaningful from `query-apm-spans`                                            |
+| `attributes`     | map        | Span-level OTel attributes the span set, e.g. `http.method`, `db.statement`, `net.peer.name`. A string-keyed map                                                                                                               |
+| `self_time_nano` | int        | `apm-trace-get` only. Duration not covered by child spans (interval union — overlapping/parallel children counted once). Leaf: own duration. Parent: the unaccounted gap — sort by this to find where wall-clock actually went |
 
-**Not returned in the trace payload:** span attributes (`http.method`, `db.statement`, etc.) and resource attributes (k8s labels, deployment metadata). Discover them via `apm-attributes-list` and fetch values via `apm-attribute-values-list`.
+**Returned in the payload:** span-level `attributes` (above) — read them straight off the span.
+
+**Not returned in the payload:** resource attributes (k8s labels, `service.version`, deployment metadata). Discover them via `apm-attributes-list` (type `resource`) and fetch values via `apm-attribute-values-list`.
 
 ## `kind` enum (OpenTelemetry span kind)
 
@@ -47,10 +51,12 @@ UI filter chips for `status_code = OK` match `{0, 1}`, but the underlying intege
 
 ## Filter property types in `query-apm-spans`
 
-| `type` value              | Filters on                                                                             |
-| ------------------------- | -------------------------------------------------------------------------------------- |
-| `span`                    | Built-in span fields: `trace_id`, `span_id`, `duration`, `name`, `kind`, `status_code` |
-| `span_attribute`          | Span-level attributes (e.g. `http.method`, `db.statement`)                             |
-| `span_resource_attribute` | Resource-level attributes (e.g. `k8s.pod.name`, `service.version`)                     |
+| `type` value              | Filters on                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `span`                    | Built-in span fields: `trace_id`, `span_id`, `duration`, `name`, `kind`, `status_code`, `is_root_span` |
+| `span_attribute`          | Span-level attributes (e.g. `http.method`, `db.statement`)                                             |
+| `span_resource_attribute` | Resource-level attributes (e.g. `k8s.pod.name`, `service.version`)                                     |
 
 `duration` filters take values in **nanoseconds** (the column is `duration_nano`). The frontend translates `1000ms` → `1_000_000_000` before sending.
+
+`is_root_span` filters take `true`/`false` — filter `true` to isolate entry/request spans (e.g. request counts for RED metrics).

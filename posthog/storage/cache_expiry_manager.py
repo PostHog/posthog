@@ -67,7 +67,9 @@ def get_teams_with_expiring_caches(
 
         # Build query filter dynamically based on token_based setting
         filter_kwargs = {f"{query_field}__in": decoded_identifiers}
-        teams = list(Team.objects.filter(**filter_kwargs).select_related("organization", "project"))
+        query = config.narrow_team_queryset(Team.objects.filter(**filter_kwargs))
+
+        teams = list(query)
 
         logger.info(
             f"Found teams with expiring {config.log_prefix}",
@@ -137,6 +139,7 @@ def refresh_expiring_caches(
     # Push metrics to Pushgateway (Gauges work better than Counters for batch jobs)
     push_hypercache_teams_processed_metrics(
         namespace=config.namespace,
+        cache_name=config.cache_name,
         successful=successful,
         failed=failed,
     )

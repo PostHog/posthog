@@ -1,0 +1,811 @@
+import uuid
+import datetime as dt
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase
+from django.utils import timezone
+
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.models.integration import Integration
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
+
+from products.ai_observability.backend.api.evaluation_reports import EvaluationReportRunSerializer
+from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
+from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
+
+
+class TestEvaluationReportRunSerializer(SimpleTestCase):
+    def test_normalizes_legacy_metrics_without_backfilling_stored_json(self) -> None:
+        legacy_metrics = {
+            "total_runs": 10,
+            "pass_count": 7,
+            "fail_count": 2,
+            "na_count": 1,
+            "pass_rate": 77.78,
+        }
+        content = {
+            "title": "Legacy report",
+            "metrics": legacy_metrics,
+            "legacy_extension": "preserved",
+        }
+        now = timezone.now()
+        run = EvaluationReportRun(
+            report_id=uuid.uuid4(),
+            content=content,
+            metadata=legacy_metrics,
+            period_start=now - dt.timedelta(hours=1),
+            period_end=now,
+            delivery_errors=["Email delivery failed"],
+            created_at=now,
+        )
+
+        serialized = EvaluationReportRunSerializer(run).data
+
+        expected_counts = {"pass": 7, "fail": 2, "na": 1}
+        self.assertEqual(serialized["content"]["metrics"]["result_counts"], expected_counts)
+        self.assertEqual(serialized["metadata"]["result_counts"], expected_counts)
+        self.assertEqual(serialized["content"]["legacy_extension"], "preserved")
+        for legacy_field in ("pass_count", "fail_count", "na_count"):
+            self.assertNotIn(legacy_field, serialized["content"]["metrics"])
+            self.assertNotIn(legacy_field, serialized["metadata"])
+        self.assertEqual(run.content, content)
+        self.assertEqual(serialized["delivery_errors"], ["Email delivery failed"])
+
+    @parameterized.expand(
+        [
+            (
+                "missing_counts",
+                {"total_runs": 10, "pass_rate": 80.0},
+                None,
+                None,
+                80.0,
+            ),
+            (
+                "missing_all_outcomes",
+                {"total_runs": 10},
+                None,
+                None,
+                None,
+            ),
+            (
+                "explicit_zero_counts",
+                {
+                    "output_type": "boolean",
+                    "total_runs": 0,
+                    "result_counts": {"pass": 0, "fail": 0, "na": 0},
+                },
+                {"pass": 0, "fail": 0, "na": 0},
+                {"pass": 0.0, "fail": 0.0, "na": 0.0},
+                0.0,
+            ),
+            (
+                "explicit_legacy_zero_counts",
+                {
+                    "total_runs": 0,
+                    "pass_count": 0,
+                    "fail_count": 0,
+                    "na_count": 0,
+                },
+                {"pass": 0, "fail": 0, "na": 0},
+                {"pass": 0.0, "fail": 0.0, "na": 0.0},
+                0.0,
+            ),
+            (
+                "partial_rates_without_counts",
+                {
+                    "output_type": "sentiment",
+                    "total_runs": 10,
+                    "result_rates": {"positive": 60.0},
+                },
+                None,
+                {"positive": 60.0},
+                None,
+            ),
+        ]
+    )
+    def test_preserves_historical_metric_presence(
+        self,
+        _name: str,
+        stored_metrics: dict[str, object],
+        expected_counts: dict[str, int] | None,
+        expected_rates: dict[str, float] | None,
+        expected_pass_rate: float | None,
+    ) -> None:
+        now = timezone.now()
+        run = EvaluationReportRun(
+            report_id=uuid.uuid4(),
+            content={"metrics": stored_metrics},
+            metadata=stored_metrics,
+            period_start=now - dt.timedelta(hours=1),
+            period_end=now,
+            created_at=now,
+        )
+
+        serialized = EvaluationReportRunSerializer(run).data
+
+        for serialized_metrics in (serialized["content"]["metrics"], serialized["metadata"]):
+            self.assertEqual(serialized_metrics["total_runs"], stored_metrics["total_runs"])
+            if expected_counts is None:
+                self.assertNotIn("result_counts", serialized_metrics)
+            else:
+                self.assertEqual(serialized_metrics["result_counts"], expected_counts)
+
+            if expected_rates is None:
+                self.assertNotIn("result_rates", serialized_metrics)
+            else:
+                self.assertEqual(serialized_metrics["result_rates"], expected_rates)
+
+            if expected_pass_rate is None:
+                self.assertNotIn("pass_rate", serialized_metrics)
+            else:
+                self.assertEqual(serialized_metrics["pass_rate"], expected_pass_rate)
+
+
+class TestEvaluationReportApi(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Test Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+        self.base_url = f"/api/environments/{self.team.id}/llm_analytics/evaluation_reports/"
+
+    def _create_boolean_evaluation(self, name: str = "Other Eval") -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name=name,
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+
+    def _create_report(self, **kwargs) -> EvaluationReport:
+        defaults = {
+            "team": self.team,
+            "evaluation": self.evaluation,
+            "frequency": EvaluationReport.Frequency.EVERY_N,
+            "trigger_threshold": 100,
+            "delivery_targets": [{"type": "email", "value": "test@example.com"}],
+            "created_by": self.user,
+        }
+        defaults.update(kwargs)
+        return EvaluationReport.objects.create(**defaults)
+
+    def _scheduled_payload(self, **overrides) -> dict:
+        payload = {
+            "evaluation": str(self.evaluation.id),
+            "frequency": "scheduled",
+            "rrule": "FREQ=DAILY",
+            "delivery_targets": [{"type": "email", "value": "test@example.com"}],
+        }
+        payload.update(overrides)
+        return payload
+
+    def _create_sentiment_evaluation(self) -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name="Sentiment Eval",
+            evaluation_type="sentiment",
+            evaluation_config={},
+            output_type="sentiment",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+
+    def _create_unsupported_output_evaluation(self) -> Evaluation:
+        evaluation = self._create_boolean_evaluation(name="Unsupported output Eval")
+        Evaluation.objects.filter(id=evaluation.id).update(output_type="unsupported")
+        evaluation.refresh_from_db()
+        return evaluation
+
+    def _create_trace_evaluation(self) -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name="Trace Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            output_config={},
+            target=EvaluationTarget.TRACE,
+            target_config={"window_seconds": 60},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+
+    def _create_trace_sentiment_evaluation(self) -> Evaluation:
+        evaluation = self._create_sentiment_evaluation()
+        Evaluation.objects.filter(id=evaluation.id).update(
+            target=EvaluationTarget.TRACE,
+            target_config={"window_seconds": 60},
+        )
+        evaluation.refresh_from_db()
+        return evaluation
+
+    def test_unauthenticated_user_cannot_access(self):
+        self.client.logout()
+        response = self.client.get(self.base_url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_list_reports(self):
+        self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
+        self._create_report(evaluation=self._create_boolean_evaluation())
+        response = self.client.get(self.base_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 2)
+        # Default (non-MCP) list keeps the full payload the web UI relies on.
+        first = results[0]
+        for field in ("delivery_targets", "rrule", "starts_at", "timezone_name", "report_prompt_guidance"):
+            self.assertIn(field, first)
+
+    def test_list_filters_by_evaluation(self) -> None:
+        report = self._create_report()
+        self._create_report(evaluation=self._create_boolean_evaluation())
+
+        response = self.client.get(self.base_url, {"evaluation": str(self.evaluation.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], str(report.id))
+
+    def test_mcp_list_returns_slim_payload(self):
+        self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
+        response = self.client.get(self.base_url, HTTP_X_POSTHOG_CLIENT="mcp")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        first = results[0]
+        for dropped in (
+            "rrule",
+            "starts_at",
+            "timezone_name",
+            "delivery_targets",
+            "max_sample_size",
+            "report_prompt_guidance",
+            "cooldown_minutes",
+            "daily_run_cap",
+            "created_by",
+        ):
+            self.assertNotIn(dropped, first)
+        self.assertIn("id", first)
+        self.assertIn("evaluation", first)
+
+    def test_list_excludes_deleted(self):
+        self._create_report()
+        self._create_report(evaluation=self._create_boolean_evaluation(), deleted=True)
+        response = self.client.get(self.base_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+
+    def test_create_scheduled_report(self):
+        response = self.client.post(self.base_url, self._scheduled_payload(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(EvaluationReport.objects.count(), 1)
+        report = EvaluationReport.objects.first()
+        assert report is not None
+        self.assertEqual(report.team_id, self.team.id)
+        self.assertEqual(report.created_by_id, self.user.id)
+        self.assertEqual(report.rrule, "FREQ=DAILY")
+        self.assertEqual(report.timezone_name, "UTC")
+        self.assertIsNotNone(report.starts_at)
+
+    def test_create_count_triggered_report_is_default(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "frequency": "every_n",
+                "trigger_threshold": 100,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        report = EvaluationReport.objects.first()
+        assert report is not None
+        self.assertTrue(report.is_count_triggered)
+        self.assertEqual(report.rrule, "")
+        self.assertIsNone(report.starts_at)
+
+    def test_create_updates_existing_report_for_evaluation(self):
+        report = self._create_report(delivery_targets=[])
+
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "frequency": "scheduled",
+                "rrule": "FREQ=WEEKLY;BYDAY=MO,FR",
+                "delivery_targets": [{"type": "email", "value": "updated@example.com"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(EvaluationReport.objects.filter(evaluation=self.evaluation).count(), 1)
+        report.refresh_from_db()
+        self.assertEqual(report.frequency, EvaluationReport.Frequency.SCHEDULED)
+        self.assertEqual(report.rrule, "FREQ=WEEKLY;BYDAY=MO,FR")
+        self.assertEqual(report.delivery_targets, [{"type": "email", "value": "updated@example.com"}])
+
+    def test_create_accepts_sentiment_evaluation(self):
+        sentiment_evaluation = self._create_sentiment_evaluation()
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(sentiment_evaluation.id),
+                "frequency": "every_n",
+                "trigger_threshold": 100,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        report = EvaluationReport.objects.get(evaluation=sentiment_evaluation)
+        self.assertEqual(response.json()["id"], str(report.id))
+
+    def test_create_accepts_trace_evaluation(self) -> None:
+        trace_evaluation = self._create_trace_evaluation()
+
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(trace_evaluation.id),
+                "frequency": "every_n",
+                "trigger_threshold": 100,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        report = EvaluationReport.objects.get(evaluation=trace_evaluation)
+        self.assertEqual(response.json()["id"], str(report.id))
+
+    @parameterized.expand([("trace_sentiment", "trace_sentiment"), ("unsupported_output", "unsupported")])
+    def test_create_rejects_unreportable_evaluation(self, _name: str, evaluation_kind: str) -> None:
+        evaluation = (
+            self._create_trace_sentiment_evaluation()
+            if evaluation_kind == "trace_sentiment"
+            else self._create_unsupported_output_evaluation()
+        )
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(evaluation.id),
+                "frequency": "every_n",
+                "trigger_threshold": 100,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "evaluation")
+
+    def test_deliverable_includes_supported_generation_and_trace_evaluations(self):
+        boolean_report = self._create_report()
+        sentiment_report = self._create_report(evaluation=self._create_sentiment_evaluation())
+        trace_report = self._create_report(evaluation=self._create_trace_evaluation())
+        trace_sentiment_report = self._create_report(evaluation=self._create_trace_sentiment_evaluation())
+        unsupported_report = self._create_report(evaluation=self._create_unsupported_output_evaluation())
+
+        deliverable_ids = set(EvaluationReport.objects.deliverable().values_list("id", flat=True))
+
+        self.assertEqual(deliverable_ids, {boolean_report.id, sentiment_report.id, trace_report.id})
+        self.assertNotIn(trace_sentiment_report.id, deliverable_ids)
+        self.assertNotIn(unsupported_report.id, deliverable_ids)
+
+    @patch("products.ai_observability.backend.api.evaluation_reports.async_to_sync")
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_generate_accepts_trace_evaluation(
+        self,
+        mock_sync_connect: MagicMock,
+        mock_async_to_sync: MagicMock,
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        report = self._create_report(evaluation=self._create_trace_evaluation())
+
+        response = self.client.post(f"{self.base_url}{report.id}/generate/")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+
+    @parameterized.expand([("trace_sentiment", "trace_sentiment"), ("unsupported_output", "unsupported")])
+    def test_generate_rejects_unreportable_evaluation(self, _name: str, evaluation_kind: str) -> None:
+        evaluation = (
+            self._create_trace_sentiment_evaluation()
+            if evaluation_kind == "trace_sentiment"
+            else self._create_unsupported_output_evaluation()
+        )
+        report = self._create_report(evaluation=evaluation)
+        response = self.client.post(f"{self.base_url}{report.id}/generate/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_list_includes_supported_generation_and_trace_reports(self):
+        sentiment_evaluation = self._create_sentiment_evaluation()
+        sentiment_report = EvaluationReport.objects.create(
+            team=self.team,
+            evaluation=sentiment_evaluation,
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            trigger_threshold=100,
+            delivery_targets=[],
+        )
+        trace_report = self._create_report(evaluation=self._create_trace_evaluation())
+        self._create_report(evaluation=self._create_trace_sentiment_evaluation())
+        self._create_report(evaluation=self._create_unsupported_output_evaluation())
+
+        response = self.client.get(self.base_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {result["id"] for result in response.json()["results"]},
+            {str(sentiment_report.id), str(trace_report.id)},
+        )
+
+    def test_create_scheduled_sets_next_delivery_date(self):
+        response = self.client.post(self.base_url, self._scheduled_payload(rrule="FREQ=WEEKLY;BYDAY=MO"), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertIsNotNone(response.json()["next_delivery_date"])
+
+    def test_create_allows_empty_delivery_targets(self):
+        response = self.client.post(self.base_url, self._scheduled_payload(delivery_targets=[]), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_create_scheduled_requires_rrule(self):
+        response = self.client.post(self.base_url, self._scheduled_payload(rrule=""), format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "rrule")
+
+    def test_create_scheduled_defaults_starts_at(self):
+        with freeze_time("2026-01-15T16:37:42Z"):
+            response = self.client.post(self.base_url, self._scheduled_payload(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        report = EvaluationReport.objects.get()
+        self.assertEqual(report.starts_at, dt.datetime(2026, 1, 15, 16, 0, tzinfo=dt.UTC))
+        self.assertEqual(report.timezone_name, "UTC")
+
+    def test_create_scheduled_rejects_unsupported_rrule(self):
+        response = self.client.post(self.base_url, self._scheduled_payload(rrule="FREQ=HOURLY"), format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "rrule")
+
+    def test_create_rejects_invalid_rrule(self):
+        response = self.client.post(self.base_url, self._scheduled_payload(rrule="NOT_AN_RRULE"), format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "rrule")
+
+    def test_create_rejects_rrule_with_dtstart(self):
+        response = self.client.post(
+            self.base_url,
+            self._scheduled_payload(rrule="DTSTART:20260101T000000Z\nRRULE:FREQ=DAILY"),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("below_min", EvaluationReport.TRIGGER_THRESHOLD_MIN - 1),
+            ("above_max", EvaluationReport.TRIGGER_THRESHOLD_MAX + 1),
+        ]
+    )
+    def test_create_rejects_out_of_bounds_trigger_threshold(self, _name, trigger_threshold):
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "trigger_threshold": trigger_threshold,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "trigger_threshold")
+
+    @parameterized.expand(
+        [
+            ("below_min", EvaluationReport.COOLDOWN_MINUTES_MIN - 1),
+            ("above_max", EvaluationReport.COOLDOWN_MINUTES_MAX + 1),
+        ]
+    )
+    def test_create_rejects_out_of_bounds_cooldown_minutes(self, _name, cooldown_minutes):
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "frequency": "every_n",
+                "trigger_threshold": 100,
+                "cooldown_minutes": cooldown_minutes,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "cooldown_minutes")
+
+    @parameterized.expand(
+        [
+            ("below_min", EvaluationReport.DAILY_RUN_CAP_MIN - 1),
+            ("above_max", EvaluationReport.DAILY_RUN_CAP_MAX + 1),
+        ]
+    )
+    def test_create_rejects_out_of_bounds_daily_run_cap(self, _name, daily_run_cap):
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "frequency": "every_n",
+                "trigger_threshold": 100,
+                "daily_run_cap": daily_run_cap,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "daily_run_cap")
+
+    def test_create_accepts_custom_cooldown_minutes(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "frequency": "every_n",
+                "trigger_threshold": 100,
+                "cooldown_minutes": 6 * 60,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        report = EvaluationReport.objects.first()
+        assert report is not None
+        self.assertEqual(report.cooldown_minutes, 6 * 60)
+
+    def test_validate_email_target(self):
+        response = self.client.post(
+            self.base_url,
+            self._scheduled_payload(delivery_targets=[{"type": "email"}]),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_validate_slack_target(self):
+        response = self.client.post(
+            self.base_url,
+            self._scheduled_payload(delivery_targets=[{"type": "slack"}]),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_validate_slack_target_valid(self):
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK, config={})
+        response = self.client.post(
+            self.base_url,
+            self._scheduled_payload(
+                delivery_targets=[{"type": "slack", "integration_id": integration.id, "channel": "#reports"}]
+            ),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+    def test_validate_slack_target_rejects_nonexistent_integration(self):
+        response = self.client.post(
+            self.base_url,
+            self._scheduled_payload(
+                delivery_targets=[{"type": "slack", "integration_id": 999999, "channel": "#reports"}]
+            ),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "delivery_targets")
+
+    def test_validate_slack_target_rejects_cross_team_integration(self):
+        # Integration belongs to a different team; must not be usable by this team.
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        foreign_integration = Integration.objects.create(
+            team=other_team, kind=Integration.IntegrationKind.SLACK, config={}
+        )
+        response = self.client.post(
+            self.base_url,
+            self._scheduled_payload(
+                delivery_targets=[{"type": "slack", "integration_id": foreign_integration.id, "channel": "#reports"}]
+            ),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "delivery_targets")
+
+    def test_validate_slack_target_rejects_wrong_kind_integration(self):
+        # Same team but not a Slack integration — reject so a github id can't masquerade.
+        github_integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.GITHUB, config={}
+        )
+        response = self.client.post(
+            self.base_url,
+            self._scheduled_payload(
+                delivery_targets=[{"type": "slack", "integration_id": github_integration.id, "channel": "#reports"}]
+            ),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "delivery_targets")
+
+    def test_validate_invalid_target_type(self):
+        response = self.client.post(
+            self.base_url,
+            self._scheduled_payload(delivery_targets=[{"type": "webhook"}]),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_retrieve_report(self):
+        report = self._create_report()
+        response = self.client.get(f"{self.base_url}{report.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(report.id))
+
+    def test_update_report(self):
+        report = self._create_report()
+        with freeze_time("2026-01-15T16:37:42Z"):
+            response = self.client.patch(
+                f"{self.base_url}{report.id}/",
+                {"frequency": "scheduled", "rrule": "FREQ=WEEKLY;BYDAY=MO"},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        report.refresh_from_db()
+        self.assertEqual(report.frequency, "scheduled")
+        self.assertEqual(report.rrule, "FREQ=WEEKLY;BYDAY=MO")
+        self.assertEqual(report.starts_at, dt.datetime(2026, 1, 15, 16, 0, tzinfo=dt.UTC))
+        self.assertEqual(report.timezone_name, "UTC")
+
+    def test_update_allows_full_resource_echo_for_unchanged_read_only_fields(self) -> None:
+        report = self._create_report()
+        retrieve_response = self.client.get(f"{self.base_url}{report.id}/")
+        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
+        payload = retrieve_response.json()
+        payload["enabled"] = False
+
+        response = self.client.patch(f"{self.base_url}{report.id}/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        report.refresh_from_db()
+        self.assertEqual(report.evaluation_id, self.evaluation.id)
+        self.assertFalse(report.deleted)
+        self.assertFalse(report.enabled)
+
+    def test_update_rejects_evaluation_reparent(self) -> None:
+        report = self._create_report()
+        other_evaluation = self._create_boolean_evaluation()
+
+        response = self.client.patch(
+            f"{self.base_url}{report.id}/",
+            {"evaluation": str(other_evaluation.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "evaluation")
+        report.refresh_from_db()
+        self.assertEqual(report.evaluation_id, self.evaluation.id)
+
+    def test_delete_returns_405(self):
+        report = self._create_report()
+        response = self.client.delete(f"{self.base_url}{report.id}/")
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def test_rejects_soft_delete_via_patch(self):
+        report = self._create_report()
+        response = self.client.patch(f"{self.base_url}{report.id}/", {"deleted": True}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        report.refresh_from_db()
+        self.assertFalse(report.deleted)
+        self.assertEqual(EvaluationReport.objects.filter(deleted=False).count(), 1)
+
+    def test_runs_action_returns_paginated_shape(self):
+        report = self._create_report()
+        EvaluationReportRun.objects.create(
+            report=report,
+            content={},
+            metadata={},
+            period_start=timezone.now() - dt.timedelta(hours=1),
+            period_end=timezone.now(),
+        )
+        response = self.client.get(f"{self.base_url}{report.id}/runs/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertIn("results", body)
+        self.assertIn("count", body)
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(len(body["results"]), 1)
+
+    # The /runs/ and /generate/ custom @actions have to declare required_scopes explicitly;
+    # without them the default scope resolver returns None for non-CRUD action names and PAK
+    # requests are rejected with "This action does not support Personal API Key access".
+    @parameterized.expand(
+        [
+            ("read_scope_allowed", ["llm_analytics:read"], status.HTTP_200_OK),
+            ("wrong_scope_denied", ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_runs_action_pak_scope(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        report = self._create_report()
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        response = self.client.get(f"{self.base_url}{report.id}/runs/")
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand(
+        [
+            ("write_scope_allowed", ["llm_analytics:write"], status.HTTP_202_ACCEPTED),
+            ("wrong_scope_denied", ["llm_analytics:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("products.ai_observability.backend.api.evaluation_reports.async_to_sync")
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_generate_action_pak_scope(
+        self,
+        _name: str,
+        scopes: list[str],
+        expected_status: int,
+        mock_sync_connect: MagicMock,
+        mock_async_to_sync: MagicMock,
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        report = self._create_report()
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        response = self.client.post(f"{self.base_url}{report.id}/generate/")
+        self.assertEqual(response.status_code, expected_status)
+
+    @patch("products.ai_observability.backend.api.evaluation_reports.report_user_action")
+    def test_create_reports_user_action(self, mock_report: MagicMock) -> None:
+        response = self.client.post(self.base_url, self._scheduled_payload(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert mock_report.called
+        event_name = mock_report.call_args_list[0].args[1]
+        self.assertEqual(event_name, "llma evaluation report created")
+
+    @patch("products.ai_observability.backend.api.evaluation_reports.report_user_action")
+    def test_update_reports_user_action(self, mock_report: MagicMock) -> None:
+        report = self._create_report()
+        mock_report.reset_mock()
+        response = self.client.patch(f"{self.base_url}{report.id}/", {"enabled": False}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert mock_report.called
+        event_name = mock_report.call_args_list[0].args[1]
+        self.assertEqual(event_name, "llma evaluation report updated")
+
+    @patch("products.ai_observability.backend.api.evaluation_reports.report_user_action")
+    def test_rejected_soft_delete_does_not_report_user_action(self, mock_report: MagicMock) -> None:
+        report = self._create_report()
+        mock_report.reset_mock()
+        response = self.client.patch(f"{self.base_url}{report.id}/", {"deleted": True}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_report.assert_not_called()

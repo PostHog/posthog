@@ -1,30 +1,23 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
-import { hexToRGBA } from 'lib/utils'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import { MultipleChoiceBarChart } from 'scenes/surveys/components/question-visualizations/MultipleChoiceBarChart'
 import { OpenQuestionSummaryV2 } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummaryV2'
+import { computeBarColors } from 'scenes/surveys/components/question-visualizations/questionVizTransforms'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 import { VirtualizedResponseList } from 'scenes/surveys/components/question-visualizations/VirtualizedResponseList'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyIdBasedResponseKey } from 'scenes/surveys/utils'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import {
     ChoiceQuestionResponseData,
     EventPropertyFilter,
-    GraphPointPayload,
-    GraphType,
-    InsightLogicProps,
     MultipleSurveyQuestion,
     OpenQuestionResponseData,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
-
-const insightProps: InsightLogicProps = {
-    dashboardItemId: `new-survey`,
-}
 
 interface Props {
     question: MultipleSurveyQuestion
@@ -86,6 +79,7 @@ export function MultipleChoiceQuestionViz({
 }: Props): JSX.Element | null {
     const { answerFilters } = useValues(surveyLogic)
     const { setAnswerFilters } = useActions(surveyLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     const { chartData, openEndedResponses } = useMemo((): ProcessedData => {
         const predefinedResponses = responseData.filter((d) => d.isPredefined)
@@ -148,42 +142,28 @@ export function MultipleChoiceQuestionViz({
 
     const highlightedChoiceLabel = activeChoiceLabel || armedChoiceLabel
 
-    const barColors = useMemo(
-        () =>
-            chartData.map((entry, i) => {
-                const baseColor = CHART_INSIGHTS_COLORS[i % CHART_INSIGHTS_COLORS.length]
-
-                if (!highlightedChoiceLabel || entry.label === highlightedChoiceLabel) {
-                    return baseColor
-                }
-
-                return hexToRGBA(baseColor, activeChoiceLabel ? 0.22 : 0.35)
-            }),
-        [activeChoiceLabel, chartData, highlightedChoiceLabel]
-    )
+    const barColors = useMemo(() => {
+        const baseColors = chartData.map((_, i) => CHART_INSIGHTS_COLORS[i % CHART_INSIGHTS_COLORS.length])
+        return computeBarColors(
+            baseColors,
+            chartData.map((d) => d.label),
+            highlightedChoiceLabel,
+            !!activeChoiceLabel,
+            isDarkModeOn
+        )
+    }, [activeChoiceLabel, chartData, highlightedChoiceLabel, isDarkModeOn])
 
     const tooltipContextByIndex = useMemo((): TooltipContext[] => {
         const totalSelections = chartData.reduce((sum, d) => sum + d.value, 0)
-        let currentRank = 0
-        let previousValue: number | null = null
 
-        return chartData.map((entry, index) => {
-            if (entry.value !== previousValue) {
-                currentRank = index + 1
-                previousValue = entry.value
-            }
-
-            return {
-                rank: currentRank,
-                respondentPercentage: totalResponses > 0 ? ((entry.value / totalResponses) * 100).toFixed(1) : '0.0',
-                selectionPercentage: totalSelections > 0 ? ((entry.value / totalSelections) * 100).toFixed(1) : '0.0',
-            }
-        })
+        // chartData is sorted by value, so the row position is the rank — no tie-skipping,
+        // which read as the tooltip showing the "wrong" number.
+        return chartData.map((entry, index) => ({
+            rank: index + 1,
+            respondentPercentage: totalResponses > 0 ? ((entry.value / totalResponses) * 100).toFixed(1) : '0.0',
+            selectionPercentage: totalSelections > 0 ? ((entry.value / totalSelections) * 100).toFixed(1) : '0.0',
+        }))
     }, [chartData, totalResponses])
-
-    const tooltipCountLabel = (value: number): JSX.Element => {
-        return <span className="font-semibold tabular-nums">{value}</span>
-    }
 
     const upsertChoiceAnswerFilter = (choiceLabel: string | null): void => {
         if (!responseFilterKey) {
@@ -217,7 +197,7 @@ export function MultipleChoiceQuestionViz({
         setAnswerFilters(updatedFilters)
     }
 
-    const handleChoiceBarClick = ({ index }: GraphPointPayload): void => {
+    const applyChoiceClick = (index: number): void => {
         if (!responseFilterKey) {
             return
         }
@@ -251,96 +231,14 @@ export function MultipleChoiceQuestionViz({
     return (
         <div className="space-y-4">
             <div className="border rounded py-4 max-h-[600px] overflow-y-auto">
-                <BindLogic logic={insightLogic} props={insightProps}>
-                    <LineGraph
-                        inSurveyView={true}
-                        hideYAxis={true}
-                        hideXAxis={true}
-                        showValuesOnSeries={true}
-                        labelGroupType={1}
-                        data-attr="survey-multiple-choice"
-                        type={GraphType.HorizontalBar}
-                        formula="-"
-                        onClick={handleChoiceBarClick}
-                        tooltip={{
-                            showHeader: false,
-                            hideColorCol: true,
-                            groupTypeLabel: 'responses',
-                            getInspectLabel: (referenceDatum) => {
-                                const hoveredChoiceLabel = referenceDatum
-                                    ? String(
-                                          referenceDatum.breakdown_value ??
-                                              chartData[referenceDatum.dataIndex]?.label ??
-                                              ''
-                                      )
-                                    : null
-
-                                if (activeChoiceLabel && hoveredChoiceLabel === activeChoiceLabel) {
-                                    return 'Click to clear filter'
-                                }
-
-                                if (activeChoiceLabel) {
-                                    return 'Click to switch filter'
-                                }
-
-                                return 'Double click to filter'
-                            },
-                            renderSeries: (_value, datum) => {
-                                const tooltipContext = tooltipContextByIndex[datum.dataIndex]
-                                const optionLabel = String(
-                                    datum.breakdown_value ?? chartData[datum.dataIndex]?.label ?? datum.label ?? ''
-                                )
-
-                                if (!tooltipContext) {
-                                    return <span className="font-medium">{optionLabel}</span>
-                                }
-
-                                return (
-                                    <div className="space-y-0.5">
-                                        <div className="flex items-center gap-2 leading-tight">
-                                            <span className="font-semibold">{optionLabel}</span>
-                                            <span className="text-xs text-muted-alt">
-                                                #{tooltipContext.rank} of {chartData.length}
-                                            </span>
-                                        </div>
-                                        <div className="text-xs text-secondary leading-tight">
-                                            <span className="font-semibold text-primary">
-                                                {tooltipContext.respondentPercentage}%
-                                            </span>{' '}
-                                            respondents
-                                            <span className="mx-1 text-muted-alt">•</span>
-                                            <span className="font-medium text-primary">
-                                                {tooltipContext.selectionPercentage}%
-                                            </span>{' '}
-                                            of all selected options
-                                        </div>
-                                    </div>
-                                )
-                            },
-                            renderCount: tooltipCountLabel,
-                        }}
-                        datasets={[
-                            {
-                                id: 1,
-                                label: 'Number of responses',
-                                barPercentage: 0.8,
-                                minBarLength: 2,
-                                data: chartData.map((d) => d.value),
-                                labels: chartData.map((d) => d.label),
-                                breakdownValues: chartData.map((d) => d.label),
-                                backgroundColor: barColors,
-                                borderColor: barColors,
-                                hoverBackgroundColor: barColors,
-                            },
-                        ]}
-                        labels={chartData.map((d) => d.label)}
-                        datalabelFormatter={(value) => {
-                            const total = totalResponses || 1
-                            const percentage = ((value / total) * 100).toFixed(1)
-                            return `${value} (${percentage}%)`
-                        }}
-                    />
-                </BindLogic>
+                <MultipleChoiceBarChart
+                    chartData={chartData}
+                    totalResponses={totalResponses}
+                    activeChoiceLabel={activeChoiceLabel}
+                    barColors={barColors}
+                    tooltipContextByIndex={tooltipContextByIndex}
+                    onBarClick={applyChoiceClick}
+                />
             </div>
             {responseFilterKey && (
                 <div className="text-xs text-muted text-center">

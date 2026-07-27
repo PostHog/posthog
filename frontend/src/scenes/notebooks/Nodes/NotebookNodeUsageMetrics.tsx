@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconPlusSmall, IconRefresh, IconX } from '@posthog/icons'
+import { IconPlusSmall, IconRefresh } from '@posthog/icons'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -16,9 +16,9 @@ import {
     UsageMetricCardSkeleton,
 } from 'products/customer_analytics/frontend/components/UsageMetricCard'
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
-import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { getCustomerProfileRemoveMenuItem } from './customerProfileNotebookNodeMenu'
 import { createPostHogWidgetNode } from './NodeWrapper'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
@@ -52,9 +52,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     const { loadData } = useActions(logic)
     const usageMetricsConfigLogicProps = { logicKey: attributes.nodeId }
     const { openModal } = useActions(usageMetricsConfigLogic(usageMetricsConfigLogicProps))
-    const { removeNode } = useActions(customerProfileLogic)
 
     useOnMountEffect(() => {
+        const removeMenuItem = getCustomerProfileRemoveMenuItem(NotebookNodeType.UsageMetrics)
         setActions([
             {
                 text: 'Add metric',
@@ -68,24 +68,21 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
             },
         ])
 
-        setMenuItems([
-            {
-                label: 'Add metric',
-                sideIcon: <IconPlusSmall />,
-                onClick: openModal,
-            },
-            {
-                label: 'Refresh',
-                sideIcon: <IconRefresh />,
-                onClick: () => loadData(),
-            },
-            {
-                label: 'Remove',
-                onClick: () => removeNode(NotebookNodeType.UsageMetrics),
-                sideIcon: <IconX />,
-                status: 'danger',
-            },
-        ])
+        const addMetricMenuItem = {
+            label: 'Add metric',
+            sideIcon: <IconPlusSmall />,
+            onClick: openModal,
+        }
+        const refreshMenuItem = {
+            label: 'Refresh',
+            sideIcon: <IconRefresh />,
+            onClick: () => loadData(),
+        }
+        if (removeMenuItem) {
+            setMenuItems([addMetricMenuItem, refreshMenuItem, removeMenuItem])
+            return
+        }
+        setMenuItems([addMetricMenuItem, refreshMenuItem])
     })
 
     if (!expanded) {

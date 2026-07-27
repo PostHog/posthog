@@ -33,7 +33,8 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.query_metadata import QueryEventsExtractor
-from posthog.models import Action
+
+from products.actions.backend.models.action import Action
 
 
 class TestQueryEventsExtractor(TestCase):
@@ -60,7 +61,7 @@ class TestQueryEventsExtractor(TestCase):
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["pageview", "click"])
 
-    @patch("posthog.models.action.Action.objects.get")
+    @patch("products.actions.backend.models.action.Action.objects.get")
     def test_extract_events_with_actions_node(self, mock_action_get):
         """Test extracting events from query with ActionsNode"""
         mock_action = Mock()
@@ -76,7 +77,7 @@ class TestQueryEventsExtractor(TestCase):
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["pageview", "signup", "purchase"])
 
-    @patch("posthog.models.action.Action.objects.get")
+    @patch("products.actions.backend.models.action.Action.objects.get")
     def test_extract_events_with_actions_node_with_none_steps(self, mock_action_get):
         """Test extracting events from query with ActionsNode"""
         mock_action = Mock()
@@ -92,7 +93,7 @@ class TestQueryEventsExtractor(TestCase):
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["pageview", "signup"])
 
-    @patch("posthog.models.action.Action.objects.get")
+    @patch("products.actions.backend.models.action.Action.objects.get")
     def test_extract_events_with_non_existent_action(self, mock_action_get):
         """Test extracting events from query with non-existent ActionsNode"""
         mock_action_get.side_effect = Action.DoesNotExist
@@ -181,7 +182,7 @@ class TestQueryEventsExtractor(TestCase):
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["signup", "purchase", "abandon_cart", "logout"])
 
-    @patch("posthog.models.action.Action.objects.get")
+    @patch("products.actions.backend.models.action.Action.objects.get")
     def test_extract_events_funnels_query_exclusions_actions(self, mock_action_get):
         """Test extracting events from FunnelsQuery with exclusions that include actions"""
         mock_action = Mock()
@@ -224,7 +225,7 @@ class TestQueryEventsExtractor(TestCase):
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["signup", "purchase"])
 
-    @patch("posthog.models.action.Action.objects.get")
+    @patch("products.actions.backend.models.action.Action.objects.get")
     def test_extract_events_retention_query(self, mock_action_get):
         """Test extracting events from RetentionQuery"""
         mock_action = Mock()

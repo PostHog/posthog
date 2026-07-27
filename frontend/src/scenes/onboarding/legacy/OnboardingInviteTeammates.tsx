@@ -1,0 +1,111 @@
+import { useActions, useValues } from 'kea'
+
+import { LemonDivider } from '@posthog/lemon-ui'
+
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { EmailUnavailableForInvitesBanner, InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
+import { InvitesTable } from 'scenes/settings/organization/Invites'
+
+import { ProductKey } from '~/queries/schema/schema-general'
+import { OnboardingStepKey } from '~/types'
+
+import { OnboardingStepComponentType, onboardingLogic } from './onboardingLogic'
+import { OnboardingStep } from './OnboardingStep'
+
+export const OnboardingInviteTeammates: OnboardingStepComponentType = () => {
+    const { preflight } = useValues(preflightLogic)
+    const { productKey } = useValues(onboardingLogic)
+    const { inviteTeamMembers } = useActions(inviteLogic)
+    const { invitesToSend, canSubmit: canSubmitInvites, inviteContainsOwnerLevel, invites } = useValues(inviteLogic)
+
+    const hasFilledEmail = invitesToSend.some(({ target_email }) => !!target_email)
+    const hasInvalidEmail = invitesToSend.some(({ isValid }) => !isValid)
+    const emailServiceAvailable = !!preflight?.email_service_available
+
+    // The continue button is the gate that sends pending invites when email service is available.
+    // Per-row submit buttons handle the case when email service is unavailable, so Continue just
+    // advances. We only block Continue when the user has entered something that we can't submit —
+    // otherwise the click was a silent no-op.
+    const continueDisabledReason: string | undefined =
+        emailServiceAvailable && hasFilledEmail
+            ? hasInvalidEmail
+                ? 'Please enter a valid email address'
+                : inviteContainsOwnerLevel && !canSubmitInvites
+                  ? 'Type "send invites" to confirm owner-level invites'
+                  : !canSubmitInvites
+                    ? 'Please fill out all fields'
+                    : undefined
+            : undefined
+
+    const titlePrefix = (): string => {
+        switch (productKey) {
+            case ProductKey.PRODUCT_ANALYTICS:
+                return 'Analytics are'
+            case ProductKey.SESSION_REPLAY:
+                return 'Replays are'
+            case ProductKey.FEATURE_FLAGS:
+                return 'Feature flags are'
+            case ProductKey.SURVEYS:
+                return 'Surveys are'
+            case ProductKey.ERROR_TRACKING:
+                return 'Tracking errors is'
+            default:
+                return 'PostHog is'
+        }
+    }
+
+    const likeTo = (): string => {
+        switch (productKey) {
+            case ProductKey.SESSION_REPLAY:
+                return 'see how people use your product'
+            case ProductKey.FEATURE_FLAGS:
+                return 'customize user experiences'
+            case ProductKey.SURVEYS:
+                return 'ask all the questions'
+            default:
+                return 'dig into the data'
+        }
+    }
+
+    const showInviteLinks = !preflight?.email_service_available && invites.length > 0
+
+    return (
+        <OnboardingStep
+            title="Invite teammates"
+            stepKey={OnboardingStepKey.INVITE_TEAMMATES}
+            continueDisabledReason={continueDisabledReason}
+            onContinue={() => {
+                if (emailServiceAvailable && hasFilledEmail && canSubmitInvites) {
+                    inviteTeamMembers()
+                }
+            }}
+        >
+            <div className="mb-6 mt-6">
+                <p>
+                    {titlePrefix()} better with friends ... or maybe even just coworkers. Ya know the ones who like to{' '}
+                    {likeTo()}?{' '}
+                    {preflight?.email_service_available && (
+                        <span>
+                            Enter their email below and we'll send them a custom invite link. Invites expire after 3
+                            days.
+                        </span>
+                    )}
+                </p>
+            </div>
+            <InviteTeamMatesComponent hideProjectAccessSelector />
+            {showInviteLinks && (
+                <>
+                    <LemonDivider className="my-4" />
+                    <EmailUnavailableForInvitesBanner />
+                    <div className="mt-4">
+                        <h3>Invite Links</h3>
+                        <InvitesTable />
+                    </div>
+                </>
+            )}
+        </OnboardingStep>
+    )
+}
+
+OnboardingInviteTeammates.stepKey = OnboardingStepKey.INVITE_TEAMMATES

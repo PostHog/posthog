@@ -110,12 +110,7 @@ export const PaymentEntryModal = (): JSX.Element => {
                     </div>
                 ) : (
                     <div className="min-h-80 flex flex-col justify-center items-center">
-                        <div className="text-4xl">
-                            <img
-                                src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
-                                alt="Loading animation"
-                            />
-                        </div>
+                        <img src="/static/payment-loading.gif" alt="" aria-hidden="true" className="h-20 w-20" />
                         <p className="text-secondary text-md mt-4">We're contacting the hedgehogs for approval.</p>
                     </div>
                 )}

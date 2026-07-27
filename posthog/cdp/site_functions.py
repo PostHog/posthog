@@ -4,8 +4,9 @@ from posthog.hogql.compiler.javascript import JavaScriptCompiler
 
 from posthog.cdp.filters import hog_function_filters_to_expr
 from posthog.cdp.validation import transpile_template_code
-from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.plugin import transpile
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.plugin import transpile
 
 
 def get_transpiled_function(hog_function: HogFunction) -> str:

@@ -5,7 +5,7 @@ import structlog
 from posthog.api.capture import capture_internal
 from posthog.temporal.session_replay.session_summary.types.events import SessionSummaryReadyProperties
 
-from ee.models.session_summaries import SingleSessionSummary
+from products.replay.backend.models.session_summaries import SingleSessionSummary
 
 EVENT_SOURCE = "session_summary_events"
 logger = structlog.get_logger(__name__)
@@ -36,7 +36,7 @@ def capture_session_summary_ready(
         session_duration=summary.session_duration,
     )
     try:
-        response = capture_internal(
+        result = capture_internal(
             token=team_api_token,
             event_name="$session_summary_ready",
             event_source=EVENT_SOURCE,
@@ -44,7 +44,7 @@ def capture_session_summary_ready(
             timestamp=summary.created_at,
             properties=properties.model_dump(by_alias=True, mode="json"),
         )
-        response.raise_for_status()
+        result.raise_for_status()
     except Exception:
         logger.exception(
             "failed_to_capture_session_summary_ready",

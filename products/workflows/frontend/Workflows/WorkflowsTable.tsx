@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 
 import { LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MailHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -14,10 +15,11 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { WorkflowsSceneProps } from '../WorkflowsScene'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { newWorkflowLogic } from './newWorkflowLogic'
@@ -90,7 +92,7 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
     )
 }
 
-export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
+export function WorkflowsTable(): JSX.Element {
     const logic = workflowsLogic()
     const {
         filteredWorkflows,
@@ -124,7 +126,6 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
         // We can't just reset state within the logic's unmount as that would trigger when switching tabs
         const newWorkflowLogic = workflowLogic.findMounted({
             id: 'new',
-            tabId: props.tabId,
         })
         newWorkflowLogic?.unmount()
 
@@ -258,19 +259,25 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                         overlay={
                             <>
                                 {workflow.status !== 'archived' && (
-                                    <LemonButton
-                                        data-attr="workflow-edit"
-                                        fullWidth
-                                        status={workflow.status === 'draft' ? 'default' : 'danger'}
-                                        onClick={() => toggleWorkflowStatus(workflow)}
-                                        tooltip={
-                                            workflow.status === 'draft'
-                                                ? 'Enables the workflow to start sending messages'
-                                                : 'Disables the workflow from sending any new messages. In-progress workflows will end immediately.'
-                                        }
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Workflow}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={workflow.user_access_level}
                                     >
-                                        {workflow.status === 'draft' ? 'Enable' : 'Disable'}
-                                    </LemonButton>
+                                        <LemonButton
+                                            data-attr="workflow-edit"
+                                            fullWidth
+                                            status={workflow.status === 'draft' ? 'default' : 'danger'}
+                                            onClick={() => toggleWorkflowStatus(workflow)}
+                                            tooltip={
+                                                workflow.status === 'draft'
+                                                    ? 'Enables the workflow to start sending messages'
+                                                    : 'Disables the workflow from sending any new messages. In-progress workflows will end immediately.'
+                                            }
+                                        >
+                                            {workflow.status === 'draft' ? 'Enable' : 'Disable'}
+                                        </LemonButton>
+                                    </AccessControlAction>
                                 )}
                                 <LemonButton
                                     data-attr="workflow-duplicate"
@@ -280,27 +287,39 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                                     Duplicate
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonButton
-                                    data-attr="workflow-archive-restore"
-                                    fullWidth
-                                    status={workflow.status === 'archived' ? 'default' : 'danger'}
-                                    onClick={() => {
-                                        workflow.status === 'archived'
-                                            ? restoreWorkflow(workflow)
-                                            : archiveWorkflow(workflow)
-                                    }}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Workflow}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={workflow.user_access_level}
                                 >
-                                    {workflow.status === 'archived' ? 'Restore' : 'Archive'}
-                                </LemonButton>
-                                {workflow.status === 'archived' && (
                                     <LemonButton
-                                        data-attr="workflow-delete"
+                                        data-attr="workflow-archive-restore"
                                         fullWidth
-                                        status="danger"
-                                        onClick={() => deleteWorkflow(workflow)}
+                                        status={workflow.status === 'archived' ? 'default' : 'danger'}
+                                        onClick={() => {
+                                            workflow.status === 'archived'
+                                                ? restoreWorkflow(workflow)
+                                                : archiveWorkflow(workflow)
+                                        }}
                                     >
-                                        Delete
+                                        {workflow.status === 'archived' ? 'Restore' : 'Archive'}
                                     </LemonButton>
+                                </AccessControlAction>
+                                {workflow.status === 'archived' && (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Workflow}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={workflow.user_access_level}
+                                    >
+                                        <LemonButton
+                                            data-attr="workflow-delete"
+                                            fullWidth
+                                            status="danger"
+                                            onClick={() => deleteWorkflow(workflow)}
+                                        >
+                                            Delete
+                                        </LemonButton>
+                                    </AccessControlAction>
                                 )}
                             </>
                         }
@@ -326,6 +345,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                     }}
                     customHog={MailHog}
                     isEmpty
+                    mcpSurfaceKey="workflows.create"
                 />
             )}
             {!showProductIntroduction && (

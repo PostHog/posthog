@@ -1,16 +1,20 @@
 from datetime import timedelta
 from functools import cached_property
-from typing import Optional, Union
+from typing import Optional, Union, cast
 
 from django.utils.timezone import now
 
-from posthog.schema import ProductKey
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, ProductKey
 
-from posthog.clickhouse.client import sync_execute
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models import Team
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property import GroupTypeIndex
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.queries.actor_base_query import (
     SerializedActor,
     SerializedGroup,
@@ -21,8 +25,6 @@ from posthog.queries.actor_base_query import (
 
 
 class RelatedActorsQuery:
-    DISTINCT_ID_TABLE_ALIAS = "pdi"
-
     """
     This query calculates other groups and persons that are related to a person or a group.
 
@@ -38,6 +40,10 @@ class RelatedActorsQuery:
         self.team = team
         self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
         self.id = id
+        # Treat a missing group key as the empty string (not NULL), matching the legacy raw query
+        # which read the non-nullable materialized `$group_N` column directly. This keeps the
+        # `(index, key)` tuples in the IN-subquery non-nullable.
+        self._modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING)
 
     @property
     def is_aggregating_by_groups(self) -> bool:
@@ -64,80 +70,115 @@ class RelatedActorsQuery:
             return []
         tag_queries(name="related-people")
         person_ids = self._query_related_people_ids()
-        return get_serialized_people(self.team, person_ids)
+        with personhog_caller_tag("persons/related-actors"):
+            return get_serialized_people(self.team, person_ids)
+
+    def _group_key_field(self, group_index: int) -> ast.Expr:
+        # Read the group key from the raw event JSON rather than the `$group_N` field: the latter is
+        # zeroed for events older than the GroupTypeMapping.created_at, but the legacy raw query
+        # matched all events regardless, so we go to the JSON to preserve that behavior.
+        # JSONExtractString returns a non-nullable String (empty when missing), matching the
+        # materialized column's type so tuple/IN comparisons stay non-nullable.
+        return ast.Call(
+            name="JSONExtractString",
+            args=[ast.Field(chain=["events", "properties"]), ast.Constant(value=f"$group_{group_index}")],
+        )
 
     def _query_related_people_ids(self) -> list:
-        return self._take_first(
-            # nosemgrep: clickhouse-injection-taint - internal SQL fragments, values parameterized
-            sync_execute(
-                f"""
-            SELECT DISTINCT argMax(person_id, version) AS person_id
-            FROM person_distinct_id2
-            WHERE team_id = %(team_id)s
-              AND distinct_id IN (
-                  SELECT distinct_id
-                  FROM events
-                  WHERE team_id = %(team_id)s
-                    AND timestamp > %(after)s
-                    AND timestamp < %(before)s
-                    AND {self._filter_clause}
+        # Resolve distinct_ids seen on events for this group, then map them to persons via
+        # `person_distinct_ids` — that table already applies the argMax(version) dedup and drops
+        # deleted (is_deleted=1) mappings, matching the legacy person_distinct_id2 query.
+        query = parse_select(
+            """
+            SELECT DISTINCT person_id
+            FROM person_distinct_ids
+            WHERE distinct_id IN (
+                SELECT distinct_id
+                FROM events
+                WHERE timestamp > {after}
+                  AND timestamp < {before}
+                  AND {group_filter}
             )
-            GROUP BY distinct_id
-            HAVING argMax(is_deleted, version) = 0
             """,
-                self._params,
-            )
+            placeholders={
+                "after": ast.Constant(value=self._after),
+                "before": ast.Constant(value=self._before),
+                "group_filter": ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=self._group_key_field(cast(int, self.group_type_index)),
+                    right=ast.Constant(value=self.id),
+                ),
+            },
         )
+        response = execute_hogql_query(query, team=self.team, modifiers=self._modifiers)
+        return [row[0] for row in response.results]
 
     def _query_related_groups(self, group_type_indexes: list[int]) -> list:
         if not list(group_type_indexes):
             return []
 
-        array_join_tuples = ", ".join(f"(toUInt8({index}), e.$group_{index})" for index in group_type_indexes)
-        query = f"""
-                SELECT DISTINCT group_type_index, group_key
-                FROM groups
-                WHERE team_id = %(team_id)s
-                  AND group_type_index IN {list(group_type_indexes)}
-                  AND (group_type_index, group_key) IN (
-                      SELECT tuples.1 AS group_type_index, tuples.2 AS group_key
-                      FROM events e
-                      ARRAY JOIN arrayFilter(x -> x.2 != '', [{array_join_tuples}]) AS tuples
-                      WHERE team_id = %(team_id)s
-                        AND e.timestamp > %(after)s
-                        AND e.timestamp < %(before)s
-                        AND {f"e.$group_{self.group_type_index} = %(id)s" if self.is_aggregating_by_groups else f"e.person_id = %(id)s"}
-                  )
-                ORDER BY group_type_index, group_key
-                """
-        # nosemgrep: clickhouse-injection-taint - group_type_indexes are ints from DB, values parameterized
-        results = sync_execute(query, self._params)
+        # Fan each event out into one (group_type_index, group_key) row per requested group type,
+        # dropping empty keys, and collect the distinct pairs the actor co-occurred with. Existence
+        # against the groups table is enforced later by get_groups (which only returns real groups),
+        # so a key seen on events but missing from groups is dropped — matching the legacy query.
+        array_join_list = ast.Array(
+            exprs=[
+                ast.Tuple(
+                    exprs=[
+                        ast.Constant(value=index),
+                        self._group_key_field(index),
+                    ]
+                )
+                for index in group_type_indexes
+            ]
+        )
+
+        if self.is_aggregating_by_groups:
+            actor_filter: ast.Expr = ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=self._group_key_field(cast(int, self.group_type_index)),
+                right=ast.Constant(value=self.id),
+            )
+        else:
+            actor_filter = ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["events", "person_id"]),
+                right=ast.Constant(value=self.id),
+            )
+
+        query = parse_select(
+            """
+            SELECT DISTINCT tuples.1 AS group_type_index, tuples.2 AS group_key
+            FROM events
+            ARRAY JOIN arrayFilter(x -> x.2 != '', {array_join_list}) AS tuples
+            WHERE timestamp > {after}
+              AND timestamp < {before}
+              AND {actor_filter}
+            """,
+            placeholders={
+                "array_join_list": array_join_list,
+                "after": ast.Constant(value=self._after),
+                "before": ast.Constant(value=self._before),
+                "actor_filter": actor_filter,
+            },
+        )
+        response = execute_hogql_query(query, team=self.team, modifiers=self._modifiers)
+        results = response.results
         if not results:
             return []
 
         serialized_results: list[SerializedGroup] = []
         for index in group_type_indexes:
-            group_keys = [result[1] for result in results if result[0] == index]
+            group_keys = sorted({result[1] for result in results if result[0] == index and result[1]})
             _, serialized_groups = get_groups(self.team.pk, index, group_keys)
             serialized_results.extend(serialized_groups)
 
         return serialized_results
 
-    def _take_first(self, rows: list) -> list:
-        return [row[0] for row in rows]
-
-    @property
-    def _filter_clause(self):
-        if self.is_aggregating_by_groups:
-            return f"$group_{self.group_type_index} = %(id)s"
-        else:
-            return f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id = %(id)s"
+    @cached_property
+    def _after(self):
+        return now() - timedelta(days=90)
 
     @cached_property
-    def _params(self):
-        return {
-            "team_id": self.team.pk,
-            "id": self.id,
-            "after": (now() - timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%S.%f"),
-            "before": now().strftime("%Y-%m-%dT%H:%M:%S.%f"),
-        }
+    def _before(self):
+        return now()

@@ -20,7 +20,8 @@ from posthog.hogql_queries.ai.vector_search_query_runner import (
     VectorSearchQueryRunner,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Action
+
+from products.actions.backend.models.action import Action
 
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client
@@ -123,6 +124,7 @@ class InsightRagContextNode(AssistantNode):
                 runner = VectorSearchQueryRunner(
                     team=self._team,
                     query=VectorSearchQuery(embedding=embedding, embeddingVersion=LATEST_ACTIONS_EMBEDDING_VERSION),
+                    user=self._user,
                 )
                 with tags_context(
                     product=Product.MAX_AI,
@@ -177,7 +179,7 @@ class InsightRagContextNode(AssistantNode):
         Since this node is already blocking, we can pre-warm the taxonomy queries to avoid further delays.
         This will slightly reduce latency.
         """
-        TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
+        TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team, user=self._user).run(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
             analytics_props={"source": EventSource.POSTHOG_AI},
         )

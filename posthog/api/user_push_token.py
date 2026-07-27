@@ -2,7 +2,7 @@
 
 The mobile app uploads its Expo push token after the user grants notification
 permission. The backend fans out push notifications to every stored token
-belonging to a user when something relevant happens (e.g. a PostHog Code task
+belonging to a user when something relevant happens (e.g. a PostHog Desktop task
 run finishes or needs the user's input).
 
 This is **device self-registration only**: every request acts on the
@@ -67,7 +67,7 @@ class UserPushTokenUnregisterRequestSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class UserPushTokenViewSet(viewsets.GenericViewSet):
     """`/api/users/@me/push_tokens/` — manage the authenticated user's push notification tokens."""
 

@@ -1,8 +1,8 @@
-import { sanitizeString } from '~/utils/db/utils'
-import { LazyLoader } from '~/utils/lazy-loader'
-import { logger } from '~/utils/logger'
-import { TeamManager } from '~/utils/team-manager'
-import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
+import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { sanitizeString } from '~/common/utils/db/utils'
+import { LazyLoader } from '~/common/utils/lazy-loader'
+import { logger } from '~/common/utils/logger'
+import { TeamManager } from '~/common/utils/team-manager'
 
 import { GroupTypeIndex, Team } from '../../../types'
 import { GroupType, HogFunctionInvocationGlobals } from '../../types'
@@ -31,7 +31,7 @@ export class GroupsManagerService {
 
     constructor(
         private teamManager: TeamManager,
-        private groupRepository: GroupRepository
+        private groupRepository: GroupReadRepository
     ) {
         this.groupTypesLoader = new LazyLoader({
             name: 'groups_manager_types',
@@ -126,6 +126,14 @@ export class GroupsManagerService {
             return
         }
 
+        // A malformed invocation can arrive with globals present but missing project/event
+        // (e.g. partial state rehydration). Skip enrichment rather than dereferencing them —
+        // an unguarded throw here becomes an unhandled rejection that crash-loops the worker.
+        if (!globals.project || !globals.event) {
+            globals.groups = {}
+            return
+        }
+
         globals.groups = await this.getGroupsForEvent(globals.project.id, globals.event.properties, globals.project.url)
     }
 
@@ -147,7 +155,10 @@ export class GroupsManagerService {
         }
 
         if (teamsToLoad.length > 0) {
-            const repoResult = await this.groupRepository.fetchGroupTypesByTeamIds(teamsToLoad)
+            const repoResult = await this.groupRepository.fetchGroupTypesByTeamIds(
+                teamsToLoad,
+                'cdp/hogflow-group-type-resolution'
+            )
             for (const teamId of teamsToLoad) {
                 const groupTypes = repoResult[String(teamId)] ?? []
                 const mapping: GroupTypeMapping = {}
@@ -170,7 +181,12 @@ export class GroupsManagerService {
         const groupIndexes = parsed.map((p) => p.groupTypeIndex) as GroupTypeIndex[]
         const groupKeys = parsed.map((p) => p.groupKey)
 
-        const rows = await this.groupRepository.fetchGroupsByKeys(teamIds, groupIndexes, groupKeys)
+        const rows = await this.groupRepository.fetchGroupsByKeys(
+            teamIds,
+            groupIndexes,
+            groupKeys,
+            'cdp/hogflow-group-property-enrichment'
+        )
 
         const result: Record<string, Record<string, any> | null | undefined> = {}
         for (const row of rows) {

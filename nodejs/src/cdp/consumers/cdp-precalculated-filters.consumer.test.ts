@@ -1,12 +1,12 @@
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
+import { KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS } from '~/common/config/kafka-topics'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { resetKafka } from '~/tests/helpers/kafka'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { buildInlineFiltersForCohorts, createCohort, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
-import { KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS } from '../../config/kafka-topics'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { CdpPrecalculatedFiltersConsumer } from './cdp-precalculated-filters.consumer'
 
 jest.setTimeout(20_000)

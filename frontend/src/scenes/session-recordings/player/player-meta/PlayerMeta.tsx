@@ -5,12 +5,12 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
 
-import { Logo } from 'lib/brand/Logo'
+import { Logo } from 'lib/brand'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { isObject } from 'lib/utils'
+import { isObject } from 'lib/utils/guards'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
@@ -22,6 +22,7 @@ import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
+import { PlayerMetaExperimentTags } from './PlayerMetaExperimentTags'
 import { playerMetaLogic } from './playerMetaLogic'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 
@@ -114,7 +115,7 @@ export function PlayerMeta(): JSX.Element {
                     {!whitelabel ? (
                         <Tooltip title="Powered by PostHog" placement="right">
                             <Link to="https://posthog.com" className="flex items-center" target="blank">
-                                <Logo />
+                                <Logo size="md" />
                             </Link>
                         </Tooltip>
                     ) : null}
@@ -176,6 +177,7 @@ export function PlayerMeta(): JSX.Element {
                             )}
                         </>
                     )}
+                    <PlayerMetaExperimentTags />
                     <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
                     <PlayerMetaLinks size={size} />
                     <PlayerPersonMeta />

@@ -1,7 +1,42 @@
 import type { ReactElement } from 'react'
 
-import { BigNumber, DataTable, LineChart, type Series } from './charts'
+import { emptyStateIllustration } from '@posthog/mcp-ui'
+import { DataTable, type DataTableProps, Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
+import {
+    DefaultTooltip,
+    type Series,
+    TimeSeriesLineChart,
+    type TimeSeriesLineChartConfig,
+    type TooltipContext,
+} from '@posthog/quill-charts'
+
+import { ChartHeader } from './ChartHeader'
+import { BigNumber } from './charts'
+import { colorAt, useMcpChartTheme } from './charts/theme'
 import type { TableVisualizerProps } from './types'
+import { formatDate, formatNumber, formatTooltipDate } from './utils'
+
+const TITLE = 'Query results'
+
+// Query results are truncated client-side; sorting a truncated view would
+// mislead, so columns are non-sortable.
+const MAX_ROWS = 20
+
+function formatCellValue(value: unknown): string {
+    if (value === null || value === undefined) {
+        return '-'
+    }
+    if (typeof value === 'number') {
+        return formatNumber(value)
+    }
+    if (typeof value === 'boolean') {
+        return value ? 'true' : 'false'
+    }
+    if (typeof value === 'object') {
+        return JSON.stringify(value)
+    }
+    return String(value)
+}
 
 const DATE_PATTERNS = [
     /^\d{4}-\d{2}-\d{2}/, // 2024-01-15 or 2024-01-15T...
@@ -73,33 +108,45 @@ function transformToSeries(
     timeIdx: number,
     valueIdx: number,
     valueLabel: string
-): { series: Series[]; labels: string[]; maxValue: number } {
-    const labels: string[] = []
-    let maxValue = 0
-
-    const points = rows.map((row, i) => {
-        const label = String(row[timeIdx])
-        const value = row[valueIdx] as number
-        labels.push(label)
-        maxValue = Math.max(maxValue, value)
-        return { x: i, y: value, label }
-    })
+): { series: Series[]; labels: string[] } {
+    const labels = rows.map((row) => String(row[timeIdx]))
+    const data = rows.map((row) => row[valueIdx] as number)
 
     return {
-        series: [{ label: valueLabel, points }],
+        series: [{ key: '0', label: valueLabel, data, color: colorAt(0) }],
         labels,
-        maxValue: maxValue || 1,
     }
 }
 
+const TOOLTIP_CONFIG = { pinnable: true, placement: 'cursor' as const }
+
+// DefaultTooltip shows the raw x label; format it like the axis.
+const renderDateTooltip = (ctx: TooltipContext): ReactElement => (
+    <DefaultTooltip {...ctx} label={formatTooltipDate(ctx.label)} />
+)
+
+const TIME_SERIES_CONFIG: TimeSeriesLineChartConfig = {
+    xAxis: { tickFormatter: (value) => formatDate(value) },
+    yAxis: { tickFormatter: formatNumber, showGrid: true },
+    showCrosshair: true,
+    tooltip: TOOLTIP_CONFIG,
+    legend: { show: false },
+}
+
 export function TableVisualizer({ results }: TableVisualizerProps): ReactElement {
+    const theme = useMcpChartTheme()
     const columns = results?.columns || []
     const rows = results?.results || []
 
     const format = detectResultFormat(columns, rows)
 
     if (format.type === 'single-number' && format.value !== undefined) {
-        return <BigNumber value={format.value} label={format.label} />
+        return (
+            <div>
+                <ChartHeader title={TITLE} />
+                <BigNumber value={format.value} label={format.label} />
+            </div>
+        )
     }
 
     if (
@@ -108,14 +155,58 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
         format.valueColumnIndex !== undefined
     ) {
         const valueLabel = columns[format.valueColumnIndex] || 'Value'
-        const { series, labels, maxValue } = transformToSeries(
-            rows,
-            format.timeColumnIndex,
-            format.valueColumnIndex,
-            valueLabel
+        const { series, labels } = transformToSeries(rows, format.timeColumnIndex, format.valueColumnIndex, valueLabel)
+        return (
+            <div>
+                <ChartHeader title={TITLE} />
+                <div className="flex flex-col w-full h-[400px]">
+                    <TimeSeriesLineChart
+                        series={series}
+                        labels={labels}
+                        theme={theme}
+                        config={TIME_SERIES_CONFIG}
+                        tooltip={renderDateTooltip}
+                    />
+                </div>
+            </div>
         )
-        return <LineChart series={series} labels={labels} maxValue={maxValue} showLegend={false} />
     }
 
-    return <DataTable columns={columns} rows={rows} />
+    if (rows.length === 0) {
+        return (
+            <div>
+                <ChartHeader title={TITLE} />
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyMedia>{emptyStateIllustration('table')}</EmptyMedia>
+                        <EmptyDescription>
+                            {columns.length === 0 ? 'No rows to display' : 'Query returned no rows'}
+                        </EmptyDescription>
+                    </EmptyHeader>
+                </Empty>
+            </div>
+        )
+    }
+
+    const displayRows = rows.slice(0, MAX_ROWS)
+    const hasMore = displayRows.length < rows.length
+    const tableColumns: DataTableProps<unknown[], unknown>['columns'] = columns.map((col, colIndex) => ({
+        id: String(colIndex),
+        header: col,
+        accessorFn: (row: unknown[]) => row[colIndex],
+        enableSorting: false,
+        cell: (info: { getValue: () => unknown }) => formatCellValue(info.getValue()),
+    }))
+
+    return (
+        <div className="flex flex-col gap-2">
+            <ChartHeader title={TITLE} />
+            <DataTable columns={tableColumns} data={displayRows} />
+            {hasMore && (
+                <span className="text-center text-xs text-muted-foreground">
+                    Showing {displayRows.length} of {rows.length}+ rows
+                </span>
+            )}
+        </div>
+    )
 }

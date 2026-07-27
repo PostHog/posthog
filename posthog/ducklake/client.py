@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -8,9 +9,13 @@ from psycopg import sql as psql
 from psycopg.conninfo import make_conninfo
 
 from posthog.ducklake.common import get_duckgres_config_for_org, is_dev_mode, sanitize_ducklake_identifier
+from posthog.ducklake.table_binding import bind_tables_to_ducklake
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQuery
+
+    from posthog.models import User
+    from posthog.models.team.team import Team
 
 
 @dataclass
@@ -20,6 +25,9 @@ class DuckLakeQueryResult:
     results: list[list[Any]]
     sql: str
     hogql: str | None = None
+    # connect_ms includes control-plane activation of a cold tenant; query_ms is the query alone.
+    connect_ms: float | None = None
+    query_ms: float | None = None
 
 
 @dataclass
@@ -64,8 +72,15 @@ def _set_search_path(conn: psycopg.Connection[Any], extra_schemas: list[str] | N
     conn.execute(sql)
 
 
-def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str, dict[str, object], str]:
-    """Compile a HogQLQuery to Postgres-dialect SQL for DuckLake.
+def compile_hogql_to_ducklake_sql(
+    team_id: int,
+    query: HogQLQuery,
+    *,
+    team: Team | None = None,
+    user: User | None = None,
+    bypass_warehouse_access_control: bool = False,
+) -> tuple[str, dict[str, object], str]:
+    """Compile a HogQLQuery to DuckDB-dialect SQL for DuckLake.
 
     Returns ``(postgres_sql, values, hogql_pretty)``. The ``values`` dict holds
     parameter bindings for ``psycopg``'s ``%(name)s`` placeholders embedded in
@@ -73,16 +88,42 @@ def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str,
     the query will fail with an unbound-placeholder error.
     """
     from posthog.hogql.context import HogQLContext
+    from posthog.hogql.database.database import Database
     from posthog.hogql.parser import parse_select
     from posthog.hogql.printer.utils import prepare_and_print_ast
+    from posthog.hogql.variables import replace_variables
+
+    from posthog.models.team.team import Team
 
     parsed = parse_select(query.query)
-    # Separate context for the Postgres print — the HogQL round-trip below shouldn't
+    if query.variables:
+        team = team or Team.objects.get(pk=team_id)
+        parsed = replace_variables(parsed, list(query.variables.values()), team)
+    # Build the database up front so warehouse tables can be bound from the ClickHouse
+    # S3 table function to their DuckLake-materialized tables before printing.
+    database = Database.create_for(
+        team_id,
+        user=user,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+    )
+    bind_tables_to_ducklake(database, team_id)
+    # Separate context for the DuckDB print — the HogQL round-trip below shouldn't
     # contribute to ``postgres_context.values``.
-    postgres_context = HogQLContext(team_id=team_id, enable_select_queries=True)
-    postgres_sql, _ = prepare_and_print_ast(parsed, postgres_context, dialect="postgres")
+    postgres_context = HogQLContext(
+        team_id=team_id,
+        user=user,
+        enable_select_queries=True,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+        database=database,
+    )
+    postgres_sql, _ = prepare_and_print_ast(parsed, postgres_context, dialect="duckdb")
 
-    hogql_context = HogQLContext(team_id=team_id, enable_select_queries=True)
+    hogql_context = HogQLContext(
+        team_id=team_id,
+        user=user,
+        enable_select_queries=True,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+    )
     hogql_pretty, _ = prepare_and_print_ast(parsed, hogql_context, dialect="hogql")
 
     return postgres_sql, dict(postgres_context.values), hogql_pretty
@@ -94,14 +135,21 @@ def execute_ducklake_query(
     sql: str | None = None,
     query: HogQLQuery | None = None,
     organization_id: str | None = None,
+    team: Team | None = None,
+    user: User | None = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> DuckLakeQueryResult:
     """Execute a query against a team's duckgres server.
 
     Accepts either raw SQL or a HogQLQuery (which gets compiled to
-    Postgres-dialect SQL). Exactly one of `sql` or `query` must be provided.
+    DuckDB-dialect SQL). Exactly one of `sql` or `query` must be provided.
 
     Pass organization_id to skip the Team→Organization lookup when org
-    context is already available from the caller.
+    context is already available from the caller. Pass team to skip the
+    Team lookup used for variable substitution. Pass user so HogQL compilation
+    resolves data warehouse access control the same way as normal query execution.
+    Set bypass_warehouse_access_control only from trusted internal callers that
+    must compile without a user, such as materialization.
     """
     if sql and query:
         raise ValueError("Provide either sql or query, not both")
@@ -111,24 +159,36 @@ def execute_ducklake_query(
     hogql_pretty: str | None = None
     values: dict[str, object] = {}
     if query:
-        sql, values, hogql_pretty = compile_hogql_to_ducklake_sql(team_id, query)
+        sql, values, hogql_pretty = compile_hogql_to_ducklake_sql(
+            team_id,
+            query,
+            team=team,
+            user=user,
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
+        )
 
     assert sql is not None
 
     conninfo = make_duckgres_conninfo(team_id, organization_id=organization_id)
+    _connect_start = time.monotonic()
     with psycopg.connect(conninfo) as conn:
+        connect_ms = (time.monotonic() - _connect_start) * 1000
         _set_search_path(conn)
         with conn.cursor() as cur:
+            _query_start = time.monotonic()
             cur.execute(sql, values or None)
             columns = [desc.name for desc in cur.description] if cur.description else []
             types = [str(desc.type_code) for desc in cur.description] if cur.description else []
             rows = cur.fetchall()
+            query_ms = (time.monotonic() - _query_start) * 1000
     return DuckLakeQueryResult(
         columns=columns,
         types=types,
         results=[list(r) for r in rows],
         sql=sql,
         hogql=hogql_pretty,
+        connect_ms=connect_ms,
+        query_ms=query_ms,
     )
 
 

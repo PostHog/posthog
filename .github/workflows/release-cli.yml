@@ -1,0 +1,724 @@
+name: Release CLI
+
+on:
+    push:
+        branches: [master]
+        paths:
+            - 'cli/.sampo/changesets/*.md'
+
+permissions:
+    contents: read
+
+env:
+    SAMPO_VERSION: 0.17.4
+    CARGO_DIST_VERSION: 0.32.0
+    CARGO_DIST_INSTALLER_SHA256: b657cf8c04a8b7bc28f39d220f7e6dd11bbd2bdb072c552262bd9ccf597261b5
+
+concurrency:
+    group: release-cli
+    cancel-in-progress: false
+
+jobs:
+    check-changesets:
+        name: Check for CLI changesets
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        outputs:
+            has-changesets: ${{ steps.check.outputs.has-changesets }}
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: master
+                  sparse-checkout: cli/.sampo/changesets
+
+            - name: Check for changesets
+              id: check
+              run: |
+                  changeset_count=$(find cli/.sampo/changesets -name '*.md' 2>/dev/null | wc -l)
+                  if [ "$changeset_count" -gt 0 ]; then
+                      echo "has-changesets=true" >> "$GITHUB_OUTPUT"
+                      echo "Found $changeset_count CLI changeset(s), ready to release"
+                  else
+                      echo "has-changesets=false" >> "$GITHUB_OUTPUT"
+                      echo "No CLI changesets to release"
+                  fi
+
+    notify-approval-needed:
+        name: Notify Slack - Approval Needed
+        needs: [check-changesets, cli-release-preview]
+        if: needs.check-changesets.outputs.has-changesets == 'true'
+        uses: posthog/.github/.github/workflows/notify-approval-needed.yml@03565438486849ac0d19543de36c248a27d32a2f
+        with:
+            checkout_repository: false
+            slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+            slack_user_group_id: ${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}
+            tag_pattern: posthog-cli/v*
+            tag_sort: version
+        secrets:
+            slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+            posthog_project_api_key: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
+
+    cli-release-preview:
+        name: Generate CLI release preview
+        needs: check-changesets
+        if: needs.check-changesets.outputs.has-changesets == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - name: Write CLI diff summary
+              env:
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+
+                  repo_url="https://github.com/$REPOSITORY.git"
+                  base_tag=$(
+                    git ls-remote --tags --refs --sort=-version:refname "$repo_url" 'refs/tags/posthog-cli/v*' |
+                      awk -F 'refs/tags/' 'NR == 1 { print $2 }'
+                  )
+
+                  if [ -z "$base_tag" ]; then
+                    echo "::error::No posthog-cli release tags found"
+                    exit 1
+                  fi
+
+                  mkdir release-preview
+                  cd release-preview
+                  git init -q
+                  git remote add origin "$repo_url"
+
+                  # Fetch the exact tag and branch instead of using actions/checkout,
+                  # which would fetch every branch/tag in this large monorepo.
+                  git fetch --depth=1 --filter=blob:none --no-tags origin \
+                    "refs/tags/$base_tag:refs/tags/$base_tag" \
+                    "refs/heads/master:refs/remotes/origin/master"
+
+                  {
+                    echo "## posthog-cli release preview"
+                    echo
+                    echo "- Base: \`$base_tag\`"
+                    echo "- Head: \`master\`"
+                    echo
+                    echo "### CLI diff"
+                    echo
+                    echo "\`\`\`text"
+                    git diff --shortstat "$base_tag..origin/master" -- cli cli/.sampo
+                    echo "\`\`\`"
+                    echo
+                    echo "<details>"
+                    echo "<summary>Changed CLI files</summary>"
+                    echo
+                    echo "\`\`\`text"
+                    git diff --stat "$base_tag..origin/master" -- cli cli/.sampo
+                    echo "\`\`\`"
+                    echo "</details>"
+                    echo
+                    echo "<details>"
+                    echo "<summary>Pending CLI changesets</summary>"
+                    echo
+                    echo "\`\`\`text"
+                    git diff --name-only "$base_tag..origin/master" -- ':(glob)cli/.sampo/changesets/*.md'
+                    echo "\`\`\`"
+                    echo "</details>"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+    release:
+        name: Prepare CLI release
+        needs: [check-changesets, cli-release-preview, notify-approval-needed]
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        if: always() && needs.check-changesets.outputs.has-changesets == 'true' && needs.cli-release-preview.result == 'success'
+        environment: Release SDK
+        permissions:
+            contents: write
+        outputs:
+            new-version: ${{ steps.prepare-release.outputs.new-version }}
+            release-tag: ${{ steps.release-metadata.outputs.release-tag }}
+            release-commit: ${{ steps.commit-release.outputs.commit-hash }}
+        steps:
+            - name: Notify Slack - Approved
+              if: needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Release approved. Preparing posthog-cli version bump.'
+                  emoji_reaction: 'white_check_mark'
+
+            - name: Get GitHub App token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_POSTHOG_CLI_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_POSTHOG_CLI_RELEASER_PRIVATE_KEY }}
+
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: master
+                  fetch-depth: 0
+                  filter: blob:none
+                  token: ${{ steps.app-token.outputs.token }}
+
+            - name: Update to latest master before preparing release
+              run: git pull --ff-only origin master
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+
+            - name: Cache Sampo CLI
+              id: cache-sampo
+              uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+              with:
+                  path: ~/.cargo/bin/sampo
+                  key: sampo-${{ runner.os }}-${{ runner.arch }}-${{ env.SAMPO_VERSION }}
+
+            - name: Install Sampo CLI
+              if: steps.cache-sampo.outputs.cache-hit != 'true'
+              run: cargo install sampo --version "$SAMPO_VERSION" --locked
+
+            - name: Prepare release with Sampo
+              id: prepare-release
+              working-directory: cli
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  sampo release
+                  new_version=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+
+                  # Sampo regenerates the whole lockfile; keep the release bump scoped to the local package version.
+                  git restore Cargo.lock
+                  cargo update -p posthog-cli --precise "$new_version"
+                  cargo metadata --format-version 1 --no-deps > /dev/null
+
+                  echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
+                  echo "Prepared posthog-cli v$new_version"
+
+            - name: Check release tag
+              env:
+                  NEW_VERSION: ${{ steps.prepare-release.outputs.new-version }}
+              run: |
+                  release_tag="posthog-cli/v$NEW_VERSION"
+                  if git ls-remote --exit-code --tags origin "refs/tags/$release_tag" >/dev/null 2>&1; then
+                      echo "::error::Tag $release_tag already exists"
+                      exit 1
+                  fi
+
+            - name: Check release changes
+              id: check-changes
+              run: |
+                  changed_files=$(git diff --name-only)
+                  if [ -z "$changed_files" ]; then
+                      echo "::error::Sampo did not produce any release changes"
+                      exit 1
+                  fi
+
+                  unexpected=$(echo "$changed_files" | grep -Ev '^(cli/Cargo\.toml|cli/Cargo\.lock|cli/CHANGELOG\.md|cli/\.sampo/changesets/[^/]+\.md)$' || true)
+                  if [ -n "$unexpected" ]; then
+                      echo "::error::Unexpected files changed during CLI release prep:"
+                      echo "$unexpected"
+                      exit 1
+                  fi
+
+                  if ! echo "$changed_files" | grep -qx 'cli/Cargo.lock'; then
+                      echo "::error::CLI release prep did not update cli/Cargo.lock"
+                      exit 1
+                  fi
+
+                  echo "committed=true" >> "$GITHUB_OUTPUT"
+
+            - name: Ensure master did not advance during release prep
+              run: |
+                  git fetch origin master
+                  if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+                      echo "::error::master advanced while preparing the CLI release. Re-run the workflow so the release includes the latest changesets."
+                      exit 1
+                  fi
+
+            - name: Commit release changes
+              id: commit-release
+              if: steps.check-changes.outputs.committed == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore(cli): release v${{ steps.prepare-release.outputs.new-version }}'
+                  repo: ${{ github.repository }}
+                  branch: master
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+            - name: Sync checkout to release commit
+              if: steps.commit-release.outputs.commit-hash != ''
+              env:
+                  COMMIT_HASH: ${{ steps.commit-release.outputs.commit-hash }}
+              run: |
+                  git fetch origin master
+                  git reset --hard "$COMMIT_HASH"
+
+            - name: Set release metadata
+              id: release-metadata
+              if: steps.commit-release.outputs.commit-hash != ''
+              env:
+                  NEW_VERSION: ${{ steps.prepare-release.outputs.new-version }}
+              run: |
+                  release_tag="posthog-cli/v$NEW_VERSION"
+                  echo "release-tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+            - name: Send failure event to PostHog
+              if: failure()
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
+                  event: 'posthog-cli-github-release-workflow-failure'
+                  properties: >-
+                      {
+                        "commitSha": "${{ github.sha }}",
+                        "jobStatus": "${{ job.status }}",
+                        "ref": "${{ github.ref }}",
+                        "version": "${{ steps.prepare-release.outputs.new-version }}"
+                      }
+
+            - name: Notify Slack - Failed
+              if: failure() && needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Failed to prepare posthog-cli release. View logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+                  emoji_reaction: 'x'
+
+    # Keep cargo-dist publishing in this workflow so the Release approval gates the full release path.
+    # Run 'dist plan' (or host) to determine what tasks we need to do
+    plan-release:
+        name: Plan cargo-dist release
+        needs: release
+        if: needs.release.outputs.release-commit != ''
+        runs-on: 'ubuntu-22.04'
+        timeout-minutes: 10
+        outputs:
+            val: ${{ steps.plan.outputs.manifest }}
+            tag: ${{ steps.release-vars.outputs.tag }}
+            tag-flag: ${{ steps.release-vars.outputs.tag-flag }}
+            publishing: ${{ steps.release-vars.outputs.publishing }}
+        env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.release.outputs.release-commit }}
+                  submodules: recursive
+            - name: Install dist
+              shell: bash
+              run: |
+                  installer="$RUNNER_TEMP/cargo-dist-installer.sh"
+                  curl --proto '=https' --tlsv1.2 -LsSf \
+                      "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
+                      -o "$installer"
+                  if command -v sha256sum >/dev/null 2>&1; then
+                      echo "${CARGO_DIST_INSTALLER_SHA256}  $installer" | sha256sum -c -
+                  elif command -v shasum >/dev/null 2>&1; then
+                      actual="$(shasum -a 256 "$installer" | awk '{print $1}')"
+                      if [ "$actual" != "$CARGO_DIST_INSTALLER_SHA256" ]; then
+                          echo "::error::cargo-dist installer checksum mismatch"
+                          echo "expected: $CARGO_DIST_INSTALLER_SHA256"
+                          echo "actual:   $actual"
+                          exit 1
+                      fi
+                  else
+                      echo "::error::No sha256 checksum tool available"
+                      exit 1
+                  fi
+                  sh "$installer"
+            - name: Cache dist
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: cargo-dist-cache
+                  path: ~/.cargo/bin/dist
+            - id: release-vars
+              env:
+                  RELEASE_TAG: ${{ needs.release.outputs.release-tag }}
+              run: |
+                  echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+                  echo "tag-flag=--tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+                  echo "publishing=true" >> "$GITHUB_OUTPUT"
+            - id: plan
+              env:
+                  DIST_COMMAND: host --steps=create --tag=${{ needs.release.outputs.release-tag }}
+              run: |
+                  dist $DIST_COMMAND --output-format=json > plan-dist-manifest.json
+                  echo "dist ran successfully"
+                  cat plan-dist-manifest.json
+                  echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
+            - name: 'Upload dist-manifest.json'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: artifacts-plan-dist-manifest
+                  path: plan-dist-manifest.json
+
+    # Build and packages all the platform-specific things
+    build-local-artifacts:
+        name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
+        # Let the initial task tell us to not run (currently very blunt)
+        needs:
+            - release
+            - plan-release
+        if: ${{ fromJson(needs.plan-release.outputs.val).ci.github.artifacts_matrix.include != null }}
+        strategy:
+            fail-fast: false
+            # Target platforms/runners are computed by dist in create-release.
+            # Each member of the matrix has the following arguments:
+            #
+            # - runner: the github runner
+            # - dist-args: cli flags to pass to dist
+            # - install-dist: expression to run to install dist on the runner
+            #
+            # Typically there will be:
+            # - 1 "global" task that builds universal installers
+            # - N "local" tasks that build each platform's binaries and platform-specific installers
+            matrix: ${{ fromJson(needs.plan-release.outputs.val).ci.github.artifacts_matrix }}
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 30
+        container: ${{ matrix.container && matrix.container.image || null }}
+        env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+            BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
+        steps:
+            - name: enable windows longpaths
+              run: |
+                  git config --global core.longpaths true
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.release.outputs.release-commit }}
+                  submodules: recursive
+            - name: Install Rust
+              if: ${{ matrix.container }}
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+            - name: Install dist
+              shell: bash
+              run: |
+                  installer="$RUNNER_TEMP/cargo-dist-installer.sh"
+                  curl --proto '=https' --tlsv1.2 -LsSf \
+                      "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
+                      -o "$installer"
+                  if command -v sha256sum >/dev/null 2>&1; then
+                      echo "${CARGO_DIST_INSTALLER_SHA256}  $installer" | sha256sum -c -
+                  elif command -v shasum >/dev/null 2>&1; then
+                      actual="$(shasum -a 256 "$installer" | awk '{print $1}')"
+                      if [ "$actual" != "$CARGO_DIST_INSTALLER_SHA256" ]; then
+                          echo "::error::cargo-dist installer checksum mismatch"
+                          echo "expected: $CARGO_DIST_INSTALLER_SHA256"
+                          echo "actual:   $actual"
+                          exit 1
+                      fi
+                  else
+                      echo "::error::No sha256 checksum tool available"
+                      exit 1
+                  fi
+                  sh "$installer"
+            # Get the dist-manifest
+            - name: Fetch local artifacts
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: artifacts-*
+                  path: target/distrib/
+                  merge-multiple: true
+            - name: Install dependencies
+              run: |
+                  ${{ matrix.packages_install }}
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+            - name: Fix node-gyp permissions
+              # This job also runs on the Windows runner, where the default
+              # shell is PowerShell and `find` resolves to Windows FIND.exe.
+              # Force bash (git-bash) so find/chmod are the Unix tools.
+              shell: bash
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+            - name: Setup Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+            - name: Install API CLI dependencies
+              run: pnpm --filter '@posthog/mcp...' install --frozen-lockfile
+            - name: Build API CLI release bundle
+              run: pnpm --dir services/mcp run build:cli:release
+            - name: Verify API CLI release bundle
+              run: |
+                  node -e "const { existsSync, statSync } = require('node:fs'); const path = 'cli/lib/posthog-api-cli.mjs'; if (!existsSync(path) || statSync(path).size <= 0) { console.error('::error::API CLI bundle is missing or empty: ' + path); process.exit(1); }"
+            - name: Build artifacts
+              run: |
+                  # Actually do builds and make zips and whatnot
+                  dist build ${{ needs.plan-release.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
+                  echo "dist ran successfully"
+            - name: Verify API CLI bundle in local artifacts
+              shell: bash
+              run: |
+                  shopt -s nullglob
+                  bundles=(target/distrib/posthog-cli-*/lib/posthog-api-cli.mjs)
+                  if [ "${#bundles[@]}" -eq 0 ]; then
+                      echo "::error::No API CLI bundle found in cargo-dist local artifacts"
+                      exit 1
+                  fi
+                  for bundle in "${bundles[@]}"; do
+                      if [ ! -s "$bundle" ]; then
+                          echo "::error::API CLI bundle is empty: $bundle"
+                          exit 1
+                      fi
+                  done
+            - id: cargo-dist
+              name: Post-build
+              # We force bash here just because github makes it really hard to get values up
+              # to "real" actions without writing to env-vars, and writing to env-vars has
+              # inconsistent syntax between shell and powershell.
+              shell: bash
+              run: |
+                  # Parse out what we just built and upload it to scratch storage
+                  echo "paths<<EOF" >> "$GITHUB_OUTPUT"
+                  dist print-upload-files-from-manifest --manifest dist-manifest.json >> "$GITHUB_OUTPUT"
+                  echo "EOF" >> "$GITHUB_OUTPUT"
+
+                  cp dist-manifest.json "$BUILD_MANIFEST_NAME"
+            - name: 'Upload artifacts'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: artifacts-build-local-${{ join(matrix.targets, '_') }}
+                  path: |
+                      ${{ steps.cargo-dist.outputs.paths }}
+                      ${{ env.BUILD_MANIFEST_NAME }}
+
+    # Build and package all the platform-agnostic(ish) things
+    build-global-artifacts:
+        needs:
+            - release
+            - plan-release
+            - build-local-artifacts
+        if: ${{ needs.build-local-artifacts.result == 'success' }}
+        runs-on: 'ubuntu-22.04'
+        timeout-minutes: 15
+        env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
+            POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.release.outputs.release-commit }}
+                  submodules: recursive
+            - name: Install cached dist
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: cargo-dist-cache
+                  path: ~/.cargo/bin/
+            - run: chmod +x ~/.cargo/bin/dist
+            # Get all the local artifacts for the global tasks to use (for e.g. checksums)
+            - name: Fetch local artifacts
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: artifacts-*
+                  path: target/distrib/
+                  merge-multiple: true
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+            - name: Setup Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+            - name: Install API CLI dependencies
+              run: pnpm --filter '@posthog/mcp...' install --frozen-lockfile
+            - name: Build API CLI release bundle
+              run: pnpm --dir services/mcp run build:cli:release
+            - name: Verify API CLI release bundle
+              run: |
+                  node -e "const { existsSync, statSync } = require('node:fs'); const path = 'cli/lib/posthog-api-cli.mjs'; if (!existsSync(path) || statSync(path).size <= 0) { console.error('::error::API CLI bundle is missing or empty: ' + path); process.exit(1); }"
+            - id: cargo-dist
+              shell: bash
+              run: |
+                  dist build ${{ needs.plan-release.outputs.tag-flag }} --output-format=json "--artifacts=global" > dist-manifest.json
+                  echo "dist ran successfully"
+
+                  # Parse out what we just built and upload it to scratch storage
+                  echo "paths<<EOF" >> "$GITHUB_OUTPUT"
+                  jq --raw-output ".upload_files[]" dist-manifest.json >> "$GITHUB_OUTPUT"
+                  echo "EOF" >> "$GITHUB_OUTPUT"
+
+                  cp dist-manifest.json "$BUILD_MANIFEST_NAME"
+            - name: 'Upload artifacts'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: artifacts-build-global
+                  path: |
+                      ${{ steps.cargo-dist.outputs.paths }}
+                      ${{ env.BUILD_MANIFEST_NAME }}
+
+    # Determines if we should publish/announce
+    host-release:
+        needs:
+            - release
+            - plan-release
+            - build-local-artifacts
+            - build-global-artifacts
+        # Only run if we're "publishing", and only if local and global didn't fail (skipped is fine)
+        if: ${{ always() && needs.plan-release.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
+        runs-on: 'ubuntu-22.04'
+        timeout-minutes: 15
+        outputs:
+            val: ${{ steps.host.outputs.manifest }}
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.release.outputs.release-commit }}
+                  submodules: recursive
+                  token: ${{ steps.app-token.outputs.token }}
+            - name: Install cached dist
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: cargo-dist-cache
+                  path: ~/.cargo/bin/
+            - run: chmod +x ~/.cargo/bin/dist
+            # Fetch artifacts from scratch-storage
+            - name: Fetch artifacts
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: artifacts-*
+                  path: target/distrib/
+                  merge-multiple: true
+            - id: host
+              shell: bash
+              run: |
+                  dist host ${{ needs.plan-release.outputs.tag-flag }} --steps=upload --steps=release --output-format=json > dist-manifest.json
+                  echo "artifacts uploaded and released successfully"
+                  cat dist-manifest.json
+                  echo "manifest=$(jq -c "." dist-manifest.json)" >> "$GITHUB_OUTPUT"
+            - name: 'Upload dist-manifest.json'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  # Overwrite the previous copy
+                  name: artifacts-dist-manifest
+                  path: dist-manifest.json
+            # Create a GitHub Release while uploading all files to it
+            - name: 'Download GitHub Artifacts'
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: artifacts-*
+                  path: artifacts
+                  merge-multiple: true
+            - name: Cleanup
+              run: |
+                  # Remove the granular manifests
+                  rm -f artifacts/*-dist-manifest.json
+            - name: Create GitHub Release
+              shell: bash
+              env:
+                  PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
+                  ANNOUNCEMENT_TITLE: '${{ fromJson(steps.host.outputs.manifest).announcement_title }}'
+                  ANNOUNCEMENT_BODY: '${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}'
+                  RELEASE_COMMIT: '${{ needs.release.outputs.release-commit }}'
+                  LATEST_RELEASE_TAG: posthog-cli-latest
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  # Write and read notes from a file to avoid quoting breaking things
+                  echo "$ANNOUNCEMENT_BODY" > "$RUNNER_TEMP/notes.txt"
+                  release_args=()
+                  if [ -n "$PRERELEASE_FLAG" ]; then
+                      release_args+=("$PRERELEASE_FLAG")
+                  fi
+
+                  gh release create "${{ needs.plan-release.outputs.tag }}" --target "$RELEASE_COMMIT" "${release_args[@]}" --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+
+                  if [ -z "$PRERELEASE_FLAG" ]; then
+                      STAGED_RELEASE_TAG="$LATEST_RELEASE_TAG-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+                      gh release delete "$STAGED_RELEASE_TAG" --yes --cleanup-tag || true
+                      gh release create "$STAGED_RELEASE_TAG" \
+                          --target "$RELEASE_COMMIT" \
+                          --title "posthog-cli latest (staged)" \
+                          --notes "Staged replacement for $LATEST_RELEASE_TAG; same as ${{ needs.plan-release.outputs.tag }}" \
+                          --latest=false \
+                          artifacts/*
+
+                      gh release view "$STAGED_RELEASE_TAG" --json assets --jq '.assets[].name' | grep -qx 'posthog-cli-installer.sh'
+
+                      gh release delete "$LATEST_RELEASE_TAG" --yes --cleanup-tag || true
+                      gh release edit "$STAGED_RELEASE_TAG" \
+                          --tag "$LATEST_RELEASE_TAG" \
+                          --target "$RELEASE_COMMIT" \
+                          --title "posthog-cli latest" \
+                          --notes "Same as ${{ needs.plan-release.outputs.tag }}" \
+                          --latest=false
+                      git push origin ":refs/tags/$STAGED_RELEASE_TAG" || true
+                  else
+                      echo "Skipping $LATEST_RELEASE_TAG update for prerelease ${{ needs.plan-release.outputs.tag }}"
+                  fi
+
+    publish-npm:
+        needs:
+            - release
+            - plan-release
+            - host-release
+        runs-on: 'ubuntu-22.04'
+        timeout-minutes: 10
+        env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            PLAN: ${{ needs.plan-release.outputs.val }}
+        if: ${{ !fromJson(needs.plan-release.outputs.val).announcement_is_prerelease || fromJson(needs.plan-release.outputs.val).publish_prereleases }}
+        permissions:
+            id-token: write
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.release.outputs.release-commit }}
+                  sparse-checkout: .nvmrc
+                  sparse-checkout-cone-mode: false
+            - name: Fetch npm packages
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: artifacts-*
+                  path: npm/
+                  merge-multiple: true
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  registry-url: 'https://registry.npmjs.org'
+            - name: Ensure modern npm (OIDC support)
+              run: npm install -g npm@11.6.4
+            - run: |
+                  for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)'); do
+                    pkg=$(echo "$release" | jq '.artifacts[] | select(endswith("-npm-package.tar.gz"))' --raw-output)
+                    npm publish --access public "./npm/${pkg}"
+                  done
+              env:
+                  NPM_CONFIG_PROVENANCE: true
+                  NODE_AUTH_TOKEN: ''
+
+    notify-released:
+        name: Notify Slack - Release Published
+        needs: [notify-approval-needed, release, host-release, publish-npm]
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: always() && needs.host-release.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') && needs.notify-approval-needed.outputs.slack_ts != ''
+        steps:
+            - name: Notify Slack - Release Published
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'posthog-cli release ${{ needs.release.outputs.new-version }} published for ${{ needs.release.outputs.release-tag }}.'
+                  emoji_reaction: 'rocket'

@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
-from ee.models.assistant import CORE_MEMORY_MAX_CHARACTERS, CoreMemory
+from products.posthog_ai.backend.models.assistant import CORE_MEMORY_MAX_CHARACTERS, CoreMemory
 
 
 class TestCoreMemory(BaseTest):

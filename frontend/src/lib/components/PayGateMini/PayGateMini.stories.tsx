@@ -71,6 +71,10 @@ export const PayGateMiniGrandfathered: Story = {
     args: { feature: AvailableFeature.SUBSCRIPTIONS, isGrandfathered: true },
 }
 
+export const PayGateMiniHighFrequencyAlerts: Story = {
+    args: { feature: AvailableFeature.HIGH_FREQUENCY_ALERTS },
+}
+
 export const PayGateMiniAddon: Story = {
     args: { feature: AvailableFeature.GROUP_ANALYTICS },
 }

@@ -32,6 +32,7 @@ from posthog.passkey import (
     verify_passkey_registration_response,
 )
 from posthog.rate_limit import WebAuthnSignupRegistrationThrottle
+from posthog.session.activity import revoke_other_sessions_for_request
 from posthog.tasks.email import send_passkey_added_email, send_passkey_removed_email
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
@@ -752,6 +753,11 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
             credential.save()
 
             send_passkey_added_email.delay(user.id)
+
+            # The first passkey is a new login factor — revoke other sessions so the current device
+            # establishes the new posture.
+            if WebauthnCredential.objects.filter(user=user, verified=True).count() == 1:
+                revoke_other_sessions_for_request(request, user)
 
             logger.info("webauthn_credential_verify_complete", user_id=user.pk, credential_id=credential.pk)
 

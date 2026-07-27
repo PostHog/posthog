@@ -1,5 +1,5 @@
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.signals.eval.data_spec import ERROR_TRACKING, EvalGroupSpec, EvalSignalSpec
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 Z = ExternalDataSourceType.ZENDESK
 G = ExternalDataSourceType.GITHUB

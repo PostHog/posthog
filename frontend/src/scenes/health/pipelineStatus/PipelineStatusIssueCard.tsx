@@ -1,7 +1,7 @@
 import { IconDatabase, IconPlug, IconRevert, IconServer, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { urls } from 'scenes/urls'
 
 import type { DataHealthIssue } from './pipelineHealthLogic'

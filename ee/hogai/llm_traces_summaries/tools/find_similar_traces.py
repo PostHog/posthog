@@ -15,6 +15,9 @@ from posthog.schema import (
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
 from posthog.models.team.team import Team
+from posthog.models.user import User
+
+from products.ai_observability.backend.models.llm_traces_summaries import LLMTraceSummary
 
 from ee.hogai.llm_traces_summaries.constants import (
     LLM_TRACES_SUMMARIES_DOCUMENT_TYPE,
@@ -22,16 +25,19 @@ from ee.hogai.llm_traces_summaries.constants import (
     LLM_TRACES_SUMMARIES_SEARCH_QUERY_DOCUMENT_TYPE,
 )
 from ee.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
-from ee.models.llm_traces_summaries import LLMTraceSummary
 
 logger = structlog.get_logger(__name__)
 
 
 class LLMTracesSummarizerFinder:
     def __init__(
-        self, team: Team, embedding_model_name: EmbeddingModelName = EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072
+        self,
+        team: Team,
+        user: User | None = None,
+        embedding_model_name: EmbeddingModelName = EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072,
     ):
         self._team = team
+        self._user = user
         self._embedding_model_name = embedding_model_name
 
     def find_top_similar_traces_for_query(
@@ -66,7 +72,7 @@ class LLMTracesSummarizerFinder:
                 timestamp=embedding_timestamp,
             ),
         )
-        runner = DocumentEmbeddingsQueryRunner(query=similarity_query, team=self._team)
+        runner = DocumentEmbeddingsQueryRunner(query=similarity_query, team=self._team, user=self._user)
         response = runner.run(analytics_props={"source": EventSource.POSTHOG_AI})
         if not isinstance(response, CachedDocumentSimilarityQueryResponse):
             raise ValueError(

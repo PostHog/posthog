@@ -38,6 +38,8 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         activity: list[dict] = activity_response.json()["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
 
         self.maxDiff = None
         assert activity == expected
@@ -79,6 +81,19 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
                 {"some": "kind", "of": "tip", "tap": "content"},
                 "some kind of tip tap content",
             ),
+            (
+                "with_markdown_content",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-markdown-notebook",
+                            "attrs": {"nodeId": "markdown-notebook-v2", "markdown": "# Test\n\nBody"},
+                        }
+                    ],
+                },
+                "# Test\n\nBody",
+            ),
         ]
     )
     def test_create_a_notebook(self, _, content: dict | None, text_content: str | None) -> None:
@@ -87,26 +102,55 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             data={"content": content, "text_content": text_content},
         )
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json() == {
-            "id": response.json()["id"],
-            "short_id": response.json()["short_id"],
+        response_json = response.json()
+        assert response_json == {
+            "id": response_json["id"],
+            "short_id": response_json["short_id"],
             "content": content,
             "text_content": text_content,
             "title": None,
             "version": 0,
-            "created_at": mock.ANY,
-            "created_by": response.json()["created_by"],
+            "created_at": response_json["created_at"],
+            "created_by": response_json["created_by"],
             "deleted": False,
-            "last_modified_at": mock.ANY,
-            "last_modified_by": response.json()["last_modified_by"],
+            "last_modified_at": response_json["last_modified_at"],
+            "last_modified_by": response_json["last_modified_by"],
             "user_access_level": "manager",
+            "parent_resource": None,
         }
 
         self.assert_notebook_activity(
             [
-                self.created_activity(item_id=response.json()["short_id"], short_id=response.json()["short_id"]),
+                self.created_activity(item_id=response_json["short_id"], short_id=response_json["short_id"]),
             ],
         )
+
+    @parameterized.expand(
+        [
+            ("legacy_rich_text", {"some": "kind", "of": "tip", "tap": "content"}, None),
+            (
+                "markdown_notebook",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-markdown-notebook",
+                            "attrs": {"nodeId": "markdown-notebook-v2", "markdown": "# Test\n\nBody"},
+                        }
+                    ],
+                },
+                "# Test\n\nBody",
+            ),
+        ]
+    )
+    def test_gets_notebook_markdown_by_shortid(self, _, content: dict, expected_markdown: str | None) -> None:
+        create_response = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={"content": content})
+        short_id = create_response.json()["short_id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{short_id}/markdown")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"markdown": expected_markdown}
 
     def test_gets_individual_notebook_by_shortid(self) -> None:
         create_response = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={})
@@ -191,6 +235,98 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         # out of the box this is accepted _and_ ignored 🤷‍♀️
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["short_id"] == notebook["short_id"]
+
+    def test_create_notebook_unwraps_insight_viz_node_wrapping_sql_chart(self) -> None:
+        # Real-world bug: AI agents constructing notebook JSON via the MCP API have wrapped
+        # SQL charts in an InsightVizNode shell. The notebook then renders blank because the
+        # frontend treats it as an insight viz and chokes on the inner DataVisualizationNode.
+        # The server should auto-unwrap to the correct top-level DataVisualizationNode.
+        bad_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "nodeId": "n1",
+                        "query": {
+                            "kind": "InsightVizNode",
+                            "source": {
+                                "kind": "DataVisualizationNode",
+                                "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+                                "display": "ActionsBar",
+                            },
+                        },
+                    },
+                },
+            ],
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            data={"content": bad_content},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        stored_query = response.json()["content"]["content"][0]["attrs"]["query"]
+        assert stored_query == {
+            "kind": "DataVisualizationNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+            "display": "ActionsBar",
+        }
+
+    def test_create_notebook_rejects_insight_viz_wrapping_unknown_kind(self) -> None:
+        bad_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "nodeId": "n1",
+                        "query": {
+                            "kind": "InsightVizNode",
+                            "source": {"kind": "DefinitelyNotAQuery"},
+                        },
+                    },
+                },
+            ],
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            data={"content": bad_content},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "content"
+        assert "DefinitelyNotAQuery" in body["detail"]
+
+    def test_update_notebook_normalizes_invalid_query_node(self) -> None:
+        create = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={})
+        short_id = create.json()["short_id"]
+        version = create.json()["version"]
+
+        bad_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "nodeId": "n1",
+                        "query": {
+                            "kind": "InsightVizNode",
+                            "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+                        },
+                    },
+                },
+            ],
+        }
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{short_id}",
+            {"content": bad_content, "version": version},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        stored_query = response.json()["content"]["content"][0]["attrs"]["query"]
+        assert stored_query == {
+            "kind": "DataVisualizationNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+        }
 
     def test_python_node_static_analysis(self) -> None:
         content = {

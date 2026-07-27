@@ -1,10 +1,57 @@
 # Marketing Analytics Utility Functions
 
+from typing import Any
+
 import structlog
+from pydantic import BaseModel
 
 from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3, NodeKind
 
+from posthog.hogql import ast
+
 logger = structlog.get_logger(__name__)
+
+
+def build_source_normalization_expr(source_expr: ast.Expr, source_mappings: dict[str, list[str]]) -> ast.Expr:
+    """Map alternative UTM sources onto their primary source ('YouTube' -> 'google'), case-insensitively.
+
+    Shared by the conversion-goal side and the sessions side so both collapse a source the same way —
+    otherwise the two sides of the join would disagree on what 'youtube' is and split into two rows.
+    """
+    lowercase_source = ast.Call(name="lower", args=[source_expr])
+    normalized_expr = source_expr
+
+    # Known gap: the primary is excluded from its own alternatives, so a differently-cased spelling
+    # of it ("Google") passes through unnormalized while the cost side emits "google" — the same
+    # source then splits into two rows. Fixing it changes the SQL at every drill-down level, so it
+    # belongs in its own change.
+    for primary_source, alternative_sources in source_mappings.items():
+        alternatives_only = [s.lower() for s in alternative_sources if s != primary_source]
+        if not alternatives_only:
+            continue
+        normalized_expr = ast.Call(
+            name="if",
+            args=[
+                ast.Call(
+                    name="in",
+                    args=[
+                        lowercase_source,
+                        ast.Array(exprs=[ast.Constant(value=alt) for alt in alternatives_only]),
+                    ],
+                ),
+                ast.Constant(value=primary_source),
+                normalized_expr,
+            ],
+        )
+
+    return normalized_expr
+
+
+def _filter_to_model_fields(goal_dict: dict[str, Any], model: type[BaseModel]) -> dict[str, Any]:
+    """Keep only keys the target pydantic model declares, so extra fields (e.g. data-warehouse-only
+    fields on a saved goal) don't trip the model's ``extra="forbid"`` validation."""
+    allowed = model.model_fields.keys()
+    return {key: value for key, value in goal_dict.items() if key in allowed}
 
 
 def convert_team_conversion_goals_to_objects(
@@ -33,26 +80,27 @@ def convert_team_conversion_goals_to_objects(
             converted_goal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3
             if kind == NodeKind.EVENTS_NODE:
                 # EventsNode doesn't need special field mapping
-                converted_goal = ConversionGoalFilter1(**cleaned_goal_dict)
+                converted_goal = ConversionGoalFilter1(
+                    **_filter_to_model_fields(cleaned_goal_dict, ConversionGoalFilter1)
+                )
             elif kind == NodeKind.ACTIONS_NODE:
-                # ActionsNode doesn't allow 'event' field - remove it
-                if "event" in cleaned_goal_dict:
-                    del cleaned_goal_dict["event"]
-                converted_goal = ConversionGoalFilter2(**cleaned_goal_dict)
+                converted_goal = ConversionGoalFilter2(
+                    **_filter_to_model_fields(cleaned_goal_dict, ConversionGoalFilter2)
+                )
             elif kind == NodeKind.DATA_WAREHOUSE_NODE:
-                # DataWarehouseNode doesn't allow 'event' field - remove it
-                if "event" in cleaned_goal_dict:
-                    del cleaned_goal_dict["event"]
-
                 # ConversionGoalFilter3 expects both id_field and distinct_id_field
                 if "distinct_id_field" in cleaned_goal_dict and "id_field" not in cleaned_goal_dict:
                     cleaned_goal_dict["id_field"] = cleaned_goal_dict["distinct_id_field"]
                     # Keep distinct_id_field as it's also required
 
-                converted_goal = ConversionGoalFilter3(**cleaned_goal_dict)
+                converted_goal = ConversionGoalFilter3(
+                    **_filter_to_model_fields(cleaned_goal_dict, ConversionGoalFilter3)
+                )
             else:
                 # Default to EventsNode
-                converted_goal = ConversionGoalFilter1(**cleaned_goal_dict)
+                converted_goal = ConversionGoalFilter1(
+                    **_filter_to_model_fields(cleaned_goal_dict, ConversionGoalFilter1)
+                )
 
             converted_goals.append(converted_goal)
 

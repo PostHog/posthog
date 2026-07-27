@@ -27,8 +27,9 @@ pub enum FormatConfig {
     },
 }
 
-pub type ParserFn =
-    Box<dyn Fn(Vec<u8>) -> Result<Parsed<Vec<InternallyCapturedEvent>>, Error> + Send + Sync>;
+pub type ParserFnFor<T> = Box<dyn Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error> + Send + Sync>;
+
+pub type ParserFn = ParserFnFor<InternallyCapturedEvent>;
 
 impl FormatConfig {
     pub async fn get_parser(
@@ -91,16 +92,17 @@ impl FormatConfig {
                 let parser = move |data| {
                     let parsed: Parsed<Vec<AmplitudeEvent>> = format_parse(data)?;
                     let consumed = parsed.consumed;
-                    let result: Vec<_> = parsed
-                        .data
-                        .into_par_iter()
-                        .map(&event_transform)
-                        .filter_map(|x| x.ok())
-                        .flatten()
-                        .collect();
+                    // Propagate the first transform error rather than silently
+                    // dropping events (matches the Mixpanel/Captured paths).
+                    // Each Amplitude input event may produce multiple output
+                    // events (the event itself plus optional identify and group
+                    // identify events), so we collect into Vec<Vec<_>> and
+                    // flatten after the error check.
+                    let result: Result<Vec<Vec<_>>, Error> =
+                        parsed.data.into_par_iter().map(&event_transform).collect();
 
                     Ok(Parsed {
-                        data: result,
+                        data: result?.into_iter().flatten().collect(),
                         consumed,
                     })
                 };
@@ -138,7 +140,30 @@ pub fn newline_delim<T: Send>(
     skip_blank_lines: bool,
     inner: impl Fn(&str) -> Result<T, Error> + Sync,
 ) -> impl Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error> {
+    newline_delim_lines(skip_blank_lines, move |line, _is_complete| inner(line))
+}
+
+/// Like [`newline_delim`], but the inner closure also receives whether the line
+/// was newline-terminated (`true`) or is the chunk's trailing remainder
+/// (`false`). The remainder is usually a line split at the chunk boundary, so an
+/// error-tolerant parser (the trial path) must still return `Err` for it — that
+/// leaves it unconsumed for the next chunk to re-read — while recording parse
+/// errors on complete lines inline instead of failing the whole chunk.
+pub fn newline_delim_lines<T: Send>(
+    skip_blank_lines: bool,
+    inner: impl Fn(&str, bool) -> Result<T, Error> + Sync,
+) -> impl Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error> {
     move |data: Vec<u8>| {
+        // A zero-length chunk (e.g. a read at or past the end of a part) has nothing
+        // to consume. Reporting any consumed bytes for it would advance the caller's
+        // offset past real data, so it could never converge on the part's end.
+        if data.is_empty() {
+            return Ok(Parsed {
+                data: Vec::new(),
+                consumed: 0,
+            });
+        }
+
         let mut cursor = 0;
         let mut last_consumed_byte = 0;
 
@@ -169,13 +194,18 @@ pub fn newline_delim<T: Send>(
         // Sometimes we've split the file on a utf8 character boundary, and the last line is incomplete not just as
         // a line that can be fed to the inner parser, but as a utf8 string in general. If that's the case, just set
         // the remainder to be empty, and we can handle it in the next chunk.
-        let remainder = std::str::from_utf8(&data[last_consumed_byte..]).unwrap_or("");
-        let remainder = inner(remainder);
+        let remainder_str = std::str::from_utf8(&data[last_consumed_byte..]).ok();
+        // A blank remainder (e.g. a chunk ending in "\n" or trailing blank lines at the
+        // end of a part) has nothing to parse. When blank lines are skippable, count it
+        // as consumed so the caller's offset can reach the end of the part - at the end
+        // of a stream-decompressed part there is no next chunk to re-read it from.
+        let remainder_is_blank = remainder_str.is_some_and(|r| r.trim().is_empty());
+        let remainder = remainder_str.map(|r| inner(r, false));
 
         let mut output = Vec::with_capacity(lines.len());
         let intermediate: Vec<_> = lines
             .into_par_iter()
-            .map(|(end_byte_idx, line)| (end_byte_idx, inner(line)))
+            .map(|(end_byte_idx, line)| (end_byte_idx, inner(line, true)))
             .collect();
 
         drop(data);
@@ -197,10 +227,12 @@ pub fn newline_delim<T: Send>(
 
         // If we managed to parse the last line, add it too, but if we didn't, assume it's due to this chunk being partway through the file,
         // and carry on.
-        if let Ok(parsed) = remainder {
+        if let Some(Ok(parsed)) = remainder {
             output.push(parsed);
             // -1 because at this point the cursor is pointing at the end of the data,
             // and we want to point at the last byte we actually consumed
+            last_validly_consumed_byte = cursor - 1;
+        } else if skip_blank_lines && remainder_is_blank {
             last_validly_consumed_byte = cursor - 1;
         }
 
@@ -435,6 +467,57 @@ mod tests {
         assert_eq!(parsed.data.len(), 1);
         // 26 "data" characters, plus the newline
         assert_eq!(parsed.consumed, 27);
+    }
+
+    #[test]
+    fn test_newline_delim_empty_input_consumes_nothing() {
+        // An empty chunk (e.g. a streaming source read past EOF) must report zero
+        // bytes consumed. Reporting consumed > 0 for empty input makes the job's
+        // part offset overshoot the part's total size and the job crawls forever.
+        let parsed = json_nd::<TestData>(true)(Vec::new()).unwrap();
+        assert!(parsed.data.is_empty());
+        assert_eq!(
+            parsed.consumed, 0,
+            "empty input must consume 0 bytes, got {}",
+            parsed.consumed
+        );
+    }
+
+    #[test]
+    fn test_newline_delim_blank_trailing_remainder() {
+        // A part's final chunk can end in blank content ("\n", trailing blank
+        // lines). With skip_blank_lines the blanks must count as consumed so the
+        // offset can reach the end of the part - at the end of a stream-decompressed
+        // part there is no next chunk to re-read them from.
+        let line = br#"{"id": 1, "name": "test1"}"#;
+        for tail in [b"\n\n".as_slice(), b"\n\n\n", b"\n \n"] {
+            let mut data = line.to_vec();
+            data.extend_from_slice(tail);
+            let len = data.len();
+
+            let parsed = json_nd::<TestData>(true)(data).unwrap();
+            assert_eq!(parsed.data.len(), 1, "tail {tail:?}");
+            assert_eq!(
+                parsed.consumed, len,
+                "blank tail {tail:?} must be fully consumed"
+            );
+        }
+
+        // Without skip_blank_lines a blank line is still an error, preserving the
+        // "blank lines in input should fail the inner parser" contract.
+        let mut data = line.to_vec();
+        data.extend_from_slice(b"\n\n");
+        assert!(json_nd::<TestData>(false)(data).is_err());
+
+        // An invalid-utf8 tail is not "blank" - it must be left unconsumed for the
+        // next chunk, exactly as before.
+        let mut data = line.to_vec();
+        data.extend_from_slice(b"\n{\"id\": 2, \"name\": \"\xf0\x9f");
+        let len = data.len();
+        let parsed = json_nd::<TestData>(true)(data).unwrap();
+        assert_eq!(parsed.data.len(), 1);
+        assert_eq!(parsed.consumed, line.len() + 1);
+        assert!(parsed.consumed < len);
     }
 
     #[test]

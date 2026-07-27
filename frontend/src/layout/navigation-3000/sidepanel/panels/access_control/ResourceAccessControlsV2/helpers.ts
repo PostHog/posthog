@@ -1,4 +1,4 @@
-import { toSentenceCase } from 'lib/utils'
+import { toSentenceCase } from 'lib/utils/strings'
 
 import { APIScopeObject, AccessControlLevel } from '~/types'
 
@@ -50,6 +50,32 @@ export function isRoleEntry(entry: AccessControlSettingsEntry): entry is AccessC
 
 export function isMemberEntry(entry: AccessControlSettingsEntry): entry is AccessControlMemberEntry {
     return 'organization_membership_id' in entry
+}
+
+export interface AccessSummaryTag {
+    resource: string
+    level: string
+}
+
+/** Builds the "Access" column tags for a role/member entry, excluding resources whose
+ * product isn't rolled out to the current user even if a stale access level exists for it. */
+export function getAccessSummaryTags(
+    entry: AccessControlSettingsEntry,
+    visibleResources: Set<APIScopeObject>
+): AccessSummaryTag[] {
+    const tags: AccessSummaryTag[] = []
+
+    if (entry.project.effective_access_level !== null) {
+        tags.push({ resource: 'project', level: entry.project.effective_access_level })
+    }
+
+    for (const [resource, resourceEntry] of Object.entries(entry.resources)) {
+        if (resourceEntry.effective_access_level !== null && visibleResources.has(resource as APIScopeObject)) {
+            tags.push({ resource, level: resourceEntry.effective_access_level })
+        }
+    }
+
+    return tags
 }
 
 export function getEntryId(entry: AccessControlSettingsEntry): string {

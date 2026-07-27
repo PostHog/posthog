@@ -10,7 +10,7 @@ import { experimentsLogic } from './experimentsLogic'
 export function ExperimentVelocityStats(): JSX.Element | null {
     const { experimentsStats, experimentsStatsLoading } = useValues(experimentsLogic)
 
-    if (experimentsStatsLoading) {
+    if (experimentsStatsLoading || !experimentsStats) {
         return null
     }
 

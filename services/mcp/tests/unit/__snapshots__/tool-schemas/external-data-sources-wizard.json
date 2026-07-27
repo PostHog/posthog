@@ -1,0 +1,10 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "source_type": {
+            "description": "Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

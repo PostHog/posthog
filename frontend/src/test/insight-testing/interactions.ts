@@ -1,7 +1,15 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { clickAtIndex, getHogChartTooltip, hoverAtIndex, waitForHogChartTooltip } from 'lib/hog-charts/testing'
+import {
+    clickAtIndex,
+    createDefaultTooltipAccessor,
+    type DefaultTooltipAccessor,
+    getHogChartTooltip,
+    hoverUntilTooltip,
+    waitForHogChartTooltip,
+} from '@posthog/quill-charts/testing'
+
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -142,14 +150,13 @@ export const chart = {
         index: number,
         totalLabels = trendsSeries.pageviews.labels.length
     ): Promise<InsightTooltipAccessor> {
-        const canvas = await screen.findByRole('img', { name: /chart with/i })
+        const canvas = await screen.findByLabelText(/chart with/i, {}, { timeout: DEBOUNCE_TIMEOUT })
         const wrapper = canvas.parentElement!
-        hoverAtIndex(wrapper, index, totalLabels)
-        const tooltip = await waitForHogChartTooltip()
+        const tooltip = await hoverUntilTooltip(wrapper, index, totalLabels)
         return createInsightTooltipAccessor(tooltip)
     },
     async clickAtIndex(index: number, totalLabels = trendsSeries.pageviews.labels.length): Promise<void> {
-        const canvas = await screen.findByRole('img', { name: /chart with/i })
+        const canvas = await screen.findByLabelText(/chart with/i, {}, { timeout: DEBOUNCE_TIMEOUT })
         const wrapper = canvas.parentElement!
         await clickAtIndex(wrapper, index, totalLabels)
     },
@@ -157,8 +164,23 @@ export const chart = {
      *  after `clickAtIndex` has pinned a multi-series tooltip. */
     async clickTooltipRow(label: string | RegExp): Promise<void> {
         const tooltip = await waitForHogChartTooltip()
-        const row = within(tooltip).getByText(label)
-        const clickable = row.closest('tr') ?? row
+        // Each quill tooltip row renders its label twice — a visible copy plus an aria-hidden
+        // measurement copy used for truncation layout — so match only the visible one.
+        const matches = within(tooltip).getAllByText(label)
+        const row = matches.find((el) => !el.closest('[aria-hidden="true"]')) ?? matches[0]
+        const clickable = row.closest('[data-attr="hog-chart-tooltip-row"]') ?? row.closest('tr') ?? row
         fireEvent.click(clickable)
+    },
+}
+
+/** Interactions for SQL (`DataVisualizationNode`) charts, which render quill's `DefaultTooltip`
+ *  instead of the InsightTooltip table — so the tooltip is read via quill's `createDefaultTooltipAccessor`.
+ *  `totalLabels` (the x-axis label count) is required: there's no canonical default series. */
+export const sqlChart = {
+    async hoverTooltip(index: number, totalLabels: number): Promise<DefaultTooltipAccessor> {
+        const canvas = await screen.findByLabelText(/chart with/i, {}, { timeout: DEBOUNCE_TIMEOUT })
+        const wrapper = canvas.parentElement!
+        const tooltip = await hoverUntilTooltip(wrapper, index, totalLabels)
+        return createDefaultTooltipAccessor(tooltip)
     },
 }

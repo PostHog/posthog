@@ -2,22 +2,24 @@ import json
 
 from freezegun import freeze_time
 
+from parameterized import parameterized
+
 from posthog.schema import CurrencyCode
 
+from posthog.hogql import ast
 from posthog.hogql.database.schema.test.base import RevenueAnalyticsTestBase
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.temporal.data_imports.sources.stripe.constants import (
+from products.revenue_analytics.backend.views.schemas.customer import SCHEMA as CUSTOMER_SCHEMA
+from products.revenue_analytics.backend.views.sources.stripe.customer import build
+from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
+from products.warehouse_sources.backend.facade.sources import (
     CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
 )
-
-from products.revenue_analytics.backend.views.schemas.customer import SCHEMA as CUSTOMER_SCHEMA
-from products.revenue_analytics.backend.views.sources.stripe.customer import build
-from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
 
 
 class TestCustomerStripeBuilder(StripeSourceBaseTest):
@@ -148,6 +150,31 @@ class TestCustomerStripeBuilder(StripeSourceBaseTest):
         # Check that source_label contains the expected prefix
         expected_prefix = f"stripe.{self.external_data_source.prefix}"
         self.assertIn(f"'{expected_prefix}'", query_sql)
+
+    @parameterized.expand(
+        [
+            ("customer_only", [CUSTOMER_RESOURCE_NAME]),
+            (
+                "all_schemas",
+                [CUSTOMER_RESOURCE_NAME, INVOICE_RESOURCE_NAME, SUBSCRIPTION_RESOURCE_NAME, CHARGE_RESOURCE_NAME],
+            ),
+        ]
+    )
+    def test_customer_query_deduplicates_one_row_per_id(self, _name: str, schemas: list[str]):
+        self.setup_stripe_external_data_source(schemas=schemas)
+
+        built_query = build(self.stripe_handle)
+        select = built_query.query
+        assert isinstance(select, ast.SelectQuery)
+
+        self.assertEqual(
+            select.limit_by,
+            ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["id"])]),
+        )
+        self.assertEqual(
+            select.order_by,
+            [ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+        )
 
 
 class TestCustomerStripeMetadataResolution(RevenueAnalyticsTestBase):

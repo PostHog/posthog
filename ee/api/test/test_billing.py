@@ -271,6 +271,16 @@ class TestUnlicensedBillingAPI(APIBaseTest):
             "products": create_default_products_response()["products"],
         }
 
+    def test_license_patch_denied_for_members(self):
+        # Unlicensed instance, so the permission layer (not the "license already exists"
+        # guard) decides the outcome. Setting the instance-wide license key is an
+        # admin-only action.
+        TEST_clear_instance_license_cache()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.patch("/api/billing/license", {}, content_type="application/json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
 
 class TestBillingAPI(APILicensedTest):
     def test_billing_fails_for_old_license_type(self):
@@ -570,6 +580,8 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.api.billing.requests.get")
     def test_billing_stores_valid_license(self, mock_request):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.license.delete()
 
         mock_request.return_value.status_code = 200
@@ -594,6 +606,8 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.api.billing.requests.get")
     def test_billing_ignores_invalid_license(self, mock_request):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.license.delete()
 
         mock_request.return_value.status_code = 403

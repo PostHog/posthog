@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "analysis_level": {
+            "description": "* `trace` - trace\n* `generation` - generation\n* `evaluation` - evaluation",
+            "enum": ["trace", "generation", "evaluation"],
+            "type": "string"
+        },
+        "enabled": {
+            "type": "boolean"
+        },
+        "event_filters": {},
+        "id": {
+            "description": "A UUID string identifying this clustering job.",
+            "type": "string"
+        },
+        "name": {
+            "maxLength": 100,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

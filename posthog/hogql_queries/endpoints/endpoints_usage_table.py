@@ -108,6 +108,7 @@ class EndpointsUsageTableQueryRunner(EndpointsUsageQueryRunner[EndpointsUsageTab
             query_type="endpoints_usage_table_query",
             query=self.to_query(),
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,

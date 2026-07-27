@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A unique integer value identifying this integration.",
+            "type": "number"
+        },
+        "limit": {
+            "default": 50,
+            "description": "Maximum number of channels to return per request (max 200).",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Number of channels to skip before returning results.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "search": {
+            "default": "",
+            "description": "Optional case-insensitive channel name or ID search query.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

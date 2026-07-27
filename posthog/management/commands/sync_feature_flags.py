@@ -5,7 +5,9 @@ from typing import cast
 
 from django.core.management.base import BaseCommand
 
-from posthog.models import FeatureFlag, Team, User
+from posthog.models import Team, User
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 # These flags won't be enabled when syncing feature flags
 # Turn these on for flags that heavily change the behavior and that you wouldn't like
@@ -20,11 +22,13 @@ INACTIVE_FLAGS = [
     "halloween-override",
     "christmas-override",
     "control_support_login",
+    "auth-flow-variant",
     "person-property-incident-annotation-jan-2026",
     "replay-exclude-from-hide-recordings-menu",
     "webhooks-denylist",
     "insight-horizontal-controls",
     "flagged-feature-indicator",
+    "read-only-mode",
 ]
 
 

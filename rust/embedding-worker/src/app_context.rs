@@ -64,7 +64,11 @@ impl AppContext {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
 
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(
+                config.embedding_request_timeout_seconds,
+            ))
+            .build()?;
 
         let org_cache = CacheBuilder::new(10_000)
             .time_to_live(Duration::from_secs(30))
@@ -147,24 +151,30 @@ impl AppContext {
     }
 }
 
+// leaky-bucket adds `refill` tokens once per `interval`. Refilling the whole
+// per-minute budget in a single 60s lump means a drained bucket suspends the
+// next acquire() until the minute boundary - up to ~60s - which stalls the
+// worker's liveness heartbeat and gets the pod killed. Drip the budget in small
+// sub-second increments instead, so a drained bucket only ever blocks for about
+// one interval. Long-run throughput is unchanged (still capped at the budget).
+const REFILL_INTERVAL: Duration = Duration::from_millis(100);
+const REFILLS_PER_MINUTE: usize = 600; // 60_000ms / 100ms
+
+fn build_rate_limiter(per_minute: usize) -> RateLimiter {
+    RateLimiter::builder()
+        .max(per_minute.max(1))
+        .initial(per_minute)
+        .refill((per_minute / REFILLS_PER_MINUTE).max(1))
+        .interval(REFILL_INTERVAL)
+        .build()
+}
+
 impl From<ApiLimits> for Limiter {
     fn from(definition: ApiLimits) -> Self {
-        let tokens = RateLimiter::builder()
-            .max(definition.tokens_per_minute)
-            .refill(definition.tokens_per_minute)
-            .initial(definition.tokens_per_minute)
-            .interval(Duration::from_secs(60))
-            .build();
-        let requests = RateLimiter::builder()
-            .max(definition.requests_per_minute)
-            .refill(definition.requests_per_minute)
-            .initial(definition.requests_per_minute)
-            .interval(Duration::from_secs(60))
-            .build();
         Limiter {
+            tokens: build_rate_limiter(definition.tokens_per_minute),
+            requests: build_rate_limiter(definition.requests_per_minute),
             definition,
-            tokens,
-            requests,
         }
     }
 }
@@ -205,5 +215,27 @@ impl Limiter {
         *self = new_limits.into();
 
         self.acquire(to_consume_tokens, to_consume_requests).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn drained_rate_limiter_refills_within_one_interval() {
+        // 600/min => 1 token dripped every 100ms.
+        let limiter = build_rate_limiter(600);
+
+        // Drain the full initial balance, then acquire one more token. With the old
+        // 60s-lump refill this acquire blocks until the minute boundary; with the
+        // sub-second drip it must be satisfied within roughly one interval. Paused
+        // time auto-advances to the next timer, so the 1s ceiling fails fast if the
+        // refill cadence ever regresses to ~60s.
+        limiter.acquire(600).await;
+
+        tokio::time::timeout(Duration::from_secs(1), limiter.acquire(1))
+            .await
+            .expect("drained limiter should refill within ~100ms, well under 60s");
     }
 }

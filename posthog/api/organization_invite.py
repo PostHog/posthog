@@ -358,7 +358,7 @@ class OrganizationInviteDelegateSerializer(serializers.Serializer):
         return validate_message_body(value)
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class OrganizationInviteViewSet(
     TeamAndOrgViewSetMixin,
     mixins.DestroyModelMixin,
@@ -405,7 +405,26 @@ class OrganizationInviteViewSet(
         raise NotImplementedError()
 
     def safely_get_queryset(self, queryset):
-        return queryset.select_related("created_by").order_by(self.ordering)
+        queryset = queryset.select_related("created_by").order_by(self.ordering)
+
+        if self.action != "list":
+            return queryset
+
+        user = self.request.user
+        if not user.is_authenticated:
+            return queryset.none()
+
+        try:
+            membership = OrganizationMembership.objects.select_related("organization").get(
+                organization_id=self.organization_id, user=user
+            )
+        except OrganizationMembership.DoesNotExist:
+            return queryset.none()
+
+        if membership.level < OrganizationMembership.Level.ADMIN and not membership.organization.members_can_invite:
+            return queryset.none()
+
+        return queryset.filter(level__lte=membership.level)
 
     def get_throttles(self):
         # Apply invite-specific throttles only to actions that create invites,

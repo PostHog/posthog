@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock as StdRwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use etcd_client::EventType;
+use etcd_client::{EventType, WatchStream};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
@@ -11,7 +11,7 @@ use assignment_coordination::store::parse_watch_value;
 
 use crate::error::{Error, Result};
 use crate::store::{self, PersonhogStore};
-use crate::types::{HandoffPhase, HandoffState, RegisteredRouter, RouterFreezeAck};
+use crate::types::{HandoffPhase, HandoffState, RegisteredPod, RegisteredRouter, RouterFreezeAck};
 use crate::util;
 
 /// Trait for the router-side stash handler. Implementations are responsible
@@ -41,8 +41,12 @@ impl Default for RoutingTableConfig {
     fn default() -> Self {
         Self {
             router_name: "router-0".to_string(),
-            lease_ttl: 30,
-            heartbeat_interval: Duration::from_secs(10),
+            // A crashed router stays in every freeze quorum until its
+            // registration expires, stalling any handoff frozen in that
+            // window — keep the TTL short (graceful exits deregister
+            // immediately on the way out).
+            lease_ttl: 10,
+            heartbeat_interval: Duration::from_secs(3),
         }
     }
 }
@@ -71,6 +75,13 @@ pub struct RoutingTable {
     store: Arc<PersonhogStore>,
     config: RoutingTableConfig,
     table: Arc<RwLock<HashMap<u32, String>>>,
+    /// `pod_name` → advertised `host:port`, learned from the same
+    /// assignments and handoff events that drive `table`, so reachability
+    /// can never lag ownership. Entries for departed pods linger until
+    /// overwritten; lookups only ever go through current owners. A std
+    /// lock (never held across await) so the leader backend's synchronous
+    /// address resolver can read it.
+    addresses: Arc<StdRwLock<HashMap<String, String>>>,
 }
 
 impl RoutingTable {
@@ -79,6 +90,7 @@ impl RoutingTable {
             store,
             config,
             table: Arc::new(RwLock::new(HashMap::new())),
+            addresses: Arc::new(StdRwLock::new(HashMap::new())),
         }
     }
 
@@ -100,6 +112,12 @@ impl RoutingTable {
         Arc::clone(&self.table)
     }
 
+    /// Shared handle to the pod-name → advertised-address map, for the
+    /// leader backend's dialing.
+    pub fn addresses_handle(&self) -> Arc<StdRwLock<HashMap<String, String>>> {
+        Arc::clone(&self.addresses)
+    }
+
     /// Run the routing table. Registers with etcd, loads the initial state,
     /// then watches the handoffs keyspace. Blocks until cancelled. Routing
     /// changes flow exclusively through handoff Complete events; there is
@@ -119,9 +137,27 @@ impl RoutingTable {
         let lease_id = self.store.grant_lease(self.config.lease_ttl).await?;
         self.register_router(lease_id).await?;
 
-        self.load_initial(&handler).await?;
+        let (snapshot_revision, pods_revision) = self.load_initial(&handler).await?;
 
-        // Run heartbeat, assignment watch, and handoff watch concurrently
+        // The pod watch anchors strictly after the pod snapshot, exactly
+        // like the handoff watch below: nothing older than the snapshot
+        // is ever replayed, so a registration installed by the snapshot
+        // can never be regressed by a replayed predecessor. (Anchoring
+        // before the snapshot — the coordinator's pattern — is only safe
+        // for CAS-guarded consumers; this map is last-writer-wins.)
+        let pods_stream = self.store.watch_pods_from(pods_revision + 1).await?;
+
+        // Anchor the handoff watch to the snapshot's revision: every event
+        // at or before it was handled by `load_initial`, every later one
+        // is replayed by the watch regardless of when it attaches. Without
+        // the anchor, an event landing between the snapshot read and the
+        // watch attaching is in neither and is never redelivered.
+        let handoff_stream = self
+            .store
+            .watch_handoffs_from(snapshot_revision + 1)
+            .await?;
+
+        // Run heartbeat and handoff watch concurrently
         let mut tasks = tokio::task::JoinSet::new();
 
         {
@@ -134,13 +170,31 @@ impl RoutingTable {
         }
 
         {
+            let addresses = Arc::clone(&self.addresses);
+            let token = cancel.child_token();
+            tasks.spawn(async move {
+                Self::watch_pod_addresses_loop(addresses, token, pods_stream).await
+            });
+        }
+
+        {
             let store = Arc::clone(&self.store);
             let table = Arc::clone(&self.table);
+            let addresses = Arc::clone(&self.addresses);
             let handler = Arc::clone(&handler);
             let router_name = self.config.router_name.clone();
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::watch_handoffs_loop(store, table, handler, router_name, token).await
+                Self::watch_handoffs_loop(
+                    store,
+                    table,
+                    addresses,
+                    handler,
+                    router_name,
+                    token,
+                    handoff_stream,
+                )
+                .await
             });
         }
 
@@ -153,6 +207,12 @@ impl RoutingTable {
 
         // Abort and await all remaining tasks for clean shutdown
         tasks.shutdown().await;
+
+        // Deregister so freeze quorums stop counting this router
+        // immediately. Left to lease expiry, every handoff frozen in the
+        // next TTL window stalls waiting for a freeze ack this router
+        // will never write.
+        drop(self.store.revoke_lease(lease_id).await);
 
         result
     }
@@ -167,21 +227,23 @@ impl RoutingTable {
         self.store.register_router(&router, lease_id).await
     }
 
-    async fn load_initial(&self, handler: &Arc<dyn StashHandler>) -> Result<()> {
-        let assignments = self.store.list_assignments().await?;
-        let mut table = self.table.write().await;
-        for a in assignments {
-            table.insert(a.partition, a.owner);
-        }
-        tracing::info!(count = table.len(), "loaded initial routing table");
-        drop(table);
-
-        // Catch up on any in-progress handoffs. A late-joining router that
-        // observes a non-terminal handoff needs to begin stashing — and if
-        // we're still in Freezing, also write a FreezeAck so the
-        // coordinator's quorum can progress. Handoffs already at Complete
-        // arrive as a normal Put event through the watch loop below.
-        let handoffs = self.store.list_handoffs().await?;
+    /// Returns the etcd revisions of the handoff and pod snapshots, so
+    /// the caller can anchor each watch strictly after its own snapshot.
+    async fn load_initial(&self, handler: &Arc<dyn StashHandler>) -> Result<(i64, i64)> {
+        // Catch up on any in-progress handoffs BEFORE populating the
+        // routing table. The table starts empty, so every lookup fails
+        // closed until it is loaded; opening the stashes first guarantees
+        // that by the time a mid-handoff partition becomes routable it is
+        // already stashing. In the reverse order there is a window where a
+        // write routes to the old owner with no stash open — potentially
+        // after the old owner has already drained.
+        //
+        // A late-joining router that observes a non-terminal handoff needs
+        // to begin stashing — and if we're still in Freezing, also write a
+        // FreezeAck so the coordinator's quorum can progress. Handoffs
+        // already at Complete arrive as a normal Put event through the
+        // watch loop below.
+        let (handoffs, snapshot_revision) = self.store.list_handoffs_with_revision().await?;
         for handoff in handoffs {
             if matches!(
                 handoff.phase,
@@ -210,24 +272,95 @@ impl RoutingTable {
                         router_name: self.config.router_name.clone(),
                         partition: handoff.partition,
                         acked_at: util::now_seconds(),
+                        handoff_id: handoff.handoff_id.clone(),
                     };
                     self.store.put_freeze_ack(&ack).await?;
                 }
             }
         }
 
-        Ok(())
+        let assignments = self.store.list_assignments().await?;
+        // Live registrations overlay assignment-carried addresses: an
+        // assignment's address is a snapshot from the handoff that
+        // installed the owner, and the owner may have re-registered at a
+        // new address since (same pod name, new IP) without any handoff.
+        // Registrations are the authority on addresses; everything else
+        // is a fallback for entries the registration feed hasn't covered.
+        let (pods, pods_revision) = self.store.list_pods_with_revision().await?;
+        let mut table = self.table.write().await;
+        {
+            let mut addresses = self.addresses.write().expect("addresses lock poisoned");
+            for a in &assignments {
+                if let Some(address) = &a.advertise_address {
+                    addresses.insert(a.owner.clone(), address.clone());
+                }
+            }
+            for pod in pods {
+                if let Some(address) = pod.advertise_address {
+                    addresses.insert(pod.pod_name, address);
+                }
+            }
+        }
+        for a in assignments {
+            table.insert(a.partition, a.owner);
+        }
+        tracing::info!(count = table.len(), "loaded initial routing table");
+        drop(table);
+
+        Ok((snapshot_revision, pods_revision))
     }
 
+    /// Keep the address map current with pod registrations. Ownership is
+    /// untouched — routing still moves only on handoff events — but a pod
+    /// that re-registers under the same name at a new address (a restart
+    /// that kept its assignments) must refresh where the router dials, or
+    /// every dial keeps hitting the dead address until the next handoff.
+    /// Deletes are ignored: a lease expiry precedes either a re-register
+    /// (which overwrites) or a handoff away (after which the entry is
+    /// never consulted).
+    async fn watch_pod_addresses_loop(
+        addresses: Arc<StdRwLock<HashMap<String, String>>>,
+        cancel: CancellationToken,
+        mut stream: WatchStream,
+    ) -> Result<()> {
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                msg = stream.message() => {
+                    let resp = msg?.ok_or_else(|| Error::invalid_state("pod watch stream ended".to_string()))?;
+                    for event in resp.events() {
+                        if event.event_type() != EventType::Put {
+                            continue;
+                        }
+                        let pod: RegisteredPod = match parse_watch_value(event) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                tracing::error!(error = %e, "failed to parse pod event");
+                                continue;
+                            }
+                        };
+                        if let Some(address) = pod.advertise_address {
+                            addresses
+                                .write()
+                                .expect("addresses lock poisoned")
+                                .insert(pod.pod_name, address);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
     async fn watch_handoffs_loop(
         store: Arc<PersonhogStore>,
         table: Arc<RwLock<HashMap<u32, String>>>,
+        addresses: Arc<StdRwLock<HashMap<String, String>>>,
         handler: Arc<dyn StashHandler>,
         router_name: String,
         cancel: CancellationToken,
+        mut stream: WatchStream,
     ) -> Result<()> {
-        let mut stream = store.watch_handoffs().await?;
-
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
@@ -240,6 +373,7 @@ impl RoutingTable {
                                     event,
                                     store.as_ref(),
                                     &table,
+                                    &addresses,
                                     handler.as_ref(),
                                     &router_name,
                                 ).await?;
@@ -288,6 +422,7 @@ impl RoutingTable {
         event: &etcd_client::Event,
         store: &PersonhogStore,
         table: &Arc<RwLock<HashMap<u32, String>>>,
+        addresses: &Arc<StdRwLock<HashMap<String, String>>>,
         handler: &dyn StashHandler,
         router_name: &str,
     ) -> Result<()> {
@@ -320,11 +455,40 @@ impl RoutingTable {
                         router_name: router_name.to_string(),
                         partition: handoff.partition,
                         acked_at: util::now_seconds(),
+                        handoff_id: handoff.handoff_id.clone(),
                     };
                     store.put_freeze_ack(&ack).await?;
                 }
             }
             HandoffPhase::Complete => {
+                // The address must land before the table flips: the drain
+                // below dials the new owner immediately. Insert only if
+                // absent — the handoff carries an address snapshotted at
+                // handoff creation, and the pod may have re-registered at
+                // a newer address since; the registration feed (a separate
+                // stream with no cross-stream ordering) is the authority
+                // and must never be overwritten by this fallback.
+                match &handoff.new_owner_address {
+                    Some(address) => {
+                        addresses
+                            .write()
+                            .expect("addresses lock poisoned")
+                            .entry(handoff.new_owner.clone())
+                            .or_insert_with(|| address.clone());
+                    }
+                    None => {
+                        // Only possible for handoffs written by a
+                        // pre-advertise-address coordinator; dials to this
+                        // owner fail closed until it re-registers.
+                        tracing::warn!(
+                            router = %router_name,
+                            partition = handoff.partition,
+                            new_owner = %handoff.new_owner,
+                            "handoff carries no advertise address"
+                        );
+                    }
+                }
+
                 // Pre-update the routing table before draining so that any
                 // new request arriving between drain and the independent
                 // assignment-watch dispatch routes to the new owner rather

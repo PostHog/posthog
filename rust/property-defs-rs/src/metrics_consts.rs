@@ -36,6 +36,9 @@ pub const ISOLATED_PROPDEFS_DB_SELECTED: &str = "isolated_propdefs_db_selected";
 
 pub const PERSONHOG_RESOLVE_ERRORS: &str = "prop_defs_personhog_resolve_errors";
 pub const PERSONHOG_RESOLVE_DURATION: &str = "prop_defs_personhog_resolve_duration_ms";
+pub const PERSONHOG_ERRORS_TOTAL: &str = "personhog_errors_total";
+pub const PERSONHOG_RETRIES_TOTAL: &str = "personhog_retries_total";
+pub const PERSONHOG_TERMINAL_ERRORS_TOTAL: &str = "personhog_terminal_errors_total";
 
 //
 // property-defs-rs "v2" batch write path metric keys below
@@ -61,3 +64,8 @@ pub const V2_PROP_DEFS_BATCH_ROWS_AFFECTED: &str = "propdefs_v2_propdefs_batch_r
 pub const V2_PROP_DEFS_BATCH_CACHE_TIME: &str = "propdefs_v2_propdefs_batch_cache_time_ms";
 pub const V2_PROP_DEFS_CACHE_REMOVED: &str = "propdefs_v2_propdefs_cache_removed";
 pub const V2_PROP_DEFS_BATCH_SIZE: &str = "propdefs_v2_propdefs_batch_size";
+
+// Group property definitions dropped for an unresolved group_type_index and evicted from
+// the shared dedup cache, so a later $groupidentify (whose type resolves once the mapping
+// lands) is not filtered out and can persist.
+pub const V2_PROP_DEFS_DROPPED_UNCACHED: &str = "propdefs_v2_propdefs_dropped_uncached";

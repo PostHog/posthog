@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { PathsFilter } from '~/queries/schema/schema-general'

@@ -20,6 +20,7 @@ export function RetentionDashboardDisplayPicker(): JSX.Element | null {
 
     return (
         <LemonSelect
+            className="pb-2 px-2"
             value={displayType}
             onChange={(value) => {
                 updateInsightFilter({ dashboardDisplay: value })
@@ -38,6 +39,8 @@ export function RetentionDashboardDisplayPicker(): JSX.Element | null {
                     label: 'Show both',
                 },
             ]}
+            size="small"
+            fullWidth
         />
     )
 }

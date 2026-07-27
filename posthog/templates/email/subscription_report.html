@@ -47,6 +47,11 @@
     <p style="margin: 0 0 8px 0; font-weight: bold;">AI summary:</p>
     <div style="margin: 0;">{{ change_summary|linebreaksbr }}</div>
 </div>
+{% elif summary_skipped_over_budget %}
+<div style="padding: 16px; background-color: #fff8e6; border: 1px solid #f0e0b0; border-radius: 4px; margin-bottom: 16px;">
+    <p style="margin: 0; font-weight: bold;">AI summary skipped</p>
+    <p style="margin: 8px 0 0 0;">Your organization has reached its AI credit usage limit, so the AI summary wasn't generated for this report. <a href="{{ billing_url }}">Increase the limit in Billing settings</a> to resume summaries.</p>
+</div>
 {% endif %}
 
 {% for asset in asset_data %}

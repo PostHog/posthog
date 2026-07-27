@@ -12,13 +12,12 @@ use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
-use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
+use personhog_router::backend::discovery::{EndpointConfig, EndpointDiscovery};
 use personhog_router::backend::{
-    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaBackendConfig, StashTable,
+    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaDnsConfig, StashTable,
 };
-use personhog_router::config::{Config, RouterMode};
-use personhog_router::router::PersonHogRouter;
-use personhog_router::service::PersonHogRouterService;
+use personhog_router::config::{Config, ReplicaDiscoveryMode, RouterMode};
+use personhog_router::proxy::RawProxyService;
 use personhog_router::stash_handler::RouterStashHandler;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
@@ -56,8 +55,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Starting personhog-router service");
     tracing::info!("Router mode: {}", config.router_mode);
     tracing::info!("gRPC address: {}", config.grpc_address);
+    tracing::info!("Replica discovery mode: {}", config.replica_discovery_mode);
     tracing::info!("Replica URL: {}", config.replica_url);
-    tracing::info!("Replica channels: {}", config.replica_channels);
     tracing::info!("Backend timeout: {}ms", config.backend_timeout_ms);
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!(
@@ -71,6 +70,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_global_shutdown_timeout(Duration::from_secs(30))
         .build();
 
+    // Shutdown order is the inverse of the leader's: the gRPC server
+    // drains first (phase 0) while the routing table, coordinator, and
+    // discovery stay alive to serve its in-flight requests and keep
+    // acking freezes; they stop in phase 1, at which point the
+    // coordinator exits cleanly and revokes the election lease so another
+    // router takes over coordination immediately.
     let grpc_handle = manager.register(
         "grpc-server",
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
@@ -84,15 +89,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (routing_table_handle, coordinator_handle) = if config.router_mode == RouterMode::Leader {
         let rt = manager.register(
             "routing-table",
-            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+            ComponentOptions::new()
+                .with_graceful_shutdown(Duration::from_secs(5))
+                .with_shutdown_phase(1),
         );
-        let coord = manager.register(
-            "coordinator",
-            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
-        );
-        (Some(rt), Some(coord))
+        let coord = config.coordinator_enabled.then(|| {
+            manager.register(
+                "coordinator",
+                ComponentOptions::new()
+                    .with_graceful_shutdown(Duration::from_secs(5))
+                    .with_shutdown_phase(1),
+            )
+        });
+        (Some(rt), coord)
     } else {
         (None, None)
+    };
+
+    // Register discovery handle before monitor_background() consumes the manager
+    let discovery_handle = if config.replica_discovery_mode == ReplicaDiscoveryMode::K8s {
+        Some(
+            manager.register(
+                "replica-discovery",
+                ComponentOptions::new()
+                    .with_graceful_shutdown(Duration::from_secs(5))
+                    .with_shutdown_phase(1),
+            ),
+        )
+    } else {
+        None
     };
 
     let readiness = manager.readiness_handler();
@@ -100,7 +125,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let monitor_guard = manager.monitor_background();
 
-    // Metrics/health HTTP server (observability handle — stays alive during standard drain)
+    // Create backend connection(s) to personhog-replica
+    let (replica_backend, discovery_readiness) = match config.replica_discovery_mode {
+        ReplicaDiscoveryMode::Dns => (
+            Arc::new(ReplicaBackend::new_dns(ReplicaDnsConfig {
+                url: config.replica_url.clone(),
+                timeout: config.backend_timeout(),
+                retry_config: config.retry_config(),
+                keepalive_interval: config.backend_keepalive_interval(),
+                keepalive_timeout: config.backend_keepalive_timeout(),
+                num_channels: config.replica_channels,
+            })),
+            None,
+        ),
+        ReplicaDiscoveryMode::K8s => {
+            let kube_client = kube::Client::try_default()
+                .await
+                .expect("failed to create K8s client for replica discovery");
+            let namespace = config
+                .resolve_replica_namespace()
+                .expect("failed to resolve replica service namespace");
+
+            let discovery_handle =
+                discovery_handle.expect("discovery handle must be registered in k8s mode");
+
+            let (channel, disc_readiness, discovery) = EndpointDiscovery::new(
+                kube_client,
+                namespace,
+                config.replica_service_name.clone(),
+                config.replica_port,
+                EndpointConfig {
+                    timeout: config.backend_timeout(),
+                    connect_timeout: config.backend_connect_timeout(),
+                    keepalive_interval: config.backend_keepalive_interval(),
+                    keepalive_timeout: config.backend_keepalive_timeout(),
+                },
+                discovery_handle.shutdown_token(),
+            );
+
+            tokio::spawn(async move {
+                let _guard = discovery_handle.process_scope();
+                discovery.run().await;
+            });
+
+            (
+                Arc::new(ReplicaBackend::new_k8s(channel, config.retry_config())),
+                Some(disc_readiness),
+            )
+        }
+    };
+
+    // Metrics/health HTTP server (spawned after backend creation so it can
+    // include discovery readiness in the health check)
     let metrics_port = config.metrics_port;
     tokio::spawn(async move {
         let _guard = metrics_handle.process_scope();
@@ -108,9 +184,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         const BUCKETS: &[f64] = &[
             1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
         ];
+        const RESPONSE_SIZE_BUCKETS: &[f64] = &[
+            256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0, 4194304.0, 8388608.0,
+            16777216.0, 33554432.0, 67108864.0,
+        ];
         let recorder_handle = PrometheusBuilder::new()
             .add_global_label("service", "personhog-router")
             .set_buckets(BUCKETS)
+            .unwrap()
+            .set_buckets_for_metric(
+                metrics_exporter_prometheus::Matcher::Prefix(
+                    "personhog_router_response_size".into(),
+                ),
+                RESPONSE_SIZE_BUCKETS,
+            )
             .unwrap()
             .install_recorder()
             .expect("Failed to install metrics recorder");
@@ -120,7 +207,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "/_readiness",
                 get(move || {
                     let r = readiness.clone();
-                    async move { r.check().await }
+                    let dr = discovery_readiness.clone();
+                    async move {
+                        if let Some(ref dr) = dr {
+                            if !dr.is_ready() {
+                                return axum::http::StatusCode::SERVICE_UNAVAILABLE;
+                            }
+                        }
+                        r.check().await
+                    }
                 }),
             )
             .route("/_liveness", get(move || async move { liveness.check() }))
@@ -140,21 +235,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Metrics server error");
     });
 
-    // Create backend connection(s) to personhog-replica
-    let replica_backend = ReplicaBackend::new(ReplicaBackendConfig {
-        url: config.replica_url.clone(),
-        timeout: config.backend_timeout(),
-        retry_config: config.retry_config(),
-        keepalive_interval: config.backend_keepalive_interval(),
-        keepalive_timeout: config.backend_keepalive_timeout(),
-        max_send_message_size: config.grpc_max_send_message_size,
-        max_recv_message_size: config.grpc_max_recv_message_size,
-        num_channels: config.replica_channels,
-    });
-
-    // Build the router — in leader mode, also wire up etcd coordination
-    // and the leader backend for person writes / strong reads.
-    let router = if config.router_mode == RouterMode::Leader {
+    // In leader mode, wire up etcd coordination and the leader backend
+    // for person writes / strong reads.
+    let leader_backend: Option<Arc<LeaderBackend>> = if config.router_mode == RouterMode::Leader {
         tracing::info!("Leader mode: connecting to etcd");
         tracing::info!("etcd endpoints: {}", config.etcd_endpoints);
         tracing::info!("etcd prefix: {}", config.etcd_prefix);
@@ -188,16 +271,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             RoutingTable::new(Arc::clone(&store), routing_table_config);
 
         let shared_table = coordination_routing_table.table_handle();
-        let leader_port = config.leader_port;
+        // Addresses come from the same etcd records that carry ownership
+        // (each pod registers its advertised host:port, and the
+        // coordinator copies it into handoffs and assignments), so a
+        // routable owner is always dialable — there is no separate
+        // discovery or DNS step to lag behind the routing table.
+        let leader_addresses = coordination_routing_table.addresses_handle();
         let leader_backend = Arc::new(LeaderBackend::new(
             shared_table,
-            Arc::new(move |pod_name: &str| Some(format!("http://{}:{}", pod_name, leader_port))),
+            Arc::new(move |pod_name: &str| {
+                leader_addresses
+                    .read()
+                    .expect("addresses lock poisoned")
+                    .get(pod_name)
+                    .map(|address| format!("http://{address}"))
+            }),
             LeaderBackendConfig {
                 num_partitions,
                 timeout: config.backend_timeout(),
                 retry_config: config.retry_config(),
-                max_send_message_size: config.grpc_max_send_message_size,
-                max_recv_message_size: config.grpc_max_recv_message_size,
             },
             StashTable::with_bounds(
                 config.stash_max_messages_per_partition,
@@ -225,64 +317,67 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
-        // K8s awareness (optional)
-        let k8s_cancel = CancellationToken::new();
-        let k8s_awareness = if config.k8s_awareness_enabled {
-            let namespace = config
-                .resolve_k8s_namespace()
-                .expect("k8s awareness enabled but namespace resolution failed");
-            let client = kube::Client::try_default()
-                .await
-                .expect("failed to create K8s client");
-            tracing::info!(%namespace, "K8s awareness enabled");
-            Some(Arc::new(K8sAwareness::new(
-                client,
-                namespace,
-                k8s_cancel.child_token(),
-            )))
+        // Start coordinator (leader election + partition assignment),
+        // unless this router opted out of candidacy. K8s awareness only
+        // feeds the coordinator's placement decisions, so it starts (and
+        // stops) with it.
+        if let Some(coordinator_handle) = coordinator_handle {
+            let k8s_cancel = CancellationToken::new();
+            let k8s_awareness = if config.k8s_awareness_enabled {
+                let namespace = config
+                    .resolve_k8s_namespace()
+                    .expect("k8s awareness enabled but namespace resolution failed");
+                let client = kube::Client::try_default()
+                    .await
+                    .expect("failed to create K8s client");
+                tracing::info!(%namespace, "K8s awareness enabled");
+                Some(Arc::new(K8sAwareness::new(
+                    client,
+                    namespace,
+                    k8s_cancel.child_token(),
+                )))
+            } else {
+                tracing::info!("K8s awareness disabled");
+                None
+            };
+
+            let coordinator = Coordinator::new(
+                store,
+                CoordinatorConfig {
+                    name: config.pod_name.clone(),
+                    leader_lease_ttl: config.coordinator_lease_ttl,
+                    keepalive_interval: config.coordinator_keepalive_interval(),
+                    election_retry_interval: config.coordinator_election_retry_interval(),
+                    rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
+                    reconcile_interval: config.coordinator_reconcile_interval(),
+                },
+                Arc::new(StickyBalancedStrategy),
+                k8s_awareness,
+            );
+
+            tokio::spawn(async move {
+                let _guard = coordinator_handle.process_scope();
+                if let Err(e) = coordinator.run(coordinator_handle.shutdown_token()).await {
+                    coordinator_handle.signal_failure(format!("Coordinator error: {e}"));
+                }
+                k8s_cancel.cancel();
+            });
         } else {
-            tracing::info!("K8s awareness disabled");
-            None
-        };
+            tracing::info!("coordinator election disabled; this router never campaigns");
+        }
 
-        // Start coordinator (leader election + partition assignment)
-        let coordinator_handle =
-            coordinator_handle.expect("coordinator handle must be registered in leader mode");
-        let coordinator = Coordinator::new(
-            store,
-            CoordinatorConfig {
-                name: config.pod_name.clone(),
-                leader_lease_ttl: config.coordinator_lease_ttl,
-                keepalive_interval: config.coordinator_keepalive_interval(),
-                election_retry_interval: config.coordinator_election_retry_interval(),
-                rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
-            },
-            Arc::new(StickyBalancedStrategy),
-            k8s_awareness,
-        );
-
-        tokio::spawn(async move {
-            let _guard = coordinator_handle.process_scope();
-            if let Err(e) = coordinator.run(coordinator_handle.shutdown_token()).await {
-                coordinator_handle.signal_failure(format!("Coordinator error: {e}"));
-            }
-            k8s_cancel.cancel();
-        });
-
-        PersonHogRouter::new(Arc::new(replica_backend)).with_leader(leader_backend)
+        Some(leader_backend)
     } else {
         tracing::info!("Replica mode: leader routing disabled");
-        PersonHogRouter::new(Arc::new(replica_backend))
+        None
     };
-
-    let service = PersonHogRouterService::new(Arc::new(router));
 
     // gRPC server
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
-    let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
+    let retry_config = config.retry_config();
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 
     tokio::spawn(async move {
@@ -295,18 +390,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
         let incoming = tracked_tcp_incoming(listener);
-        if let Err(e) = Server::builder()
+
+        let proxy = RawProxyService::new(
+            replica_backend,
+            leader_backend,
+            retry_config,
+            max_recv,
+            config.response_size_warn_bytes,
+        );
+        let result = Server::builder()
             .http2_keepalive_interval(keepalive_interval)
             .http2_keepalive_timeout(keepalive_timeout)
-            .layer(GrpcMetricsLayer)
-            .add_service(
-                PersonHogServiceServer::new(service)
-                    .max_encoding_message_size(max_send)
-                    .max_decoding_message_size(max_recv),
-            )
+            .layer(GrpcMetricsLayer::default())
+            .add_service(proxy)
             .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
-            .await
-        {
+            .await;
+
+        if let Err(e) = result {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));
         }
     });

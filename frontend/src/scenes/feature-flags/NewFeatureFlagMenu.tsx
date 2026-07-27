@@ -18,7 +18,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { getToolDefinition } from 'scenes/max/max-constants'
-import { maxLogic } from 'scenes/max/maxLogic'
+import { SIDE_PANEL_PANEL_ID, maxLogic } from 'scenes/max/maxLogic'
 import { createSuggestionGroup } from 'scenes/max/utils'
 import { urls } from 'scenes/urls'
 
@@ -34,7 +34,10 @@ interface DropdownTemplateMetadata {
     icon: React.ComponentType
 }
 
-const TEMPLATE_METADATA: Record<TemplateKey, DropdownTemplateMetadata> = {
+// Remote config has its own dedicated menu item below, so the preset dropdown excludes it.
+type PresetTemplateKey = Exclude<TemplateKey, 'remote-config'>
+
+const TEMPLATE_METADATA: Record<PresetTemplateKey, DropdownTemplateMetadata> = {
     simple: {
         name: 'Simple flag',
         description: 'On/off for all users',
@@ -57,7 +60,7 @@ const TEMPLATE_METADATA: Record<TemplateKey, DropdownTemplateMetadata> = {
     },
 }
 
-const TEMPLATES: TemplateKey[] = ['simple', 'targeted', 'multivariate', 'targeted-multivariate']
+const TEMPLATES: PresetTemplateKey[] = ['simple', 'targeted', 'multivariate', 'targeted-multivariate']
 
 const AI_TOOL_DEFINITION = getToolDefinition('create_feature_flag')!
 const AI_SUGGESTIONS = [
@@ -67,7 +70,7 @@ const AI_SUGGESTIONS = [
     'Create a beta testing flag for…',
 ]
 
-function IntentSubmenu({ template, onBack }: { template: TemplateKey; onBack: () => void }): JSX.Element {
+function IntentSubmenu({ template, onBack }: { template: PresetTemplateKey; onBack: () => void }): JSX.Element {
     const metadata = TEMPLATE_METADATA[template]
 
     return (
@@ -109,12 +112,12 @@ function IntentSubmenu({ template, onBack }: { template: TemplateKey; onBack: ()
 
 export function OverlayForNewFeatureFlagMenu(): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { setActiveGroup } = useActions(maxLogic({ tabId: 'sidepanel' }))
+    const { setActiveGroup } = useActions(maxLogic({ panelId: SIDE_PANEL_PANEL_ID }))
     const { openSidePanel } = useActions(sidePanelLogic)
 
     const intentsEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS]
     // useState is intentional — this is an ephemeral popover overlay that unmounts on close
-    const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey | null>(null)
+    const [selectedTemplate, setSelectedTemplate] = useState<PresetTemplateKey | null>(null)
 
     if (intentsEnabled && selectedTemplate) {
         return <IntentSubmenu template={selectedTemplate} onBack={() => setSelectedTemplate(null)} />

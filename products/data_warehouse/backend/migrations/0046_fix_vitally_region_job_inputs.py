@@ -10,7 +10,13 @@ def _clean_subdomain(value: object) -> str | None:
 
 
 def forwards(apps, schema_editor):
-    ExternalDataSource = apps.get_model("data_warehouse", "ExternalDataSource")
+    # Original app label was data_warehouse; the model moved to warehouse_sources after
+    # this migration ran. Try both so the function works in real migrate (historical
+    # apps still has it under data_warehouse) and in tests that pass the live registry.
+    try:
+        ExternalDataSource = apps.get_model("data_warehouse", "ExternalDataSource")
+    except LookupError:
+        ExternalDataSource = apps.get_model("warehouse_sources", "ExternalDataSource")
 
     for source in ExternalDataSource.objects.filter(source_type="Vitally"):
         job_inputs = source.job_inputs

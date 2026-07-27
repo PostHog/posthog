@@ -21,10 +21,13 @@
 import { useValues } from 'kea'
 import { ReactElement, useMemo, useState } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconFilter } from '@posthog/icons'
 
+import { SeriesRename, getSeriesRename } from 'lib/components/EntityFilterInfo'
 import { TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
 import { MenuFilterEntry, TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
+import { MenuInputTrigger } from 'lib/components/TaxonomicFilter/menu/InputTrigger'
+import { taxonomicTriggerWrapperClassName } from 'lib/components/TaxonomicFilter/menu/triggerLayout'
 import {
     AllowedProperties,
     DataWarehousePopoverField,
@@ -40,6 +43,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
+import { ActionFilter, EntityFilter } from '~/types'
 
 import { TaxonomicMenuToggle } from './TaxonomicMenuToggle'
 
@@ -65,6 +69,8 @@ type TriggerButtonProps = Pick<
 export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType | null
+    /** The series/entity filter being edited — surfaces its rename on the committed selection. */
+    filter?: EntityFilter | ActionFilter
     groupTypes?: TaxonomicFilterGroupType[]
     /** The 4th arg is the orchestrator's resolved group — consumers that
      *  need the full `TaxonomicFilterGroup` (not just its type) can use it. */
@@ -91,6 +97,12 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     /** Trigger button styling, forwarded so the rebuilt menu's trigger
      *  matches the legacy `TaxonomicPopover` button at the call site. */
     triggerButtonProps?: TriggerButtonProps
+    /**
+     * `'input'` renders a replay-style search box + filter-icon trigger
+     * instead of a single button, while no value is selected. Focusing the
+     * box opens the combobox; clicking the icon opens the dropdown menu.
+     */
+    triggerVariant?: 'button' | 'input'
 }
 
 /**
@@ -138,22 +150,58 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     // placeholder button. Mounting the orchestrator for pickers the user
     // never opens would multiply mount cost across every call site on a page.
     const [armed, setArmed] = useState(false)
+    // Which panel the first interaction should land on once armed. The input
+    // variant has two entry points (search box → combobox, icon → menu); the
+    // button variant always resolves its own open state, so this is ignored.
+    const [armOpenTo, setArmOpenTo] = useState<'menu' | 'combobox'>('combobox')
+
+    const { value, renderValue, placeholder = 'Select', placeholderClass, triggerButtonProps, triggerVariant } = props
+    const useInputTrigger = triggerVariant === 'input' && (value == null || value === '')
 
     if (armed) {
-        return <ArmedTaxonomicPopoverMenu {...props} />
+        return <ArmedTaxonomicPopoverMenu {...props} defaultOpenState={useInputTrigger ? armOpenTo : undefined} />
     }
 
-    const { value, renderValue, placeholder = 'Select', placeholderClass, triggerButtonProps } = props
+    const arm = (to: 'menu' | 'combobox'): void => {
+        setArmOpenTo(to)
+        setArmed(true)
+    }
+
     return (
-        <span className="relative inline-flex max-w-full min-w-0">
-            {buildTriggerButton({
-                value,
-                renderValue,
-                placeholder,
-                placeholderClass,
-                triggerButtonProps,
-                onClick: () => setArmed(true),
-            })}
+        <span className={taxonomicTriggerWrapperClassName(triggerButtonProps?.fullWidth)}>
+            {useInputTrigger ? (
+                <MenuInputTrigger
+                    iconButton={
+                        // Keep the resting placeholder visually identical to the armed trigger.
+                        // data-attr differs from the armed trigger's — intentional for analytics.
+                        <LemonButton
+                            size="small"
+                            icon={<IconFilter />}
+                            aria-label="Open filter menu"
+                            data-attr="taxonomic-popover-menu-trigger"
+                            // Stop the click bubbling to the LemonInput wrapper, whose
+                            // onClick focuses the input, whose onFocus arms the combobox.
+                            // Without this the icon would open the combobox, not the menu.
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                arm('menu')
+                            }}
+                        />
+                    }
+                    fullWidth={!!triggerButtonProps?.fullWidth}
+                    placeholder={typeof placeholder === 'string' ? placeholder : 'Add filter'}
+                    onFocus={() => arm('combobox')}
+                />
+            ) : (
+                buildTriggerButton({
+                    value,
+                    renderValue,
+                    placeholder,
+                    placeholderClass,
+                    triggerButtonProps,
+                    onClick: () => setArmed(true),
+                })
+            )}
             <TaxonomicMenuToggle />
         </span>
     )
@@ -162,6 +210,7 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
 function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>({
     groupType,
     value,
+    filter,
     groupTypes,
     onChange,
     renderValue,
@@ -184,7 +233,9 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
     suggestedFiltersLabel,
     enableKeywordShortcuts,
     triggerButtonProps,
-}: TaxonomicPopoverMenuProps<ValueType>): JSX.Element {
+    triggerVariant,
+    defaultOpenState,
+}: TaxonomicPopoverMenuProps<ValueType> & { defaultOpenState?: 'menu' | 'combobox' }): JSX.Element {
     // Data warehouse tables carry their column schema (`fields`) in
     // `databaseTableListLogic`, not in the bare popover value — needed so
     // the DWH config form can render its column dropdowns / preview. Read
@@ -232,6 +283,10 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
         } as unknown as MenuFilterEntry
     }, [value, selectedGroupType, dataWarehouseTablesMap])
 
+    // A renamed series doesn't reveal the thing it queries — surface the rename on the
+    // committed selection's row so the user can connect it to the series they clicked.
+    const selectedRename = useMemo<SeriesRename | null>(() => getSeriesRename(filter), [filter])
+
     return (
         <TaxonomicFilterHeadless.Root
             // `display: contents` — the Root wrapper div must not affect
@@ -270,12 +325,17 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
         >
             <TaxonomicFilterMenu
                 selected={selected}
+                selectedRename={selectedRename}
                 dataWarehousePopoverFields={dataWarehousePopoverFields}
                 fullWidthTrigger={!!triggerButtonProps?.fullWidth}
                 triggerAccessory={<TaxonomicMenuToggle />}
+                triggerVariant={triggerVariant}
                 // Open immediately — this component is mounted in response
-                // to the user's first trigger click (see `TaxonomicPopoverMenu`).
+                // to the user's first trigger interaction (see `TaxonomicPopoverMenu`).
+                // `defaultOpenState` routes that open to the panel matching the
+                // interaction: the search box → combobox, the filter icon → menu.
                 defaultOpen
+                defaultOpenState={defaultOpenState}
                 trigger={({ open }) =>
                     buildTriggerButton({ value, renderValue, placeholder, placeholderClass, triggerButtonProps, open })
                 }

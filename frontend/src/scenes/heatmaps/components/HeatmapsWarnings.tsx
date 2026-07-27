@@ -1,17 +1,14 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
-
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/settings/sidePanelSettingsLogic'
+import { urls } from 'scenes/urls'
 
 export function HeatmapsWarnings(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const heatmapsEnabled = currentTeam?.heatmaps_opt_in
-
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     return !heatmapsEnabled ? (
         <LemonBanner
@@ -19,7 +16,7 @@ export function HeatmapsWarnings(): JSX.Element | null {
             action={{
                 type: 'secondary',
                 icon: <IconGear />,
-                onClick: () => openSettingsPanel({ sectionId: 'environment-heatmaps', settingId: 'heatmaps' }),
+                to: urls.settings('environment-heatmaps', 'heatmaps'),
                 children: 'Configure',
             }}
             dismissKey="heatmaps-might-be-disabled-warning"

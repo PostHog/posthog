@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "include_versions": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "description": "When true, response rows are `[name, version, last_executed_at]` covering every version that has been executed. When false (default), rows are `[name, last_executed_at]` at endpoint granularity."
+        },
+        "names": {
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["names"],
+    "type": "object"
+}

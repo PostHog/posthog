@@ -27,7 +27,6 @@ import { ConfigureWithAIButton } from './ConfigureWithAIButton'
 
 interface CustomerAnalyticsQueryCardProps {
     insight: InsightDefinition
-    tabId?: string
 }
 
 function anyValueIsNull(object: object): boolean {
@@ -40,16 +39,16 @@ function getEmptySeriesNames(requiredSeries: Record<string, AnyEntityNode | null
         .map(([key]) => key)
 }
 
-function generateUniqueKey(name: string, tabId: string, businessType: string, groupType?: number): string {
+function generateUniqueKey(name: string, businessType: string, groupType?: number): string {
     const suffix = businessType === 'b2b' ? groupType : 'users'
-    return `${name}-${tabId}-${businessType}-${suffix}`
+    return `${name}-${businessType}-${suffix}`
 }
 
-export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalyticsQueryCardProps): JSX.Element {
+export function CustomerAnalyticsQueryCard({ insight }: CustomerAnalyticsQueryCardProps): JSX.Element {
     const { businessType, selectedGroupType } = useValues(customerAnalyticsSceneLogic)
     const { eventSelectors } = useValues(customerAnalyticsDashboardEventsLogic)
     const needsConfig = insight?.requiredSeries ? anyValueIsNull(insight.requiredSeries) : false
-    const uniqueKey = generateUniqueKey(insight.name, tabId || '', businessType, selectedGroupType)
+    const uniqueKey = generateUniqueKey(insight.name, businessType, selectedGroupType)
     const insightProps: InsightLogicProps<QuerySchema> = {
         dataNodeCollectionId: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID,
         dashboardItemId: buildDashboardItemId(uniqueKey),
@@ -105,7 +104,7 @@ export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalytics
 
     return (
         <QueryCard
-            uniqueKey={`${insight.name}-${tabId}`}
+            uniqueKey={insight.name}
             title={insight.name}
             description={insight.description}
             query={insight.query}

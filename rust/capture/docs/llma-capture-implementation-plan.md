@@ -1,8 +1,8 @@
-# LLM Analytics Capture Implementation Plan
+# AI observability capture implementation plan
 
 ## Overview
 
-This document outlines the implementation steps for the LLM Analytics capture pipeline based on the design specified in `llma-capture-overview.md`.
+This document outlines the implementation steps for the AI observability capture pipeline based on the design specified in `llma-capture-overview.md`.
 
 ## Implementation Phases
 

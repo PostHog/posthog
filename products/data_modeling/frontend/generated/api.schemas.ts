@@ -36,6 +36,26 @@ export interface PaginatedDAGListApi {
     results: DagApi[]
 }
 
+export interface PatchedDAGApi {
+    readonly id?: string
+    /**
+     * Human-readable name for this DAG
+     * @maxLength 2048
+     */
+    name?: string
+    /** Optional description of the DAG's purpose */
+    description?: string
+    /**
+     * Sync frequency string (e.g. '24hour', '7day')
+     * @nullable
+     */
+    sync_frequency?: string | null
+    readonly node_count?: number
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
 export interface EdgeApi {
     readonly id: string
     readonly source_id: string
@@ -57,11 +77,23 @@ export interface PaginatedEdgeListApi {
     results: EdgeApi[]
 }
 
+export interface PatchedEdgeApi {
+    readonly id?: string
+    readonly source_id?: string
+    readonly target_id?: string
+    dag?: string
+    readonly dag_name?: string
+    properties?: unknown
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
 /**
  * * `table` - Table
- * `view` - View
- * `matview` - Mat View
- * `endpoint` - Endpoint
+ * * `view` - View
+ * * `matview` - Mat View
+ * * `endpoint` - Endpoint
  */
 export type NodeTypeEnumApi = (typeof NodeTypeEnumApi)[keyof typeof NodeTypeEnumApi]
 
@@ -71,6 +103,20 @@ export const NodeTypeEnumApi = {
     Matview: 'matview',
     Endpoint: 'endpoint',
 } as const
+
+export interface NodeSuspensionApi {
+    /** When the node was suspended. */
+    at: string
+    /** Error from the materialization that tripped suspension. */
+    reason: string
+    /** Materialization job that tripped suspension. */
+    job_id: string
+}
+
+/**
+ * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
+ */
+export type NodeApiSuspended = { [key: string]: NodeSuspensionApi }
 
 export interface NodeApi {
     readonly id: string
@@ -96,6 +142,8 @@ export interface NodeApi {
     readonly user_tag: string | null
     /** @nullable */
     readonly sync_interval: string | null
+    /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
+    readonly suspended: NodeApiSuspended
 }
 
 export interface PaginatedNodeListApi {
@@ -105,6 +153,44 @@ export interface PaginatedNodeListApi {
     /** @nullable */
     previous?: string | null
     results: NodeApi[]
+}
+
+/**
+ * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
+ */
+export type PatchedNodeApiSuspended = { [key: string]: NodeSuspensionApi }
+
+export interface PatchedNodeApi {
+    readonly id?: string
+    /** @maxLength 2048 */
+    name?: string
+    type?: NodeTypeEnumApi
+    dag?: string
+    readonly dag_name?: string
+    /** @maxLength 1024 */
+    description?: string
+    /** @nullable */
+    readonly saved_query_id?: string | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    readonly upstream_count?: number
+    readonly downstream_count?: number
+    /** @nullable */
+    readonly last_run_at?: string | null
+    /** @nullable */
+    readonly last_run_status?: string | null
+    /** @nullable */
+    readonly user_tag?: string | null
+    /** @nullable */
+    readonly sync_interval?: string | null
+    /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
+    readonly suspended?: PatchedNodeApiSuspended
+}
+
+export interface NodeResumeApi {
+    /** False when the node was not suspended to begin with. */
+    resumed: boolean
 }
 
 export type DataModelingDagsListParams = {
@@ -138,4 +224,15 @@ export type DataModelingNodesListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type DataModelingNodesLineageRetrieveParams = {
+    /**
+     * Node to build lineage for.
+     */
+    node_id?: string
+    /**
+     * Saved query to build lineage for, resolved to its node. Alternative to node_id.
+     */
+    saved_query_id?: string
 }

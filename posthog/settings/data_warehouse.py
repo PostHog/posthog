@@ -19,6 +19,57 @@ USE_LOCAL_SETUP = TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "h
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
+# Rollback-only escape hatch: restores the legacy delta-rs unsafe-rename S3 backend,
+# which has no commit-conflict detection. Default (false) keeps conditional-put commits.
+DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME = get_from_env(
+    "DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME", False, type_cast=str_to_bool
+)
+
+# At-rest (compressed) byte budget per Delta partition. The auto-repartition controller rewrites a
+# table into a finer scheme once its largest partition exceeds this. delta-rs merges decompress the
+# whole target partition into an Arrow working set — roughly ~20x the at-rest size, and far more for
+# wide nested-JSON columns. Worker pods are multi-tenant (a single OOM kills every co-tenant activity),
+# so the budget must leave headroom for concurrent merges under the 29 GB pod limit, not just fit one.
+# ~0.5 GB → ~10 GB worst-case working set, leaving room for other activities on the same pod.
+# The wide-column case (where the ~20x multiplier under-counts) is caught empirically by the OOM-history
+# override below rather than by trying to model per-column expansion here.
+DATA_WAREHOUSE_TARGET_PARTITION_BYTES = get_from_env(
+    "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000, type_cast=int
+)
+
+# A schema that records at least this many sync OOMs within the lookback window is force-repartitioned
+# even when its largest partition is within the size budget — its real merge working set is bigger than
+# the compressed at-rest size implies (e.g. wide nested-JSON columns). See ExternalDataSchemaOOMEvent.
+DATA_WAREHOUSE_REPARTITION_OOM_THRESHOLD = get_from_env("DATA_WAREHOUSE_REPARTITION_OOM_THRESHOLD", 3, type_cast=int)
+DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS = get_from_env(
+    "DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS", 7, type_cast=int
+)
+
+# Pre-write vacuum runs when this many delta commits have accrued since the last vacuum. Decoupled from
+# merge success so tables that OOM their merge still get their tombstones cleared (the compact-after-merge
+# path never runs for them). Vacuum only deletes dead files, so it's memory-safe even on oversized tables.
+DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD = get_from_env("DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD", 100, type_cast=int)
+
+# delta-rs merge spill-to-disk. A merge decompresses the target partition into an Arrow working set that
+# can exceed the 29 GB pod limit and OOM — killing every co-tenant activity on the pod. When set, delta-rs
+# hands DataFusion a bounded memory pool: once the merge's in-memory bytes cross MAX_SPILL_SIZE it spills
+# the overflow to its temp directory (the process TMPDIR) instead of allocating unbounded. Left as None,
+# DataFusion runs with its unbounded default (today's behavior) — so this is a no-op until BOTH the byte
+# budget and a scratch disk are provisioned (the temporal-worker-data-warehouse / warehouse-sources-load
+# pods mount an ephemeral volume at /tmp and set these env vars).
+#
+# Sizing interacts with concurrency: each merge gets its own DataFusion pool, so N concurrent merges on a
+# pod can hold up to N * MAX_SPILL_SIZE in memory and N * MAX_TEMP_DIRECTORY_SIZE on the shared disk. Keep
+# MAX_SPILL_SIZE below the designed per-partition working set (~10 GB) so genuinely-large merges spill
+# before the multi-tenant OOM, while typical small merges stay in memory (spilling is slow). Keep
+# MAX_TEMP_DIRECTORY_SIZE small enough that a few concurrent spills fit the mounted disk.
+DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES: int | None = get_from_env(
+    "DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES", None, optional=True, type_cast=int
+)
+DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES: int | None = get_from_env(
+    "DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES", None, optional=True, type_cast=int
+)
+
 GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID")

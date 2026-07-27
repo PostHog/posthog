@@ -49,6 +49,7 @@ service PersonHogReplica {
   rpc GetGroupTypeMappingsByProjectId(personhog.types.v1.GetGroupTypeMappingsByProjectIdRequest) returns (personhog.types.v1.GroupTypeMappingsResponse);
   rpc GetGroupTypeMappingsByProjectIds(personhog.types.v1.GetGroupTypeMappingsByProjectIdsRequest) returns (personhog.types.v1.GroupTypeMappingsBatchResponse);
   rpc GetGroupTypeMappingByDashboardId(personhog.types.v1.GetGroupTypeMappingByDashboardIdRequest) returns (personhog.types.v1.GetGroupTypeMappingByDashboardIdResponse);
+  rpc CountGroupTypeMappings(personhog.types.v1.CountGroupTypeMappingsRequest) returns (personhog.types.v1.CountGroupTypeMappingsResponse);
 
   // Group writes
   rpc CreateGroup(personhog.types.v1.CreateGroupRequest) returns (personhog.types.v1.CreateGroupResponse);
@@ -63,4 +64,12 @@ service PersonHogReplica {
   // Person deletes (temporary: should move to leader once it supports deletes)
   rpc DeletePersons(personhog.types.v1.DeletePersonsRequest) returns (personhog.types.v1.DeletePersonsResponse);
   rpc DeletePersonsBatchForTeam(personhog.types.v1.DeletePersonsBatchForTeamRequest) returns (personhog.types.v1.DeletePersonsBatchForTeamResponse);
+  rpc DeletePersonlessDistinctIdsBatchForTeam(personhog.types.v1.DeletePersonlessDistinctIdsBatchForTeamRequest) returns (personhog.types.v1.DeletePersonlessDistinctIdsBatchForTeamResponse);
+
+  // Person split (temporary: same routing caveat as deletes above)
+  rpc SplitPerson(personhog.types.v1.SplitPersonRequest) returns (personhog.types.v1.SplitPersonResponse);
+
+  // Undelete repair version resets (temporary: same routing caveat as deletes above)
+  rpc SetPersonDistinctIdVersionFloor(personhog.types.v1.SetPersonDistinctIdVersionFloorRequest) returns (personhog.types.v1.SetPersonDistinctIdVersionFloorResponse);
+  rpc SetPersonVersionFloor(personhog.types.v1.SetPersonVersionFloorRequest) returns (personhog.types.v1.SetPersonVersionFloorResponse);
 }

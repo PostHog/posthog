@@ -1,0 +1,57 @@
+#!/bin/bash
+# Vendored from dimikot/signal-fanout @ 585118209dec (2024-04-11).
+# Source: https://github.com/dimikot/signal-fanout
+#
+# Used as a `shell:` wrapper in CI to propagate the runner's cancellation
+# signal to the entire process tree. GitHub Actions only signals the step's
+# top-level process; bash swallows that signal while waiting for a child, so
+# pytest never sees it and only dies when SIGKILL hits the tree ~10s later
+# (or sometimes not at all on hosted runners with detached descendants).
+# This wrapper traps the runner's signal and pkill -SIGTERMs the whole
+# session, so pytest exits immediately on cancel.
+set -e -o pipefail
+
+# The signals we're trapping.
+TRAP_SIGNALS=(SIGHUP SIGINT SIGQUIT SIGUSR1 SIGUSR2 SIGPIPE SIGTERM)
+
+# When receiving one of the above signals, send $KILL_SIGNAL to the entire
+# process tree. We must NOT use SIGINT here (and we also must not propagate
+# the original signal since it may be SIGINT) due to how shells (e.g. bash)
+# handle SIGINT. See https://www.cons.org/cracauer/sigint.html
+KILL_SIGNAL=SIGTERM
+
+if [[ "$1" == "--inner" ]]; then
+  shift
+
+  handler() {
+    signal="$1"
+    trap - "$KILL_SIGNAL"
+    echo "$(date): signal-fanout received $signal, killing processes of the current session with $KILL_SIGNAL:"
+    pids="$(pgrep -s 0 || true)"
+    if [[ -n "$pids" ]]; then ps -o pid,sess,pgid,command -p $pids || true; fi
+    pkill "-$KILL_SIGNAL" -s 0 || true
+  }
+  for signal in "${TRAP_SIGNALS[@]}"; do
+    # shellcheck disable=SC2064
+    trap "handler $signal" "$signal"
+  done
+
+  if [[ -x "$1" ]]; then
+    # Full executable name is passed, e.g. "signal-fanout /bin/zsh {0}".
+    "$@" & wait $!
+  elif [[ ! -f "$1" ]] && which "$1" &>/dev/null; then
+    # Shell name is passed, e.g. "signal-fanout zsh {0}".
+    "$@" & wait $!
+  else
+    # Just a script file name is passed, e.g. "signal-fanout {0}".
+    bash "$@" & wait $!
+  fi
+else
+  if [[ "$1" == "" ]]; then
+    echo "Usage examples:"
+    echo "  - signal-fanout script-path"
+    echo "  - signal-fanout zsh script-path"
+    exit 1
+  fi
+  exec setsid --wait "${BASH_SOURCE[0]}" --inner "$@"
+fi

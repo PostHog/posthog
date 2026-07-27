@@ -469,13 +469,25 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
         )
 
         try:
-            result = await tool.ainvoke(
-                ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id), config=config
-            )
-            if not isinstance(result, LangchainToolMessage):
-                raise ValueError(
-                    f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
+            # tool_call.id is typed as str|None in some LangChain shapes; OTel rejects None
+            # attribute values with a warning, so include the id only when present.
+            tool_span_attributes: dict[str, str | int] = {
+                "posthog_ai.tool_name": tool_call.name,
+                "posthog_ai.team_id": self._team.id,
+            }
+            if tool_call.id is not None:
+                tool_span_attributes["posthog_ai.tool_call_id"] = tool_call.id
+            with _tracer.start_as_current_span("posthog_ai.tool.invoke", attributes=tool_span_attributes):
+                result = await tool.ainvoke(
+                    ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id),
+                    config=config,
                 )
+                # Keep the type-mismatch raise inside the span so OTel records the exception
+                # on the tool.invoke span rather than on its (unrelated) parent.
+                if not isinstance(result, LangchainToolMessage):
+                    raise ValueError(
+                        f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
+                    )
 
             # Track successful tool execution
             user_distinct_id = self._get_user_distinct_id(config)

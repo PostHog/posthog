@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { getToolByName } from '@/shared/test-utils'
-import { GENERATED_TOOLS } from '@/tools/generated/llm_analytics'
+import { GENERATED_TOOLS } from '@/tools/generated/ai_observability'
 import type { Context } from '@/tools/types'
 
 function createContext(requestReturnValue: unknown): { context: Context; requestMock: ReturnType<typeof vi.fn> } {
@@ -44,6 +44,15 @@ describe('Generated llma-prompt-* tools', () => {
         expect(() => tool.schema.parse({ name: 'checkout_prompt', prompt: { text: 'v2' } })).toThrow()
     })
 
+    it('requires base_version on the prompt-update schema (PATCH optionality stripped)', () => {
+        const tool = getToolByName(GENERATED_TOOLS, 'llma-prompt-update')
+
+        // The backend serializer requires base_version for optimistic concurrency, but the
+        // PATCH endpoint marks it optional in OpenAPI — the schema must re-require it so the
+        // agent can't silently omit it and hit a backend 400.
+        expect(() => tool.schema.parse({ prompt_name: 'checkout_prompt', prompt: { text: 'v2' } })).toThrow()
+    })
+
     it('wires prompt-list to GET and preserves paginated output shape', async () => {
         const paginated = {
             count: 1,
@@ -65,7 +74,7 @@ describe('Generated llma-prompt-* tools', () => {
 
         expect(requestMock).toHaveBeenCalledWith({
             method: 'GET',
-            path: '/api/environments/17/llm_prompts/',
+            path: '/api/projects/17/llm_prompts/',
             query: { search: 'checkout', content: 'none' },
         })
         expect(result).toEqual(paginated)
@@ -79,7 +88,7 @@ describe('Generated llma-prompt-* tools', () => {
 
         expect(requestMock).toHaveBeenCalledWith({
             method: 'GET',
-            path: '/api/environments/17/llm_prompts/',
+            path: '/api/projects/17/llm_prompts/',
             query: { search: 'checkout', content: 'preview' },
         })
     })
@@ -93,7 +102,7 @@ describe('Generated llma-prompt-* tools', () => {
 
         expect(requestMock).toHaveBeenCalledWith({
             method: 'GET',
-            path: '/api/environments/17/llm_prompts/name/checkout_prompt/',
+            path: '/api/projects/17/llm_prompts/name/checkout_prompt/',
             query: { version: 2 },
         })
     })
@@ -106,7 +115,7 @@ describe('Generated llma-prompt-* tools', () => {
 
         expect(requestMock).toHaveBeenCalledWith({
             method: 'POST',
-            path: '/api/environments/17/llm_prompts/',
+            path: '/api/projects/17/llm_prompts/',
             body: { name: 'new_prompt', prompt: { text: 'hello' } },
         })
     })
@@ -119,7 +128,7 @@ describe('Generated llma-prompt-* tools', () => {
 
         expect(requestMock).toHaveBeenCalledWith({
             method: 'PATCH',
-            path: '/api/environments/17/llm_prompts/name/new_prompt/',
+            path: '/api/projects/17/llm_prompts/name/new_prompt/',
             body: { prompt: { text: 'v2' }, base_version: 1 },
         })
     })
@@ -141,7 +150,7 @@ describe('Generated llma-prompt-* tools', () => {
 
         expect(requestMock).toHaveBeenCalledWith({
             method: 'POST',
-            path: '/api/environments/17/llm_prompts/name/original_prompt/duplicate/',
+            path: '/api/projects/17/llm_prompts/name/original_prompt/duplicate/',
             body: { new_name: 'copy_of_prompt' },
         })
         expect(result).toEqual(response)

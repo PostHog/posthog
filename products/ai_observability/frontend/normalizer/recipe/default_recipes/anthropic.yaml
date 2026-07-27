@@ -1,0 +1,97 @@
+# Example: { type: tool_use, id, name, input }  ·  { role, content: [<block>, ...] }
+#
+# The envelope with top-level tool_calls produces N+1 messages (one per content
+# block plus a synthetic tool_calls message) via delegateEach + followups.
+
+id: anthropic
+
+rules:
+    - on:
+          type: text
+          text: { exists: true }
+      emit:
+          content: $.text
+
+    - on:
+          type: thinking
+      emit:
+          role: thinking
+          content: $.thinking
+
+    - on:
+          type: tool_use
+      emit:
+          content: ''
+          toolCall:
+              id: $.id
+              name: $.name
+              args: $.input
+
+    - on:
+          type: tool_result
+          content: { is: array }
+          tool_use_id: { exists: true }
+      delegateEach: $.content
+      stamp:
+          role: tool_result
+          toolCallId: $.tool_use_id
+
+    - on:
+          type: tool_result
+          tool_use_id: { exists: true }
+      emit:
+          role: tool_result
+          content:
+              stringify: $.content
+          toolCallId: $.tool_use_id
+
+    # Anthropic ships images/documents as `source: {type: base64, data, media_type}`;
+    # reshape into the renderer's content parts.
+    - on:
+          type: image
+          source:
+              data: { is: string }
+              media_type: { is: string }
+      emit:
+          content:
+              - type: image
+                image: 'data:$.source.media_type;base64,$.source.data'
+
+    - on:
+          type: document
+          source:
+              data: { is: string }
+              media_type: { is: string }
+      emit:
+          content:
+              - type: file
+                file:
+                    mime_type: $.source.media_type
+                    data: $.source.data
+
+    # Top-level tool_calls duplicate the in-content tool_use blocks; the top-level
+    # version is richer, so drop the duplicates from content before delegating.
+    - on:
+          role: { is: string }
+          content: { is: array }
+          tool_calls: { is: array }
+      delegateEach:
+          reject:
+              from: $.content
+              where: { type: tool_use }
+      followups:
+          - role: $.role
+            toolCalls: $.tool_calls
+
+    - on:
+          role: { is: string }
+          content: { is: array }
+      delegateEach: $.content
+
+    # The string-content fallback for envelopes openai_chat (priority 35) didn't
+    # claim — i.e. a role not on its allowlist.
+    - on:
+          role: { is: string }
+          content: { is: string }
+      emit:
+          content: $.content

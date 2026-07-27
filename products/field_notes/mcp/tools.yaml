@@ -1,0 +1,83 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Field notes
+feature: field_notes
+url_prefix: /field_notes
+ui_apps: {}
+tools:
+    field-notes-create:
+        operation: field_notes_create
+        enabled: false
+    field-notes-destroy:
+        operation: field_notes_destroy
+        enabled: false
+    field-notes-get:
+        operation: field_notes_retrieve
+        enabled: true
+        scopes:
+            - field_note:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get field note
+        description: >
+            Get a single field note by id, including the full element context (selector, element chain, inferred
+            selectors, attributes) needed to locate the element in code.
+        feature_flag: field-notes
+    field-notes-list:
+        operation: field_notes_list
+        enabled: true
+        scopes:
+            - field_note:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List field notes
+        description: >
+            List UI field notes a user made with the PostHog toolbar on their own site. Each field note is feedback
+            pointed at a specific page element — comment, CSS selector, page URL, host, and optional screenshot. Filter
+            by `field_note_status` (pending, acknowledged, resolved, dismissed) to find unaddressed feedback, or by
+            `host` to scope to one site. Use this to pick up pending design/UX feedback to act on.
+        feature_flag: field-notes
+        response:
+            include:
+                - id
+                - comment
+                - field_note_status
+                - resolution
+                - url
+                - host
+                - pathname
+                - selector
+                - element_text
+                - screenshot_url
+                - created_at
+                - created_by
+    field-notes-partial-update:
+        operation: field_notes_partial_update
+        enabled: true
+        scopes:
+            - field_note:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update field note
+        description: >
+            Update a field note after acting on it — set `field_note_status` to `acknowledged`, `resolved`, or
+            `dismissed`, and optionally add a `resolution` note describing what changed. Send only the fields you want
+            to change.
+        feature_flag: field-notes
+    field-notes-update:
+        operation: field_notes_update
+        enabled: false

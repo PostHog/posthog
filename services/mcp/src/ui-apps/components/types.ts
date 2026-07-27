@@ -1,3 +1,5 @@
+import type { YAxisFormat } from '@posthog/quill-charts'
+
 import type { AnalyticsMetadata } from '../types'
 
 // Base payload that all tool results share
@@ -15,18 +17,31 @@ export type ChartDisplayType =
     | 'ActionsLineGraph'
     | 'ActionsLineGraphCumulative'
     | 'ActionsBar'
+    | 'ActionsStackedBar'
+    | 'ActionsUnstackedBar'
     | 'ActionsBarValue'
     | 'ActionsAreaGraph'
     | 'BoldNumber'
     | 'ActionsPie'
     | 'ActionsTable'
     | 'WorldMap'
+    | 'SlopeGraph'
 
 export interface TrendsFilter {
     display?: ChartDisplayType
     showLegend?: boolean
     showValuesOnSeries?: boolean
-    aggregationAxisFormat?: 'numeric' | 'duration' | 'duration_ms' | 'percentage'
+    showTrendLines?: boolean
+    showMovingAverage?: boolean
+    movingAverageIntervals?: number
+    showConfidenceIntervals?: boolean
+    confidenceLevel?: number
+    showPercentStackView?: boolean
+    aggregationAxisFormat?: YAxisFormat
+    aggregationAxisPrefix?: string
+    aggregationAxisPostfix?: string
+    decimalPlaces?: number
+    minDecimalPlaces?: number
 }
 
 export interface TrendsQuery {
@@ -65,6 +80,21 @@ export interface LifecycleQuery {
     }
 }
 
+export interface StickinessQuery {
+    kind: 'StickinessQuery'
+    /** Interval unit the X-axis counts (`day`, `week`, …) — labels the buckets ("N days"). */
+    interval?: string
+    series?: Array<{
+        event?: string
+        name?: string
+        custom_name?: string
+    }>
+    stickinessFilter?: {
+        display?: string
+        showValuesOnSeries?: boolean
+    }
+}
+
 export interface HogQLQuery {
     kind: 'HogQLQuery'
     query: string
@@ -77,6 +107,9 @@ export interface TrendsResultItem {
     days?: string[]
     count?: number
     aggregated_value?: number
+    /** Slope graph only: the last bucket is the current, still-accumulating period (set by the
+     * backend SlopeGraphTrendsQueryRunner) so the slope dashes the provisional end like the insight. */
+    incomplete_end?: boolean
     action?: {
         name?: string
     }
@@ -93,6 +126,16 @@ export interface LifecycleResultItem extends TrendsResultItem {
 }
 
 export type LifecycleResult = LifecycleResultItem[]
+
+/**
+ * Stickiness rows share the trends shape, but `count` (the total distinct users for the series)
+ * is always present and is the denominator for the percentage-of-users Y-axis the chart renders.
+ */
+export interface StickinessResultItem extends TrendsResultItem {
+    count: number
+}
+
+export type StickinessResult = StickinessResultItem[]
 
 export interface FunnelStep {
     name?: string
@@ -145,6 +188,29 @@ export interface RetentionResultItem {
 
 export type RetentionResult = RetentionResultItem[]
 
+export interface PathsQuery {
+    kind: 'PathsQuery'
+    pathsFilter?: {
+        includeEventTypes?: string[]
+        startPoint?: string
+        endPoint?: string
+    }
+}
+
+/**
+ * A single edge in a paths result. `source`/`target` are node keys of the form
+ * `<stepIndex>_<value>` (e.g. `2_https://example.com/pricing`); `value` is the user
+ * count on the edge; `average_conversion_time` is in milliseconds.
+ */
+export interface PathsResultItem {
+    source: string
+    target: string
+    value: number
+    average_conversion_time?: number
+}
+
+export type PathsResult = PathsResultItem[]
+
 // ============================================================================
 // Tool result payloads
 // The visualization type is inferred from the data structure, not a discriminator
@@ -194,6 +260,11 @@ export interface LifecycleVisualizerProps {
     results: LifecycleResult
 }
 
+export interface StickinessVisualizerProps {
+    query: StickinessQuery | undefined
+    results: StickinessResult
+}
+
 export interface TableVisualizerProps {
     results: HogQLResult
 }
@@ -201,4 +272,8 @@ export interface TableVisualizerProps {
 export interface RetentionVisualizerProps {
     query: RetentionQuery | undefined
     results: RetentionResult
+}
+
+export interface PathsVisualizerProps {
+    results: PathsResult
 }

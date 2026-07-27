@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-// Keep in sync with FEATURE_FLAG_SUPPORTED_OPERATORS in posthog/api/feature_flag.py
+// Keep in sync with FEATURE_FLAG_SUPPORTED_OPERATORS in
+// products/feature_flags/backend/api/feature_flag.py (mirrored by the filters serializer in
+// products/feature_flags/backend/api/filters_schema.py — issue #50084). This enum is
+// deliberately a superset: cohort filters don't go through flag-level operator validation,
+// so operators the cohort UI allows (between/not_between, and the min/max aliases mirroring
+// FEATURE_FLAG_OPERATOR_ALIASES) must deserialize here even though the flag API rejects them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatorType {
@@ -14,8 +19,12 @@ pub enum OperatorType {
     NotRegex,
     Gt,
     Lt,
+    #[serde(alias = "min")]
     Gte,
+    #[serde(alias = "max")]
     Lte,
+    Between,
+    NotBetween,
     SemverGt,
     SemverGte,
     SemverLt,
@@ -41,6 +50,9 @@ pub enum PropertyType {
     #[default]
     #[serde(rename = "person")]
     Person,
+    // Top-level columns on the persons table (e.g. created_at), not the JSON properties blob.
+    #[serde(rename = "person_metadata")]
+    PersonMetadata,
     #[serde(rename = "cohort")]
     Cohort,
     #[serde(rename = "group")]
@@ -70,8 +82,37 @@ impl std::fmt::Debug for CompiledRegex {
     }
 }
 
+/// Deserializes `PropertyFilter.key` from either a JSON string or a JSON number.
+///
+/// Flag-dependency keys are flag IDs, and the API has persisted them as raw JSON
+/// numbers in some cases (e.g. a flag migration that stored dependency IDs as
+/// integers). serde will not coerce a number into a `String`, so without this a
+/// single numeric key fails deserialization of the whole team's cached flag
+/// payload — taking down flag evaluation for the entire project rather than just
+/// the malformed flag. Accept both forms and normalize to a string; the evaluator
+/// parses it back to an id at match time (`get_feature_flag_id`).
+fn deserialize_key<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrNumber {
+        String(String),
+        Number(serde_json::Number),
+    }
+
+    Ok(match StringOrNumber::deserialize(deserializer)? {
+        StringOrNumber::String(s) => s,
+        StringOrNumber::Number(n) => n.to_string(),
+    })
+}
+
+// Runtime Python mirror: products/feature_flags/backend/api/filters_schema.py validates flag
+// filter properties against this shape at write time — keep field shapes in sync (issue #50084).
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PropertyFilter {
+    #[serde(deserialize_with = "deserialize_key")]
     pub key: String,
     // NB: if a property filter is of type is_set or is_not_set, the value isn't used, and if it's a filter made by the API, the value is None.
     pub value: Option<serde_json::Value>,
@@ -86,6 +127,16 @@ pub struct PropertyFilter {
     /// `Some(InvalidPattern)` means the pattern failed to compile — returns false immediately.
     #[serde(skip)]
     pub compiled_regex: Option<CompiledRegex>,
+    /// Captures unknown JSONB keys so they survive the cache round-trip unchanged.
+    /// Without this, runtime annotations like `cohort_name` and `group_key_names`
+    /// would be silently dropped on round-trip and the Python `verify_flags_cache`
+    /// verifier would report spurious `FIELD_MISMATCH` against the Django JSONB
+    /// passthrough. Only unknown-key passthrough is guaranteed here — absent-vs-null
+    /// normalization for known optional fields is handled by the Python verifier's
+    /// `_strip_null_values` helper.
+    /// See plans/verify-flags-cache-loose-comparison.md.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[cfg(test)]
@@ -103,5 +154,80 @@ mod mock_impls {
                 ..Default::default()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserializes_numeric_key_as_string() {
+        // A flag dependency persisted with a numeric `key` (e.g. after a migration
+        // that stored dependency IDs as integers) must not fail deserialization —
+        // otherwise one bad flag takes down the whole team's cached payload.
+        let filter: PropertyFilter = serde_json::from_value(serde_json::json!({
+            "key": 226357,
+            "value": true,
+            "type": "flag",
+            "operator": "flag_evaluates_to",
+        }))
+        .expect("numeric key should deserialize as a string");
+
+        assert_eq!(filter.key, "226357");
+        assert_eq!(filter.get_feature_flag_id(), Some(226357));
+    }
+
+    #[test]
+    fn deserializes_string_key() {
+        let filter: PropertyFilter = serde_json::from_value(serde_json::json!({
+            "key": "email",
+            "value": "test@example.com",
+            "type": "person",
+            "operator": "exact",
+        }))
+        .expect("string key should deserialize");
+
+        assert_eq!(filter.key, "email");
+    }
+
+    #[test]
+    fn deserializes_between_operators_and_min_max_aliases() {
+        // Cohort filters can carry operators the flag API rejects (between/not_between)
+        // and the legacy min/max aliases that only the flag write path normalizes to
+        // gte/lte — all of them must deserialize instead of failing the whole cohort.
+        let cases = [
+            ("between", OperatorType::Between),
+            ("not_between", OperatorType::NotBetween),
+            ("min", OperatorType::Gte),
+            ("max", OperatorType::Lte),
+        ];
+        for (wire_name, expected) in cases {
+            let operator: OperatorType = serde_json::from_value(serde_json::json!(wire_name))
+                .unwrap_or_else(|_| panic!("operator '{wire_name}' should deserialize"));
+            assert_eq!(operator, expected, "operator '{wire_name}'");
+        }
+
+        // The aliases must not change serialization: a Gte/Lte parsed from "min"/"max"
+        // still round-trips as "gte"/"lte" (guards the hypercache verifier contract).
+        assert_eq!(
+            serde_json::to_value(OperatorType::Gte).unwrap(),
+            serde_json::json!("gte")
+        );
+        assert_eq!(
+            serde_json::to_value(OperatorType::Lte).unwrap(),
+            serde_json::json!("lte")
+        );
+
+        // Between/NotBetween must also round-trip to their own canonical wire names
+        // (guards the same hypercache verifier contract for the operators this PR adds).
+        assert_eq!(
+            serde_json::to_value(OperatorType::Between).unwrap(),
+            serde_json::json!("between")
+        );
+        assert_eq!(
+            serde_json::to_value(OperatorType::NotBetween).unwrap(),
+            serde_json::json!("not_between")
+        );
     }
 }

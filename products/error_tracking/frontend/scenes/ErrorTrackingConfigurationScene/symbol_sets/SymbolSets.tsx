@@ -7,6 +7,7 @@ import {
     LemonButton,
     LemonCheckbox,
     LemonDialog,
+    LemonInput,
     LemonSegmentedButton,
     LemonTable,
     LemonTableColumns,
@@ -16,9 +17,11 @@ import {
 
 import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Errors/types'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
-import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { pluralize } from 'lib/utils/strings'
 
 import { ReleasePreviewPill } from 'products/error_tracking/frontend/components/ReleasesPreview/ReleasePreviewPill'
+import { errorTrackingEditAccessDisabledReason } from 'products/error_tracking/frontend/utils'
 
 import { RESULTS_PER_PAGE, SymbolSetOrder, symbolSetLogic } from './symbolSetLogic'
 
@@ -38,8 +41,10 @@ const SYMBOL_SET_FILTER_OPTIONS = [
 ] as { label: string; value: SymbolSetStatusFilter }[]
 
 export function SymbolSets(): JSX.Element {
-    const { symbolSetStatusFilter, selectedSymbolSetIds, deleteSymbolSetResponseLoading } = useValues(symbolSetLogic)
-    const { loadSymbolSets, setSymbolSetStatusFilter, bulkDeleteSymbolSets } = useActions(symbolSetLogic)
+    const { symbolSetStatusFilter, searchQuery, selectedSymbolSetIds, deleteSymbolSetResponseLoading } =
+        useValues(symbolSetLogic)
+    const { loadSymbolSets, setSymbolSetStatusFilter, setSearchQuery, bulkDeleteSymbolSets } =
+        useActions(symbolSetLogic)
 
     useEffect(() => {
         loadSymbolSets()
@@ -57,8 +62,16 @@ export function SymbolSets(): JSX.Element {
                 will only apply to all future exceptions ingested.
             </p>
             <div className="space-y-2">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center gap-2">
                     <div className="flex items-center gap-2">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search by reference, release, version, or commit"
+                            value={searchQuery}
+                            onChange={setSearchQuery}
+                            fullWidth
+                            className="w-90"
+                        />
                         {selectedSymbolSetIds.length > 0 && (
                             <>
                                 <LemonButton
@@ -67,6 +80,7 @@ export function SymbolSets(): JSX.Element {
                                     size="small"
                                     icon={<IconTrash />}
                                     loading={deleteSymbolSetResponseLoading}
+                                    disabledReason={errorTrackingEditAccessDisabledReason() ?? undefined}
                                     onClick={() =>
                                         LemonDialog.open({
                                             title: 'Delete symbol sets',
@@ -258,6 +272,7 @@ const SymbolSetTable = (): JSX.Element => {
                             size="xsmall"
                             tooltip="Delete symbol set"
                             icon={<IconTrash />}
+                            disabledReason={errorTrackingEditAccessDisabledReason() ?? undefined}
                             onClick={() =>
                                 LemonDialog.open({
                                     title: 'Delete symbol set',

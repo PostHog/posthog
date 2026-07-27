@@ -215,7 +215,7 @@ class CommentListQueryParamsSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["core", "platform_features"])
+@extend_schema(extensions={"x-product": "platform_features"})
 class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Comment.objects.all()
     serializer_class = CommentSerializer

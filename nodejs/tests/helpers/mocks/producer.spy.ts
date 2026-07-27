@@ -6,8 +6,8 @@
  */
 import { uncompressSync } from 'snappy'
 
-import { KafkaProducerWrapper, TopicMessage } from '../../../src/kafka/producer'
-import { parseJSON } from '../../../src/utils/json-parse'
+import { KafkaProducerWrapper, TopicMessage } from '~/common/kafka/producer'
+import { parseJSON } from '~/common/utils/json-parse'
 
 export type ParsedTopicMessage = {
     topic: TopicMessage['topic']

@@ -9,11 +9,7 @@ from . import (
     early_access_feature,
     email,
     exporter,
-    feature_flags,
     health_checks,
-    heatmap_screenshot,
-    hog_flows,
-    hog_functions,
     integrations,
     llm_prompt_cache,
     plugin_server,
@@ -27,7 +23,6 @@ from . import (
     tasks,
     team_access_cache_tasks,
     usage_report,
-    verify_persons_data_in_sync,
     warehouse,
 )
 
@@ -40,11 +35,7 @@ __all__ = [
     "early_access_feature",
     "email",
     "exporter",
-    "feature_flags",
     "health_checks",
-    "heatmap_screenshot",
-    "hog_flows",
-    "hog_functions",
     "integrations",
     "llm_prompt_cache",
     "plugin_server",
@@ -58,6 +49,5 @@ __all__ = [
     "tasks",
     "team_access_cache_tasks",
     "usage_report",
-    "verify_persons_data_in_sync",
     "warehouse",
 ]

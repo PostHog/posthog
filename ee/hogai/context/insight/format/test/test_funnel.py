@@ -1,8 +1,10 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
+
+from parameterized import parameterized
 
 from posthog.schema import (
     AssistantDateRange,
@@ -110,6 +112,20 @@ class TestFunnelResultsFormatter(BaseTest):
             ).format(),
         )
 
+    @parameterized.expand(
+        [
+            (FunnelVizType.STEPS,),
+            (FunnelVizType.TIME_TO_CONVERT,),
+            (FunnelVizType.TRENDS,),
+        ]
+    )
+    def test_funnels_none_results(self, viz_type: FunnelVizType):
+        query = AssistantFunnelsQuery(series=[], funnelsFilter=AssistantFunnelsFilter(funnelVizType=viz_type))
+        self.assertEqual(
+            FunnelResultsFormatter(query, None, self.team, datetime.now()).format(),
+            "No data recorded for this time period.",
+        )
+
     def test_funnels_breakdown(self):
         results = [
             {
@@ -200,7 +216,7 @@ class TestFunnelResultsFormatter(BaseTest):
                     self.team,
                     datetime.now(),
                 ).format(),
-                'Date range: 2025-01-31 00:00:00 to 2025-02-07 23:59:59\n\n---au\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s\n\n---us\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s\n\nConversion and drop-off rates are calculated in overall. For example, "Conversion rate: 9%" means that 9% of users from the first step completed the funnel.',
+                'Date range: 2025-01-31 00:00:00 to 2025-02-07 23:59:59 (UTC)\n\n---au\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s\n\n---us\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s\n\nConversion and drop-off rates are calculated in overall. For example, "Conversion rate: 9%" means that 9% of users from the first step completed the funnel.',
             )
 
     def test_funnels_time_to_convert(self):
@@ -215,7 +231,7 @@ class TestFunnelResultsFormatter(BaseTest):
         results = {"average_conversion_time": 600, "bins": [[600, 1], [601, 0]]}
         self.assertEqual(
             FunnelResultsFormatter(query, results, self.team, datetime.now()).format(),
-            "Date range: 2025-01-20 00:00:00 to 2025-01-22 23:59:59\n\nEvents: $pageview (custom) -> $ai_trace\nAverage time to convert|User distribution\n10m|100%\n10m 1s|0%\n\nThe user distribution is the percentage of users who completed the funnel in the given period.",
+            "Date range: 2025-01-20 00:00:00 to 2025-01-22 23:59:59 (UTC)\n\nEvents: $pageview (custom) -> $ai_trace\nAverage time to convert|User distribution\n10m|100%\n10m 1s|0%\n\nThe user distribution is the percentage of users who completed the funnel in the given period.",
         )
 
     def test_funnel_trends(self):
@@ -238,6 +254,32 @@ class TestFunnelResultsFormatter(BaseTest):
         self.assertEqual(
             FunnelResultsFormatter(query, results, self.team, datetime.now()).format(),
             "Date|$pageview (custom) -> $ai_trace conversion|$pageview (custom) -> $ai_trace drop-off\n2025-01-08|10%|90%\n2025-01-09|15.5%|84.5%\n2025-01-10|0%|100%",
+        )
+
+    def test_funnel_trends_marks_partial_bucket(self):
+        results = [
+            {
+                "count": 31,
+                "data": [10, 15.5, 0],
+                "days": ["2025-01-08", "2025-01-09", "2025-01-10"],
+                "labels": ["8-Jan-2025", "9-Jan-2025", "10-Jan-2025"],
+            }
+        ]
+        query = AssistantFunnelsQuery(
+            series=[
+                AssistantFunnelsEventsNode(event="$pageview", custom_name="custom"),
+                AssistantFunnelsEventsNode(event="$ai_trace"),
+            ],
+            dateRange=AssistantDateRange(date_from="2025-01-08"),
+            funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
+        )
+        # now is midday on the 10th, so the 10th's bucket is still collecting.
+        self.assertEqual(
+            FunnelResultsFormatter(query, results, self.team, datetime(2025, 1, 10, 12, 0, 0, tzinfo=UTC)).format(),
+            "Date|$pageview (custom) -> $ai_trace conversion|$pageview (custom) -> $ai_trace drop-off\n"
+            "2025-01-08|10%|90%\n2025-01-09|15.5%|84.5%\n2025-01-10 (partial)|0%|100%\n\n"
+            'Note: rows marked "(partial)" cover an interval that is still in progress as of the query time, '
+            "so their values are incomplete. Timezone: UTC.",
         )
 
     def test_funnel_trends_with_breakdown(self):

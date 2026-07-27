@@ -284,7 +284,7 @@ GROUP BY session_id, team_id
 """
 
 
-def WRITABLE_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False):
+def WRITABLE_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False, cluster=None):
     return SESSION_REPLAY_FEATURES_TABLE_BASE_SQL.format(
         table_name="writable_session_replay_features",
         uniq_combined_precision=UNIQ_COMBINED_PRECISION,
@@ -292,11 +292,12 @@ def WRITABLE_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False):
         engine=Distributed(
             data_table=SESSION_REPLAY_FEATURES_DATA_TABLE(),
             sharding_key="sipHash64(session_id)",
+            cluster=cluster,
         ),
     )
 
 
-def DISTRIBUTED_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False):
+def DISTRIBUTED_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False, cluster=None):
     return SESSION_REPLAY_FEATURES_TABLE_BASE_SQL.format(
         table_name="session_replay_features",
         uniq_combined_precision=UNIQ_COMBINED_PRECISION,
@@ -304,6 +305,7 @@ def DISTRIBUTED_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False):
         engine=Distributed(
             data_table=SESSION_REPLAY_FEATURES_DATA_TABLE(),
             sharding_key="sipHash64(session_id)",
+            cluster=cluster,
         ),
     )
 

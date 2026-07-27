@@ -1,6 +1,6 @@
 use posthog_symbol_data::{
-    read_symbol_data, write_symbol_data, write_symbol_data_uncompressed, HermesMap,
-    ProguardMapping, SourceAndMap,
+    read_symbol_data, write_symbol_data, write_symbol_data_uncompressed, AppleDsym, ElfDebugInfo,
+    HermesMap, ProguardMapping, SourceAndMap,
 };
 
 const MAGIC_LEN: usize = b"posthog_error_tracking".len();
@@ -10,7 +10,7 @@ const COMPRESSION_OFFSET: usize = MAGIC_LEN + 4 + 4; // after MAGIC + VERSION + 
 #[test]
 fn test_source_and_map_reading() {
     // This file is v1 format - validates backward compatibility
-    let input = include_bytes!("static/sourcemap_with_nulls.jsdata").to_vec();
+    let input = include_bytes!("static/sourcemap_with_nulls.jsdata");
     read_symbol_data::<SourceAndMap>(input).unwrap();
 }
 
@@ -30,7 +30,7 @@ fn test_v2_compressed_header() {
     assert_eq!(version, 2);
     assert_eq!(bytes[COMPRESSION_OFFSET], 1); // zstd
 
-    let output = read_symbol_data::<SourceAndMap>(bytes).unwrap();
+    let output = read_symbol_data::<SourceAndMap>(&bytes).unwrap();
     assert_eq!(input, output);
 }
 
@@ -50,7 +50,7 @@ fn test_v2_uncompressed_header() {
     assert_eq!(version, 2);
     assert_eq!(bytes[COMPRESSION_OFFSET], 0); // none
 
-    let output = read_symbol_data::<SourceAndMap>(bytes).unwrap();
+    let output = read_symbol_data::<SourceAndMap>(&bytes).unwrap();
     assert_eq!(input, output);
 }
 
@@ -60,7 +60,7 @@ macro_rules! roundtrip_test {
         fn $name() {
             let input = $value;
             let bytes = write_symbol_data(input.clone()).unwrap();
-            let output = read_symbol_data::<$ty>(bytes).unwrap();
+            let output = read_symbol_data::<$ty>(&bytes).unwrap();
             assert_eq!(input, output);
         }
     };
@@ -88,6 +88,31 @@ roundtrip_test!(
         content: "proguard mapping data".to_string(),
     }
 );
+roundtrip_test!(
+    test_v2_roundtrip_elf_debug_info,
+    ElfDebugInfo,
+    ElfDebugInfo {
+        data: b"\x7fELF fake debug payload".to_vec(),
+    }
+);
+
+#[test]
+fn test_cross_type_reads_fail() {
+    // Consumers that accept multiple container types dispatch on the type tag,
+    // so a type mismatch must be an error rather than a silent
+    // reinterpretation — in both directions.
+    let elf_bytes = write_symbol_data(ElfDebugInfo {
+        data: b"\x7fELF fake debug payload".to_vec(),
+    })
+    .unwrap();
+    assert!(read_symbol_data::<AppleDsym>(&elf_bytes).is_err());
+
+    let dsym_bytes = write_symbol_data(AppleDsym {
+        data: b"fake dsym zip payload".to_vec(),
+    })
+    .unwrap();
+    assert!(read_symbol_data::<ElfDebugInfo>(&dsym_bytes).is_err());
+}
 
 #[test]
 fn test_v2_compressed_large_payload() {
@@ -102,6 +127,6 @@ fn test_v2_compressed_large_payload() {
     let uncompressed_bytes = write_symbol_data_uncompressed(input.clone()).unwrap();
     assert!(bytes.len() < uncompressed_bytes.len() / 2);
 
-    let output = read_symbol_data::<SourceAndMap>(bytes).unwrap();
+    let output = read_symbol_data::<SourceAndMap>(&bytes).unwrap();
     assert_eq!(input, output);
 }

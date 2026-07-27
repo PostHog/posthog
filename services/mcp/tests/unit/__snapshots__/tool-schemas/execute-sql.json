@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "connectionId": {
+            "description": "Optional id of an external data source (e.g. a Postgres, DuckDB, or MySQL direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
+            "type": "string"
+        },
+        "query": {
+            "description": "The final SQL query to be executed.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "truncate": {
+            "default": true,
+            "description": "Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).",
+            "type": "boolean"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

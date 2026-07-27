@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { ReactNode } from 'react'
 
 import { IconWarning } from '@posthog/icons'
@@ -7,13 +7,16 @@ import { LemonButtonProps } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { ensureStringIsNotBlank, humanFriendlyNumber, isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { isEmptyObject, isObject } from 'lib/utils/guards'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { objectsEqual } from 'lib/utils/objects'
+import { removeUndefinedAndNull } from 'lib/utils/objects'
+import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
-import { removeUndefinedAndNull } from '~/lib/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
 import {
@@ -141,7 +144,7 @@ export const getDisplayNameFromEntityNode = (
           ? node.event
           : isGroupNode(node)
             ? undefined
-            : node.id
+            : node?.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)
@@ -249,13 +252,14 @@ export function formatAggregationValue(
     return Array.isArray(formattedValue) ? formattedValue[0] : formattedValue
 }
 
-// NB! Sync this with breakdown_values.py
+// NB! Sync this with breakdown_values.py and hogql_queries/insights/utils/breakdowns.py
 export const BREAKDOWN_OTHER_STRING_LABEL = '$$_posthog_breakdown_other_$$'
 export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991 // pow(2, 53) - 1
 export const BREAKDOWN_OTHER_DISPLAY = 'Other (i.e. all remaining values)'
 export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
 export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
 export const BREAKDOWN_NULL_DISPLAY = 'None (i.e. no value)'
+export const BREAKDOWN_BASELINE_STRING_LABEL = '$$_posthog_breakdown_baseline_$$'
 
 export function isOtherBreakdown(breakdown_value: string | number | bigint | null | undefined | ReactNode): boolean {
     return (
@@ -331,7 +335,7 @@ export function getCohortNameFromId(
     cohorts: CohortType[] | null | undefined
 ): string {
     // :TRICKY: Different endpoints represent the all users cohort breakdown differently
-    if (cohortId === 'all' || cohortId === 0) {
+    if (cohortId === 'all' || cohortId === 0 || cohortId === '0') {
         return 'All Users'
     }
 
@@ -339,7 +343,18 @@ export function getCohortNameFromId(
         return 'Not in cohort'
     }
 
-    return cohorts?.filter((c) => c.id == cohortId)[0]?.name ?? (cohortId || '').toString()
+    const cohortName = cohorts?.filter((c) => c.id == cohortId)[0]?.name
+    if (cohortName) {
+        return cohortName
+    }
+
+    // The cohorts list may not be loaded yet (or the cohort was deleted). Fall back to a
+    // human-readable label rather than leaking a bare numeric id into pills/axis labels.
+    // Keep in sync with BreakdownTag's `Cohort ${id}` convention.
+    if (cohortId == null || cohortId === '') {
+        return ''
+    }
+    return `Cohort ${cohortId}`
 }
 
 export function formatBreakdownLabel(
@@ -348,11 +363,22 @@ export function formatBreakdownLabel(
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
     multipleBreakdownIndex?: number,
-    itemLabel?: string
+    itemLabel?: string,
+    truncateLabel: boolean = true
 ): string {
     if (Array.isArray(breakdown_value)) {
         return breakdown_value
-            .map((v, index) => formatBreakdownLabel(v, breakdownFilter, cohorts, formatPropertyValueForDisplay, index))
+            .map((v, index) =>
+                formatBreakdownLabel(
+                    v,
+                    breakdownFilter,
+                    cohorts,
+                    formatPropertyValueForDisplay,
+                    index,
+                    undefined,
+                    truncateLabel
+                )
+            )
             .join('::')
     }
 
@@ -365,14 +391,18 @@ export function formatBreakdownLabel(
             breakdownFilter,
             cohorts,
             formatPropertyValueForDisplay,
-            multipleBreakdownIndex
+            multipleBreakdownIndex,
+            undefined,
+            truncateLabel
         )
         const formattedBucketEnd = formatBreakdownLabel(
             bucketEnd,
             breakdownFilter,
             cohorts,
             formatPropertyValueForDisplay,
-            multipleBreakdownIndex
+            multipleBreakdownIndex,
+            undefined,
+            truncateLabel
         )
         if (formattedBucketStart === formattedBucketEnd) {
             return formattedBucketStart
@@ -437,7 +467,7 @@ export function formatBreakdownLabel(
                   ? BREAKDOWN_NULL_DISPLAY
                   : breakdown_value
 
-        if (label.length > 200) {
+        if (truncateLabel && label.length > 200) {
             return label.slice(0, 200) + '…'
         }
         return label
@@ -548,7 +578,7 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
     return query ? urls.insightNew({ query }) : undefined
 }
 
-export function getFunnelDatasetKey(dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics): string {
+export function getFunnelDatasetKey(dataset: { breakdown_value?: BreakdownKeyType }): string {
     const breakdown_value =
         Array.isArray(dataset.breakdown_value) && dataset.breakdown_value.length == 1
             ? dataset.breakdown_value[0]
@@ -558,28 +588,35 @@ export function getFunnelDatasetKey(dataset: FlattenedFunnelStepByBreakdown | Fu
     return JSON.stringify(payload)
 }
 
+/** Identifies the base series — deliberately excludes `compare_label`, so that current and
+ * previous period datasets share a single result customization. */
 export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
+    // for formulas, the position (not seriesIndex) identifies the base series: with compare
+    // enabled, previous-period datasets have offset series indexes, but share the position
+    // with their current-period counterpart
+    const formulaPosition = getTrendDatasetPosition(dataset)
     const payload = {
         series: Number.isInteger(dataset.action?.order)
             ? dataset.action?.order
-            : dataset.seriesIndex > 0
-              ? `formula${dataset.seriesIndex + 1}`
+            : formulaPosition > 0
+              ? `formula${formulaPosition + 1}`
               : 'formula',
         breakdown_value:
             dataset.breakdown_value !== undefined && !Array.isArray(dataset.breakdown_value)
                 ? [dataset.breakdown_value]
                 : dataset.breakdown_value,
-        compare_label: dataset.compare_label,
     }
 
     return JSON.stringify(payload)
 }
 
 export function getTrendDatasetPosition(dataset: IndexedTrendResult): number {
-    return dataset.seriesIndex ?? dataset.colorIndex ?? ((dataset as any).index as number)
+    // colorIndex is shared by current/previous period pairs, so position-based
+    // customizations apply to the base series rather than each period separately
+    return dataset.colorIndex ?? dataset.seriesIndex ?? ((dataset as any).index as number)
 }
 
-/** Type guard to determine wether we have a FunnelStepWithConversionMetrics or a FlattenedFunnelStepByBreakdown */
+/** Type guard to determine whether we have a FunnelStepWithConversionMetrics or a FlattenedFunnelStepByBreakdown */
 function isFunnelStepWithConversionMetrics(
     dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
 ): dataset is FunnelStepWithConversionMetrics {
@@ -596,7 +633,7 @@ export function getFunnelDatasetPosition(
         return disableFunnelBreakdownBaseline ? (dataset.order ?? 0) + 1 : (dataset.order ?? 0)
     }
 
-    return dataset?.breakdownIndex ?? 0
+    return dataset?.colorIndex ?? dataset?.breakdownIndex ?? 0
 }
 
 export function getTrendResultCustomizationKey(
@@ -645,15 +682,9 @@ export function getTrendResultCustomizationColorToken(
     const resultCustomization = getTrendResultCustomization(resultCustomizationBy, dataset, resultCustomizations)
 
     // for result customizations without a configuration, the color is determined
-    // by the position in the dataset. colors repeat after all options
-    // have been exhausted.
-    // For comparison data (current vs previous periods), use colorIndex to ensure
-    // they get the same base color when customizing by value
-    const isValueBasedCustomization = !resultCustomizationBy || resultCustomizationBy === ResultCustomizationBy.Value
-    const datasetPosition =
-        isValueBasedCustomization && dataset.colorIndex !== undefined
-            ? dataset.colorIndex
-            : getTrendDatasetPosition(dataset)
+    // by the position in the dataset (shared by current/previous period pairs).
+    // colors repeat after all options have been exhausted.
+    const datasetPosition = getTrendDatasetPosition(dataset)
     const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
 
     return resultCustomization && resultCustomization.color

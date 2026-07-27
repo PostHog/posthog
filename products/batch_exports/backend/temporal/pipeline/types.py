@@ -29,9 +29,7 @@ class BatchExportResult:
             case None:
                 return None
             case error:
-                # mypy cannot narrow types properly, error can only be BatchExportError
-                # See: https://github.com/python/mypy/issues/19081
-                return f"{error.type}: {error.message}"  # type: ignore[union-attr]
+                return f"{error.type}: {error.message}"
 
     @classmethod
     def from_exception(cls, e: Exception) -> "BatchExportResult":

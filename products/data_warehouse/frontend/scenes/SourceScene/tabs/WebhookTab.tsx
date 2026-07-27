@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { IconCopy } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonCollapse, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
@@ -9,6 +10,7 @@ import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import { WebhookInfo } from '~/types'
@@ -21,7 +23,14 @@ import {
     WebhookUrlDisplay,
 } from '../../../shared/components/forms/WebhookSetupForm'
 import type { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'
-import { webhookTabLogic } from './webhookTabLogic'
+import { WebhookLogsSection } from './WebhookLogsSection'
+import { WEBHOOK_SECTIONS, WebhookSection, webhookTabLogic } from './webhookTabLogic'
+
+const SECTION_LABELS: Record<WebhookSection, string> = {
+    overview: 'Overview',
+    configuration: 'Configuration',
+    activity: 'Activity',
+}
 
 const WEBHOOK_METRIC_KEYS = ['succeeded', 'failed'] as const
 
@@ -38,7 +47,7 @@ const WEBHOOK_METRICS_INFO: Record<string, { name: string; description: string; 
     },
 }
 
-export function WebhookTab({ id, tabId }: { id: string; tabId?: string }): JSX.Element {
+export function WebhookTab({ id }: { id: string }): JSX.Element {
     const {
         webhookInfo,
         webhookInfoLoading,
@@ -51,8 +60,9 @@ export function WebhookTab({ id, tabId }: { id: string; tabId?: string }): JSX.E
         sourceConfig,
         canDeleteWebhook,
         webhookDeleting,
-    } = useValues(webhookTabLogic({ id, tabId }))
-    const { createWebhook, loadWebhookInfo, deleteWebhook } = useActions(webhookTabLogic({ id, tabId }))
+        currentSection,
+    } = useValues(webhookTabLogic({ id }))
+    const { createWebhook, loadWebhookInfo, deleteWebhook, setCurrentSection } = useActions(webhookTabLogic({ id }))
 
     if (webhookInfoLoading && !webhookInfo) {
         return (
@@ -65,7 +75,7 @@ export function WebhookTab({ id, tabId }: { id: string; tabId?: string }): JSX.E
     }
 
     // No webhook exists yet — show setup flow (or re-creation if external webhook is missing)
-    const logicProps = { id, tabId }
+    const logicProps = { id }
 
     if (!webhookInfo?.exists) {
         return (
@@ -85,33 +95,104 @@ export function WebhookTab({ id, tabId }: { id: string; tabId?: string }): JSX.E
     const externalMissing =
         webhookInfo.external_status && !webhookInfo.external_status.exists && !webhookInfo.external_status.error
 
+    const hogFunctionId = webhookInfo.hog_function?.id
+    const hasConfiguration = !!sourceConfig && (sourceConfig.webhookFields?.length ?? 0) > 0
+    const visibleSections = WEBHOOK_SECTIONS.filter(
+        (key) => (key !== 'configuration' || hasConfiguration) && (key !== 'activity' || !!hogFunctionId)
+    )
+    const activeSection = visibleSections.includes(currentSection) ? currentSection : 'overview'
+
+    let body: JSX.Element
+    switch (activeSection) {
+        case 'configuration':
+            body = <WebhookConfigurationSection sourceConfig={sourceConfig!} formLogicProps={logicProps} />
+            break
+        case 'activity':
+            body = (
+                <>
+                    {hogFunctionId && <WebhookMetricsSection hogFunctionId={hogFunctionId} />}
+                    {hogFunctionId && <WebhookLogsSection hogFunctionId={hogFunctionId} />}
+                </>
+            )
+            break
+        default:
+            body = (
+                <>
+                    <WebhookStatusSection
+                        webhookInfo={webhookInfo}
+                        webhookInfoLoading={webhookInfoLoading}
+                        internalStateLabel={internalStateLabel}
+                        externalStateLabel={externalStateLabel}
+                        onRefresh={loadWebhookInfo}
+                    />
+                    {externalMissing && (
+                        <WebhookRecreateSection
+                            id={id}
+                            sourceName={sourceConfig?.label ?? source?.source_type ?? 'source'}
+                            sourceConfig={sourceConfig}
+                            webhookCreating={webhookCreating}
+                            createWebhookResult={createWebhookResult}
+                            onCreateWebhook={createWebhook}
+                        />
+                    )}
+                    {!externalMissing && (webhookInfo.missing_events?.length ?? 0) > 0 && (
+                        <WebhookMissingEventsSection
+                            missingEvents={webhookInfo.missing_events!}
+                            sourceName={sourceConfig?.label ?? source?.source_type ?? 'source'}
+                        />
+                    )}
+                    <WebhookDetailsSection webhookInfo={webhookInfo} />
+                    {mappedTables.length > 0 && <MappedTablesSection mappedTables={mappedTables} />}
+                    <WebhookDeleteSection
+                        canDelete={canDeleteWebhook}
+                        deleting={webhookDeleting}
+                        onDelete={deleteWebhook}
+                    />
+                </>
+            )
+    }
+
     return (
-        <div className="space-y-4">
-            <WebhookStatusSection
-                webhookInfo={webhookInfo}
-                webhookInfoLoading={webhookInfoLoading}
-                internalStateLabel={internalStateLabel}
-                externalStateLabel={externalStateLabel}
-                onRefresh={loadWebhookInfo}
-            />
-            {externalMissing && (
-                <WebhookRecreateSection
-                    id={id}
-                    sourceName={sourceConfig?.label ?? source?.source_type ?? 'source'}
-                    sourceConfig={sourceConfig}
-                    webhookCreating={webhookCreating}
-                    createWebhookResult={createWebhookResult}
-                    onCreateWebhook={createWebhook}
-                    tabId={tabId}
-                />
-            )}
-            <WebhookDetailsSection webhookInfo={webhookInfo} />
-            {sourceConfig && (sourceConfig.webhookFields?.length ?? 0) > 0 && (
-                <WebhookConfigurationSection sourceConfig={sourceConfig} formLogicProps={logicProps} />
-            )}
-            {webhookInfo.hog_function?.id && <WebhookMetricsSection hogFunctionId={webhookInfo.hog_function.id} />}
-            {mappedTables.length > 0 && <MappedTablesSection mappedTables={mappedTables} />}
-            <WebhookDeleteSection canDelete={canDeleteWebhook} deleting={webhookDeleting} onDelete={deleteWebhook} />
+        <WebhookSectionLayout
+            sections={visibleSections}
+            section={activeSection}
+            onSectionChange={setCurrentSection}
+            body={body}
+        />
+    )
+}
+
+function WebhookSectionLayout({
+    sections,
+    section,
+    onSectionChange,
+    body,
+}: {
+    sections: readonly WebhookSection[]
+    section: WebhookSection
+    onSectionChange: (section: WebhookSection) => void
+    body: JSX.Element
+}): JSX.Element {
+    return (
+        <div className="flex items-start gap-6">
+            <nav className="sticky top-[var(--scene-title-section-height,50px)] flex flex-col w-56 flex-shrink-0">
+                <ul className="flex flex-col gap-y-px">
+                    {sections.map((key) => (
+                        <li key={key}>
+                            <LemonButton
+                                fullWidth
+                                size="small"
+                                active={section === key}
+                                onClick={() => onSectionChange(key)}
+                                data-attr={`webhook-section-${key}`}
+                            >
+                                {SECTION_LABELS[key]}
+                            </LemonButton>
+                        </li>
+                    ))}
+                </ul>
+            </nav>
+            <div className="flex-1 min-w-0 space-y-4">{body}</div>
         </div>
     )
 }
@@ -121,7 +202,7 @@ function WebhookConfigurationSection({
     formLogicProps,
 }: {
     sourceConfig: SourceConfig
-    formLogicProps: { id: string; tabId?: string }
+    formLogicProps: { id: string }
 }): JSX.Element {
     const { webhookFieldInputs, isWebhookFieldInputsSubmitting } = useValues(webhookTabLogic(formLogicProps))
     const webhookFields = sourceConfig.webhookFields ?? []
@@ -221,7 +302,6 @@ function WebhookStatusSection({
 
 function WebhookRecreateSection({
     id,
-    tabId,
     sourceName,
     sourceConfig,
     webhookCreating,
@@ -229,7 +309,6 @@ function WebhookRecreateSection({
     onCreateWebhook,
 }: {
     id: string
-    tabId?: string
     sourceName: string
     sourceConfig: any
     webhookCreating: boolean
@@ -243,9 +322,41 @@ function WebhookRecreateSection({
             webhookResult={createWebhookResult}
             webhookCreating={webhookCreating}
             onCreateWebhook={onCreateWebhook}
-            formLogic={webhookTabLogic({ id, tabId })}
+            formLogic={webhookTabLogic({ id })}
             formKey="webhookFieldInputs"
         />
+    )
+}
+
+function WebhookMissingEventsSection({
+    missingEvents,
+    sourceName,
+}: {
+    missingEvents: string[]
+    sourceName: string
+}): JSX.Element {
+    return (
+        <LemonBanner
+            type="warning"
+            action={{
+                icon: <IconCopy />,
+                children: 'Copy events',
+                onClick: () => void copyToClipboard(missingEvents.join('\n'), 'webhook events'),
+            }}
+        >
+            <p className="mb-2">
+                Some tables won't receive data until these events are added to your {sourceName} webhook. This happens
+                when the webhook was created manually, or before a newly added table was supported. Add them in your{' '}
+                {sourceName} dashboard, then refresh.
+            </p>
+            <div className="flex flex-wrap gap-1">
+                {missingEvents.map((event) => (
+                    <LemonTag key={event} type="warning" className="text-xs">
+                        {event}
+                    </LemonTag>
+                ))}
+            </div>
+        </LemonBanner>
     )
 }
 
@@ -259,19 +370,26 @@ function WebhookDetailsSection({ webhookInfo }: { webhookInfo: WebhookInfo }): J
             {webhookInfo.webhook_url && <WebhookUrlDisplay url={webhookInfo.webhook_url} />}
 
             {externalStatus?.enabled_events && externalStatus.enabled_events.length > 0 && (
-                <div>
-                    <p className="text-xs font-semibold text-muted uppercase mb-1">
-                        Listening to {externalStatus.enabled_events.length} event
-                        {externalStatus.enabled_events.length !== 1 ? 's' : ''}
-                    </p>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                        {externalStatus.enabled_events.map((event) => (
-                            <LemonTag key={event} type="muted" className="text-xs">
-                                {event}
-                            </LemonTag>
-                        ))}
-                    </div>
-                </div>
+                <LemonCollapse
+                    size="small"
+                    panels={[
+                        {
+                            key: 'enabled-events',
+                            header: `Listening to ${externalStatus.enabled_events.length} event${
+                                externalStatus.enabled_events.length !== 1 ? 's' : ''
+                            }`,
+                            content: (
+                                <div className="flex flex-wrap gap-1">
+                                    {externalStatus.enabled_events.map((event) => (
+                                        <LemonTag key={event} type="muted" className="text-xs">
+                                            {event}
+                                        </LemonTag>
+                                    ))}
+                                </div>
+                            ),
+                        },
+                    ]}
+                />
             )}
         </LemonCard>
     )

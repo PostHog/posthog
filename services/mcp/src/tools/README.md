@@ -122,7 +122,7 @@ Add a clear, actionable description for your tool, assign it to a feature, speci
 - `dashboards` - [Dashboard creation and management](https://posthog.com/docs/product-analytics/dashboards)
 - `insights` - [Analytics insights and SQL queries](https://posthog.com/docs/product-analytics/insights)
 - `experiments` - [A/B testing experiments](https://posthog.com/docs/experiments)
-- `llm-analytics` - [LLM usage and cost tracking](https://posthog.com/docs/llm-analytics)
+- `llm-analytics` - [LLM usage and cost tracking](https://posthog.com/docs/ai-observability)
 - `docs` - PostHog documentation search
 
 If your tool doesn't fit any of these features, you can create a new feature category yourself.

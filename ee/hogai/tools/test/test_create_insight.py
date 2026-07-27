@@ -15,12 +15,13 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
+from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
+
 from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tools.create_insight import INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT, CreateInsightTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantNodeName, NodePath
-from ee.models import AgentArtifact, Conversation
 
 
 class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):

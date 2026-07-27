@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Optional
 
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
@@ -10,7 +10,10 @@ from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 
 def format_property_values(
-    property_name: str, sample_values: list, sample_count: Optional[int] = 0, format_as_string: bool = False
+    property_name: str,
+    sample_values: Sequence[str | int | float],
+    sample_count: Optional[int] = 0,
+    format_as_string: bool = False,
 ) -> str:
     if len(sample_values) == 0 or sample_count == 0:
         data = {
@@ -87,9 +90,11 @@ def enrich_props_with_descriptions(entity: str, props: Iterable[tuple[str, str |
         "person": CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"],
         "event": CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"],
     }
+    # Entities other than the well-known ones are group types.
+    entity_definitions = mapping.get(entity, CORE_FILTER_DEFINITIONS_BY_GROUP["groups"])
     for prop_name, prop_type in props:
         description = None
-        if entity_definition := mapping.get(entity, {}).get(prop_name):
+        if entity_definition := entity_definitions.get(prop_name):
             if entity_definition.get("system") or entity_definition.get("ignored_in_assistant"):
                 continue
             description = entity_definition.get("description_llm") or entity_definition.get("description")

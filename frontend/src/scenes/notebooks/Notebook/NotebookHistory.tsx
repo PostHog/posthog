@@ -147,7 +147,7 @@ export function NotebookHistory(): JSX.Element {
 }
 
 export function NotebookHistoryWarning(): JSX.Element | null {
-    const { previewContent } = useValues(notebookLogic)
+    const { previewContent, content } = useValues(notebookLogic)
     const { setLocalContent, clearPreviewContent, duplicateNotebook, setShowHistory } = useActions(notebookLogic)
 
     if (!previewContent) {
@@ -158,8 +158,10 @@ export function NotebookHistoryWarning(): JSX.Element | null {
         duplicateNotebook()
     }
     const onRevert = (): void => {
+        // The historical doc becomes the local content and is saved through the normal
+        // markdown flow, same as any other edit.
         clearPreviewContent()
-        setLocalContent(previewContent)
+        setLocalContent(content)
         setShowHistory(false)
     }
 

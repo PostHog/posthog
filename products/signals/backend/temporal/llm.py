@@ -4,11 +4,17 @@ from typing import Optional, TypeVar
 
 from django.conf import settings
 
-import tiktoken
 import structlog
-import posthoganalytics
 from anthropic.types import MessageParam
-from posthoganalytics.ai.anthropic import AsyncAnthropic
+
+from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
+from posthog.llm.gateway_client import (
+    build_async_anthropic_client,
+    get_async_anthropic_gateway_client,
+    resolve_ai_gateway_config,
+)
+
+from products.signals.backend.temporal import metrics
 
 logger = structlog.get_logger(__name__)
 
@@ -30,27 +36,10 @@ MAX_QUERY_TOKENS = 2048
 TIMEOUT = 100.0
 
 
-def get_async_anthropic_client() -> AsyncAnthropic:
-    """Get configured AsyncAnthropic client with PostHog analytics."""
-    posthog_client = posthoganalytics.default_client
-    if not posthog_client:
-        raise ValueError("PostHog analytics client not configured")
-
-    api_key = settings.ANTHROPIC_API_KEY
-    if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY is not configured")
-
-    return AsyncAnthropic(
-        api_key=api_key,
-        posthog_client=posthog_client,
-        timeout=TIMEOUT,
-    )
-
-
 def truncate_query_to_token_limit(query: str, max_tokens: int = MAX_QUERY_TOKENS) -> str:
     """Truncate a query string to fit within token limit for embedding."""
     try:
-        enc = tiktoken.get_encoding("cl100k_base")
+        enc = get_tiktoken_encoding_for_model(TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL)
         tokens = enc.encode(query)
         if len(tokens) <= max_tokens:
             return query
@@ -93,17 +82,31 @@ T = TypeVar("T")
 # I reached doing ~the same thing in 3 or 4 places and decided to abstract it.
 async def call_llm(
     *,
+    team_id: int | None,
     system_prompt: str,
     user_prompt: str,
     validate: Callable[[str], T],
     thinking: bool = False,
     temperature: Optional[float] = 0.2,
     retries: int = MAX_RETRIES,
+    stage: Optional[str] = None,
+    ai_product: Optional[str] = None,
 ) -> T:
-    # Worth noting a lot of this code only really works for the Anthropic API, I think (prefilling and thinking in particular). Haven't
-    # looked into the OpenAI SDK yet - that'll be for the switch to the LLM gateway.
+    # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
     thinking = thinking and MATCHING_MODEL in ANTHROPIC_THINKING_MODELS
-    client = get_async_anthropic_client()
+    # A call site opts onto the Go ai-gateway by passing ai_product, which both routes it through
+    # the gateway-capable client and tags the generation. Without it the call stays on the Python
+    # gateway, so each product is switched (and reverted) independently.
+    if ai_product is not None:
+        client = build_async_anthropic_client(
+            product="signals",
+            ai_product=ai_product,
+            ai_stage=stage,
+            team_id=team_id,
+            use_bedrock_fallback=True,
+        )
+    else:
+        client = get_async_anthropic_gateway_client(product="signals", team_id=team_id, use_bedrock_fallback=True)
 
     messages: list[MessageParam] = [
         {"role": "user", "content": user_prompt},
@@ -120,7 +123,17 @@ async def call_llm(
         "messages": messages,
         "max_tokens": MAX_RESPONSE_TOKENS,
         "temperature": temperature,
+        "timeout": TIMEOUT,
     }
+    if team_id is not None:
+        create_kwargs["metadata"] = {"user_id": f"team-{team_id}"}
+    # The per-key ai_stage header is what the Python gateway reads. Send it whenever the request
+    # lands there: an un-opted call site, or an opted one before the gateway env is set. Skip it
+    # only when an opted call site actually reaches the Go gateway, which reads ai_stage from the
+    # X-PostHog-Properties blob instead.
+    on_go_gateway = ai_product is not None and resolve_ai_gateway_config() is not None
+    if stage and not on_go_gateway:
+        create_kwargs["extra_headers"] = {"x-posthog-property-ai_stage": stage}
 
     # Later, we'll want to tune how many tokens we give over to thinking vs. producing output. Hard-coded for now.
     if thinking:
@@ -129,18 +142,22 @@ async def call_llm(
         create_kwargs["temperature"] = 1  # Required for thinking
 
     last_exception: Exception | None = None
+    stage_label = stage or "unknown"
     for attempt in range(retries):
-        response = None
         # NOTE - we explicitly don't want to retry if we fail to call the llm, or fail to extract text content,
-        # only if we fail to validate the response.
-        response = await client.messages.create(**create_kwargs)
-        text_content = _extract_text_content(response)
+        # only if we fail to validate the response. A transport/extraction failure is a hot-path LLM error.
+        try:
+            response = await client.messages.create(**create_kwargs)
+            text_content = _extract_text_content(response)
+        except Exception:
+            metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
+            raise
         text_content = _strip_markdown_json_fences(text_content)
         if not thinking:
             # Prepend the `{` we pre-filled
             text_content = "{" + text_content
         try:
-            return validate(text_content)
+            result = validate(text_content)
         except Exception as e:
             logger.warning(
                 f"LLM call failed (attempt {attempt + 1}/{retries}): {e}",
@@ -153,8 +170,7 @@ async def call_llm(
                 logger.warning(
                     f"LLM response that failed validation:\n{text_content}",
                 )
-            if response:
-                messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "assistant", "content": response.content})
             messages.append(
                 {
                     "role": "user",
@@ -168,4 +184,8 @@ async def call_llm(
             last_exception = e
             continue
 
+        metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_OK)
+        return result
+
+    metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
     raise last_exception or ValueError(f"LLM call failed after {retries} attempts")

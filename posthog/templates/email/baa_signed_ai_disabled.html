@@ -1,0 +1,20 @@
+{% extends "email/base.html" %}
+{% block section %}
+<h1>AI features have been disabled for {{ organization_name }}</h1>
+<p>
+    Thanks for signing the Business Associate Agreement ("BAA") with PostHog.
+</p>
+<p>
+    Heads up: the BAA does not cover the third-party AI services PostHog uses (currently Alphabet, Anthropic,
+    Microsoft, and OpenAI). To keep your organization's data out of those AI subprocessors by default, we've
+    automatically turned off AI features that use them for <strong>{{ organization_name }}</strong>.
+</p>
+<p>
+    If your team still wants to use these AI features for workflows that do <em>not</em> involve Protected Health
+    Information ("PHI"), an organization admin can re-enable them at any time. You remain responsible for ensuring
+    your use complies with applicable laws and regulations.
+</p>
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ ai_settings_url }}">Open AI settings</a>
+</div>
+{% endblock %}

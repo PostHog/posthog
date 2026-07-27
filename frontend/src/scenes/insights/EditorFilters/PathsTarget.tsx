@@ -75,7 +75,9 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
             return <span />
         }
         return startPoint ? (
-            <span className="label">{startPoint}</span>
+            <span className="label line-clamp-2 [overflow-wrap:anywhere]" title={startPoint}>
+                {startPoint}
+            </span>
         ) : (
             <span className="label text-secondary">Add start point</span>
         )
@@ -89,7 +91,9 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
             return <span />
         }
         return endPoint ? (
-            <span className="label">{endPoint}</span>
+            <span className="label line-clamp-2 [overflow-wrap:anywhere]" title={endPoint}>
+                {endPoint}
+            </span>
         ) : (
             <span className="label text-secondary">Add end point</span>
         )

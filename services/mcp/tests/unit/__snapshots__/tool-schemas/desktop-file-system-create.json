@@ -1,0 +1,48 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "href": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "meta": {},
+        "path": {
+            "description": "Slash-delimited location of the channel, e.g. \"Marketing/Q1 Campaigns\". Intermediate folders are created automatically.",
+            "type": "string"
+        },
+        "ref": {
+            "anyOf": [
+                {
+                    "maxLength": 100,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "shortcut": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "type": {
+            "description": "Use \"folder\" to create a channel.",
+            "maxLength": 100,
+            "type": "string"
+        }
+    },
+    "required": ["path"],
+    "type": "object"
+}

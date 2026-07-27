@@ -24,6 +24,13 @@
  */
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 
+/** Leading element of `useGroupList`'s `remoteKey` — the cached-first-page / full remote fetch.
+ *  Owned here beside the cache so key producers and invalidation predicates share one source. */
+export const TAXONOMIC_LIST_KEY_FAMILY = 'taxonomic-list'
+/** Leading element of `useGroupList`'s `serverSearchKey` — the server-side search fallback for
+ *  `clientFilterFirstPage` groups whose dataset exceeds one page. */
+export const TAXONOMIC_LIST_SEARCH_KEY_FAMILY = 'taxonomic-list-search'
+
 export interface UseTaxonomicResourceOptions {
     /** Disable execution. Defaults to true. */
     enabled?: boolean
@@ -247,6 +254,30 @@ export function __clearTaxonomicResourceCache(): void {
 export function invalidateTaxonomicResource(key: ReadonlyArray<unknown>): void {
     const entry = cache.get(hashKey(key))
     if (entry) {
+        entry.ts = 0
+        entry.error = undefined
+        notify(entry)
+    }
+}
+
+/**
+ * Invalidate every cached entry whose key matches a predicate. Used by
+ * domain models (e.g. cohortsModel) to flush taxonomic cache slices when
+ * the underlying data mutates. The hash is the JSON-stringified key so
+ * we re-parse to feed structured input back to the predicate — keys are
+ * always plain arrays of JSON-safe values so the round-trip is lossless.
+ */
+export function invalidateTaxonomicResourcesWhere(predicate: (key: unknown[]) => boolean): void {
+    for (const [hash, entry] of cache) {
+        let key: unknown[]
+        try {
+            key = JSON.parse(hash) as unknown[]
+        } catch {
+            continue
+        }
+        if (!predicate(key)) {
+            continue
+        }
         entry.ts = 0
         entry.error = undefined
         notify(entry)

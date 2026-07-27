@@ -1,10 +1,13 @@
 import time
 import datetime
+from importlib import import_module
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.conf import settings
+from django.contrib.auth import SESSION_KEY
 from django.utils import timezone
 
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
@@ -14,6 +17,7 @@ from rest_framework import status
 from posthog.api.two_factor_reset import TwoFactorResetVerifier
 from posthog.models import User
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.session.models import Session
 
 
 class TestTwoFactorReset(APIBaseTest):
@@ -202,6 +206,20 @@ class TestTwoFactorReset(APIBaseTest):
         session = self.client.session
         self.assertIsNone(session.get("user_authenticated_but_no_2fa"))
         self.assertIsNone(session.get("user_authenticated_time"))
+
+    @patch("posthog.tasks.email.send_two_factor_auth_disabled_email.delay")
+    def test_reset_revokes_other_login_sessions(self, mock_send_email):
+        engine = import_module(settings.SESSION_ENGINE)
+        other = engine.SessionStore()
+        other[SESSION_KEY] = str(self.user.pk)
+        other.create()
+        token = self._setup_2fa_reset()
+        self._setup_half_auth_session()
+
+        response = self.client.post(f"/api/reset_2fa/{self.user.uuid}/", {"token": token})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertFalse(Session.objects.filter(session_key=other.session_key).exists())
 
     def test_cannot_reset_2fa_without_token(self):
         """Test that 2FA reset fails without a token."""

@@ -1,4 +1,4 @@
-import { EventType } from '@posthog/rrweb-types'
+import { EventType } from 'posthog-js/rrweb-types'
 
 import { RecordingSnapshot } from '../types'
 import { isObject } from '../utils'

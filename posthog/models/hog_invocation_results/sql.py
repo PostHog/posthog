@@ -11,12 +11,12 @@ from posthog.kafka_client.topics import KAFKA_HOG_INVOCATION_RESULTS
 
 HOG_INVOCATION_RESULTS_TTL_DAYS = 30
 
-# Naming convention mirrors `property_values` — the AUX-resident, non-sharded,
-# WarpStream-shared-consumed table family:
+# Naming convention mirrors `property_values` — the AUX-resident, non-sharded
+# table family:
 #   * `hog_invocation_results_data` — local replicated table on AUX. Writes flow
 #     in via the Kafka MV; replay reads happen against the distributed alias.
 #   * `kafka_hog_invocation_results` — single Kafka engine table on AUX backed
-#     by the warpstream-shared named collection.
+#     by the warpstream-cyclotron named collection.
 #   * `hog_invocation_results_mv` — MV on AUX, kafka → data table.
 #   * `hog_invocation_results` — distributed read alias on AUX + DATA. This is
 #     the name HogQL emits and the name the replay paginator queries.
@@ -140,7 +140,8 @@ ENGINE = {Distributed(data_table=HOG_INVOCATION_RESULTS_DATA_TABLE, cluster=sett
 )
 
 
-# Single Kafka pair, backed by the warpstream-shared named collection. We
+# Single Kafka pair, backed by the warpstream-cyclotron named collection — the
+# CDP producer writes lifecycle rows to the cyclotron Warpstream cluster. We
 # previously also created an MSK-backed pair alongside this; that's gone — the
 # producer writes to one topic and one consumer drains it.
 KAFKA_HOG_INVOCATION_RESULTS_TABLE_SQL = lambda: (
@@ -153,7 +154,7 @@ ENGINE = {
         kafka_engine(
             topic=KAFKA_HOG_INVOCATION_RESULTS,
             group=CONSUMER_GROUP_HOG_INVOCATION_RESULTS,
-            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_CYCLOTRON_NAMED_COLLECTION,
         )
     }
 SETTINGS kafka_skip_broken_messages = 100

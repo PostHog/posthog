@@ -4,7 +4,7 @@ import { IconCheckCircle, IconChip, IconClock, IconLaptop, IconLock, IconPencil,
 import { LemonButton, LemonTable, Spinner } from '@posthog/lemon-ui'
 
 import { IconLink, IconSync } from 'lib/lemon-ui/icons'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { PasskeyCredential, passkeySettingsLogic } from './passkeySettingsLogic'
 

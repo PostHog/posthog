@@ -28,7 +28,12 @@ bugs. Always read the `search` param:
 }
 ```
 
-**Persons properties live under `/api/environments/:team/`, not `/projects/`.**
+**Persons properties — match what the frontend actually calls.** Today persons
+URLs are constructed against `/api/environments/:team_id/persons/properties` in
+the calling kea logic, so mock at that path. (The backend exposes both
+`/api/projects/` and `/api/environments/` for persons; `/api/projects/` is the
+canonical path but the persons frontend hasn't been migrated.)
+
 Mount shared models in `beforeEach`:
 
 ```tsx

@@ -40,6 +40,7 @@
     Py_XDECREF(py_end);                                                                                 \
     Py_XDECREF(py_start);                                                                               \
     Py_XDECREF(py_err);                                                                                 \
+    Py_XDECREF(py_err_args);                                                                            \
     Py_XDECREF(error_type);                                                                             \
     OTHER_CLEANUP                                                                                       \
     return NULL;                                                                                        \

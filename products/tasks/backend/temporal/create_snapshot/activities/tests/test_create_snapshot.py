@@ -5,14 +5,14 @@ import pytest
 
 from asgiref.sync import async_to_sync
 
+from products.tasks.backend.exceptions import SandboxNotFoundError, SnapshotCreationError
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.create_snapshot.activities.create_snapshot import (
     CreateSnapshotInput,
     create_snapshot,
 )
 from products.tasks.backend.temporal.create_snapshot.activities.get_snapshot_context import SnapshotContext
-from products.tasks.backend.temporal.exceptions import SandboxNotFoundError, SnapshotCreationError
 
 
 def _run_or_skip_on_modal_outage(activity_environment, fn, input_data):

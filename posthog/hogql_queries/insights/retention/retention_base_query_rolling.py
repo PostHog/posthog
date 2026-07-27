@@ -22,7 +22,7 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         t0_expr: ast.Expr
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
-            t0_expr = self.get_first_time_anchor_expr()
+            t0_expr = self.get_first_time_anchor_expr(self.start_event)
         else:
             t0_expr = parse_expr("minIf(events.timestamp, {expr})", {"expr": self.start_entity_expr})
 

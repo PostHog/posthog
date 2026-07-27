@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconCollapse, IconExpand, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonCard, Spinner } from '@posthog/lemon-ui'
 
+import { ReplayCaptureDiagnosticsPanel } from 'scenes/session-recordings/components/ReplayCaptureDiagnosticsPanel'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -51,9 +52,14 @@ export function SessionRecordingSection(): JSX.Element | null {
                                 />
                             </div>
                         ) : (
-                            <div className="flex flex-col items-center justify-center h-[200px] text-muted-alt">
-                                <IconVideoCamera className="text-4xl mb-2 opacity-50" />
-                                <p className="m-0">No recording available for this session</p>
+                            <div className="flex flex-col items-center justify-center py-6 px-4 text-muted-alt gap-4">
+                                <div className="flex flex-col items-center">
+                                    <IconVideoCamera className="text-4xl mb-2 opacity-50" />
+                                    <p className="m-0">No recording available for this session</p>
+                                </div>
+                                <div className="w-full max-w-xl">
+                                    <ReplayCaptureDiagnosticsPanel sessionId={sessionId} />
+                                </div>
                             </div>
                         )}
                     </div>

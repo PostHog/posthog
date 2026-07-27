@@ -8,13 +8,12 @@ from parameterized import parameterized
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.models import Organization, Team, User
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.cohort import INTERNAL_TEST_USERS_COHORT_NAME, CohortKind
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
 from posthog.models.team.team import SessionRecordingRetentionPeriod
 
+from products.cohorts.backend.models.cohort import INTERNAL_TEST_USERS_COHORT_NAME, Cohort, CohortKind
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
@@ -164,9 +163,11 @@ class TestTeam(BaseTest):
     def test_create_team_sets_primary_dashboard(self):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
         self.assertIsInstance(team.primary_dashboard, Dashboard)
+        assert team.primary_dashboard is not None
+        self.assertEqual(team.primary_dashboard.name, "Your starter dashboard")
 
-        # Ensure insights are created and linked
-        self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 6)
+        # Ensure insights are created and linked (8 insight tiles + 5 text tiles + 3 button tiles)
+        self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 16)
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_team_on_cloud_uses_feature_flag_to_determine_person_on_events(self, mock_feature_enabled):
@@ -181,6 +182,7 @@ class TestTeam(BaseTest):
                     "persons-on-events-v2-reads-enabled",
                     str(team.uuid),
                     groups={"organization": str(self.organization.id)},
+                    person_properties=None,
                     group_properties={
                         "organization": {
                             "id": str(self.organization.id),
@@ -189,6 +191,8 @@ class TestTeam(BaseTest):
                     },
                     only_evaluate_locally=True,
                     send_feature_flag_events=False,
+                    disable_geoip=None,
+                    device_id=None,
                 )
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=False)
@@ -273,6 +277,7 @@ class TestTeam(BaseTest):
 
     @parameterized.expand(
         [
+            ("Active users (last 30 days)",),
             ("Daily active users (DAUs)",),
             ("Weekly active users (WAUs)",),
         ]
@@ -294,10 +299,10 @@ class TestTeam(BaseTest):
 
     @parameterized.expand(
         [
+            ("Sessions (last 7 days)", "TrendsQuery"),
+            ("Pageviews (last 7 days)", "TrendsQuery"),
+            ("Top referrers", "TrendsQuery"),
             ("Retention", "RetentionQuery"),
-            ("Growth accounting", "LifecycleQuery"),
-            ("Referring domain (last 14 days)", "TrendsQuery"),
-            ("Pageview funnel, by browser", "FunnelsQuery"),
         ]
     )
     def test_default_dashboard_pageview_only_tiles(self, tile_name, expected_kind):
@@ -312,3 +317,25 @@ class TestTeam(BaseTest):
         assert source["kind"] == expected_kind
         assert "GroupNode" not in str(source)
         assert "$pageview" in str(source)
+
+    def test_default_dashboard_funnel_tile_steps_through_pageview_to_autocapture(self):
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        tile = DashboardTile.objects.get(
+            dashboard=team.primary_dashboard,
+            insight__name="Visit to interaction funnel",
+        )
+        assert tile.insight is not None
+        assert tile.insight.query is not None
+        source = tile.insight.query["source"]
+        assert source["kind"] == "FunnelsQuery"
+        assert [step["event"] for step in source["series"]] == ["$pageview", "$autocapture"]
+
+    def test_default_dashboard_button_tiles_link_to_related_products(self):
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        button_tiles = DashboardTile.objects.filter(
+            dashboard=team.primary_dashboard,
+            button_tile__isnull=False,
+        ).select_related("button_tile")
+        assert button_tiles.count() == 3
+        urls = {tile.button_tile.url for tile in button_tiles if tile.button_tile is not None}
+        assert urls == {"/replay/home", "/web", "/activity/explore"}

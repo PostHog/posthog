@@ -87,7 +87,6 @@ export function MarketingAnalyticsOverview(props: {
                 loading={responseLoading}
                 numSkeletons={numSkeletons}
                 samplingRate={samplingRate}
-                usedPreAggregatedTables={false}
                 labelFromKey={labelFromKey}
                 filterEmptyItems={filterEmptyMetrics}
             />

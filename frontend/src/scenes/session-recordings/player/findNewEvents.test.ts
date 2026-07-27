@@ -1,5 +1,5 @@
-import { EventType } from '@posthog/rrweb-types'
-import type { eventWithTime } from '@posthog/rrweb-types'
+import { EventType } from 'posthog-js/rrweb-types'
+import type { eventWithTime } from 'posthog-js/rrweb-types'
 
 import { findNewEvents } from './sessionRecordingPlayerLogic'
 

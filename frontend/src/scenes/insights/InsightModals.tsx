@@ -2,12 +2,9 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
-import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
-import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
-import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -17,7 +14,11 @@ import { urls } from 'scenes/urls'
 import { EndpointQueryNode, HogQLQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps, InsightShortId, ItemMode } from '~/types'
 
+import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { EditAlertModal } from 'products/alerts/frontend/views/EditAlertModal'
+import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
 import { EndpointFromInsightModal } from 'products/endpoints/frontend/EndpointFromInsightModal'
+import { SubscriptionsModal } from 'products/subscriptions/frontend/components/Subscriptions/SubscriptionsModal'
 
 import { insightModalsLogic } from './insightModalsLogic'
 
@@ -90,11 +91,12 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
     const { query } = useValues(insightDataLogic(insightProps))
     const { push } = useActions(router)
 
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
+    const metricsAlertsEnabled = useFeatureFlag('METRICS')
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
 
     return (
         <>
-            {insightMode === ItemMode.Alerts && (
+            {insightMode === ItemMode.Alerts && !alertId && (
                 <ManageAlertsModal
                     onClose={() => push(urls.insightView(insight.short_id as InsightShortId))}
                     isOpen={insightMode === ItemMode.Alerts}
@@ -102,6 +104,7 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
                     insightId={insight.id as number}
                     insightShortId={insight.short_id as InsightShortId}
                     canCreateAlertForInsight={canCreateAlertForInsight}
+                    insightQuery={query}
                 />
             )}
 
@@ -112,6 +115,7 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
                     alertId={alertId === null || alertId === 'new' ? undefined : alertId}
                     insightShortId={insight.short_id as InsightShortId}
                     insightId={insight.id}
+                    insightName={insight.name}
                     onEditSuccess={() => push(urls.insightAlerts(insight.short_id as InsightShortId))}
                     insightLogicProps={insightLogicProps}
                 />
@@ -166,7 +170,6 @@ function InsightEndpointModalWrapper({ insightLogicProps }: { insightLogicProps:
 
     return (
         <EndpointFromInsightModal
-            tabId={insightProps.tabId || ''}
             insightQuery={insightQuery as unknown as HogQLQuery | EndpointQueryNode}
             insightShortId={insight.short_id}
         />

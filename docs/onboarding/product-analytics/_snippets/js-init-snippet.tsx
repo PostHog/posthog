@@ -1,4 +1,4 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { useMDXComponents } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 export const JSInitSnippet = ({ defaultsDate }: { defaultsDate: string }): JSX.Element => {
     const { CodeBlock, dedent } = useMDXComponents()

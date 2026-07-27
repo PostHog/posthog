@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "application_id": {
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this agent revision.",
+            "type": "string"
+        },
+        "tool_id": {
+            "pattern": "^[a-z0-9][a-z0-9_-]*$",
+            "type": "string"
+        }
+    },
+    "required": ["application_id", "id", "tool_id"],
+    "type": "object"
+}

@@ -2,7 +2,7 @@
 
 from django.db import migrations, models
 
-import posthog.models.insight
+import posthog.utils
 
 
 def create_short_ids(apps, schema_editor):

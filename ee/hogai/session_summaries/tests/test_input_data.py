@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.session_recordings.models.metadata import RecordingMetadata
+from posthog.session_recordings.queries.session_replay_events import SessionEventsPage
 
 from ee.hogai.session_summaries.session.input_data import (
     COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT,
@@ -549,7 +550,12 @@ def test_get_paginated_session_events(
     mock_metadata = RecordingMetadata(**mock_raw_metadata)  # type: ignore
     mock_columns = mock_events_columns
     # Prepare mock pages data (add columns to each page)
-    processed_pages_data = [(mock_columns, events) if events is not None else (None, None) for events in pages_data]
+    processed_pages_data = [
+        SessionEventsPage(columns=mock_columns, rows=events, has_more=False)
+        if events is not None
+        else SessionEventsPage(columns=None, rows=None, has_more=False)
+        for events in pages_data
+    ]
     with (
         patch("ee.hogai.session_summaries.session.input_data.SessionReplayEvents") as mock_replay_events,
         patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team),

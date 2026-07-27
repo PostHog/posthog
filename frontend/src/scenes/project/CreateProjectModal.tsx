@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 
@@ -51,9 +51,15 @@ export function CreateProjectModal({
         )
     }
 
-    // Anytime the project changes close the modal as it indicates we have created a new project
+    // Close the modal once a *new* project is created (the current project id changes). Guarding on the
+    // id rather than the object reference avoids closing on mount and avoids reacting to a failed create
+    // that left the existing project in place.
+    const previousProjectId = useRef(currentProject?.id)
     useEffect(() => {
-        closeModal()
+        if (currentProject && currentProject.id !== previousProjectId.current) {
+            previousProjectId.current = currentProject.id
+            closeModal()
+        }
     }, [currentProject]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (

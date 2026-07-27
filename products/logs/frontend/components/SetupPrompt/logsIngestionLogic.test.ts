@@ -1,11 +1,32 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { logsIngestionLogic } from './logsIngestionLogic'
 
+jest.mock('lib/utils/async', () => ({
+    ...jest.requireActual('lib/utils/async'),
+    retryWithBackoff: async <T>(fn: () => Promise<T>, options: { maxAttempts?: number } = {}): Promise<T> => {
+        const maxAttempts = options.maxAttempts ?? 3
+        let lastError: unknown
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+                return await fn()
+            } catch (e) {
+                lastError = e
+                if (attempt >= maxAttempts - 1) {
+                    throw e
+                }
+            }
+        }
+        throw lastError
+    },
+}))
+
 describe('logsIngestionLogic', () => {
+    afterEach(resumeKeaLoadersErrors)
     let logic: ReturnType<typeof logsIngestionLogic.build>
 
     beforeEach(() => {
@@ -54,6 +75,7 @@ describe('logsIngestionLogic', () => {
         })
 
         it('handles API failure and sets teamHasLogsCheckFailed', async () => {
+            silenceKeaLoadersErrors()
             useMocks({
                 get: {
                     '/api/environments/:team_id/logs/has_logs/': () => [500, { detail: 'Server error' }],
@@ -88,6 +110,7 @@ describe('logsIngestionLogic', () => {
         })
 
         it('resets teamHasLogsCheckFailed on new load attempt', async () => {
+            silenceKeaLoadersErrors()
             let callCount = 0
             useMocks({
                 get: {

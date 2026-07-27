@@ -406,6 +406,61 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # Should fall back to distinct_id
             assert person_display["display_name"] == "user1"
 
+    @parameterized.expand(
+        [
+            (
+                "empty_first_prop_falls_through",
+                ["name", "email"],
+                {"name": "", "email": "user1@posthog.com"},
+                "user1@posthog.com",
+            ),
+            ("all_props_empty_falls_back_to_distinct_id", ["name", "email"], {"name": "", "email": ""}, "user1"),
+            (
+                "non_empty_value_still_wins",
+                ["name", "email"],
+                {"name": "Person user1", "email": "user1@posthog.com"},
+                "Person user1",
+            ),
+        ]
+    )
+    def test_person_display_name_empty_string_fallthrough(
+        self, _name, display_name_properties, person_properties, expected_display_name
+    ):
+        """An empty-string property should fall through to the next configured property."""
+        timestamp = "2024-01-01T12:00:00Z"
+        session_id = str(uuid7(timestamp))
+        with freeze_time(timestamp):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["user1"],
+                properties=person_properties,
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user1",
+                timestamp=timestamp,
+                properties={"$session_id": session_id},
+            )
+        flush_persons_and_events()
+
+        self.team.person_display_name_properties = display_name_properties
+        self.team.save()
+        self.team.refresh_from_db()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person"],
+            )
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+            assert response.results[0][1]["display_name"] == expected_display_name
+
     @snapshot_clickhouse_queries
     def test_person_display_name_with_spaces_in_property_name(self):
         """Test person_display_name handles property names with spaces."""
@@ -1327,7 +1382,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert len(response.results) == 1
 
     def test_filter_test_accounts_with_cohort_filter(self):
-        from posthog.models import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         cohort = Cohort.objects.create(
             team=self.team,

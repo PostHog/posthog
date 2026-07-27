@@ -3,7 +3,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { Page } from 'puppeteer'
 
-import { CapturePage, playerHtmlCache } from '../capture/capture-page'
+import { CapturePage, playerHtmlCache } from '~/session-replay/recording-rasterizer/capture/capture-page'
 
 const mockLog = {
     info: jest.fn(),

@@ -8,8 +8,8 @@ import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { PostOnboardingModal } from 'scenes/onboarding/PostOnboardingModal'
-import { postOnboardingModalLogic } from 'scenes/onboarding/postOnboardingModalLogic'
+import { WizardSyncDebugPanel } from 'scenes/onboarding/shared/wizard-sync/WizardSyncDebugPanel'
+import { WizardSyncFab } from 'scenes/onboarding/shared/wizard-sync/WizardSyncFab'
 
 import { GlobalModals } from '~/layout/GlobalModals'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
@@ -17,6 +17,7 @@ import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
+import { SelfReadOnlyNotice } from '~/layout/navigation/SelfReadOnlyNotice'
 
 import { sceneLogic } from './sceneLogic'
 
@@ -25,7 +26,6 @@ export default function AuthenticatedShell({ children }: { children: React.React
     useMountedLogic(eventIngestionRestrictionLogic)
     useMountedLogic(breadcrumbsLogic)
     useMountedLogic(globalSetupLogic)
-    useMountedLogic(postOnboardingModalLogic)
     useSetupHighlight()
 
     const { sceneConfig } = useValues(sceneLogic)
@@ -39,10 +39,15 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 <GlobalModals />
                 <GlobalShortcuts />
                 <Command />
-                <PostOnboardingModal />
                 <ImpersonationNotice />
+                <SelfReadOnlyNotice />
+                <WizardSyncFab />
+                <WizardSyncDebugPanel />
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_DW_AA_TEST] === 'test' && (
                     <div data-attr="experiments-dw-aa-test-variant" className="hidden" />
+                )}
+                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST] === 'test' && (
+                    <div data-attr="experiments-freeze-exposure-aa-test-variant" className="hidden" />
                 )}
             </div>
             <ToastContainer

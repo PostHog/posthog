@@ -1,5 +1,5 @@
-from posthog.api.hog_function import HogFunctionSerializer
-from posthog.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.api.hog_function import HogFunctionSerializer
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
 
 def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dict) -> HogFunctionSerializer:

@@ -275,3 +275,78 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
         dashboard_url = response.json()["dashboard_url"]
         assert f"/project/{self.team.id}/web" in dashboard_url
         assert "utm_source=" in dashboard_url
+
+
+class TestWebAnalyticsRecapAPI(ClickhouseTestMixin, APIBaseTest):
+    ENDPOINT = "/api/environments/{team_id}/web_analytics/recap/"
+
+    def _url(self, team_id=None):
+        return self.ENDPOINT.format(team_id=team_id or self.team.id)
+
+    def test_recap_extends_digest_with_persona_and_highlights(self):
+        with freeze_time(QUERY_TIMESTAMP):
+            _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
+            _create_pageview(self.team, distinct_id="user_1", url="https://example.com/", timestamp="2025-01-25")
+            flush_persons_and_events()
+
+            response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        # superset of the digest shape
+        assert {"visitors", "pageviews", "sessions", "bounce_rate", "avg_session_duration", "goals"} <= set(data.keys())
+        # plus the recap-only fields
+        assert {
+            "persona",
+            "highlights",
+            "period_label",
+            "period_start",
+            "period_end",
+            "project_name",
+            "recap_url",
+        } <= set(data.keys())
+        assert set(data["persona"].keys()) == {"id", "name", "emoji", "blurb", "color"}
+        assert isinstance(data["highlights"], list)
+        assert data["period_start"] == "2025-01-22"
+        assert data["period_end"] == "2025-01-29"
+        assert data["project_name"] == self.team.name
+
+    def test_empty_team_gets_just_getting_started_persona(self):
+        with freeze_time(QUERY_TIMESTAMP):
+            response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["persona"]["id"] == "just_getting_started"
+        assert data["highlights"] == []
+
+    def test_recap_url_points_at_recap_route(self):
+        response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        recap_url = response.json()["recap_url"]
+        assert f"/project/{self.team.id}/web/recap" in recap_url
+        assert "utm_source=web_analytics_recap" in recap_url
+
+    def test_cannot_read_other_teams_recap(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        response = self.client.get(self._url(team_id=other_team.id))
+
+        assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            (["feature_flag:read"], status.HTTP_403_FORBIDDEN),
+            (["web_analytics:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_personal_api_key_requires_web_analytics_read_scope(self, scopes, expected_status):
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        with freeze_time(QUERY_TIMESTAMP):
+            response = self.client.get(self._url(), HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        assert response.status_code == expected_status

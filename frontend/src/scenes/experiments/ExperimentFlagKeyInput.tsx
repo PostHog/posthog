@@ -1,3 +1,4 @@
+import { IconCopy } from '@posthog/icons'
 import { LemonBanner, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -83,9 +84,16 @@ export function ExperimentFlagKeyInput({
             </div>
 
             {!showReuseFlag ? (
-                <Link subtle onClick={() => onToggleReuseFlag(true)} className="text-sm">
-                    Want to reuse an existing feature flag?
-                </Link>
+                <div>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconCopy />}
+                        onClick={() => onToggleReuseFlag(true)}
+                    >
+                        Reuse an existing feature flag
+                    </LemonButton>
+                </div>
             ) : (
                 <div>
                     <div className="font-semibold mb-2">Use the same flag</div>

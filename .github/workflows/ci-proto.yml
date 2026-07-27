@@ -4,7 +4,6 @@ on:
     push:
         branches: [master]
     pull_request:
-    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -23,7 +22,7 @@ jobs:
         outputs:
             proto: ${{ steps.filter.outputs.proto || 'true' }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -32,7 +31,7 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push'
               with:
@@ -52,7 +51,7 @@ jobs:
         timeout-minutes: 5
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
 
@@ -73,7 +72,7 @@ jobs:
         timeout-minutes: 5
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
 
@@ -94,13 +93,14 @@ jobs:
         timeout-minutes: 10
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
 
             - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: '3.12'
+                  python-version: '3.13.13'
+                  token: ${{ github.token }}
 
             - name: Install codegen tools
               run: pip install grpcio-tools protoletariat ruff

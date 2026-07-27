@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useState } from 'react'
 
 import { IconCode, IconWarning, IconX } from '@posthog/icons'
@@ -6,6 +7,7 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconBranch } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { getRegionForHost, getStoredSession, OAUTH_REGIONS } from 'lib/oauth/oauthClient'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 export interface DebugNoticeProps {
@@ -35,6 +37,10 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
         return null
     }
 
+    const oauthSession = getStoredSession()
+    const oauthRegion = oauthSession ? getRegionForHost(oauthSession.backendHost) : null
+    const modeLabel = oauthRegion ? `OAuth mode ${OAUTH_REGIONS[oauthRegion].flag}` : 'DEBUG mode'
+
     if (isCollapsed) {
         return (
             <ButtonPrimitive
@@ -42,7 +48,7 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
                 tooltip={
                     <div className="font-mono">
                         <div>
-                            <strong>DEBUG mode!</strong>
+                            <strong>{modeLabel}!</strong>
                         </div>
                         <div>
                             Branch: <b>{debugInfo.branch}</b>
@@ -62,7 +68,24 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
     return (
         <div className="border rounded bg-primary overflow-hidden w-full font-mono text-xs *:flex *:items-center *:gap-2 *:pl-2 *:pr-0.5 *:h-7 *:border-l-4">
             <div className="border-brand-blue justify-between">
-                <b>DEBUG mode</b>
+                <Tooltip
+                    title={
+                        oauthRegion
+                            ? 'Due to intentional limitations of OAuth access, not everything may work'
+                            : undefined
+                    }
+                    placement="top-start"
+                >
+                    <div
+                        className={clsx(
+                            'flex items-center gap-2 min-w-0 ',
+                            oauthRegion ? 'cursor-help' : 'cursor-default'
+                        )}
+                    >
+                        {oauthRegion && <IconWarning className="text-base" />}
+                        <span className="font-bold">{modeLabel}</span>
+                    </div>
+                </Tooltip>
                 <LemonButton
                     icon={<IconX />}
                     tooltip="Dismiss"

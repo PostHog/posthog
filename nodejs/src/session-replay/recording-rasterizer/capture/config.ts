@@ -1,10 +1,23 @@
 import type { PlayerConfig } from '@posthog/replay-headless/protocol'
 
-import { RasterizationError } from '../errors'
-import { CaptureConfig, RasterizeRecordingInput } from '../types'
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import { CaptureConfig, RasterizeRecordingInput } from '~/session-replay/recording-rasterizer/types'
 
 const DEFAULT_PLAYBACK_SPEED = 4
 const DEFAULT_FPS = 24
+
+// Coerce a value interpolated into an ffmpeg option (`-t`) or filter (`setpts=`, `fps=`) to a
+// finite number. ffmpeg is spawned without a shell, but a non-finite/non-numeric value reaching
+// here (e.g. from a future caller that skips upstream validation) could still land in the option
+// list or filtergraph as a raw string. Throwing keeps interpolation injection-proof regardless of
+// the caller: a finite number stringifies to [0-9.eE+-] only — no spaces or filter metacharacters.
+function toFiniteNumber(value: unknown, field: string): number {
+    const n = Number(value)
+    if (!Number.isFinite(n)) {
+        throw new RasterizationError(`${field} must be a finite number, got: ${String(value)}`, false, 'INVALID_INPUT')
+    }
+    return n
+}
 
 export function validateInput(input: RasterizeRecordingInput): void {
     if (!input.session_id) {
@@ -47,8 +60,11 @@ export function validateInput(input: RasterizeRecordingInput): void {
 }
 
 export function buildCaptureConfig(input: RasterizeRecordingInput): CaptureConfig {
-    const playbackSpeed = input.playback_speed || DEFAULT_PLAYBACK_SPEED
-    const outputFps = input.recording_fps || DEFAULT_FPS
+    const playbackSpeed = input.playback_speed
+        ? toFiniteNumber(input.playback_speed, 'playback_speed')
+        : DEFAULT_PLAYBACK_SPEED
+    const outputFps = input.recording_fps ? toFiniteNumber(input.recording_fps, 'recording_fps') : DEFAULT_FPS
+    const trim = input.trim ? toFiniteNumber(input.trim, 'trim') : undefined
     // e.g. 3fps output × 8x speed = 24fps capture → setpts stretches 8x → 3fps
     const captureFps = outputFps * playbackSpeed
     const outputFormat = input.output_format || 'mp4'
@@ -59,8 +75,8 @@ export function buildCaptureConfig(input: RasterizeRecordingInput): CaptureConfi
             : outputFormat === 'gif'
               ? ['-f gif', '-c:v gif', '-loop', '0']
               : ['-f mp4', '-c:v libx264', '-preset veryfast', '-crf 23', '-pix_fmt yuv420p', '-movflags +faststart']
-    if (input.trim) {
-        ffmpegOutputOpts.push(`-t ${input.trim}`)
+    if (trim) {
+        ffmpegOutputOpts.push(`-t ${trim}`)
     }
 
     const ffmpegVideoFilters: string[] = []
@@ -92,8 +108,8 @@ export function buildCaptureConfig(input: RasterizeRecordingInput): CaptureConfi
         captureFps,
         outputFps,
         playbackSpeed,
-        trim: input.trim,
-        trimFrameLimit: input.trim ? input.trim * outputFps : Infinity,
+        trim,
+        trimFrameLimit: trim ? trim * outputFps : Infinity,
         maxVirtualTimeMs: input.max_virtual_time ? input.max_virtual_time * 1000 : Infinity,
         outputFormat,
         ffmpegOutputOpts,

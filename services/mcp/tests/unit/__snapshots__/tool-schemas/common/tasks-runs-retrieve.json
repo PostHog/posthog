@@ -1,0 +1,14 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this task run.",
+            "type": "string"
+        },
+        "task_id": {
+            "type": "string"
+        }
+    },
+    "required": ["id", "task_id"],
+    "type": "object"
+}

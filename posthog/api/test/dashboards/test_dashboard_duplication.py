@@ -1,6 +1,18 @@
+import pytest
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 
+from parameterized import parameterized
+from rest_framework import status
+
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
 
 
 class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
@@ -126,3 +138,68 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
             if child_id is not None:
                 child_ids.append(child_id)
         return child_ids
+
+
+@pytest.mark.ee
+class TestDashboardDuplicationAccessControl(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+        self.dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "secret"})
+        self.insight_id, _ = self.dashboard_api.create_insight(
+            {"dashboards": [self.dashboard_id], "name": "confidential"}
+        )
+
+        self.member = User.objects.create_and_join(self.organization, "member@posthog.com", "testtest")
+        self.membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
+
+    def _set_access(self, resource: str, resource_id: int, access_level: str) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=str(resource_id),
+            access_level=access_level,
+            organization_member=self.membership,
+        )
+
+    def _duplicate(self) -> int:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"name": "copy", "use_dashboard": self.dashboard_id, "duplicate_tiles": True},
+        ).status_code
+
+    @parameterized.expand(
+        [
+            ("none", status.HTTP_403_FORBIDDEN),
+            ("viewer", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_duplication_requires_viewer_access_to_source_dashboard(
+        self, access_level: str, expected_status: int
+    ) -> None:
+        self._set_access("dashboard", self.dashboard_id, access_level)
+        self.client.force_login(self.member)
+
+        assert self._duplicate() == expected_status
+
+    def test_denied_source_dashboard_also_blocks_direct_retrieve(self) -> None:
+        # Baseline: the duplication block is a back door around this denied retrieve.
+        self._set_access("dashboard", self.dashboard_id, "none")
+        self.client.force_login(self.member)
+
+        retrieve_status = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/").status_code
+        assert retrieve_status == status.HTTP_403_FORBIDDEN
+
+    def test_duplication_requires_viewer_access_to_each_insight(self) -> None:
+        # Dashboard is viewable, but an individual insight is explicitly restricted.
+        self._set_access("dashboard", self.dashboard_id, "viewer")
+        self._set_access("insight", self.insight_id, "none")
+        self.client.force_login(self.member)
+
+        assert self._duplicate() == status.HTTP_403_FORBIDDEN

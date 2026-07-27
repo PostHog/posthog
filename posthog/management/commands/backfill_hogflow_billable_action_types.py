@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
 from django.db import transaction
 
-from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 
 logger = logging.getLogger(__name__)
 

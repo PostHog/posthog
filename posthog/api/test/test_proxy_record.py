@@ -502,3 +502,33 @@ class TestProxyRecordAPI(APIBaseTest):
 
         # Sanity: diagnose function only called once despite two requests.
         assert mock_diagnose.call_count == 1
+
+    @patch("posthog.api.proxy_record.diagnose_proxy_record")
+    def test_diagnose_returns_structured_error_on_unexpected_exception(self, mock_diagnose):
+        from django.core.cache import cache
+
+        cache.clear()
+        mock_diagnose.side_effect = RuntimeError("something broke")
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="failed-diagnose.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.ERRORING,
+        )
+
+        with patch("posthog.api.proxy_record.capture_exception") as cap_mock:
+            response = self.client.post(
+                f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/diagnose/",
+            )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        body = response.json()
+        # Regression-pin: must not be DRF's default 500 message.
+        assert body["detail"] != "A server error occurred."
+        assert "try again" in body["detail"].lower()
+        assert "support" in body["detail"].lower()
+        cap_mock.assert_called_once()
+        _exc, props = cap_mock.call_args[0]
+        assert props["proxy_record_id"] == str(record.id)
+        assert props["domain"] == record.domain

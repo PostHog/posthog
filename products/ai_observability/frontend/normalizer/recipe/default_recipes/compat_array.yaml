@@ -1,0 +1,38 @@
+# Cross-SDK typed-block content array (`{role, content: [{type: <allowlisted>}, ...]}`).
+# Lowest priority (5) so it claims these before the envelope rules can shadow it.
+
+id: compat_array
+
+rules:
+    - on:
+          role: { is: string }
+          content:
+              every:
+                  shape:
+                      type:
+                          in:
+                              - text
+                              - output_text
+                              - input_text
+                              - function
+                              - image
+                              - input_image
+                              - image_url
+                              - file
+                              - audio
+                              - document
+      emit:
+          # `if_empty: ''` matches legacy's "all-function blocks → empty content".
+          content:
+              reject:
+                  from: $.content
+                  where: { type: function }
+                  if_empty: ''
+          toolCalls:
+              select:
+                  from: $.content
+                  where: { type: function }
+                  pluck:
+                      id: $.id
+                      name: $.function.name
+                      args: $.function.arguments

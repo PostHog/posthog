@@ -26,6 +26,13 @@
             ],
             "tag": "v2",
         },
+        {
+            // The worker now proxies all /mcp traffic to the Hono runtime, so the
+            // MCP durable object is no longer instantiated. Drop the class and its
+            // (ephemeral per-user cache) storage.
+            "deleted_classes": ["MCP"],
+            "tag": "v3",
+        },
     ],
     "kv_namespaces": [
         {
@@ -33,14 +40,6 @@
             "id": "30a887fff4d04c4fbf979208293ce012",
         },
     ],
-    "durable_objects": {
-        "bindings": [
-            {
-                "class_name": "MCP",
-                "name": "MCP_OBJECT",
-            },
-        ],
-    },
     "observability": {
         "enabled": true,
         "head_sampling_rate": 0.1,

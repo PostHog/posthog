@@ -6,7 +6,6 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 
 import { addExceptionStepsMalformedWarning } from './errorDisplayWarnings'
@@ -48,7 +47,6 @@ export function ErrorDisplayContent(): JSX.Element {
     const { sentryUrl, ingestionErrors, handled } = exceptionAttributes || {}
     const browserInfo = concatValues(exceptionAttributes, 'browser', 'browserVersion')
     const appInfo = concatValues(exceptionAttributes, 'appNamespace', 'appVersion')
-    const [showAllFrames, setShowAllFrames] = useState(false)
     const [expandedFrameRawIds, setExpandedFrameRawIds] = useState(new Set<string>())
     const handleFrameExpandedChange = (rawId: string, expanded: boolean): void => {
         setExpandedFrameRawIds((prev) => {
@@ -95,11 +93,6 @@ export function ErrorDisplayContent(): JSX.Element {
                     {appInfo && <TitledSnack title="app" value={appInfo} />}
                     <TitledSnack title="os" value={concatValues(exceptionAttributes, 'os', 'osVersion') ?? 'unknown'} />
                 </div>
-                <LemonSwitch
-                    checked={showAllFrames}
-                    label="Show entire stack trace"
-                    onChange={() => setShowAllFrames(!showAllFrames)}
-                />
             </div>
 
             {ingestionErrors || hasStacktrace ? <LemonDivider dashed={true} /> : null}
@@ -115,8 +108,6 @@ export function ErrorDisplayContent(): JSX.Element {
                 </>
             )}
             <CollapsibleExceptionList
-                showAllFrames={showAllFrames}
-                setShowAllFrames={setShowAllFrames}
                 expandedFrameRawIds={expandedFrameRawIds}
                 onFrameExpandedChange={handleFrameExpandedChange}
             />

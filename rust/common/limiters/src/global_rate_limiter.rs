@@ -4,6 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use arc_swap::ArcSwap;
 use dashmap::DashSet;
 
 use async_trait::async_trait;
@@ -11,7 +12,20 @@ use chrono::{DateTime, Utc};
 use common_redis::Client;
 use moka::sync::Cache;
 use tokio::sync::mpsc;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
+
+use crate::custom_key_source::CustomKeyThresholdSource;
+
+/// Resolver for custom-key thresholds. Given a lookup key and a snapshot of the
+/// current custom-key map, returns the threshold to apply (or `None` if the key
+/// is not subject to a custom limit).
+///
+/// The default resolver (when `custom_key_resolver` is `None`) is an exact map
+/// lookup. Callers can inject a closure to implement richer policies (e.g. a
+/// hierarchical `token:distinct_id` -> `token` fallback) without leaking their
+/// key structure into this crate. The closure receives the authoritative map by
+/// reference so it always resolves against the latest swapped-in thresholds.
+pub type CustomKeyResolver = Arc<dyn Fn(&str, &HashMap<String, u64>) -> Option<u64> + Send + Sync>;
 
 const GLOBAL_RATE_LIMITER_EVAL_COUNTER: &str = "global_rate_limiter_eval_counts_total";
 const GLOBAL_RATE_LIMITER_CACHE_COUNTER: &str = "global_rate_limiter_cache_counts_total";
@@ -26,6 +40,20 @@ const GLOBAL_RATE_LIMITER_TIER_TRANSITIONS_COUNTER: &str =
     "global_rate_limiter_tier_transitions_total";
 const GLOBAL_RATE_LIMITER_ESTIMATE_DRIFT_HISTOGRAM: &str = "global_rate_limiter_estimate_drift";
 const GLOBAL_RATE_LIMITER_SYNC_STALENESS_HISTOGRAM: &str = "global_rate_limiter_sync_staleness_ms";
+const GLOBAL_RATE_LIMITER_CACHE_SIZE_GAUGE: &str = "global_rate_limiter_cache_size";
+const GLOBAL_RATE_LIMITER_EVICTION_COUNTER: &str = "global_rate_limiter_eviction_total";
+/// Number of custom-key thresholds applied at the last successful refresh.
+const CUSTOM_THRESHOLDS_LOADED_GAUGE: &str = "global_rate_limiter_custom_thresholds_loaded";
+/// Unix timestamp of the last successful custom-key threshold refresh.
+const CUSTOM_THRESHOLDS_LAST_REFRESH_GAUGE: &str =
+    "global_rate_limiter_custom_thresholds_last_refresh_timestamp";
+
+/// Full-cache scan cadence (ticks) for the per-tier distribution gauges. The
+/// distribution moves slowly and prod metrics dedup to 60s, so a periodic scan
+/// keeps these gauges fresh enough without scanning the cache every tick.
+const TIER_SCAN_INTERVAL_TICKS: u64 = 30;
+/// Tier label order, indexed by `PressureTier::index()`.
+const TIER_LABELS: [&str; 4] = ["idle", "low", "normal", "hot"];
 
 /// Pressure tiers for adaptive sync scheduling
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +87,16 @@ impl PressureTier {
             Self::Low => "low",
             Self::Normal => "normal",
             Self::Hot => "hot",
+        }
+    }
+
+    /// Index into the per-tier scan tally array (see `TIER_LABELS`).
+    pub fn index(&self) -> usize {
+        match self {
+            Self::Idle => 0,
+            Self::Low => 1,
+            Self::Normal => 2,
+            Self::Hot => 3,
         }
     }
 }
@@ -144,7 +182,26 @@ pub struct GlobalRateLimiterConfig {
     /// Capacity of the mpsc channel for async global cache updates
     pub channel_capacity: usize,
     /// Per-key custom limits. Overrides the default limit for specific *more granular* keys.
-    pub custom_keys: HashMap<String, u64>,
+    ///
+    /// Wrapped in `Arc<ArcSwap<_>>` so the map can be atomically replaced at
+    /// runtime (by the refresh task via `custom_keys.store(...)`) without locking
+    /// hot-path readers. Every clone of the config shares the same underlying
+    /// `ArcSwap`, so a swap through any clone (e.g. the copy held by the
+    /// background task) is visible everywhere.
+    pub custom_keys: Arc<ArcSwap<HashMap<String, u64>>>,
+    /// Optional policy for resolving a lookup key to a custom threshold. When
+    /// `None`, resolution is an exact lookup in `custom_keys`. When set, the
+    /// closure is consulted with the key and a snapshot of the current map.
+    pub custom_key_resolver: Option<CustomKeyResolver>,
+    /// Optional source of dynamically-refreshed custom-key thresholds. When set,
+    /// `GlobalRateLimiterImpl::new` spawns a background task that fetches the map
+    /// every `custom_key_refresh_interval` and atomically swaps it into
+    /// `custom_keys`. When `None`, `custom_keys` is static (e.g. seeded once from
+    /// config) and no refresh task runs.
+    pub custom_key_source: Option<Arc<dyn CustomKeyThresholdSource>>,
+    /// Cadence for the custom-key refresh task. Ignored when `custom_key_source`
+    /// is `None`.
+    pub custom_key_refresh_interval: Duration,
     /// Tag value applied to all metrics emitted by this limiter instance.
     /// Allows distinguishing multiple limiter instances in the same process.
     pub metrics_scope: String,
@@ -159,6 +216,20 @@ impl GlobalRateLimiterConfig {
     /// Leak rate for a custom key threshold
     pub fn leak_rate_for(&self, threshold: u64) -> f64 {
         threshold as f64 / self.window_interval.as_secs_f64()
+    }
+
+    /// Resolve a lookup key to its custom threshold, if any.
+    ///
+    /// Snapshots the current custom-key map once (lock-free) and applies the
+    /// configured resolver, falling back to an exact lookup when no resolver is
+    /// injected. Returns `None` when the key is not subject to a custom limit.
+    pub fn resolve_custom(&self, key: &str) -> Option<u64> {
+        let guard = self.custom_keys.load();
+        let map: &HashMap<String, u64> = &guard;
+        match &self.custom_key_resolver {
+            Some(resolver) => resolver(key, map),
+            None => map.get(key).copied(),
+        }
     }
 }
 
@@ -178,7 +249,10 @@ impl Default for GlobalRateLimiterConfig {
             global_write_timeout: Duration::from_millis(100),
             local_cache_max_entries: 300_000,
             channel_capacity: 1_000_000,
-            custom_keys: HashMap::new(),
+            custom_keys: Arc::new(ArcSwap::from_pointee(HashMap::new())),
+            custom_key_resolver: None,
+            custom_key_source: None,
+            custom_key_refresh_interval: Duration::from_secs(60),
             metrics_scope: "default".to_string(),
         }
     }
@@ -331,6 +405,9 @@ pub struct GlobalRateLimiterImpl {
     update_tx: Option<mpsc::Sender<UpdateRequest>>,
     pending_sync: Arc<DashSet<String>>,
     scope: &'static str,
+    /// Drop-to-stop signal for the custom-key refresh task (mirrors `update_tx`).
+    /// `None` when no `custom_key_source` was configured.
+    custom_key_refresh_stop: Option<mpsc::Sender<()>>,
 }
 
 #[async_trait]
@@ -356,11 +433,13 @@ impl GlobalRateLimiter for GlobalRateLimiterImpl {
     }
 
     fn is_custom_key(&self, key: &str) -> bool {
-        self.config.custom_keys.contains_key(key)
+        self.config.resolve_custom(key).is_some()
     }
 
     fn shutdown(&mut self) {
         let _ = self.update_tx.take();
+        // Dropping the sender closes the refresh task's stop channel.
+        let _ = self.custom_key_refresh_stop.take();
     }
 }
 
@@ -379,15 +458,43 @@ impl GlobalRateLimiterImpl {
             ));
         }
 
+        let scope: &'static str = Box::leak(config.metrics_scope.clone().into_boxed_str());
+
         let cache = Cache::builder()
             .max_capacity(config.local_cache_max_entries)
             .time_to_live(config.local_cache_ttl)
             .time_to_idle(config.local_cache_idle_timeout)
+            .eviction_listener(move |_key, _entry: CacheEntry, cause| {
+                // MUST stay panic-free: moka permanently disables a listener that
+                // panics. Replaced is an in-place update, not a removal.
+                if cause != moka::notification::RemovalCause::Replaced {
+                    metrics::counter!(
+                        GLOBAL_RATE_LIMITER_EVICTION_COUNTER,
+                        "scope" => scope,
+                        "cause" => removal_cause_str(cause),
+                    )
+                    .increment(1);
+                }
+            })
             .build();
 
         let (update_tx, update_rx) = mpsc::channel(config.channel_capacity);
         let pending_sync = Arc::new(DashSet::new());
-        let scope: &'static str = Box::leak(config.metrics_scope.clone().into_boxed_str());
+
+        // Spawn the custom-key refresh task when a source is configured. The
+        // source owns its own reconnect; we only hold a drop-to-stop signal,
+        // mirroring how `update_tx` closes the tick loop on shutdown.
+        let custom_key_refresh_stop = config.custom_key_source.clone().map(|source| {
+            let (stop_tx, stop_rx) = mpsc::channel::<()>(1);
+            Self::spawn_custom_key_refresh_task(
+                config.clone(),
+                source,
+                config.custom_key_refresh_interval,
+                stop_rx,
+                scope,
+            );
+            stop_tx
+        });
 
         let limiter = Self {
             config: config.clone(),
@@ -395,6 +502,7 @@ impl GlobalRateLimiterImpl {
             update_tx: Some(update_tx),
             pending_sync: pending_sync.clone(),
             scope,
+            custom_key_refresh_stop,
         };
 
         Self::spawn_background_task(
@@ -421,8 +529,8 @@ impl GlobalRateLimiterImpl {
         timestamp: Option<DateTime<Utc>>,
     ) -> EvalResult {
         let threshold = match mode {
-            CheckMode::Custom => match self.config.custom_keys.get(key) {
-                Some(&custom_limit) => custom_limit,
+            CheckMode::Custom => match self.config.resolve_custom(key) {
+                Some(custom_limit) => custom_limit,
                 None => return EvalResult::NotApplicable,
             },
             CheckMode::Global => self.config.global_threshold,
@@ -539,6 +647,83 @@ impl GlobalRateLimiterImpl {
         }
     }
 
+    /// Spawn the background task that periodically refreshes custom-key thresholds.
+    ///
+    /// `tokio::time::interval` fires immediately, so the first fetch happens
+    /// without delay. The task exits when `stop_rx` closes (all senders dropped
+    /// via `shutdown`, or when the limiter is dropped).
+    fn spawn_custom_key_refresh_task(
+        config: GlobalRateLimiterConfig,
+        source: Arc<dyn CustomKeyThresholdSource>,
+        refresh_interval: Duration,
+        mut stop_rx: mpsc::Receiver<()>,
+        scope: &'static str,
+    ) {
+        tokio::spawn(async move {
+            // `tokio::time::interval` panics on a zero period. A misconfigured
+            // interval must not kill this (detached) task and silently freeze
+            // dynamic refreshes, so clamp to a 1s floor and warn instead.
+            let period = refresh_interval.max(Duration::from_secs(1));
+            if period != refresh_interval {
+                warn!(
+                    scope,
+                    ?refresh_interval,
+                    "Custom-key refresh interval below 1s floor; clamping to 1s"
+                );
+            }
+            let mut tick = tokio::time::interval(period);
+            loop {
+                tokio::select! {
+                    _ = stop_rx.recv() => {
+                        info!(scope, "Custom-key threshold refresh task shutting down");
+                        break;
+                    }
+                    _ = tick.tick() => {
+                        Self::refresh_custom_keys_once(&config, source.as_ref(), scope).await;
+                    }
+                }
+            }
+        });
+    }
+
+    /// Fetch custom-key thresholds once and atomically swap them into the config.
+    ///
+    /// Only an explicit Redis blob is authoritative: `Ok(Some)` replaces the map
+    /// (an empty blob — `{}` — is the deliberate clear signal). An absent key
+    /// (`Ok(None)`) is ambiguous — fresh rollout before the writer runs, an
+    /// eviction, or an accidental delete — so it is treated as fail-static, the
+    /// same as `Err`: the current map is kept rather than silently wiping the
+    /// (fail-open) hot overrides. The source handles its own reconnect, so the
+    /// next tick retries.
+    async fn refresh_custom_keys_once(
+        config: &GlobalRateLimiterConfig,
+        source: &dyn CustomKeyThresholdSource,
+        scope: &'static str,
+    ) {
+        match source.fetch().await {
+            Ok(Some(map)) => {
+                let count = map.len();
+                config.custom_keys.store(Arc::new(map));
+                metrics::gauge!(CUSTOM_THRESHOLDS_LOADED_GAUGE, "scope" => scope).set(count as f64);
+                metrics::gauge!(CUSTOM_THRESHOLDS_LAST_REFRESH_GAUGE, "scope" => scope)
+                    .set(Utc::now().timestamp() as f64);
+            }
+            Ok(None) => {
+                // Absent key: keep the current map (fail-static). A deliberate
+                // clear arrives as an explicit empty blob via the `Ok(Some)` arm;
+                // the `not_found` counter is already emitted by the source's
+                // fetch(), so we neither touch the map nor stomp the gauges here.
+            }
+            Err(e) => {
+                error!(
+                    scope,
+                    error = %e,
+                    "Failed to refresh custom-key thresholds, keeping current values"
+                );
+            }
+        }
+    }
+
     /// Spawn the unified background tick loop that handles both reads and writes.
     ///
     /// Every tick_interval:
@@ -559,6 +744,7 @@ impl GlobalRateLimiterImpl {
             let mut tick = tokio::time::interval(config.tick_interval);
             // Pre-aggregate writes by (key, epoch)
             let mut write_batch: HashMap<(String, i64), u64> = HashMap::new();
+            let mut tick_n: u64 = 0;
 
             loop {
                 tokio::select! {
@@ -573,7 +759,7 @@ impl GlobalRateLimiterImpl {
                                 if !write_batch.is_empty() {
                                     Self::tick(
                                         &config, &redis_instances, &cache,
-                                        &pending_sync, &mut write_batch, scope,
+                                        &pending_sync, &mut write_batch, scope, tick_n,
                                     ).await;
                                 }
                                 break;
@@ -581,9 +767,10 @@ impl GlobalRateLimiterImpl {
                         }
                     }
                     _ = tick.tick() => {
+                        tick_n = tick_n.wrapping_add(1);
                         Self::tick(
                             &config, &redis_instances, &cache,
-                            &pending_sync, &mut write_batch, scope,
+                            &pending_sync, &mut write_batch, scope, tick_n,
                         ).await;
                     }
                 }
@@ -602,8 +789,13 @@ impl GlobalRateLimiterImpl {
         pending_sync: &Arc<DashSet<String>>,
         write_batch: &mut HashMap<(String, i64), u64>,
         scope: &'static str,
+        tick_n: u64,
     ) {
         let tick_start = Instant::now();
+
+        // Cache-size gauge every tick (O(1)); per-tier distribution via a
+        // throttled full scan (slow-moving, see TIER_SCAN_INTERVAL_TICKS).
+        Self::emit_cache_gauges(cache, scope, tick_n);
 
         // Drain pending sync set (lock-free: iterate then clear)
         let sync_keys: Vec<String> = pending_sync.iter().map(|r| r.key().clone()).collect();
@@ -649,6 +841,7 @@ impl GlobalRateLimiterImpl {
     }
 
     /// Execute a tick against a single Redis instance (the common case).
+    #[allow(clippy::too_many_arguments)]
     async fn tick_single_instance(
         config: &GlobalRateLimiterConfig,
         redis: &Arc<dyn Client + Send + Sync>,
@@ -866,25 +1059,21 @@ impl GlobalRateLimiterImpl {
             let estimated = weighted_count(prev_count, current_count, now, config.window_interval);
 
             let threshold = config
-                .custom_keys
-                .get(key)
-                .copied()
+                .resolve_custom(key)
                 .unwrap_or(config.global_threshold);
 
-            // Compute drift before updating (for observability)
+            let pressure = estimated / threshold as f64;
+            let new_tier = PressureTier::from_pressure(pressure);
+
+            // Single lookup: emit estimate drift + tier transition for the prior entry.
             if let Some(old_entry) = cache.get(key) {
                 let leak_rate = config.leak_rate_for(threshold);
                 let local_estimate = effective_level(&old_entry, leak_rate, now_instant);
                 let drift = (local_estimate - estimated).abs() / threshold as f64;
                 metrics::histogram!(GLOBAL_RATE_LIMITER_ESTIMATE_DRIFT_HISTOGRAM, "scope" => scope)
                     .record(drift);
-            }
-            let pressure = estimated / threshold as f64;
 
-            // Track tier transitions
-            if let Some(old_entry) = cache.get(key) {
                 let old_tier = PressureTier::from_pressure(old_entry.pressure);
-                let new_tier = PressureTier::from_pressure(pressure);
                 if old_tier != new_tier {
                     metrics::counter!(
                         GLOBAL_RATE_LIMITER_TIER_TRANSITIONS_COUNTER,
@@ -910,26 +1099,47 @@ impl GlobalRateLimiterImpl {
                 },
             );
         }
+    }
 
-        // Update tier gauge counts
-        let mut tier_counts = [0u64; 4];
-        for (_, entry) in cache.iter() {
-            let tier = PressureTier::from_pressure(entry.pressure);
-            match tier {
-                PressureTier::Idle => tier_counts[0] += 1,
-                PressureTier::Low => tier_counts[1] += 1,
-                PressureTier::Normal => tier_counts[2] += 1,
-                PressureTier::Hot => tier_counts[3] += 1,
+    /// Emit cache observability gauges from the background task (off the hot path).
+    ///
+    /// `cache_size` is cheap (`entry_count`) so it emits every tick. The per-tier
+    /// distribution needs a full `cache.iter()` scan, so it runs only every
+    /// `TIER_SCAN_INTERVAL_TICKS`: the distribution moves slowly and prod metrics
+    /// dedup to 60s, so scanning every tick would be wasted work under load.
+    fn emit_cache_gauges(cache: &Cache<String, CacheEntry>, scope: &'static str, tick_n: u64) {
+        metrics::gauge!(GLOBAL_RATE_LIMITER_CACHE_SIZE_GAUGE, "scope" => scope)
+            .set(cache.entry_count() as f64);
+
+        if tick_n.is_multiple_of(TIER_SCAN_INTERVAL_TICKS) {
+            let tier_counts = Self::scan_tier_counts(cache);
+            for i in 0..4 {
+                metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => TIER_LABELS[i])
+                    .set(tier_counts[i] as f64);
             }
         }
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "idle")
-            .set(tier_counts[0] as f64);
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "low")
-            .set(tier_counts[1] as f64);
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "normal")
-            .set(tier_counts[2] as f64);
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "hot")
-            .set(tier_counts[3] as f64);
+    }
+
+    /// Full O(n) scan tallying live entries per pressure tier (indexed by
+    /// `PressureTier::index()`). Off the hot path; see `TIER_SCAN_INTERVAL_TICKS`.
+    fn scan_tier_counts(cache: &Cache<String, CacheEntry>) -> [u64; 4] {
+        let mut tier_counts = [0u64; 4];
+        for (_, entry) in cache.iter() {
+            tier_counts[PressureTier::from_pressure(entry.pressure).index()] += 1;
+        }
+        tier_counts
+    }
+}
+
+/// Map a Moka removal cause to a stable metric label (Replaced is filtered out
+/// before this is called).
+fn removal_cause_str(cause: moka::notification::RemovalCause) -> &'static str {
+    use moka::notification::RemovalCause;
+    match cause {
+        RemovalCause::Expired => "expired",
+        RemovalCause::Explicit => "explicit",
+        RemovalCause::Size => "size",
+        RemovalCause::Replaced => "replaced",
     }
 }
 
@@ -945,6 +1155,7 @@ fn parse_redis_count(value: &Option<Vec<u8>>) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::custom_key_source::testing::MockCustomKeyThresholdSource;
     use common_redis::MockRedisClient;
 
     fn test_config() -> GlobalRateLimiterConfig {
@@ -959,11 +1170,21 @@ mod tests {
             local_cache_idle_timeout: Duration::from_millis(500),
             local_cache_max_entries: 100,
             channel_capacity: 100,
-            custom_keys: HashMap::new(),
+            custom_keys: Arc::new(ArcSwap::from_pointee(HashMap::new())),
+            custom_key_resolver: None,
+            custom_key_source: None,
+            custom_key_refresh_interval: Duration::from_secs(60),
             global_read_timeout: Duration::from_millis(5),
             global_write_timeout: Duration::from_millis(10),
             metrics_scope: "test".to_string(),
         }
+    }
+
+    /// Seed a config's custom-key map (whole-map swap), mirroring how the
+    /// dynamic refresh path replaces thresholds at runtime.
+    fn set_custom_keys(config: &GlobalRateLimiterConfig, pairs: &[(&str, u64)]) {
+        let map: HashMap<String, u64> = pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+        config.custom_keys.store(Arc::new(map));
     }
 
     // --- Epoch calculation tests (parameterized) ---
@@ -1128,7 +1349,8 @@ mod tests {
         assert_eq!(config.global_write_timeout, Duration::from_millis(100));
         assert_eq!(config.local_cache_max_entries, 300_000);
         assert_eq!(config.channel_capacity, 1_000_000);
-        assert!(config.custom_keys.is_empty());
+        assert!(config.custom_keys.load().is_empty());
+        assert!(config.custom_key_resolver.is_none());
         assert_eq!(config.metrics_scope, "default");
     }
 
@@ -1335,8 +1557,8 @@ mod tests {
     #[tokio::test]
     async fn test_custom_mode_unknown_key_returns_not_applicable() {
         let client = Arc::new(MockRedisClient::new());
-        let mut config = test_config();
-        config.custom_keys.insert("known_key".to_string(), 5);
+        let config = test_config();
+        set_custom_keys(&config, &[("known_key", 5)]);
         let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         let result = limiter.check_custom_limit("unknown_key", 100, None).await;
@@ -1349,8 +1571,8 @@ mod tests {
     #[tokio::test]
     async fn test_custom_mode_uses_custom_limit() {
         let client = Arc::new(MockRedisClient::new());
-        let mut config = test_config();
-        config.custom_keys.insert("custom_key".to_string(), 5);
+        let config = test_config();
+        set_custom_keys(&config, &[("custom_key", 5)]);
         let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         limiter.cache.insert(
@@ -1374,8 +1596,8 @@ mod tests {
     #[tokio::test]
     async fn test_custom_mode_under_custom_limit() {
         let client = Arc::new(MockRedisClient::new());
-        let mut config = test_config();
-        config.custom_keys.insert("custom_key".to_string(), 10);
+        let config = test_config();
+        set_custom_keys(&config, &[("custom_key", 10)]);
         let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         limiter.cache.insert(
@@ -1398,8 +1620,8 @@ mod tests {
     #[tokio::test]
     async fn test_is_custom_key() {
         let client = Arc::new(MockRedisClient::new()) as Arc<dyn Client + Send + Sync>;
-        let mut config = test_config();
-        config.custom_keys.insert("registered".to_string(), 42);
+        let config = test_config();
+        set_custom_keys(&config, &[("registered", 42)]);
         let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         assert!(limiter.is_custom_key("registered"));
@@ -1419,9 +1641,8 @@ mod tests {
     #[tokio::test]
     async fn test_custom_key_behavior() {
         let client = Arc::new(MockRedisClient::new());
-        let mut config = test_config();
-        config.custom_keys.insert("custom_a".to_string(), 5);
-        config.custom_keys.insert("custom_b".to_string(), 10);
+        let config = test_config();
+        set_custom_keys(&config, &[("custom_a", 5), ("custom_b", 10)]);
         let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         limiter.cache.insert(
@@ -1646,8 +1867,8 @@ mod tests {
 
     #[test]
     fn test_process_read_results_custom_key_pressure() {
-        let mut config = test_config();
-        config.custom_keys.insert("custom_entity".to_string(), 100);
+        let config = test_config();
+        set_custom_keys(&config, &[("custom_entity", 100)]);
         let cache = Cache::builder()
             .max_capacity(100)
             .time_to_live(Duration::from_secs(60))
@@ -1722,6 +1943,63 @@ mod tests {
         }
     }
 
+    // --- Tier distribution scan tests ---
+
+    fn seed_entry(pressure: f64) -> CacheEntry {
+        CacheEntry {
+            estimated_count: 0.0,
+            synced_at: Instant::now() - Duration::from_secs(30),
+            local_pending: 0,
+            pressure,
+        }
+    }
+
+    #[test]
+    fn test_scan_tier_counts_tallies_distribution() {
+        let cache = Cache::builder().max_capacity(100).build();
+        cache.insert("a".to_string(), seed_entry(0.0)); // idle
+        cache.insert("b".to_string(), seed_entry(0.05)); // idle
+        cache.insert("c".to_string(), seed_entry(0.3)); // low
+        cache.insert("d".to_string(), seed_entry(0.6)); // normal
+        cache.insert("e".to_string(), seed_entry(0.9)); // hot
+        cache.insert("f".to_string(), seed_entry(0.95)); // hot
+        cache.run_pending_tasks();
+
+        let counts = GlobalRateLimiterImpl::scan_tier_counts(&cache);
+
+        assert_eq!(counts[PressureTier::Idle.index()], 2);
+        assert_eq!(counts[PressureTier::Low.index()], 1);
+        assert_eq!(counts[PressureTier::Normal.index()], 1);
+        assert_eq!(counts[PressureTier::Hot.index()], 2);
+        assert_eq!(counts.iter().sum::<u64>(), cache.entry_count());
+    }
+
+    #[test]
+    fn test_scan_tier_counts_excludes_evicted_entries() {
+        // Size-based eviction: only the surviving entries should be tallied,
+        // and the total must match entry_count after maintenance.
+        let cache = Cache::builder().max_capacity(3).build();
+        for i in 0..10 {
+            cache.insert(format!("k{i}"), seed_entry(0.9)); // all hot
+        }
+        cache.run_pending_tasks();
+
+        let counts = GlobalRateLimiterImpl::scan_tier_counts(&cache);
+
+        assert_eq!(counts.iter().sum::<u64>(), cache.entry_count());
+        assert!(cache.entry_count() <= 3);
+    }
+
+    #[test]
+    fn test_scan_tier_counts_empty_cache() {
+        let cache: Cache<String, CacheEntry> = Cache::builder().max_capacity(100).build();
+        cache.run_pending_tasks();
+
+        let counts = GlobalRateLimiterImpl::scan_tier_counts(&cache);
+
+        assert_eq!(counts, [0, 0, 0, 0]);
+    }
+
     #[test]
     fn test_parse_redis_count() {
         assert_eq!(parse_redis_count(&Some(b"42".to_vec())), 42);
@@ -1729,5 +2007,251 @@ mod tests {
         assert_eq!(parse_redis_count(&None), 0);
         assert_eq!(parse_redis_count(&Some(b"not_a_number".to_vec())), 0);
         assert_eq!(parse_redis_count(&Some(vec![])), 0);
+    }
+
+    // --- Dynamic custom-key map tests (ArcSwap + resolver) ---
+
+    #[test]
+    fn test_resolve_custom_default_exact_match() {
+        let config = test_config();
+        set_custom_keys(&config, &[("tok:did", 5), ("tok2", 9)]);
+
+        assert_eq!(config.resolve_custom("tok:did"), Some(5));
+        assert_eq!(config.resolve_custom("tok2"), Some(9));
+        assert_eq!(config.resolve_custom("missing"), None);
+        // Default resolver is exact: a token prefix must not match a token:did entry.
+        assert_eq!(config.resolve_custom("tok"), None);
+    }
+
+    #[test]
+    fn test_resolve_custom_injected_resolver_hierarchical() {
+        let mut config = test_config();
+        // Hierarchical policy: exact key first, then the token prefix before ':'.
+        config.custom_key_resolver = Some(Arc::new(|key: &str, map: &HashMap<String, u64>| {
+            if let Some(v) = map.get(key) {
+                return Some(*v);
+            }
+            key.split_once(':')
+                .and_then(|(tok, _)| map.get(tok).copied())
+        }));
+        set_custom_keys(&config, &[("tok", 7), ("tok:vip", 100)]);
+
+        assert_eq!(config.resolve_custom("tok:vip"), Some(100)); // exact wins
+        assert_eq!(config.resolve_custom("tok:other"), Some(7)); // falls back to token
+        assert_eq!(config.resolve_custom("tok"), Some(7)); // token itself
+        assert_eq!(config.resolve_custom("nope:x"), None); // no match at any level
+    }
+
+    #[tokio::test]
+    async fn test_custom_keys_swap_visible_to_running_limiter() {
+        let client = Arc::new(MockRedisClient::new());
+        let config = test_config();
+        // The refresh task swaps through a clone of the config; hold one here to
+        // drive the same shared ArcSwap the running limiter reads.
+        let cfg_handle = config.clone();
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
+
+        assert!(!limiter.is_custom_key("dyn_key"));
+        let result = limiter.check_custom_limit("dyn_key", 1, None).await;
+        assert!(matches!(result, EvalResult::NotApplicable));
+
+        cfg_handle
+            .custom_keys
+            .store(Arc::new(HashMap::from([("dyn_key".to_string(), 42u64)])));
+
+        assert!(limiter.is_custom_key("dyn_key"));
+        // Now subject to a custom limit: a fresh key is Allowed (cache miss), not NotApplicable.
+        let result = limiter.check_custom_limit("dyn_key", 1, None).await;
+        assert!(
+            matches!(result, EvalResult::Allowed),
+            "swapped-in custom key should be evaluated, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_custom_keys_swap_shared_across_config_clones() {
+        // The background task holds a *clone* of the config; a swap through the
+        // clone must be visible to the original (shared ArcSwap).
+        let config = test_config();
+        let bg_clone = config.clone();
+
+        assert_eq!(config.resolve_custom("k"), None);
+        bg_clone
+            .custom_keys
+            .store(Arc::new(HashMap::from([("k".to_string(), 3u64)])));
+        assert_eq!(config.resolve_custom("k"), Some(3));
+    }
+
+    #[test]
+    fn test_custom_keys_concurrent_read_is_consistent() {
+        // Readers never observe a torn map: each load sees either the fully-old
+        // or fully-new map, never a missing/partial value.
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let config = Arc::new(test_config());
+        set_custom_keys(&config, &[("k", 1)]);
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let reader = {
+            let config = config.clone();
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    let v = config.resolve_custom("k");
+                    assert!(matches!(v, Some(1) | Some(100)), "torn read: {v:?}");
+                }
+            })
+        };
+
+        for i in 0..10_000 {
+            let v = if i % 2 == 0 { 1u64 } else { 100u64 };
+            config
+                .custom_keys
+                .store(Arc::new(HashMap::from([("k".to_string(), v)])));
+        }
+        stop.store(true, Ordering::Relaxed);
+        reader.join().unwrap();
+    }
+
+    // --- Refresh path tests (refresh_custom_keys_once via a mock source) ---
+
+    #[tokio::test]
+    async fn test_refresh_once_applies_thresholds() {
+        let config = test_config();
+        set_custom_keys(&config, &[("seed", 1)]);
+
+        let source = MockCustomKeyThresholdSource::with_thresholds(Some(HashMap::from([(
+            "dyn".to_string(),
+            99u64,
+        )])));
+        GlobalRateLimiterImpl::refresh_custom_keys_once(&config, &source, "test").await;
+
+        // Fetched map replaces the seed wholesale (Redis is authoritative).
+        assert_eq!(config.resolve_custom("dyn"), Some(99));
+        assert_eq!(config.resolve_custom("seed"), None);
+    }
+
+    #[tokio::test]
+    async fn test_refresh_once_absent_key_is_fail_static() {
+        let config = test_config();
+        set_custom_keys(&config, &[("seed", 1)]);
+
+        let source = MockCustomKeyThresholdSource::with_thresholds(None);
+        GlobalRateLimiterImpl::refresh_custom_keys_once(&config, &source, "test").await;
+
+        // Absent key is ambiguous (fresh rollout / eviction / accidental delete),
+        // not an authoritative clear: the current thresholds must survive.
+        assert_eq!(config.resolve_custom("seed"), Some(1));
+    }
+
+    #[tokio::test]
+    async fn test_refresh_once_empty_blob_clears_thresholds() {
+        let config = test_config();
+        set_custom_keys(&config, &[("seed", 1)]);
+
+        // An explicit empty blob (`{}` in Redis) is the deliberate clear signal,
+        // distinct from an absent key: it replaces the map with an empty one.
+        let source = MockCustomKeyThresholdSource::with_thresholds(Some(HashMap::new()));
+        GlobalRateLimiterImpl::refresh_custom_keys_once(&config, &source, "test").await;
+
+        assert_eq!(config.resolve_custom("seed"), None);
+    }
+
+    #[tokio::test]
+    async fn test_refresh_once_error_is_fail_static() {
+        let config = test_config();
+        set_custom_keys(&config, &[("keep", 7)]);
+
+        let source =
+            MockCustomKeyThresholdSource::with_error(common_redis::CustomRedisError::Timeout);
+        GlobalRateLimiterImpl::refresh_custom_keys_once(&config, &source, "test").await;
+
+        // A failed fetch must not disturb the current thresholds.
+        assert_eq!(config.resolve_custom("keep"), Some(7));
+    }
+
+    // --- Refresh task lifecycle (spawn on new(), stop on shutdown()) ---
+
+    /// Poll `cond`, driving the paused clock forward so the interval-based refresh
+    /// task gets a chance to tick, up to a bounded number of iterations.
+    async fn wait_until<F: Fn() -> bool>(cond: F) -> bool {
+        for _ in 0..50 {
+            if cond() {
+                return true;
+            }
+            tokio::time::advance(Duration::from_secs(60)).await;
+            tokio::task::yield_now().await;
+        }
+        cond()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_refresh_task_spawns_ticks_and_stops_on_shutdown() {
+        let mock = Arc::new(MockCustomKeyThresholdSource::with_thresholds(Some(
+            HashMap::from([("first".to_string(), 11u64)]),
+        )));
+        let mut config = test_config();
+        // Hold the shared ArcSwap so we can observe swaps the spawned task makes.
+        let observed = config.custom_keys.clone();
+        config.custom_key_source = Some(mock.clone() as Arc<dyn CustomKeyThresholdSource>);
+        config.custom_key_refresh_interval = Duration::from_secs(60);
+
+        let client = Arc::new(MockRedisClient::new());
+        let mut limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
+
+        // The task ticks immediately on spawn and applies the initial map.
+        assert!(
+            wait_until(|| observed.load().get("first") == Some(&11)).await,
+            "refresh task should apply the initial map after spawn"
+        );
+
+        // A subsequent Redis-side change is picked up on the next tick.
+        mock.set_thresholds(Some(HashMap::from([("second".to_string(), 22u64)])))
+            .await;
+        assert!(
+            wait_until(|| observed.load().get("second") == Some(&22)).await,
+            "refresh task should apply an updated map on a later tick"
+        );
+
+        // After shutdown the task must exit: let it observe the closed stop channel.
+        limiter.shutdown();
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+
+        // A change made after shutdown must never be applied.
+        mock.set_thresholds(Some(HashMap::from([("third".to_string(), 33u64)])))
+            .await;
+        for _ in 0..10 {
+            tokio::time::advance(Duration::from_secs(120)).await;
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            observed.load().get("third").is_none(),
+            "refresh task must not apply changes after shutdown"
+        );
+        // The last pre-shutdown value is still in place.
+        assert_eq!(observed.load().get("second"), Some(&22));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_zero_refresh_interval_is_clamped_not_panicking() {
+        // A zero interval would panic `tokio::time::interval` and kill the
+        // detached refresh task; the clamp must keep it running and ticking.
+        let mock = Arc::new(MockCustomKeyThresholdSource::with_thresholds(Some(
+            HashMap::from([("only".to_string(), 9u64)]),
+        )));
+        let mut config = test_config();
+        let observed = config.custom_keys.clone();
+        config.custom_key_source = Some(mock.clone() as Arc<dyn CustomKeyThresholdSource>);
+        config.custom_key_refresh_interval = Duration::ZERO;
+
+        let client = Arc::new(MockRedisClient::new());
+        let _limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
+
+        assert!(
+            wait_until(|| observed.load().get("only") == Some(&9)).await,
+            "clamped refresh task should still apply the initial map"
+        );
     }
 }

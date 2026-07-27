@@ -7,28 +7,27 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from posthog.hogql import errors as hogql_errors
-from posthog.hogql.ai import (
-    DESTINATION_LIMITATIONS_MESSAGE,
-    EVENT_PROPERTY_TAXONOMY_MESSAGE,
-    EVENT_TAXONOMY_MESSAGE,
-    FILTER_TAXONOMY_MESSAGE,
-    HOG_EXAMPLE_MESSAGE,
-    HOG_FUNCTION_FILTERS_SYSTEM_PROMPT,
-    HOG_FUNCTION_INPUTS_SYSTEM_PROMPT,
-    HOG_GRAMMAR_MESSAGE,
-    IDENTITY_MESSAGE_HOG,
-    INPUT_SCHEMA_TYPES_MESSAGE,
-    PERSON_TAXONOMY_MESSAGE,
-    TRANSFORMATION_LIMITATIONS_MESSAGE,
-)
 from posthog.hogql.parser import parse_program
 
 from posthog.cdp.validation import compile_hog
 
 from products.cdp.backend.prompts import (
+    DESTINATION_LIMITATIONS_MESSAGE,
+    EVENT_PROPERTY_TAXONOMY_MESSAGE,
+    EVENT_TAXONOMY_MESSAGE,
+    FILTER_TAXONOMY_MESSAGE,
+    HOG_EXAMPLE_MESSAGE,
     HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT,
+    HOG_FUNCTION_FILTERS_SYSTEM_PROMPT,
     HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT,
+    HOG_FUNCTION_INPUTS_SYSTEM_PROMPT,
+    HOG_GRAMMAR_MESSAGE,
     HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT,
+    IDENTITY_MESSAGE_HOG,
+    INPUT_SCHEMA_TYPES_MESSAGE,
+    PERSON_TAXONOMY_MESSAGE,
+    TRANSFORMATION_LIMITATIONS_MESSAGE,
+    TRANSFORMATION_STRUCTURE_MESSAGE,
 )
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
@@ -59,6 +58,8 @@ class CreateHogTransformationFunctionTool(MaxTool):
     context_prompt_template: str = (
         HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT
         + "\n\n"
+        + TRANSFORMATION_STRUCTURE_MESSAGE
+        + "\n\n"
         + TRANSFORMATION_LIMITATIONS_MESSAGE
         + "\n\n"
         + DESTINATION_LIMITATIONS_MESSAGE
@@ -69,6 +70,9 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
         system_content = (
             IDENTITY_MESSAGE_HOG
+            + "\n\n<transformation_structure>\n"
+            + TRANSFORMATION_STRUCTURE_MESSAGE
+            + "\n</transformation_structure>\n\n"
             + "\n\n<example_hog_code>\n"
             + HOG_EXAMPLE_MESSAGE
             + "\n</example_hog_code>\n\n"

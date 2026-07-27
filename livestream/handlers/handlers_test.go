@@ -313,66 +313,123 @@ func TestFilterNotificationForUser(t *testing.T) {
 	}
 }
 
+type filterShape struct {
+	Key      string
+	Operator string
+	Values   []string
+}
+
+func shapesOf(filters []events.CompiledPropertyFilter) []filterShape {
+	if filters == nil {
+		return nil
+	}
+	out := make([]filterShape, 0, len(filters))
+	for _, f := range filters {
+		out = append(out, filterShape{Key: f.Key, Operator: f.Operator, Values: f.Values})
+	}
+	return out
+}
+
 func TestParsePropertyFilters(t *testing.T) {
 	tests := []struct {
-		name string
-		raw  []string
-		want map[string][]string
+		name           string
+		propertiesJSON string
+		legacy         []string
+		want           []filterShape
 	}{
 		{
-			name: "nil input",
-			raw:  nil,
+			name: "no input returns nil",
 			want: nil,
 		},
 		{
-			name: "empty input",
-			raw:  []string{},
-			want: nil,
+			name:   "legacy single key=value as exact",
+			legacy: []string{"$browser=Chrome"},
+			want:   []filterShape{{Key: "$browser", Operator: events.OpExact, Values: []string{"Chrome"}}},
 		},
 		{
-			name: "single key=value",
-			raw:  []string{"$browser=Chrome"},
-			want: map[string][]string{"$browser": {"Chrome"}},
-		},
-		{
-			name: "multiple keys AND",
-			raw:  []string{"$browser=Chrome", "plan=enterprise"},
-			want: map[string][]string{
-				"$browser": {"Chrome"},
-				"plan":     {"enterprise"},
+			name:   "legacy multiple keys AND",
+			legacy: []string{"$browser=Chrome", "plan=enterprise"},
+			want: []filterShape{
+				{Key: "$browser", Operator: events.OpExact, Values: []string{"Chrome"}},
+				{Key: "plan", Operator: events.OpExact, Values: []string{"enterprise"}},
 			},
 		},
 		{
-			name: "same key OR",
-			raw:  []string{"$browser=Chrome", "$browser=Firefox"},
-			want: map[string][]string{"$browser": {"Chrome", "Firefox"}},
+			name:   "legacy same key OR grouped",
+			legacy: []string{"$browser=Chrome", "$browser=Firefox"},
+			want:   []filterShape{{Key: "$browser", Operator: events.OpExact, Values: []string{"Chrome", "Firefox"}}},
 		},
 		{
-			name: "missing equals skipped",
-			raw:  []string{"$browser", "plan=free"},
-			want: map[string][]string{"plan": {"free"}},
+			name:   "legacy missing equals skipped",
+			legacy: []string{"$browser", "plan=free"},
+			want:   []filterShape{{Key: "plan", Operator: events.OpExact, Values: []string{"free"}}},
 		},
 		{
-			name: "empty key skipped",
-			raw:  []string{"=Chrome", "plan=free"},
-			want: map[string][]string{"plan": {"free"}},
+			name:   "legacy all malformed returns nil",
+			legacy: []string{"=foo", "bar"},
+			want:   nil,
 		},
 		{
-			name: "all malformed returns nil",
-			raw:  []string{"=foo", "bar"},
-			want: nil,
+			name:           "json single icontains",
+			propertiesJSON: `[{"key":"$current_url","operator":"icontains","value":"checkout"}]`,
+			want:           []filterShape{{Key: "$current_url", Operator: events.OpIContains, Values: []string{"checkout"}}},
 		},
 		{
-			name: "empty value allowed",
-			raw:  []string{"plan="},
-			want: map[string][]string{"plan": {""}},
+			name:           "json array value preserves order",
+			propertiesJSON: `[{"key":"$browser","operator":"exact","value":["Chrome","Firefox"]}]`,
+			want:           []filterShape{{Key: "$browser", Operator: events.OpExact, Values: []string{"Chrome", "Firefox"}}},
+		},
+		{
+			name:           "json numeric value not reformatted",
+			propertiesJSON: `[{"key":"count","operator":"gt","value":1000000}]`,
+			want:           []filterShape{{Key: "count", Operator: events.OpGreaterThan, Values: []string{"1000000"}}},
+		},
+		{
+			name:           "json is_set has no values",
+			propertiesJSON: `[{"key":"$browser","operator":"is_set"}]`,
+			want:           []filterShape{{Key: "$browser", Operator: events.OpIsSet, Values: nil}},
+		},
+		{
+			name:           "json null value yields nil values",
+			propertiesJSON: `[{"key":"$browser","operator":"exact","value":null}]`,
+			want:           []filterShape{{Key: "$browser", Operator: events.OpExact, Values: nil}},
+		},
+		{
+			name:           "json entry missing key skipped",
+			propertiesJSON: `[{"operator":"exact","value":"x"},{"key":"plan","operator":"exact","value":"free"}]`,
+			want:           []filterShape{{Key: "plan", Operator: events.OpExact, Values: []string{"free"}}},
+		},
+		{
+			name:           "json entry missing operator skipped",
+			propertiesJSON: `[{"key":"plan","value":"free"}]`,
+			want:           nil,
+		},
+		{
+			name:           "malformed json ignored",
+			propertiesJSON: `not json`,
+			want:           nil,
+		},
+		{
+			name:           "malformed json ignored but legacy still applies",
+			propertiesJSON: `{ broken`,
+			legacy:         []string{"plan=free"},
+			want:           []filterShape{{Key: "plan", Operator: events.OpExact, Values: []string{"free"}}},
+		},
+		{
+			name:           "json and legacy merged, json first",
+			propertiesJSON: `[{"key":"$current_url","operator":"icontains","value":"checkout"}]`,
+			legacy:         []string{"$browser=Chrome"},
+			want: []filterShape{
+				{Key: "$current_url", Operator: events.OpIContains, Values: []string{"checkout"}},
+				{Key: "$browser", Operator: events.OpExact, Values: []string{"Chrome"}},
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parsePropertyFilters(tt.raw)
-			assert.Equal(t, tt.want, got)
+			got := parsePropertyFilters(tt.propertiesJSON, tt.legacy)
+			assert.Equal(t, tt.want, shapesOf(got))
 		})
 	}
 }

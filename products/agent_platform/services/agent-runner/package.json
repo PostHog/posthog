@@ -1,0 +1,46 @@
+{
+    "name": "@posthog/agent-runner",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Greenfield session executor for the agent platform. Loads AgentRevision, calls pi-ai for model invocation, dispatches native+custom tools.",
+    "license": "MIT",
+    "author": "PostHog <hey@posthog.com>",
+    "type": "module",
+    "main": "./src/lib.ts",
+    "types": "./src/lib.ts",
+    "exports": {
+        ".": "./src/lib.ts",
+        "./bin": "./src/index.ts"
+    },
+    "scripts": {
+        "lint": "oxlint --quiet .",
+        "format": "oxfmt .",
+        "format:check": "oxfmt --check .",
+        "typescript:check": "tsc --noEmit -p .",
+        "test": "vitest run",
+        "start": "tsx src/index.ts",
+        "start:dev": "tsx watch src/index.ts",
+        "gateway:smoke": "tsx bin/gateway-smoke.ts"
+    },
+    "dependencies": {
+        "@aws-sdk/client-s3": "^3.723.0",
+        "@earendil-works/pi-agent-core": "^0.75.5",
+        "@earendil-works/pi-ai": "^0.75.5",
+        "@modelcontextprotocol/sdk": "^1.29.0",
+        "@posthog/agent-shared": "workspace:*",
+        "@posthog/agent-tools": "workspace:*",
+        "pg": "^8.6.0",
+        "tsx": "^4.7.0",
+        "typebox": "^1.1.38",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "@types/node": "catalog:",
+        "@types/pg": "^8.6.0",
+        "typescript": "catalog:",
+        "vitest": "^4.1.0"
+    },
+    "engines": {
+        "node": ">=24 <25"
+    }
+}

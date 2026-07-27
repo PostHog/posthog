@@ -94,6 +94,28 @@ describe('getSurveyWithTranslatedContent', () => {
         expect(survey.questions[0].question).toBe('How was onboarding?')
     })
 
+    it('applies submit and back button label translations to the appearance', () => {
+        const survey = createSurvey()
+        survey.appearance = {
+            ...survey.appearance,
+            submitButtonText: 'Submit',
+            allowGoBack: true,
+            backButtonText: 'Back',
+        }
+        survey.translations = {
+            fr: {
+                ...survey.translations?.fr,
+                submitButtonText: 'Envoyer',
+                backButtonText: 'Retour',
+            },
+        }
+
+        const translatedSurvey = getSurveyWithTranslatedContent(survey, 'fr')
+
+        expect(translatedSurvey.appearance?.submitButtonText).toBe('Envoyer')
+        expect(translatedSurvey.appearance?.backButtonText).toBe('Retour')
+    })
+
     it('returns the original survey when the language has no root translation', () => {
         const survey = createSurvey()
 

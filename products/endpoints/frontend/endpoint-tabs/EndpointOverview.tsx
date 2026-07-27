@@ -10,13 +10,9 @@ import { urls } from 'scenes/urls'
 import { endpointLogic } from '../endpointLogic'
 import { EndpointTab, endpointSceneLogic } from '../endpointSceneLogic'
 
-interface EndpointOverviewProps {
-    tabId: string
-}
-
-export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element {
-    const { endpoint } = useValues(endpointLogic({ tabId }))
-    const { viewingVersion } = useValues(endpointSceneLogic({ tabId }))
+export function EndpointOverview(): JSX.Element {
+    const { endpoint } = useValues(endpointLogic)
+    const { viewingVersion } = useValues(endpointSceneLogic)
 
     if (!endpoint) {
         return <></>

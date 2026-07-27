@@ -105,9 +105,10 @@ class EventsTable(Table):
     elements_chain: StringDatabaseField = StringDatabaseField(name="elements_chain")
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
 
-    # lazy table that adds a join to the persons table
-    pdi: LazyTable = LazyTable(
-        from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
+    # lazy join that joins in the person_distinct_ids table when accessed. The join is described
+    # as plain data: a resolver tag naming a join recipe in `lazy_join_registry.RESOLVERS`.
+    pdi: LazyJoin = LazyJoin(
+        from_field=["distinct_id"], join_table=PersonDistinctIdsTable(), resolver=PERSON_DISTINCT_IDS
     )
     # person fields on the event itself
     poe: EventsPersonSubTable = EventsPersonSubTable()

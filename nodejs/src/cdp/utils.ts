@@ -2,11 +2,11 @@ import { DateTime } from 'luxon'
 import { Summary } from 'prom-client'
 import { gunzip, gzip } from 'zlib'
 
-import { sanitizeForUTF8 } from '~/utils/strings'
+import { parseJSON } from '~/common/utils/json-parse'
+import { sanitizeForUTF8 } from '~/common/utils/strings'
+import { UUIDT, castTimestampOrNow, clickHouseTimestampToISO } from '~/common/utils/utils'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
-import { parseJSON } from '../utils/json-parse'
-import { UUIDT, castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
 import { CdpInternalEvent } from './schema'
 import { HogFunctionInvocationGlobals, HogFunctionType, LogEntry, LogEntrySerialized, MinimalLogEntry } from './types'
 
@@ -155,7 +155,7 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
         'exception_props' in properties &&
         typeof properties.exception_props === 'object'
     ) {
-        properties = { ...properties, ...properties.exception_props }
+        properties = { ...properties.exception_props, ...properties }
         delete properties.exception_props
     }
 
@@ -245,7 +245,11 @@ export function isNativeHogFunction(hogFunction: Pick<HogFunctionType, 'template
 }
 
 export function isInternalErrorTrackingEvent(event: CdpInternalEvent['event']): boolean {
-    return ['$error_tracking_issue_created', '$error_tracking_issue_reopened'].includes(event.event)
+    return [
+        '$error_tracking_issue_created',
+        '$error_tracking_issue_reopened',
+        '$error_tracking_issue_spiking',
+    ].includes(event.event)
 }
 
 export function filterExists<T>(value: T): value is NonNullable<T> {

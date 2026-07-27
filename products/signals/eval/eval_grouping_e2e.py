@@ -38,11 +38,10 @@ import pytest
 from sklearn.metrics import adjusted_rand_score, homogeneity_completeness_v_measure
 from tqdm import tqdm
 
-from posthog.temporal.data_imports.signals.pipeline import (
+from products.signals.backend.emission.pipeline import (
     _check_actionability,
     summarize_long_descriptions as _summarize_long_descriptions,
 )
-
 from products.signals.backend.temporal.grouping import (
     generate_search_queries,
     match_signal_to_report,
@@ -66,15 +65,22 @@ from products.signals.eval.common import (
     MatchFailureMode,
     get_signals_stream,
 )
+from products.signals.eval.conftest import EVAL_TEAM_ID
 from products.signals.eval.fixtures.grouping_data import GROUP_DATA
 from products.signals.eval.mock import EmbeddingStore, ReportStore
 
 
 class EvalGroupingPipeline:
+    def _eval_team(self):
+        """Lightweight Team stand-in for the pipeline helpers — they only read .id."""
+        from unittest.mock import MagicMock
+
+        return MagicMock(id=EVAL_TEAM_ID)
+
     @pytest.fixture(autouse=True)
-    def _setup(self, posthog_client, openai_client, gemini_client, mock_temporal, limit, no_capture, online):
+    def _setup(self, posthog_client, openai_client, gateway_client, mock_temporal, limit, no_capture, online):
         self.posthog_client = posthog_client
-        self.gemini_client = gemini_client
+        self.gateway_client = gateway_client
         self.openai_client = openai_client
         self.store = EmbeddingStore(openai_client)
         self.report_store = ReportStore()
@@ -129,7 +135,9 @@ class EvalGroupingPipeline:
                 self.progress.signal_dropped()
                 return
 
-            safety_result = await safety_filter(description)
+            safety_result = await safety_filter(
+                EVAL_TEAM_ID, description, source_product=case.signal.content.source_product
+            )
             await self._capture_safety_filter(case, safety_result)
 
             if not safety_result.safe:
@@ -160,6 +168,7 @@ class EvalGroupingPipeline:
         """Generate search queries and compute all embeddings. No store mutations."""
 
         queries = await generate_search_queries(
+            team_id=EVAL_TEAM_ID,
             description=description,
             source_product=case.signal.config.source_product,
             source_type=case.signal.config.source_type,
@@ -187,6 +196,7 @@ class EvalGroupingPipeline:
         candidates = [self.store.search(emb) for emb in query_embeddings]
 
         match_result = await match_signal_to_report(
+            team_id=EVAL_TEAM_ID,
             description=description,
             source_product=case.signal.config.source_product,
             source_type=case.signal.config.source_type,
@@ -202,6 +212,7 @@ class EvalGroupingPipeline:
             group_signals = self.store.get_signals_for_report(specificity_match_result.report_id)
 
             specificity_result = await verify_match_specificity(
+                team_id=EVAL_TEAM_ID,
                 new_signal_description=description,
                 new_signal_source_product=case.signal.config.source_product,
                 new_signal_source_type=case.signal.config.source_type,
@@ -264,6 +275,7 @@ class EvalGroupingPipeline:
 
         if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
             outputs = await _summarize_long_descriptions(
+                team=self._eval_team(),
                 outputs=outputs,
                 summarization_prompt=config.summarization_prompt,
                 threshold=config.description_summarization_threshold_chars,
@@ -273,10 +285,10 @@ class EvalGroupingPipeline:
         output = outputs[0]
 
         if config.actionability_prompt:
-            is_actionable, thoughts = await _check_actionability(
-                self.gemini_client, output, config.actionability_prompt
+            is_actionable = await _check_actionability(
+                self.gateway_client, EVAL_TEAM_ID, output, config.actionability_prompt
             )
-            await self._capture_pre_emit_actionability(case, thoughts, is_actionable)
+            await self._capture_pre_emit_actionability(case, None, is_actionable)
             if not is_actionable:
                 return None
 
@@ -449,7 +461,7 @@ class EvalGroupingPipeline:
         try:
             expected_safe = all(GROUP_DATA[g].safe for g in report.true_signal_groups)
 
-            safety_result = await judge_report_safety(signals=signals)
+            safety_result = await judge_report_safety(team_id=EVAL_TEAM_ID, signals=signals)
 
             report.safety_choice = safety_result.choice
             passed = safety_result.choice == expected_safe

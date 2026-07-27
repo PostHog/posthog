@@ -1,0 +1,83 @@
+{
+    "name": "inspect-agent — happy path: 'what does weekly-digest do?'",
+    "description": "Standard inspect flow on a real agent slug. Agent Builder should load reading-an-agent skill on the first turn, call agent-applications-retrieve + agent-applications-revisions-retrieve + agent-applications-revisions-system-prompt + agent-applications-sessions-list (per the skill), then produce a structured summary.",
+    "trigger": {
+        "type": "chat",
+        "messages": [{ "role": "user", "content": "What does weekly-digest do? Is it healthy?" }]
+    },
+    "fixtures": {
+        "posthog__agent-applications-list": {
+            "results": [
+                {
+                    "id": "app_wd",
+                    "slug": "weekly-digest",
+                    "name": "Weekly digest",
+                    "description": "Posts a Slack digest every Monday",
+                    "live_revision_id": "rev_wd_live"
+                }
+            ]
+        },
+        "posthog__agent-applications-retrieve": {
+            "id": "app_wd",
+            "slug": "weekly-digest",
+            "name": "Weekly digest",
+            "description": "Posts a Slack digest every Monday",
+            "live_revision_id": "rev_wd_live"
+        },
+        "posthog__agent-applications-revisions-retrieve": {
+            "id": "rev_wd_live",
+            "state": "live",
+            "bundle_sha256": "abc123",
+            "spec": {
+                "models": { "mode": "manual", "models": [{ "model": "anthropic/claude-sonnet-4-6" }] },
+                "triggers": [{ "type": "cron", "config": { "schedule": "0 9 * * 1", "timezone": "UTC" } }],
+                "tools": [
+                    { "kind": "native", "id": "@posthog/query" },
+                    { "kind": "native", "id": "@posthog/slack-post-message" }
+                ],
+                "skills": [
+                    { "id": "digest-template", "path": "skills/digest-template.md", "description": "Output format" }
+                ],
+                "limits": { "max_turns": 30, "max_tool_calls": 100, "max_wall_seconds": 600 }
+            }
+        },
+        "posthog__agent-applications-sessions-list": {
+            "results": [
+                {
+                    "id": "s1",
+                    "state": "completed",
+                    "started_at": "2026-05-26T09:00:00Z",
+                    "turn_count": 4,
+                    "usage_total": { "cost_total": 0.04 }
+                },
+                {
+                    "id": "s2",
+                    "state": "completed",
+                    "started_at": "2026-05-19T09:00:00Z",
+                    "turn_count": 5,
+                    "usage_total": { "cost_total": 0.05 }
+                }
+            ]
+        }
+    },
+    "expected": {
+        "tool_calls_include": [
+            "@posthog/load-skill",
+            "posthog__agent-applications-retrieve",
+            "posthog__agent-applications-revisions-retrieve"
+        ],
+        "tool_calls_exclude": [
+            "posthog__agent-applications-revisions-promote-create",
+            "posthog__agent-applications-revisions-agent-md-update"
+        ],
+        "load_skill_includes": ["reading-an-agent"],
+        "assistant_text_matches_any": [
+            "(?i)cron",
+            "(?i)anthropic.*claude-sonnet",
+            "(?i)healthy|completed.*0.*failed|0 failed"
+        ],
+        "max_turns": 8,
+        "must_complete_within_ms": 60000,
+        "final_state": "completed"
+    }
+}

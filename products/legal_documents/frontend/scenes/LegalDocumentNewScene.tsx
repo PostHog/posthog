@@ -4,7 +4,7 @@ import { Form } from 'kea-forms'
 import { IconBalance, IconSend } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -74,6 +74,8 @@ export function LegalDocumentNewScene(): JSX.Element {
         legalDocumentHasErrors,
         isLegalDocumentSubmitting,
         hasQualifyingBaaAddon,
+        isOnQualifyingAddonTrial,
+        isOnEnterpriseStandardTrial,
         isDpaModeSubmittable,
         existingDocumentOfCurrentType,
         existingDocumentTypes,
@@ -81,7 +83,7 @@ export function LegalDocumentNewScene(): JSX.Element {
     const { isAdminOrOwner } = useValues(organizationLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { setDocumentType, setDpaMode } = useActions(legalDocumentsLogic)
-    const isEnabled = useFeatureFlag('LEGAL_DOCUMENTS')
+    const { openSupportForm } = useActions(supportLogic)
 
     if (!isCloudOrDev) {
         return (
@@ -97,25 +99,6 @@ export function LegalDocumentNewScene(): JSX.Element {
                 />
                 <LemonBanner type="info">
                     <p className="mb-0">Legal documents are only available on PostHog Cloud.</p>
-                </LemonBanner>
-            </SceneContent>
-        )
-    }
-
-    if (!isEnabled) {
-        return (
-            <SceneContent>
-                <SceneTitleSection
-                    name="Legal documents"
-                    resourceType={{ type: 'default_icon_type', forceIcon: <IconBalance /> }}
-                    forceBackTo={{
-                        key: Scene.LegalDocuments,
-                        name: 'Legal documents',
-                        path: urls.legalDocuments(),
-                    }}
-                />
-                <LemonBanner type="info">
-                    <p className="mb-0">Legal documents aren't available for your organization yet.</p>
                 </LemonBanner>
             </SceneContent>
         )
@@ -198,9 +181,37 @@ export function LegalDocumentNewScene(): JSX.Element {
 
                         {baaBlocked && (
                             <LemonBanner type="warning">
-                                A BAA requires an active{' '}
-                                <Link to={urls.organizationBilling()}>Boost, Scale, or Enterprise add-on</Link>.
-                                Subscribe first, then come back here to generate your BAA.
+                                {isOnEnterpriseStandardTrial ? (
+                                    <>
+                                        A BAA requires an active paid subscription. Your Enterprise trial is
+                                        sales-managed, so please{' '}
+                                        <Link
+                                            to=""
+                                            onClick={() =>
+                                                openSupportForm({
+                                                    target_area: 'billing',
+                                                    isEmailFormOpen: true,
+                                                })
+                                            }
+                                        >
+                                            contact billing support
+                                        </Link>{' '}
+                                        to convert your trial into a subscription, then come back here to generate your
+                                        BAA.
+                                    </>
+                                ) : isOnQualifyingAddonTrial ? (
+                                    <>
+                                        A BAA requires an active paid subscription. Cancel your trial and subscribe on
+                                        your <Link to={urls.organizationBilling()}>billing page</Link>, then come back
+                                        here to generate your BAA.
+                                    </>
+                                ) : (
+                                    <>
+                                        A BAA requires an active{' '}
+                                        <Link to={urls.organizationBilling()}>Boost, Scale, or Enterprise add-on</Link>.
+                                        Subscribe first, then come back here to generate your BAA.
+                                    </>
+                                )}
                             </LemonBanner>
                         )}
 

@@ -9,8 +9,8 @@
  */
 /**
  * * `server` - Server
- * `client` - Client
- * `all` - All
+ * * `client` - Client
+ * * `all` - All
  */
 export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
 
@@ -28,7 +28,7 @@ export const BlankEnumApi = {
 
 /**
  * * `distinct_id` - User ID (default)
- * `device_id` - Device ID
+ * * `device_id` - Device ID
  */
 export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
 
@@ -57,28 +57,28 @@ export interface MinimalFeatureFlagApi {
      */
     version?: number | null
     /** Specifies where this feature flag should be evaluated
-
-  * `server` - Server
-  * `client` - Client
-  * `all` - All */
+     *
+     * * `server` - Server
+     * * `client` - Client
+     * * `all` - All */
     evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
-
-  * `distinct_id` - User ID (default)
-  * `device_id` - Device ID */
+     *
+     * * `distinct_id` - User ID (default)
+     * * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     readonly evaluation_contexts: readonly string[]
 }
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -119,6 +119,13 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
 /**
  * Return the targeting flag filters, excluding the base exclusion properties.
  * @nullable
@@ -152,6 +159,8 @@ export interface ProductTourApi {
     readonly created_by: UserBasicApi
     readonly updated_at: string
     archived?: boolean
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface PaginatedProductTourListApi {
@@ -165,7 +174,7 @@ export interface PaginatedProductTourListApi {
 
 /**
  * * `app` - app
- * `toolbar` - toolbar
+ * * `toolbar` - toolbar
  */
 export type ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi =
     (typeof ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi)[keyof typeof ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi]
@@ -199,9 +208,9 @@ export interface ProductTourSerializerCreateUpdateOnlyApi {
     readonly updated_at: string
     archived?: boolean
     /** Where the tour was created/updated from
-
-  * `app` - app
-  * `toolbar` - toolbar */
+     *
+     * * `app` - app
+     * * `toolbar` - toolbar */
     creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi
 }
 
@@ -229,9 +238,9 @@ export interface PatchedProductTourSerializerCreateUpdateOnlyApi {
     readonly updated_at?: string
     archived?: boolean
     /** Where the tour was created/updated from
-
-  * `app` - app
-  * `toolbar` - toolbar */
+     *
+     * * `app` - app
+     * * `toolbar` - toolbar */
     creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi
 }
 
@@ -268,7 +277,7 @@ export type ProductToursListParams = {
      */
     offset?: number
     /**
-     * Fuzzy match against product tour `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.
+     * Match against product tour `name` and `description`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`.
      */
     search?: string
 }

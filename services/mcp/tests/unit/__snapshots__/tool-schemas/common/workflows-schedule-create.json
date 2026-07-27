@@ -1,0 +1,37 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "acknowledged_affected_count": {
+            "description": "Required for a batch (audience) workflow: the current affected-user count from workflows-blast-radius that you showed the user. Each firing re-broadcasts to the audience at that time; rejected if it no longer matches. Not needed for a 'schedule' trigger (person-less — no audience).",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+        },
+        "rrule": {
+            "description": "iCalendar RRULE (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour.",
+            "type": "string"
+        },
+        "starts_at": {
+            "description": "ISO 8601 datetime the schedule starts from.",
+            "type": "string"
+        },
+        "timezone": {
+            "description": "IANA timezone for the RRULE (default 'UTC').",
+            "type": "string"
+        },
+        "variables": {
+            "additionalProperties": {},
+            "description": "Optional {key: value} variable overrides merged with the workflow defaults on each run.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "workflow_id": {
+            "description": "ID of the batch or schedule workflow to attach the schedule to.",
+            "type": "string"
+        }
+    },
+    "required": ["workflow_id", "rrule", "starts_at"],
+    "type": "object"
+}

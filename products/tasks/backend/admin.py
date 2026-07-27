@@ -1,18 +1,25 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
+from django.shortcuts import redirect
+from django.urls import path, reverse
+from django.utils.html import format_html
 
-from .models import CodeInvite, CodeInviteRedemption, SandboxSnapshot, Task, TaskRun
+from posthog.storage import object_storage
+
+from . import loop_service
+from .models import CodeInvite, CodeInviteRedemption, Loop, LoopTrigger, SandboxSnapshot, Task, TaskRun
 
 
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
-    list_display = ("slug", "title", "origin_product", "team", "created_by", "created_at", "deleted")
-    list_filter = ("origin_product", "deleted", "created_at")
+    list_display = ("slug", "title", "origin_product", "internal", "team", "created_by", "created_at", "deleted")
+    list_filter = ("origin_product", "internal", "deleted", "created_at")
     search_fields = ("title", "description", "repository")
     readonly_fields = ("id", "slug", "task_number", "created_at", "updated_at", "deleted_at")
     autocomplete_fields = ("team", "created_by", "github_integration", "github_user_integration")
 
     fieldsets = (
-        (None, {"fields": ("id", "slug", "task_number", "title", "description", "origin_product")}),
+        (None, {"fields": ("id", "slug", "task_number", "title", "description", "origin_product", "internal")}),
         ("Team & User", {"fields": ("team", "created_by")}),
         ("Repository", {"fields": ("github_integration", "github_user_integration", "repository")}),
         ("Schema", {"fields": ("json_schema",)}),
@@ -26,15 +33,59 @@ class TaskRunAdmin(admin.ModelAdmin):
     list_display = ("id", "task", "status", "environment", "stage", "created_at")
     list_filter = ("status", "environment", "created_at")
     search_fields = ("task__title", "branch", "stage")
-    readonly_fields = ("id", "created_at", "updated_at", "completed_at")
+    readonly_fields = ("id", "created_at", "updated_at", "completed_at", "download_logs_link")
     autocomplete_fields = ("task",)
 
     fieldsets = (
         (None, {"fields": ("id", "task", "status", "environment", "stage", "branch")}),
-        ("Storage", {"fields": ("error_message",)}),
+        ("Storage", {"fields": ("error_message", "download_logs_link")}),
         ("Data", {"fields": ("output", "state")}),
         ("Dates", {"fields": ("created_at", "updated_at", "completed_at")}),
     )
+
+    def get_urls(self) -> list:
+        # Prepended so it isn't shadowed by the default `<path:object_id>/` route.
+        return [
+            path(
+                "<uuid:run_id>/download-logs/",
+                self.admin_site.admin_view(self.download_logs),
+                name="tasks_taskrun_download_logs",
+            ),
+            *super().get_urls(),
+        ]
+
+    def download_logs(self, request: HttpRequest, run_id) -> HttpResponse:
+        run = self.get_object(request, run_id)
+        if run is None:
+            raise Http404("Task run not found")
+        if object_storage.head_object(run.log_url) is None:
+            self.message_user(
+                request,
+                "No logs available for this run — they may not have been written yet, or object storage is unreachable.",
+                level=messages.WARNING,
+            )
+            return redirect(reverse("admin:tasks_taskrun_change", args=[run_id]))
+        filename = f"run_{run.id}.jsonl"
+        url = object_storage.get_presigned_url(
+            run.log_url,
+            expiration=300,
+            content_disposition=f'attachment; filename="{filename}"',
+        )
+        if not url:
+            self.message_user(
+                request,
+                "Could not generate a download link for this run's logs (object storage unavailable).",
+                level=messages.WARNING,
+            )
+            return redirect(reverse("admin:tasks_taskrun_change", args=[run_id]))
+        return HttpResponseRedirect(url)
+
+    @admin.display(description="Logs")
+    def download_logs_link(self, obj: TaskRun) -> str:
+        if not obj or not obj.pk:
+            return "—"
+        url = reverse("admin:tasks_taskrun_download_logs", args=[obj.pk])
+        return format_html('<a class="button" href="{}">Download logs</a>', url)
 
 
 @admin.register(SandboxSnapshot)
@@ -100,3 +151,76 @@ class CodeInviteRedemptionAdmin(admin.ModelAdmin):
     list_filter = ("redeemed_at",)
     search_fields = ("user__email", "invite_code__code")
     readonly_fields = ("id", "invite_code", "user", "organization", "redeemed_at")
+
+
+@admin.register(Loop)
+class LoopAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "visibility",
+        "enabled",
+        "team",
+        "created_by",
+        "last_run_at",
+        "last_run_status",
+        "consecutive_failures",
+        "deleted",
+    )
+    list_filter = ("visibility", "enabled", "deleted", "overlap_policy", "runtime_adapter")
+    search_fields = ("name", "description")
+    readonly_fields = (
+        "id",
+        "enabled",
+        "last_run_at",
+        "last_run_status",
+        "last_error",
+        "consecutive_failures",
+        "created_at",
+        "updated_at",
+    )
+    autocomplete_fields = ("team", "created_by", "creator")
+    raw_id_fields = ("sandbox_environment",)
+
+    def get_queryset(self, request: HttpRequest):
+        # Admin has no team context; Loop's default manager is fail-closed.
+        return Loop.objects.unscoped().select_related("team", "created_by")
+
+    def delete_model(self, request: HttpRequest, obj: Loop) -> None:
+        # Tear down Temporal Schedules before the row is gone; CASCADE never talks to Temporal, so
+        # a raw admin delete would otherwise leave the schedules firing forever.
+        loop_service.delete_loop_schedules(obj)
+        super().delete_model(request, obj)
+
+    def delete_queryset(self, request: HttpRequest, queryset) -> None:
+        for loop in queryset:
+            loop_service.delete_loop_schedules(loop)
+        super().delete_queryset(request, queryset)
+
+
+@admin.register(LoopTrigger)
+class LoopTriggerAdmin(admin.ModelAdmin):
+    list_display = ("id", "loop", "type", "enabled", "schedule_sync_status", "last_fired_at")
+    list_filter = ("type", "enabled", "schedule_sync_status")
+    search_fields = ("loop__name",)
+    readonly_fields = ("id", "loop", "enabled", "schedule_sync_status", "last_fired_at", "created_at", "updated_at")
+    autocomplete_fields = ("team",)
+
+    def get_queryset(self, request: HttpRequest):
+        # Admin has no team context; select_related("loop") also keeps readonly
+        # rendering off Loop's fail-closed base manager.
+        return LoopTrigger.objects.unscoped().select_related("loop", "team")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        # Triggers are created through the loops API; their Temporal Schedule
+        # identity hangs off the row id, so hand-created rows would drift.
+        return False
+
+    def delete_model(self, request: HttpRequest, obj: LoopTrigger) -> None:
+        # Tear down the Temporal Schedule before the row is gone (CASCADE won't).
+        loop_service.delete_loop_trigger_schedule(obj)
+        super().delete_model(request, obj)
+
+    def delete_queryset(self, request: HttpRequest, queryset) -> None:
+        for trigger in queryset:
+            loop_service.delete_loop_trigger_schedule(trigger)
+        super().delete_queryset(request, queryset)

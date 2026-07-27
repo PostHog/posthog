@@ -28,12 +28,13 @@ class TestClassifyProblem:
         [
             ({"exception": "blocking"}, "blocking_exception"),
             ({"abandonment_detected": True}, "abandonment"),
-            ({"exception": "non-blocking"}, "non_blocking_exception"),
+            # A non-blocking exception on its own is deliberately not a problem (not researched).
+            ({"exception": "non-blocking"}, None),
             ({"confusion_detected": True}, "confusion"),
             ({"success": False}, "failure"),
             ({}, None),
         ],
-        ids=["blocking", "abandonment", "non_blocking", "confusion", "failure", "no_problem"],
+        ids=["blocking", "abandonment", "non_blocking_ignored", "confusion", "failure", "no_problem"],
     )
     def test_single_flag(self, kwargs, expected):
         assert classify_consolidated_segment_problem(_make_segment(**kwargs)) == expected
@@ -54,10 +55,12 @@ class TestClassifyProblem:
                 },
                 "abandonment",
             ),
-            ({"exception": "non-blocking", "confusion_detected": True, "success": False}, "non_blocking_exception"),
+            # Non-blocking is no longer a problem type, so a segment that also has confusion
+            # falls through to confusion (the real problem on that segment).
+            ({"exception": "non-blocking", "confusion_detected": True, "success": False}, "confusion"),
             ({"confusion_detected": True, "success": False}, "confusion"),
         ],
-        ids=["blocking_wins_all", "abandonment_wins_lower", "non_blocking_wins_lower", "confusion_wins_failure"],
+        ids=["blocking_wins_all", "abandonment_wins_lower", "non_blocking_falls_through", "confusion_wins_failure"],
     )
     def test_priority_ordering(self, kwargs, expected):
         assert classify_consolidated_segment_problem(_make_segment(**kwargs)) == expected
@@ -108,4 +111,9 @@ class TestCollectSessionProblems:
         ]
         problems = collect_session_problems(segments)
         assert len(problems) == 1
-        assert problems[0].problem_type == "non_blocking_exception"
+        # Non-blocking exception is ignored, so this segment classifies as its next real problem.
+        assert problems[0].problem_type == "confusion"
+
+    def test_segment_with_only_non_blocking_exception_is_not_a_problem(self):
+        segments = [_make_segment(title="Saw a console error but carried on", exception="non-blocking")]
+        assert collect_session_problems(segments) == []

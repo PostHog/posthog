@@ -16,12 +16,15 @@
  *
  * Open follow-ups (not implemented in v1):
  *   - DataWarehouse pinned-row detail-pane state
- *   - performance instrumentation (`captureTimeToSeeData`)
+ *   - search-latency telemetry (legacy emits `taxonomic filter search latency`
+ *     from the list-results handler; the rebuild emits its own menu events)
  *   - the GroupNamesPrefix clickhouse fast path (still goes through generic
  *     endpoint fetcher; behaviour identical, just slower for large groups)
  */
 import { useMemo, useState } from 'react'
 
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
+import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import {
     isQuickFilterItem,
     ListStorage,
@@ -31,12 +34,17 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
+import { floatRecentAndPinnedToTop, groupItemKey } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
 import { createFuse } from 'lib/utils/fuseSearch'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { fetchTaxonomicListPage } from './fetchTaxonomicListPage'
-import { useTaxonomicResource } from './useTaxonomicResource'
+import {
+    TAXONOMIC_LIST_KEY_FAMILY,
+    TAXONOMIC_LIST_SEARCH_KEY_FAMILY,
+    useTaxonomicResource,
+} from './useTaxonomicResource'
 
 export const NO_ITEM_SELECTED = -1
 
@@ -55,6 +63,9 @@ export interface UseGroupListInput {
      *  numeric-only items locally for DataWarehousePersonProperties. */
     showNumericalPropsOnly?: boolean
     hideBehavioralCohorts?: boolean
+    /** Exclude event definitions not seen within the staleness window (event /
+     *  custom-event endpoints only). Mirrors legacy's default-on `exclude_stale`. */
+    excludeStale?: boolean
     /** Override per-group minSearchQueryLength. */
     minSearchQueryLength?: number
     /** Pagination page size. */
@@ -67,6 +78,12 @@ export interface UseGroupListInput {
     autoSelectItem?: boolean
     /** When true, the list initialises with index=0; otherwise index=NO_ITEM_SELECTED. */
     selectFirstItem?: boolean
+    /** Set only when this is the filter's sole substantive group (no separate Recent/Pinned
+     *  tabs lead the filter). Floats these recent (most-recent first) then pinned items to
+     *  the top of the un-searched list. Mirrors legacy infiniteListLogic's `soleGroupHasGetValue`
+     *  path. */
+    promoteRecentItemsToTop?: TaxonomicDefinitionTypes[]
+    promotePinnedItemsToTop?: TaxonomicDefinitionTypes[]
 }
 
 export interface UseGroupListResult {
@@ -109,12 +126,15 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         optionsFromProp,
         showNumericalPropsOnly = false,
         hideBehavioralCohorts = false,
+        excludeStale = false,
         minSearchQueryLength: minSearchOverride,
         limit = DEFAULT_LIMIT,
         allowNonCapturedEvents = false,
         enableKeywordShortcuts = false,
         autoSelectItem = true,
         selectFirstItem = true,
+        promoteRecentItemsToTop,
+        promotePinnedItemsToTop,
     } = input
 
     const [isExpanded, setIsExpanded] = useState(false)
@@ -153,7 +173,11 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         const haystack = filteredLocalItems.map((item) => {
             const name = group.getName?.(item) ?? ('name' in item ? (item as { name?: string }).name : '') ?? ''
             const posthogName = getCoreFilterDefinition(name, group.type)?.label
-            return { name, posthogName, recentLabel: undefined, item }
+            const recentLabel =
+                hasRecentContext(item) && item._recentContext.propertyFilter
+                    ? formatPropertyLabel(item._recentContext.propertyFilter, {})
+                    : undefined
+            return { name, posthogName, recentLabel, item }
         })
         return createFuse(haystack, { keys: ['name', 'posthogName', 'recentLabel'], ignoreLocation: true })
     }, [filteredLocalItems, group])
@@ -181,27 +205,50 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
 
     const remoteEnabled = hasRemoteDataSource && !needsMoreSearchCharacters
 
+    // `clientFilterFirstPage` groups (e.g. Cohorts) pin the remote query to
+    // the empty-search first page and let local Fuse handle keystroke
+    // filtering — gives the same snappy feel as a local-only group while
+    // still picking up server-side hidden/excluded filtering. The cache
+    // key drops `searchQuery` so every keystroke hits the same entry.
+    const clientFilter = !!group.clientFilterFirstPage
+    const remoteSearchQuery = clientFilter ? '' : searchQuery
+
+    // The cache is shared across pickers, and two pickers can build the same endpoint with
+    // different group-level exclusions/allowlists (e.g. the MCP tab excludes its schema from
+    // Event properties only when present) — those are fetch-time params, so key on them too.
+    // Sorted so content-equal sets in a different order share an entry: safe because the
+    // backend set-converts these params, so order never changes the response. (The allowlist
+    // also rides order-sensitively inside `group.endpoint`, so it doesn't get the collapse.)
+    const excludedPropertiesKey = JSON.stringify([...(group.excludedProperties ?? [])].sort())
+    const propertyAllowListKey = JSON.stringify([...(group.propertyAllowList ?? [])].sort())
+
     const remoteKey = useMemo(
         () => [
-            'taxonomic-list',
+            TAXONOMIC_LIST_KEY_FAMILY,
             group.type,
             group.endpoint,
             group.scopedEndpoint ?? null,
             isExpanded,
-            searchQuery,
+            remoteSearchQuery,
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            excludeStale,
+            excludedPropertiesKey,
+            propertyAllowListKey,
         ],
         [
             group.type,
             group.endpoint,
             group.scopedEndpoint,
             isExpanded,
-            searchQuery,
+            remoteSearchQuery,
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            excludeStale,
+            excludedPropertiesKey,
+            propertyAllowListKey,
         ]
     )
 
@@ -210,18 +257,115 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         ({ signal }) =>
             fetchTaxonomicListPage({
                 group,
-                searchQuery,
+                searchQuery: remoteSearchQuery,
                 offset: 0,
                 limit,
                 isExpanded,
                 showNumericalPropsOnly,
                 hideBehavioralCohorts,
+                excludeStale,
                 signal,
             }),
-        { enabled: remoteEnabled, staleTime: 60_000, keepPreviousData: true }
+        // Long staleTime for client-filtered groups — the cached first page
+        // is the single source of truth for the whole typing session.
+        // Cohort mutations invalidate both key families via
+        // `invalidateTaxonomicResourcesWhere` in cohortsModel.
+        {
+            enabled: remoteEnabled,
+            staleTime: clientFilter ? 5 * 60_000 : 60_000,
+            keepPreviousData: true,
+        }
     )
 
-    const remoteItems: ListStorage = remote.data ?? EMPTY_LIST_STORAGE
+    const remoteItemsRaw: ListStorage = remote.data ?? EMPTY_LIST_STORAGE
+
+    // A `clientFilterFirstPage` group can only fuse what it cached — the
+    // empty-search first page. When the server holds more rows than fit on
+    // that page, local fuse silently misses every match outside it (e.g. a
+    // team with >100 cohorts can't find cohort #137 by name). Once we learn
+    // the dataset is bigger than one page, fall back to a real server search
+    // for typed queries; the snappy local path still serves the common case
+    // where the whole list fits in the first page.
+    const firstPageIncomplete = clientFilter && remoteItemsRaw.count > remoteItemsRaw.results.length
+    const serverSearchEnabled = firstPageIncomplete && !!trimmedSearch && !needsMoreSearchCharacters
+
+    const serverSearchKey = useMemo(
+        () => [
+            TAXONOMIC_LIST_SEARCH_KEY_FAMILY,
+            group.type,
+            group.endpoint,
+            group.scopedEndpoint ?? null,
+            isExpanded,
+            trimmedSearch,
+            limit,
+            showNumericalPropsOnly,
+            hideBehavioralCohorts,
+            excludeStale,
+            excludedPropertiesKey,
+            propertyAllowListKey,
+        ],
+        [
+            group.type,
+            group.endpoint,
+            group.scopedEndpoint,
+            isExpanded,
+            trimmedSearch,
+            limit,
+            showNumericalPropsOnly,
+            hideBehavioralCohorts,
+            excludeStale,
+            excludedPropertiesKey,
+            propertyAllowListKey,
+        ]
+    )
+
+    const serverSearch = useTaxonomicResource<ListStorage>(
+        serverSearchKey,
+        ({ signal }) =>
+            fetchTaxonomicListPage({
+                group,
+                searchQuery: trimmedSearch,
+                offset: 0,
+                limit,
+                isExpanded,
+                showNumericalPropsOnly,
+                hideBehavioralCohorts,
+                excludeStale,
+                signal,
+            }),
+        { enabled: serverSearchEnabled, staleTime: 60_000, keepPreviousData: true }
+    )
+
+    // Per-fetch Fuse index over the cached first page. Built lazily on
+    // first non-empty query, then re-used across keystrokes until the
+    // page changes (refetch / invalidate).
+    const remoteFuse = useMemo(() => {
+        if (!clientFilter || remoteItemsRaw.results.length === 0) {
+            return null
+        }
+        const haystack = remoteItemsRaw.results.map((item) => {
+            const name = group.getName?.(item) ?? ('name' in item ? (item as { name?: string }).name : '') ?? ''
+            const posthogName = getCoreFilterDefinition(name, group.type)?.label
+            return { name, posthogName, item }
+        })
+        return createFuse(haystack, { keys: ['name', 'posthogName'], ignoreLocation: true })
+    }, [clientFilter, remoteItemsRaw, group])
+
+    const remoteItems: ListStorage = useMemo(() => {
+        if (!clientFilter || !trimmedSearch) {
+            return remoteItemsRaw
+        }
+        // Dataset bigger than one page: the server search is authoritative.
+        // Show the local fuse of the cached first page until it resolves so
+        // there's no blank flash, then swap in the full server result.
+        if (serverSearchEnabled && serverSearch.data) {
+            return serverSearch.data
+        }
+        const filtered = remoteFuse
+            ? (remoteFuse.search(trimmedSearch).map((r: any) => r.item.item) as TaxonomicDefinitionTypes[])
+            : []
+        return { results: filtered, searchQuery, count: filtered.length }
+    }, [clientFilter, trimmedSearch, remoteItemsRaw, remoteFuse, searchQuery, serverSearchEnabled, serverSearch.data])
 
     // ---- Combined items + keyword shortcuts --------------------------------
     const keywordShortcuts: QuickFilterItem[] = useMemo(() => {
@@ -240,8 +384,29 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         if (remoteItems.results.length > 0) {
             merged.push(...remoteItems.results)
         }
+        // Sole substantive group: float its own recent/pinned items to the top of the
+        // un-searched list (keyword shortcuts only appear while searching, so they're
+        // never displaced). Mirrors legacy infiniteListLogic's `soleGroupHasGetValue` path.
+        if (!trimmedSearch && (promoteRecentItemsToTop?.length || promotePinnedItemsToTop?.length)) {
+            const keyOf = (item: TaxonomicDefinitionTypes): string | null =>
+                groupItemKey(group.type, group.getValue?.(item) ?? null)
+            return floatRecentAndPinnedToTop(
+                merged,
+                keyOf,
+                promoteRecentItemsToTop || [],
+                promotePinnedItemsToTop || []
+            ) as TaxonomicDefinitionTypes[]
+        }
         return merged
-    }, [keywordShortcuts, localItems, remoteItems])
+    }, [
+        keywordShortcuts,
+        localItems,
+        remoteItems,
+        trimmedSearch,
+        promoteRecentItemsToTop,
+        promotePinnedItemsToTop,
+        group,
+    ])
 
     const isExpandable = !!(
         group.endpoint &&
@@ -258,8 +423,10 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     const rowCount = items.length + (isExpandable ? 1 : 0)
 
     // ---- Loading / empty state ---------------------------------------------
-    const isLoading = remote.isLoading
-    const isFetching = remote.isFetching
+    // Fold the server-search fallback into the busy flags so the skeleton
+    // (not "no results") shows while it's in flight on a >1-page dataset.
+    const isLoading = remote.isLoading || (serverSearchEnabled && serverSearch.isLoading)
+    const isFetching = remote.isFetching || (serverSearchEnabled && serverSearch.isFetching)
 
     const showNonCapturedEventOption = useMemo(() => {
         if (!allowNonCapturedEvents) {

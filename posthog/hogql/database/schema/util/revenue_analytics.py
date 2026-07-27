@@ -1,6 +1,6 @@
 from typing import Literal
 
-from posthog.schema import DatabaseSchemaManagedViewTableKind
+from posthog.schema_enums import DatabaseSchemaManagedViewTableKind
 
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 

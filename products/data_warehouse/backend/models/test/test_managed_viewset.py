@@ -5,23 +5,29 @@ from django.db import IntegrityError
 
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
-from posthog.temporal.data_imports.sources.stripe.constants import (
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    REVENUE_ANALYTICS_DAG_NAME,
+    DataWarehouseManagedViewSet,
+    DataWarehouseSavedQuery,
+    Edge,
+    Node,
+    NodeType,
+)
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.sources import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-
-from products.data_warehouse.backend.models import (
-    DataWarehouseCredential,
-    DataWarehouseManagedViewSet,
-    DataWarehouseSavedQuery,
-    DataWarehouseTable,
-    ExternalDataSchema,
-    ExternalDataSource,
-)
-from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 STRIPE_SCHEMA_NAMES = [
     STRIPE_CHARGE_RESOURCE_NAME,
@@ -33,7 +39,7 @@ STRIPE_SCHEMA_NAMES = [
 
 DUMMY_COLUMNS = {"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}}
 SCHEDULE_MATERIALIZATION = (
-    "products.data_warehouse.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.schedule_materialization"
+    "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.schedule_materialization"
 )
 
 
@@ -58,6 +64,22 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
             ),
         ]
         self.team.revenue_analytics_config.save()
+
+    def test_sync_views_reconciles_dag_schedules_once(self):
+        # sync_views touches N views; reconciling per view would issue N redundant
+        # Temporal converges for the one managed DAG
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+
+        with (
+            patch(SCHEDULE_MATERIALIZATION),
+            patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag") as reconcile,
+        ):
+            managed_viewset.sync_views()
+
+        reconcile.assert_called_once()
 
     def test_sync_views_creates_views(self):
         """Test that enabling managed viewset creates the expected views"""
@@ -137,6 +159,82 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         self.assertNotEqual(saved_query.columns, old_columns)
         self.assertIsNotNone(saved_query.external_tables)  # Was unset, guarantee we've set it
         self.assertIn("HogQLQuery", saved_query.query.get("kind", ""))  # type: ignore
+
+    def test_sync_views_places_views_in_revenue_analytics_dag(self):
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+        managed_viewset.sync_views()
+
+        ra_dag = DAG.objects.filter(team=self.team, name=REVENUE_ANALYTICS_DAG_NAME).first()
+        self.assertIsNotNone(ra_dag)
+
+        views = DataWarehouseSavedQuery.objects.filter(team=self.team, managed_viewset=managed_viewset).exclude(
+            deleted=True
+        )
+        node_sq_ids = set(
+            Node.objects.filter(team=self.team, dag=ra_dag, saved_query__isnull=False).values_list(
+                "saved_query_id", flat=True
+            )
+        )
+        # every managed view is represented by a node in the Revenue Analytics DAG, and nowhere else
+        for view in views:
+            self.assertIn(view.id, node_sq_ids)
+            other_dag_nodes = Node.objects.filter(team=self.team, saved_query=view).exclude(dag=ra_dag)
+            self.assertFalse(other_dag_nodes.exists())
+
+    def test_sync_views_removes_stale_default_dag_node(self):
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+        managed_viewset.sync_views()
+        sq = (
+            DataWarehouseSavedQuery.objects.filter(team=self.team, managed_viewset=managed_viewset)
+            .exclude(deleted=True)
+            .first()
+        )
+
+        # simulate a legacy placement of this managed view in the Default DAG
+        default_dag = DAG.get_or_create_default(self.team)
+        Node.objects.get_or_create(team=self.team, saved_query=sq, dag=default_dag, defaults={"type": NodeType.VIEW})
+
+        managed_viewset.sync_views()
+
+        ra_dag = DAG.objects.get(team=self.team, name=REVENUE_ANALYTICS_DAG_NAME)
+        self.assertTrue(Node.objects.filter(team=self.team, saved_query=sq, dag=ra_dag).exists())
+        self.assertFalse(Node.objects.filter(team=self.team, saved_query=sq, dag=default_dag).exists())
+
+    def test_sync_views_keeps_stale_node_with_dependent(self):
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+        managed_viewset.sync_views()
+        sq = (
+            DataWarehouseSavedQuery.objects.filter(team=self.team, managed_viewset=managed_viewset)
+            .exclude(deleted=True)
+            .first()
+        )
+
+        default_dag = DAG.get_or_create_default(self.team)
+        stale_node, _ = Node.objects.get_or_create(
+            team=self.team, saved_query=sq, dag=default_dag, defaults={"type": NodeType.VIEW}
+        )
+        # a non-managed view in the Default DAG depends on the stale node (stale_node has an outgoing edge)
+        dependent_sq = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="dependent_view", query={"kind": "HogQLQuery", "query": "SELECT 1"}
+        )
+        dependent_node = Node.objects.create(
+            team=self.team, saved_query=dependent_sq, dag=default_dag, type=NodeType.VIEW
+        )
+        Edge.objects.create(team=self.team, dag=default_dag, source=stale_node, target=dependent_node)
+
+        managed_viewset.sync_views()
+
+        # the stale Default-DAG node is kept because a dependent still relies on it
+        self.assertTrue(Node.objects.filter(id=stale_node.id).exists())
 
     def test_delete_with_views(self):
         """Test that delete_with_views properly deletes the managed viewset and marks views as deleted"""

@@ -5,11 +5,17 @@ Caches responses to reduce database load from frequent polling.
 Short TTLs ensure stale data expires quickly without explicit invalidation.
 """
 
+import json
+import hashlib
+from collections.abc import Generator
+from contextlib import contextmanager
+
 from django.core.cache import cache
 
 import structlog
 
 from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 from products.conversations.backend.models.constants import Status
 
@@ -181,7 +187,8 @@ def get_person_distinct_ids(team_id: int, distinct_id: str) -> list[str]:
     except Exception:
         logger.warning("conversations_cache_get_error", key=key)
 
-    persons = get_persons_by_distinct_ids(team_id, [distinct_id])
+    with personhog_caller_tag("conversations/widget-person-distinct-ids"):
+        persons = get_persons_by_distinct_ids(team_id, [distinct_id])
     all_ids = persons[0].distinct_ids if persons and persons[0].distinct_ids else [distinct_id]
 
     try:
@@ -226,6 +233,66 @@ def set_cached_slack_avatar(email: str, avatar_url: str) -> None:
         logger.warning("conversations_cache_set_error", key=key)
 
 
+# Slack Bot User ID Cache
+# Caches the bot's own user_id (from auth.test) so member join/leave handlers
+# don't burn Slack's Tier-1 rate-limit budget with a round-trip per event.
+# Keyed by team_id; the identity is stable per bot token. Only positive results
+# are cached so a transient auth.test failure retries on the next event.
+
+BOT_USER_ID_CACHE_TTL = 60 * 60  # 1 hour
+
+
+def get_cached_bot_user_id(team_id: int) -> str | None:
+    """Get the cached Slack bot user_id for a team."""
+    key = _make_cache_key("slack_bot_user_id", str(team_id))
+    try:
+        return cache.get(key)
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return None
+
+
+def set_cached_bot_user_id(team_id: int, bot_user_id: str) -> None:
+    """Cache the Slack bot user_id for a team."""
+    key = _make_cache_key("slack_bot_user_id", str(team_id))
+    try:
+        cache.set(key, bot_user_id, timeout=BOT_USER_ID_CACHE_TTL)
+    except Exception:
+        logger.warning("conversations_cache_set_error", key=key)
+
+
+# Slack Nudge Suppression
+# Suppresses the opt-in "open a ticket?" nudge so we don't pester a user on every
+# message in a channel. Set after sending a nudge (short cooldown) or after the user
+# clicks "No thanks" (longer). Keyed by team:channel:user — presence means suppressed.
+
+NUDGE_COOLDOWN_TTL = 5 * 60  # after nudging the same user in a channel
+NUDGE_DISMISS_TTL = 3 * 60 * 60  # after the user clicks "No thanks"
+
+
+def _nudge_suppress_key(team_id: int, channel: str, slack_user_id: str) -> str:
+    return _make_cache_key("slack_nudge_suppressed", str(team_id), channel, slack_user_id)
+
+
+def is_nudge_suppressed(team_id: int, channel: str, slack_user_id: str) -> bool:
+    """Whether the confirm-ticket nudge is currently suppressed for this user in this channel."""
+    key = _nudge_suppress_key(team_id, channel, slack_user_id)
+    try:
+        return cache.get(key) is not None
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return False
+
+
+def suppress_nudge(team_id: int, channel: str, slack_user_id: str, ttl_seconds: int) -> None:
+    """Suppress the nudge for this user in this channel for ttl_seconds."""
+    key = _nudge_suppress_key(team_id, channel, slack_user_id)
+    try:
+        cache.set(key, True, timeout=ttl_seconds)
+    except Exception:
+        logger.warning("conversations_cache_set_error", key=key)
+
+
 # Teams User Cache
 # Caches Teams user profile lookups (displayName, email) resolved via Graph API.
 # Keyed by tenant_id:teams_user_id. Short TTL keeps profiles fresh.
@@ -246,5 +313,67 @@ def set_cached_teams_user(tenant_id: str, teams_user_id: str, user_info: dict) -
     key = _make_cache_key("teams_user", tenant_id, teams_user_id)
     try:
         cache.set(key, user_info, timeout=TEAMS_USER_CACHE_TTL)
+    except Exception:
+        logger.warning("conversations_cache_set_error", key=key)
+
+
+# Resolved Groups Cache
+# Caches the ClickHouse-resolved $groups for a customer (see events._resolve_groups_from_analytics).
+# Ticket conversations re-resolve groups on creation plus every customer message, so this bounds
+# the ClickHouse fallback to one query per customer per TTL. Empty dict = negative cache
+# (customer's events carry no organization group). Org membership churn is slow, hence long TTLs.
+
+RESOLVED_GROUPS_CACHE_TTL = 12 * 60 * 60  # 12 hours
+RESOLVED_GROUPS_NEGATIVE_CACHE_TTL = 60 * 60  # 1 hour
+
+
+# Slack Ticket Creation Lock
+# Serializes concurrent ticket creation for the same Slack thread so two reaction_added
+# events from different users can't both pass the existence checks and create duplicate
+# tickets. cache.add is atomic (Redis SETNX): only one worker acquires. Short TTL is a
+# safety net so a crashed worker can't wedge a thread permanently.
+
+SLACK_TICKET_CREATE_LOCK_TTL = 30  # seconds
+
+
+@contextmanager
+def slack_ticket_create_lock(team_id: int, channel: str, thread_ts: str) -> Generator[bool]:
+    """Atomic Redis lock to serialize ticket creation for a Slack thread.
+
+    Yields True if the lock was acquired, False if another worker holds it.
+    Releases the lock on exit when acquired.
+    """
+    key = _make_cache_key("slack_ticket_create_lock", str(team_id), channel, thread_ts)
+    acquired = cache.add(key, True, timeout=SLACK_TICKET_CREATE_LOCK_TTL)
+    try:
+        yield acquired
+    finally:
+        if acquired:
+            cache.delete(key)
+
+
+def _resolved_groups_cache_key(team_id: int, distinct_ids: list[str]) -> str:
+    # JSON-encode for an unambiguous preimage: joining with a separator collides
+    # when distinct_ids themselves contain it (["a|b", "c"] vs ["a", "b|c"]).
+    digest = hashlib.sha256(json.dumps(sorted(distinct_ids)).encode()).hexdigest()[:32]
+    return _make_cache_key("resolved_groups", str(team_id), digest)
+
+
+def get_cached_resolved_groups(team_id: int, distinct_ids: list[str]) -> dict | None:
+    """Get cached resolved groups. Returns None on cache miss, {} for negative cache."""
+    key = _resolved_groups_cache_key(team_id, distinct_ids)
+    try:
+        return cache.get(key)
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return None
+
+
+def set_cached_resolved_groups(team_id: int, distinct_ids: list[str], groups: dict | None) -> None:
+    """Cache resolved groups (or {} as negative cache when resolution found nothing)."""
+    key = _resolved_groups_cache_key(team_id, distinct_ids)
+    timeout = RESOLVED_GROUPS_CACHE_TTL if groups else RESOLVED_GROUPS_NEGATIVE_CACHE_TTL
+    try:
+        cache.set(key, groups or {}, timeout=timeout)
     except Exception:
         logger.warning("conversations_cache_set_error", key=key)

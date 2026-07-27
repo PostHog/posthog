@@ -120,6 +120,19 @@ export function externalDataSourceActivityDescriber(
 
     if (logItem.activity == 'updated') {
         if (logItem.scope === ActivityScope.EXTERNAL_DATA_SCHEMA) {
+            const changes = logItem.detail?.changes ?? []
+            const enabledChange = changes.find((change) => change.field === 'enabled')
+            if (enabledChange && changes.length === 1) {
+                const verb = enabledChange.after ? 'enabled' : 'disabled'
+                return {
+                    description: (
+                        <>
+                            <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> {verb} schema{' '}
+                            <strong>{displayName}</strong>
+                        </>
+                    ),
+                }
+            }
             return {
                 description: (
                     <>

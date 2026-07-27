@@ -4,20 +4,10 @@ import { useMemo } from 'react'
 import { IconPlus } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
-import { DashboardsListEmptyAiStarterPrompts } from 'scenes/dashboard/dashboardsListEmptyAiStarterPrompts'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    DashboardTemplateType,
-    SidePanelTab,
-    TemplateAvailabilityContext,
-} from '~/types'
+import { DashboardTemplateType, TemplateAvailabilityContext } from '~/types'
 
 import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 
@@ -49,9 +39,6 @@ export function FeaturedTemplatesChooser({
         setIsLoading,
         showVariableSelectModal,
     } = useActions(newDashboardLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-
     const filteredTemplates = useMemo(() => {
         return allTemplates.filter((template) => {
             if (availabilityContexts) {
@@ -81,24 +68,6 @@ export function FeaturedTemplatesChooser({
 
     const createBlankDashboard = (): void => {
         runBlankDashboardFlow({ isLoading, setIsLoading, addDashboard })
-    }
-
-    const accessDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.Dashboard,
-        AccessControlLevel.Editor
-    )
-    const aiBlockedReason =
-        !dataProcessingAccepted &&
-        (dataProcessingApprovalDisabledReason ?? 'Approve AI data processing to use PostHog AI')
-    const chipDisabledReason = accessDisabledReason ?? (aiBlockedReason || undefined)
-
-    const onOpenAiWithPrompt = (prompt: string): void => {
-        const trimmed = prompt.trim()
-        if (trimmed) {
-            openSidePanel(SidePanelTab.Max, `!${trimmed}`)
-        } else {
-            openSidePanel(SidePanelTab.Max)
-        }
     }
 
     return (
@@ -133,12 +102,6 @@ export function FeaturedTemplatesChooser({
                     ))
                 )}
             </div>
-            {showBlankDashboardAction && !allTemplatesLoading ? (
-                <DashboardsListEmptyAiStarterPrompts
-                    chipDisabledReason={chipDisabledReason}
-                    onOpenAiWithPrompt={onOpenAiWithPrompt}
-                />
-            ) : null}
             {showBlankDashboardAction && hasFeaturedTiles ? (
                 <LemonButton
                     type="secondary"

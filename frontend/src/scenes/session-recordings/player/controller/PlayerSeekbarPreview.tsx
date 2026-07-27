@@ -4,8 +4,8 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
-import { colonDelimitedDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { colonDelimitedDuration } from 'lib/utils/durations'
 
 import { PlayerFrame } from '../PlayerFrame'
 import { TimestampFormat } from '../playerSettingsLogic'

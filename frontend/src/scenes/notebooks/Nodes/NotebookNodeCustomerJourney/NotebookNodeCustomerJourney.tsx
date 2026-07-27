@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconPencil, IconX } from '@posthog/icons'
+import { IconPencil } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -15,9 +15,9 @@ import { Query } from '~/queries/Query/Query'
 import { CustomerJourneySelect } from 'products/customer_analytics/frontend/components/CustomerJourneys/CustomerJourneySelect'
 import { CustomerJourneysEmptyState } from 'products/customer_analytics/frontend/components/CustomerJourneys/CustomerJourneysEmptyState'
 import { customerJourneysLogic } from 'products/customer_analytics/frontend/components/CustomerJourneys/customerJourneysLogic'
-import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../../types'
+import { getCustomerProfileRemoveMenuItem } from '../customerProfileNotebookNodeMenu'
 import { createPostHogWidgetNode } from '../NodeWrapper'
 import { notebookNodeLogic } from '../notebookNodeLogic'
 import { getLogicKey } from '../utils'
@@ -39,7 +39,6 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourney
     const logic = customerJourneysLogic({ key: logicKey, personId, groupKey, groupTypeIndex })
     useAttachedLogic(logic, notebookLogic)
     const { journeyOptions, journeysLoading, activeInsightLoading, filteredQuery, activeJourney } = useValues(logic)
-    const { removeNode } = useActions(customerProfileLogic)
 
     useEffect(() => {
         if (activeJourney) {
@@ -48,19 +47,17 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourney
     }, [setTitlePlaceholder, activeJourney])
 
     useOnMountEffect(() => {
-        setMenuItems([
-            {
-                label: 'Edit journeys',
-                onClick: () => router.actions.push(urls.customerAnalyticsJourneys()),
-                sideIcon: <IconPencil />,
-            },
-            {
-                label: 'Remove',
-                onClick: () => removeNode(NotebookNodeType.CustomerJourney),
-                sideIcon: <IconX />,
-                status: 'danger',
-            },
-        ])
+        const removeMenuItem = getCustomerProfileRemoveMenuItem(NotebookNodeType.CustomerJourney)
+        const editJourneysMenuItem = {
+            label: 'Edit journeys',
+            onClick: () => router.actions.push(urls.customerAnalyticsJourneys()),
+            sideIcon: <IconPencil />,
+        }
+        if (removeMenuItem) {
+            setMenuItems([editJourneysMenuItem, removeMenuItem])
+            return
+        }
+        setMenuItems([editJourneysMenuItem])
     })
 
     if (journeysLoading || activeInsightLoading) {

@@ -1,28 +1,103 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import {
-    DEFAULT_OAUTH_SCOPES,
-    MCP_SERVER_OAUTH_SCOPES,
-    getMinimumEquivalentScopes,
-    getScopeDescription,
-} from 'lib/scopes'
+import { API_SCOPES, DEFAULT_OAUTH_SCOPES, getMinimumEquivalentScopes, getScopeDescription } from 'lib/scopes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { userLogic } from 'scenes/userLogic'
 
 import type { OAuthApplicationPublicMetadata, OrganizationBasicType, TeamBasicType, UserType } from '~/types'
-
-import type { oauthAuthorizeLogicType } from './oauthAuthorizeLogicType'
 
 export type OAuthAuthorizationFormValues = {
     scoped_organizations: number[]
     scoped_teams: number[]
     access_type: 'all' | 'organizations' | 'teams'
 }
+
+const IDENTITY_SCOPES = ['openid', 'profile', 'email', 'introspection']
+
+const scopeObjectKey = (scope: string): string => (scope === '*' ? '*' : scope.split(':')[0])
+
+export type ScopeAccessLevel = 'none' | 'read' | 'write'
+
+const ACCESS_LEVEL_ORDER: Record<ScopeAccessLevel, number> = { none: 0, read: 1, write: 2 }
+
+const clampAccessLevel = (level: ScopeAccessLevel, min: ScopeAccessLevel, max: ScopeAccessLevel): ScopeAccessLevel => {
+    if (ACCESS_LEVEL_ORDER[level] < ACCESS_LEVEL_ORDER[min]) {
+        return min
+    }
+    if (ACCESS_LEVEL_ORDER[level] > ACCESS_LEVEL_ORDER[max]) {
+        return max
+    }
+    return level
+}
+
+export type OAuthScopeRow = {
+    /** Scope object key (e.g. 'feature_flag'), or '*' for the wildcard. */
+    key: string
+    /** Human name for the object (e.g. 'Feature flag'). */
+    label: string
+    /** Full sentence description at the granted level, for the locked (checkmark) list. */
+    description: string
+    /** Optional extra context from API_SCOPES, shown as an info tooltip. */
+    info?: string | JSX.Element
+    /** Warning for the currently selected level, if any. */
+    warning?: string | JSX.Element
+    /** Required floor — the grant can never go below this. 'none' when not required. */
+    minLevel: ScopeAccessLevel
+    /** Requested ceiling — the grant can never go above what the client asked for. */
+    maxLevel: Exclude<ScopeAccessLevel, 'none'>
+    /** Current (clamped) selection. */
+    value: ScopeAccessLevel
+    /** True when minLevel === maxLevel: nothing to choose, rendered as a locked checkmark row. */
+    locked: boolean
+}
+
+const WILDCARD_LABEL = 'All PostHog data'
+
+// Fallback for scopes absent from API_SCOPES (e.g. server-side scopes the local list lags
+// behind) — derive a readable label from the raw key.
+const humanizeScopeKey = (key: string): string => {
+    const humanized = key.replace(/_/g, ' ')
+    return humanized.charAt(0).toUpperCase() + humanized.slice(1)
+}
+
+// Required scopes are tracked per object at the action level that's required, so a
+// required `obj:read` still lets the read-only toggle downgrade an optional `obj:write`.
+export type RequiredLevel = 'read' | 'write'
+
+const requiredLevelsFromScopes = (requiredScopes: string[]): Map<string, RequiredLevel> => {
+    const levels = new Map<string, RequiredLevel>()
+    for (const scope of requiredScopes) {
+        if (!scope.includes(':') && scope !== '*') {
+            continue
+        }
+        const key = scopeObjectKey(scope)
+        const level: RequiredLevel = scope === '*' || scope.endsWith(':write') ? 'write' : 'read'
+        if (level === 'write' || !levels.has(key)) {
+            levels.set(key, level)
+        }
+    }
+    return levels
+}
+
+// Mirrors PRIVILEGED_SCOPES + OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes.py: objects
+// /authorize can never grant, so the wildcard expansion must skip them or the server
+// would reject the whole submit with invalid_scope.
+const OAUTH_UNGRANTABLE_OBJECTS: ReadonlySet<string> = new Set(['llm_gateway', 'metrics', 'wizard_session'])
+
+// `*` grants read+write to everything; its read-only form is every grantable object's read
+// scope. The server-computed list is authoritative — the local API_SCOPES list both lags
+// behind new backend scopes (under-granting) and contains ungrantable ones (over-granting,
+// which the server rejects). The local fallback only covers a missing app context.
+const wildcardReadScopes = (oauthApplication: OAuthApplicationPublicMetadata | null): string[] =>
+    oauthApplication?.wildcard_read_scopes?.length
+        ? oauthApplication.wildcard_read_scopes
+        : API_SCOPES.filter(({ key }) => !OAUTH_UNGRANTABLE_OBJECTS.has(key)).map(({ key }) => `${key}:read`)
 
 const isNativeProtocol = (url: string): boolean => {
     try {
@@ -70,6 +145,220 @@ const oauthAuthorize = async (
     }
 }
 
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface oauthAuthorizeLogicValues {
+    user: UserType | null // userLogic
+    adjustableScopeRows: OAuthScopeRow[]
+    allOrganizations: OrganizationBasicType[]
+    allScopesRequired: boolean
+    allTeams: TeamBasicType[] | null
+    allTeamsLoading: boolean
+    authorizationComplete: boolean
+    consentResourceScopes: string[]
+    effectiveScopes: string[]
+    filteredTeams: TeamBasicType[] | null
+    identityScopeDescriptions: string[]
+    isCanceling: boolean
+    isMcpResource: boolean
+    isOauthAuthorizationSubmitting: boolean
+    isOauthAuthorizationValid: boolean
+    isRedirecting: boolean
+    newProjectLoading: boolean
+    oauthApplication: OAuthApplicationPublicMetadata | null
+    oauthApplicationLoading: boolean
+    oauthAuthorization: OAuthAuthorizationFormValues
+    oauthAuthorizationAllErrors: Record<string, any>
+    oauthAuthorizationChanged: boolean
+    oauthAuthorizationErrors: DeepPartialMap<OAuthAuthorizationFormValues, ValidationErrorType>
+    oauthAuthorizationHasErrors: boolean
+    oauthAuthorizationManualErrors: Record<string, any>
+    oauthAuthorizationTouched: boolean
+    oauthAuthorizationTouches: Record<string, boolean>
+    oauthAuthorizationValidationErrors: DeepPartialMap<OAuthAuthorizationFormValues, ValidationErrorType>
+    redirectDomain: string
+    redirectUrl: string
+    requiredAccessLevel: 'organization' | 'team' | null
+    requiredScopeLevels: Map<string, RequiredLevel>
+    requiredScopeRows: OAuthScopeRow[]
+    scopeAccessSelections: {
+        bulk: ScopeAccessLevel | null
+        overrides: Record<string, ScopeAccessLevel>
+    }
+    scopeRows: OAuthScopeRow[]
+    scopes: string[]
+    scopesWereDefaulted: boolean
+    selectedOrganization: string | null
+    showCreateProject: boolean
+    showOauthAuthorizationErrors: boolean
+    showReadOnlyBulkAction: boolean
+    sortedTeams: TeamBasicType[] | null
+    teamHint: number | null
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface oauthAuthorizeLogicActions {
+    cancel: () => {}
+    createNewProject: (name: string) => {
+        name: string
+    }
+    loadAllTeams: () => any
+    loadAllTeamsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAllTeamsSuccess: (
+        allTeams: TeamBasicType[],
+        payload?: any
+    ) => {
+        allTeams: TeamBasicType[]
+        payload?: any
+    }
+    loadOAuthApplication: () => any
+    loadOAuthApplicationFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadOAuthApplicationSuccess: (
+        oauthApplication: OAuthApplicationPublicMetadata | null,
+        payload?: any
+    ) => {
+        oauthApplication: OAuthApplicationPublicMetadata | null
+        payload?: any
+    }
+    resetOauthAuthorization: (values?: OAuthAuthorizationFormValues) => {
+        values?: OAuthAuthorizationFormValues
+    }
+    setAllScopeAccess: (level: ScopeAccessLevel) => {
+        level: ScopeAccessLevel
+    }
+    setAuthorizationComplete: (complete: boolean) => {
+        complete: boolean
+    }
+    setCanceling: (canceling: boolean) => {
+        canceling: boolean
+    }
+    setIsMcpResource: (isMcpResource: boolean) => {
+        isMcpResource: boolean
+    }
+    setNewProjectLoading: (loading: boolean) => {
+        loading: boolean
+    }
+    setOauthAuthorizationManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setOauthAuthorizationValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setOauthAuthorizationValues: (values: DeepPartial<OAuthAuthorizationFormValues>) => {
+        values: DeepPartial<OAuthAuthorizationFormValues>
+    }
+    setRedirecting: (redirectUrl: string) => {
+        redirectUrl: string
+    }
+    setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => {
+        requiredAccessLevel: 'organization' | 'team' | null
+    }
+    setScopeAccess: (
+        scopeObject: string,
+        level: ScopeAccessLevel
+    ) => {
+        level: ScopeAccessLevel
+        scopeObject: string
+    }
+    setScopes: (scopes: string[]) => {
+        scopes: string[]
+    }
+    setScopesWereDefaulted: (scopesWereDefaulted: boolean) => {
+        scopesWereDefaulted: boolean
+    }
+    setSelectedOrganization: (
+        organizationId: string,
+        preferredTeamId?: number
+    ) => {
+        organizationId: string
+        preferredTeamId: number | undefined
+    }
+    setShowCreateProject: (show: boolean) => {
+        show: boolean
+    }
+    setTeamHint: (teamId: number | null) => {
+        teamId: number | null
+    }
+    submitOauthAuthorization: () => {
+        value: boolean
+    }
+    submitOauthAuthorizationFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitOauthAuthorizationRequest: (oauthAuthorization: OAuthAuthorizationFormValues) => {
+        oauthAuthorization: OAuthAuthorizationFormValues
+    }
+    submitOauthAuthorizationSuccess: (oauthAuthorization: OAuthAuthorizationFormValues) => {
+        oauthAuthorization: OAuthAuthorizationFormValues
+    }
+    touchOauthAuthorizationField: (key: string) => {
+        key: string
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface oauthAuthorizeLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        allOrganizations: (user: UserType | null) => OrganizationBasicType[]
+        sortedTeams: (
+            allTeams: TeamBasicType[] | null,
+            allOrganizations: OrganizationBasicType[],
+            user: UserType | null
+        ) => TeamBasicType[] | null
+        filteredTeams: (
+            sortedTeams: TeamBasicType[] | null,
+            selectedOrganization: string | null
+        ) => TeamBasicType[] | null
+        identityScopeDescriptions: (scopes: string[]) => string[]
+        requiredScopeLevels: (oauthApplication: OAuthApplicationPublicMetadata | null) => Map<string, RequiredLevel>
+        consentResourceScopes: (scopes: string[], oauthApplication: OAuthApplicationPublicMetadata | null) => string[]
+        scopeRows: (
+            consentResourceScopes: string[],
+            scopeAccessSelections: {
+                bulk: ScopeAccessLevel | null
+                overrides: Record<string, ScopeAccessLevel>
+            },
+            requiredScopeLevels: Map<string, RequiredLevel>
+        ) => OAuthScopeRow[]
+        requiredScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
+        adjustableScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
+        allScopesRequired: (scopeRows: OAuthScopeRow[]) => boolean
+        showReadOnlyBulkAction: (adjustableScopeRows: OAuthScopeRow[]) => boolean
+        effectiveScopes: (
+            scopes: string[],
+            scopeRows: OAuthScopeRow[],
+            oauthApplication: OAuthApplicationPublicMetadata | null
+        ) => string[]
+        redirectDomain: (oauthApplication: OAuthApplicationPublicMetadata | null) => string
+    }
+}
+
+export type oauthAuthorizeLogicType = MakeLogicType<
+    oauthAuthorizeLogicValues,
+    oauthAuthorizeLogicActions,
+    Record<string, any>,
+    oauthAuthorizeLogicMeta
+>
+
 export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     path(['oauth', 'authorize']),
     connect(() => ({
@@ -77,11 +366,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     })),
     actions({
         setScopes: (scopes: string[]) => ({ scopes }),
+        setScopeAccess: (scopeObject: string, level: ScopeAccessLevel) => ({ scopeObject, level }),
+        setAllScopeAccess: (level: ScopeAccessLevel) => ({ level }),
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
+        setTeamHint: (teamId: number | null) => ({ teamId }),
         setScopesWereDefaulted: (scopesWereDefaulted: boolean) => ({ scopesWereDefaulted }),
         setIsMcpResource: (isMcpResource: boolean) => ({ isMcpResource }),
-        loadResourceScopes: (resourceUrl: string) => ({ resourceUrl }),
-        setResourceScopesLoading: (loading: boolean) => ({ loading }),
         cancel: () => ({}),
         setCanceling: (canceling: boolean) => ({ canceling }),
         setAuthorizationComplete: (complete: boolean) => ({ complete }),
@@ -143,31 +433,6 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 actions.setCanceling(false)
             }
         },
-        loadResourceScopes: async ({ resourceUrl }) => {
-            // Fetch scopes from the OAuth Protected Resource Metadata endpoint
-            // Per RFC 9728, the metadata is at /.well-known/oauth-protected-resource
-            actions.setResourceScopesLoading(true)
-            try {
-                const url = new URL(resourceUrl)
-                const metadataUrl = `${url.origin}/.well-known/oauth-protected-resource`
-                const response = await fetch(metadataUrl)
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch protected resource metadata: ${response.status}`)
-                }
-                const metadata = await response.json()
-                if (metadata.scopes_supported && Array.isArray(metadata.scopes_supported)) {
-                    actions.setScopes(metadata.scopes_supported)
-                    return
-                }
-            } catch (e) {
-                // Fall back to hardcoded scopes on any error
-                console.warn('Failed to fetch resource scopes, using fallback:', e)
-            } finally {
-                actions.setResourceScopesLoading(false)
-            }
-            // Fallback to hardcoded MCP scopes
-            actions.setScopes(MCP_SERVER_OAUTH_SCOPES)
-        },
         createNewProject: async ({ name }) => {
             actions.setNewProjectLoading(true)
             try {
@@ -200,6 +465,24 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setScopes: (_, { scopes }) => scopes,
             },
         ],
+        // The user's picks. `bulk` is the last bulk action (Select all / Read-only / Deselect
+        // all); `overrides` are per-object picks made after it. Absent entries default to the
+        // requested ceiling, and every pick is clamped to [required floor, requested ceiling]
+        // in scopeRows, so bulk actions can apply one level blindly to heterogeneous rows.
+        scopeAccessSelections: [
+            { bulk: null, overrides: {} } as {
+                bulk: ScopeAccessLevel | null
+                overrides: Record<string, ScopeAccessLevel>
+            },
+            {
+                setScopeAccess: (state, { scopeObject, level }) => ({
+                    ...state,
+                    overrides: { ...state.overrides, [scopeObject]: level },
+                }),
+                setAllScopeAccess: (_, { level }) => ({ bulk: level, overrides: {} }),
+                setScopes: () => ({ bulk: null, overrides: {} }),
+            },
+        ],
         requiredAccessLevel: [
             null as 'organization' | 'team' | null,
             {
@@ -216,12 +499,6 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             false,
             {
                 setIsMcpResource: (_, { isMcpResource }) => isMcpResource,
-            },
-        ],
-        resourceScopesLoading: [
-            false,
-            {
-                setResourceScopesLoading: (_, { loading }) => loading,
             },
         ],
         isCanceling: [
@@ -254,6 +531,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setSelectedOrganization: (_, { organizationId }) => organizationId,
             },
         ],
+        teamHint: [
+            null as number | null,
+            {
+                setTeamHint: (_, { teamId }) => teamId,
+            },
+        ],
         showCreateProject: [
             false,
             {
@@ -273,9 +556,15 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 actions.setOauthAuthorizationValue('access_type', 'organizations')
             } else if (requiredAccessLevel === 'team') {
                 actions.setOauthAuthorizationValue('access_type', 'teams')
-                const user = userLogic.values.user
-                if (user?.organization?.id) {
-                    actions.setSelectedOrganization(user.organization.id, user?.team?.id)
+                // With a team_id hint pending, let it drive org+project selection once
+                // teams load — don't pre-select the user's current org/team, or a CTA
+                // link could authorize the wrong project before the hint resolves. The
+                // empty project keeps the submit blocked until the hint fills it in.
+                if (!values.teamHint) {
+                    const user = userLogic.values.user
+                    if (user?.organization?.id) {
+                        actions.setSelectedOrganization(user.organization.id, user?.team?.id)
+                    }
                 }
             }
         },
@@ -293,16 +582,40 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             }
         },
         loadAllTeamsSuccess: () => {
+            const teams = values.sortedTeams
+            if (!teams) {
+                return
+            }
+            // A team_id hint from the authorize URL (e.g. the wizard's --project-id) wins:
+            // pre-select that project and its org so the user just clicks Authorize. We only
+            // honor it if the user has access to that team (it's in their loaded teams), and
+            // consume it once — so it can't override a later manual change or a project the
+            // user creates here (both also re-fire this listener).
+            if (values.teamHint) {
+                const hinted = teams.find((t) => t.id === values.teamHint)
+                actions.setTeamHint(null)
+                if (hinted && values.requiredAccessLevel === 'team') {
+                    actions.setSelectedOrganization(hinted.organization, hinted.id)
+                    return
+                }
+                // Hint didn't resolve (inaccessible team, or not a team-level grant). Fall
+                // back to the user's current org/team — setRequiredAccessLevel skipped this
+                // while the hint was pending, so without it the screen would be left empty.
+                if (values.requiredAccessLevel === 'team' && !values.selectedOrganization) {
+                    const user = userLogic.values.user
+                    if (user?.organization?.id) {
+                        actions.setSelectedOrganization(user.organization.id, user?.team?.id)
+                        return
+                    }
+                }
+            }
             // After teams load, auto-select first project if org is set but no project selected
             const orgId = values.selectedOrganization
             const currentTeams = values.oauthAuthorization.scoped_teams
             if (orgId && (!currentTeams || currentTeams.length === 0)) {
-                const teams = values.sortedTeams
-                if (teams) {
-                    const orgTeams = teams.filter((t) => t.organization === orgId)
-                    if (orgTeams.length > 0) {
-                        actions.setOauthAuthorizationValue('scoped_teams', [orgTeams[0].id])
-                    }
+                const orgTeams = teams.filter((t) => t.organization === orgId)
+                if (orgTeams.length > 0) {
+                    actions.setOauthAuthorizationValue('scoped_teams', [orgTeams[0].id])
                 }
             }
         },
@@ -326,7 +639,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                         : undefined,
             }),
             submit: async (values: OAuthAuthorizationFormValues) => {
-                const scopes = oauthAuthorizeLogic.values.scopes
+                const scopes = oauthAuthorizeLogic.values.effectiveScopes
                 const result = await oauthAuthorize({
                     ...values,
                     allow: true,
@@ -394,12 +707,111 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 return teams.filter((t) => t.organization === selectedOrg)
             },
         ],
-        scopeDescriptions: [
+        identityScopeDescriptions: [
             (s) => [s.scopes],
-            (scopes: string[]): string[] => {
-                const minimumEquivalentScopes = getMinimumEquivalentScopes(scopes)
-
-                return minimumEquivalentScopes.map(getScopeDescription).filter(Boolean) as string[]
+            (scopes: string[]): string[] =>
+                scopes
+                    .filter((scope) => IDENTITY_SCOPES.includes(scope))
+                    .map(getScopeDescription)
+                    .filter(Boolean) as string[],
+        ],
+        requiredScopeLevels: [
+            (s) => [s.oauthApplication],
+            (oauthApplication: OAuthApplicationPublicMetadata | null): Map<string, RequiredLevel> =>
+                requiredLevelsFromScopes(oauthApplication?.required_scopes ?? []),
+        ],
+        // Requested plus required resource scopes, collapsed to the highest action per
+        // object. Both the rows and the grant derive from this one set, so the consent
+        // screen always displays exactly what authorizing will grant — required scopes
+        // the client didn't request get a visible (locked) row, never a silent grant.
+        consentResourceScopes: [
+            (s) => [s.scopes, s.oauthApplication],
+            (scopes: string[], oauthApplication: OAuthApplicationPublicMetadata | null): string[] => {
+                const required = (oauthApplication?.required_scopes ?? []).filter(
+                    (scope) => scope.includes(':') || scope === '*'
+                )
+                return getMinimumEquivalentScopes([...scopes, ...required]).filter(
+                    (scope) => scope.includes(':') || scope === '*'
+                )
+            },
+        ],
+        // One row per scope object. The requested set caps the ceiling, the required set
+        // sets the floor, and the user's selection is clamped between the two — so no pick
+        // (including bulk actions) can grant more than requested or less than required.
+        scopeRows: [
+            (s) => [s.consentResourceScopes, s.scopeAccessSelections, s.requiredScopeLevels],
+            (
+                consentResourceScopes: string[],
+                scopeAccessSelections: { bulk: ScopeAccessLevel | null; overrides: Record<string, ScopeAccessLevel> },
+                requiredScopeLevels: Map<string, RequiredLevel>
+            ): OAuthScopeRow[] => {
+                const rows = consentResourceScopes.map((scope): OAuthScopeRow => {
+                    const key = scopeObjectKey(scope)
+                    const maxLevel: 'read' | 'write' = scope === '*' || scope.endsWith(':write') ? 'write' : 'read'
+                    const minLevel: ScopeAccessLevel = requiredScopeLevels.get(key) ?? 'none'
+                    const selected = scopeAccessSelections.overrides[key] ?? scopeAccessSelections.bulk ?? maxLevel
+                    const value = clampAccessLevel(selected, minLevel, maxLevel)
+                    const apiScope = key === '*' ? undefined : API_SCOPES.find((s) => s.key === key)
+                    const grantedScope = scope === '*' && value === 'write' ? '*' : `${key}:${value}`
+                    return {
+                        key,
+                        label: key === '*' ? WILDCARD_LABEL : (apiScope?.objectName ?? humanizeScopeKey(key)),
+                        description: getScopeDescription(grantedScope) ?? grantedScope,
+                        info: apiScope?.info,
+                        warning: value === 'none' ? undefined : apiScope?.warnings?.[value],
+                        minLevel,
+                        maxLevel,
+                        value,
+                        locked: minLevel === maxLevel,
+                    }
+                })
+                return rows.sort((a, b) => a.label.localeCompare(b.label))
+            },
+        ],
+        // Locked rows (required at exactly the requested level) render as a plain checkmark
+        // list — there is nothing to choose — while adjustable rows get an access selector.
+        requiredScopeRows: [
+            (s) => [s.scopeRows],
+            (scopeRows: OAuthScopeRow[]): OAuthScopeRow[] => scopeRows.filter((row) => row.locked),
+        ],
+        adjustableScopeRows: [
+            (s) => [s.scopeRows],
+            (scopeRows: OAuthScopeRow[]): OAuthScopeRow[] => scopeRows.filter((row) => !row.locked),
+        ],
+        allScopesRequired: [
+            (s) => [s.scopeRows],
+            (scopeRows: OAuthScopeRow[]): boolean => scopeRows.length > 0 && scopeRows.every((row) => row.locked),
+        ],
+        // Only offer the bulk read-only action when it would change something — i.e. at least
+        // one adjustable row can sit at write level.
+        showReadOnlyBulkAction: [
+            (s) => [s.adjustableScopeRows],
+            (adjustableScopeRows: OAuthScopeRow[]): boolean =>
+                adjustableScopeRows.some((row) => row.maxLevel === 'write'),
+        ],
+        effectiveScopes: [
+            (s) => [s.scopes, s.scopeRows, s.oauthApplication],
+            (
+                scopes: string[],
+                scopeRows: OAuthScopeRow[],
+                oauthApplication: OAuthApplicationPublicMetadata | null
+            ): string[] => {
+                const identity = scopes.filter((scope) => IDENTITY_SCOPES.includes(scope))
+                const resources = scopeRows.flatMap((row) => {
+                    if (row.value === 'none') {
+                        return []
+                    }
+                    if (row.key === '*') {
+                        return row.value === 'write' ? ['*'] : wildcardReadScopes(oauthApplication)
+                    }
+                    return [`${row.key}:${row.value}`]
+                })
+                // Also grant the required strings verbatim: collapsing read+write pairs above
+                // could otherwise drop a literal entry the server's set-difference check expects.
+                const required = (oauthApplication?.required_scopes ?? []).filter(
+                    (scope) => scope.includes(':') || scope === '*'
+                )
+                return Array.from(new Set([...identity, ...resources, ...required]))
             },
         ],
         redirectDomain: [
@@ -421,39 +833,32 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     urlToAction(({ actions }) => {
         const handleAuthorize = (_: Record<string, any>, searchParams: Record<string, any>): void => {
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
-            const resourceParam = searchParams['resource'] as string | undefined
+            const oauthMcpConsent = getAppContext()?.oauth_mcp_consent
 
-            // Check if this is an MCP server request with no scopes specified
-            // Per MCP spec, when clients don't specify scopes, they should use all scopes_supported
-            // from the Protected Resource Metadata. We default to MCP scopes for known MCP resources.
-            let isMcpResource = false
-            if (resourceParam) {
-                try {
-                    const resourceUrl = new URL(resourceParam)
-                    // Strict hostname check to prevent URL manipulation attacks
-                    isMcpResource = resourceUrl.hostname === 'mcp.posthog.com'
-                } catch {
-                    // Invalid URL, not an MCP resource
-                }
-            }
             const scopesWereDefaulted = requestedScopes.length === 0
 
             const rawRequiredAccessLevel = searchParams['required_access_level'] as 'organization' | 'project' | null
             const requiredAccessLevel = rawRequiredAccessLevel === 'project' ? 'team' : rawRequiredAccessLevel
 
+            // Optional project to pre-select on the consent screen (e.g. the wizard's
+            // `--project-id`). Honored only when the user has access to it; otherwise ignored.
+            const teamIdParam = Number(searchParams['team_id'])
+            const teamHint = Number.isInteger(teamIdParam) && teamIdParam > 0 ? teamIdParam : null
+
             actions.setScopesWereDefaulted(scopesWereDefaulted)
-            actions.setIsMcpResource(isMcpResource)
+            actions.setTeamHint(teamHint)
             actions.setRequiredAccessLevel(requiredAccessLevel || null)
             actions.loadOAuthApplication()
             actions.loadAllTeams()
 
-            if (scopesWereDefaulted && isMcpResource && resourceParam) {
-                // Fetch scopes dynamically from the protected resource metadata
-                actions.loadResourceScopes(resourceParam)
+            if (scopesWereDefaulted && oauthMcpConsent?.is_mcp_resource) {
+                actions.setIsMcpResource(true)
+                actions.setScopes(oauthMcpConsent.scopes ?? DEFAULT_OAUTH_SCOPES)
             } else if (scopesWereDefaulted) {
-                // Fallback to minimal OIDC scopes for non-MCP clients
+                actions.setIsMcpResource(false)
                 actions.setScopes(DEFAULT_OAUTH_SCOPES)
             } else {
+                actions.setIsMcpResource(false)
                 actions.setScopes(requestedScopes)
             }
         }

@@ -1,7 +1,9 @@
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -33,17 +35,13 @@ def _make_event_goal(
 
 
 class TestConversionGoalProcessorRefactor(BaseTest):
-    """Tests for the public refactor surface.
-
-    Contract tests pin the shape of the new public API:
+    """Contract tests for the public attribution pipeline surface:
     - build_array_collection_query returns a SelectQuery grouped by person_id
     - build_attribution_pipeline accepts any SelectQuery with the array schema
     - composition pipeline(collection(...)) equals _generate_funnel_query(...)
 
-    Snapshot tests pin the actual HogQL SQL of _generate_funnel_query so the
-    refactor can be diffed against the pre-refactor baseline: revert the
-    processor file to master, regenerate snapshots, stage them, re-apply the
-    refactor, regenerate again, and read the git diff on the .ambr file.
+    Snapshot tests pin the actual HogQL SQL of _generate_funnel_query so changes in the
+    pipeline can be diffed against the prior baseline.
     """
 
     CLASS_DATA_LEVEL_SETUP = False
@@ -67,7 +65,9 @@ class TestConversionGoalProcessorRefactor(BaseTest):
         result = processor.build_array_collection_query(additional_conditions=[])
         assert isinstance(result, ast.SelectQuery)
         assert result.group_by is not None
-        assert any(isinstance(g, ast.Field) and g.chain == ["events", "person_id"] for g in result.group_by)
+        assert any(isinstance(g, ast.Field) and g.chain == ["events", "person_id"] for g in result.group_by), (
+            "array collection must group by events.person_id"
+        )
 
     def test_build_attribution_pipeline_accepts_collection_output(self):
         processor = self._processor()
@@ -83,6 +83,47 @@ class TestConversionGoalProcessorRefactor(BaseTest):
         composed = processor.build_attribution_pipeline(collection)
 
         assert self._print_sql(composed) == self._print_sql(funnel_direct)
+
+    def test_attribution_pipeline_respects_multi_touch_config(self):
+        single_touch_processor = self._processor()
+        single_touch_processor.config.attribution_mode = AttributionMode.LAST_TOUCH
+
+        multi_touch_processor = self._processor()
+        multi_touch_processor.config.attribution_mode = AttributionMode.LINEAR
+
+        collection = single_touch_processor.build_array_collection_query(additional_conditions=[])
+        single = single_touch_processor.build_attribution_pipeline(collection)
+        multi = multi_touch_processor.build_attribution_pipeline(collection)
+
+        assert single.select != multi.select
+
+    def test_precompute_skipped_when_tracked_property_restricted(self):
+        # Precompute materializes tracked attribution properties via the touchpoints table, bypassing
+        # the per-user masking HogQL applies to events.properties. When such a property is restricted
+        # for the user, eligibility must fail so the direct (masked) events query is used instead.
+        processor = self._processor()
+        processor.config.conversion_goal_precomputation_enabled = True
+        date_from = datetime(2025, 1, 1, tzinfo=UTC)
+        date_to = datetime(2025, 1, 31, tzinfo=UTC)
+        target = (
+            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.get_restricted_property_names"
+        )
+
+        with patch(target, return_value=set()):
+            assert processor._should_use_precompute(date_from, date_to) is True
+
+        # utm_source is one of the tracked attribution properties resolved from the goal's schema_map.
+        with patch(target, return_value={"utm_source"}):
+            assert processor._should_use_precompute(date_from, date_to) is False
+
+    def test_tracked_fields_match_touchpoints_table_schema(self):
+        from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import (
+            MARKETING_TOUCHPOINTS_TRACKED_FIELD_NAMES,
+        )
+
+        from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import TRACKED_FIELDS
+
+        assert [f.name for f in TRACKED_FIELDS] == MARKETING_TOUCHPOINTS_TRACKED_FIELD_NAMES
 
     @parameterized.expand(
         [

@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+import uuid
 from collections import defaultdict
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
-from django.db.models import Manager
+from django.db.models import Manager, Prefetch
+from django.http import Http404
 
 import orjson
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_serializer
-from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
@@ -19,18 +20,26 @@ from posthog.api.event_definition_generators.python import PythonGenerator
 from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.tagged_item import (
+    BulkTagActivityContext,
+    BulkUpdateTagsUUIDRequestSerializer,
+    BulkUpdateTagsUUIDResponseSerializer,
+    TaggedItemSerializerMixin,
+    TaggedItemViewSetMixin,
+    apply_bulk_tag_changes,
+)
 from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventDefinition, ObjectMediaPreview, Team
+from posthog.helpers.impersonation import is_impersonated
+from posthog.models import EventDefinition, ObjectMediaPreview, TaggedItem, Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
-from posthog.taxonomy.taxonomy import CORE_EVENTS
+from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
@@ -218,7 +227,6 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         return hasattr(obj, "action_id") and obj.action_id is not None
 
 
-@extend_schema(tags=["core"])
 class EventDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
@@ -230,6 +238,8 @@ class EventDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "event_definition"
+    # "bulk_update_tags" must be opted in here so personal API keys with event_definition:write can use it.
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "bulk_update_tags"]
     serializer_class = EventDefinitionSerializer
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
@@ -265,6 +275,19 @@ class EventDefinitionViewSet(
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
         if exclude_hidden and EE_AVAILABLE:
             search_query = search_query + " AND (hidden IS NULL OR hidden = false)"
+
+        exclude_stale = self.request.GET.get("exclude_stale", "false").lower() == "true"
+        if exclude_stale:
+            # `last_seen_at` is not indexed: the predicate runs after the project-scoped
+            # pre-filter in `create_event_definitions_sql` has already narrowed the row
+            # set per tenant, and the response is paginated. Worth re-checking with
+            # EXPLAIN if the largest tenants start showing this in slow-query logs.
+            search_query = (
+                search_query
+                + " AND (posthog_eventdefinition.last_seen_at IS NULL"
+                + " OR posthog_eventdefinition.last_seen_at > NOW() - %(stale_interval)s::interval)"
+            )
+            params["stale_interval"] = f"{STALE_EVENT_DAYS} days"
 
         verified_param = self.request.GET.get("verified")
         if verified_param is not None and EE_AVAILABLE:
@@ -343,6 +366,29 @@ class EventDefinitionViewSet(
 
         return results
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "exclude_stale",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    f"When true, omit events whose last ingested occurrence is older than {STALE_EVENT_DAYS} days. "
+                    "Events that have never been seen (`last_seen_at` is null) are kept so newly-defined events "
+                    "remain discoverable. Default false. If a search returns zero results with this filter on, "
+                    "retry with `exclude_stale=false` and tell the user the matches are stale."
+                ),
+            ),
+            OpenApiParameter(
+                "exclude_hidden",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="When true, omit events that have been explicitly hidden by a team admin (Enterprise only).",
+            ),
+        ],
+    )
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
@@ -369,6 +415,13 @@ class EventDefinitionViewSet(
         return response.Response(serializer.data)
 
     def dangerously_get_object(self):
+        # A non-UUID lookup (e.g. the literal "undefined" from a link built without a saved
+        # definition id) would raise a ValueError deep in the ORM and surface as a 500. Return a
+        # clean 404 instead.
+        try:
+            uuid.UUID(str(self.kwargs["id"]))
+        except ValueError:
+            raise Http404("Event definition not found.")
         return self._get_event_definition(id=self.kwargs["id"], team__project_id=self.project_id)
 
     def _get_event_definition(self, **filters) -> EventDefinition:
@@ -397,6 +450,47 @@ class EventDefinitionViewSet(
             serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore
         return serializer_class
 
+    @extend_schema(
+        request=BulkUpdateTagsUUIDRequestSerializer,
+        responses={200: BulkUpdateTagsUUIDResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False)
+    def bulk_update_tags(self, request, *args, **kwargs) -> response.Response:
+        """Add, remove, or replace tags across multiple event definitions in one request.
+
+        Overrides ``TaggedItemViewSetMixin.bulk_update_tags``, which assumes integer PKs and runs
+        object-level access-control filtering. Event definitions use UUID PKs and are not an
+        object-level access-controlled resource — project membership (enforced by the viewset) is
+        the only boundary, matching the single-object update path — so this scopes by project and
+        skips the per-object editor check. Tags live on the base ``EventDefinition`` row, so it
+        operates there regardless of the enterprise extension.
+        """
+        serializer = BulkUpdateTagsUUIDRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+        validated_ids = validated["ids"]
+
+        objects = list(
+            EventDefinition.objects.filter(id__in=validated_ids, team__project_id=self.project_id).prefetch_related(
+                Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
+            )
+        )
+
+        found_ids = {obj.id for obj in objects}
+        skipped = [{"id": obj_id, "reason": "Not found"} for obj_id in validated_ids if obj_id not in found_ids]
+
+        activity_context = BulkTagActivityContext(
+            scope="EventDefinition",
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated(request),
+            # The single-object event-definition update path logs under the "changed" verb.
+            activity="changed",
+        )
+        updated = apply_bulk_tag_changes(
+            objects, validated["action"], validated["tags"], activity_context=activity_context
+        )
+        return response.Response({"updated": updated, "skipped": skipped})
+
     def perform_create(self, serializer):
         """Handle context and side effects for event definition creation."""
         user = cast(User, self.request.user)
@@ -420,7 +514,7 @@ class EventDefinitionViewSet(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
             user=user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             item_id=str(event_definition.id),
             scope="EventDefinition",
             activity="created",
@@ -457,7 +551,7 @@ class EventDefinitionViewSet(
             item_id=str(event_definition.id),
             scope="EventDefinition",
             activity="changed",
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             detail=Detail(name=str(event_definition.name), changes=changes),
         )
 
@@ -477,7 +571,7 @@ class EventDefinitionViewSet(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
             user=user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=instance_id,
             scope="EventDefinition",
             activity="deleted",

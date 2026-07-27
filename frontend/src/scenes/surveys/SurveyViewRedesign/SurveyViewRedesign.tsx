@@ -26,7 +26,12 @@ import { SurveyNotifications } from 'scenes/surveys/components/SurveyNotificatio
 import { SurveyNotificationsCallout } from 'scenes/surveys/components/SurveyNotificationsCallout'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
 import { useSurveyResponseColumns } from 'scenes/surveys/hooks/useSurveyResponseColumns'
-import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
+import {
+    canDeleteSurvey,
+    openArchiveSurveyDialog,
+    openDeleteSurveyDialog,
+    openResumeSurveyDialog,
+} from 'scenes/surveys/surveyDialogs'
 import { SurveyHeadline } from 'scenes/surveys/SurveyHeadline'
 import { SurveyTab, surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
@@ -87,7 +92,8 @@ export function SurveyViewRedesign(): JSX.Element {
     const { location, searchParams, hashParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
-    const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
+    const isUnsavedSurvey = survey.id === NEW_SURVEY.id
+    const isInitialSurveyLoad = surveyLoading && isUnsavedSurvey
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
     const surveyIdForTransfer = survey?.id && survey.id !== 'new' ? survey.id : null
@@ -164,6 +170,10 @@ export function SurveyViewRedesign(): JSX.Element {
     }, [isRemovingSidePanel, openSidePanel, setPanelTab, setScenePanelOpen])
 
     useEffect(() => {
+        if (isUnsavedSurvey) {
+            return
+        }
+
         if (!isDraft) {
             const autoOpenedSurveyId = autoOpenedDraftPanelForSurveyIdRef.current
             if (autoOpenedSurveyId) {
@@ -200,6 +210,7 @@ export function SurveyViewRedesign(): JSX.Element {
         }
     }, [
         isDraft,
+        isUnsavedSurvey,
         isRemovingSidePanel,
         closeSidePanel,
         openSidePanel,
@@ -516,27 +527,7 @@ function SurveyStatusAction(): JSX.Element | null {
                 <LemonButton
                     type="secondary"
                     size="small"
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: 'Resume this survey?',
-                            content: (
-                                <div className="text-sm text-secondary">
-                                    Once resumed, the survey will be visible to your users again.
-                                </div>
-                            ),
-                            primaryButton: {
-                                children: 'Resume',
-                                type: 'primary',
-                                onClick: () => resumeSurvey(),
-                                size: 'small',
-                            },
-                            secondaryButton: {
-                                children: 'Cancel',
-                                type: 'tertiary',
-                                size: 'small',
-                            },
-                        })
-                    }}
+                    onClick={() => openResumeSurveyDialog(survey, () => resumeSurvey())}
                 >
                     Resume
                 </LemonButton>

@@ -2,16 +2,15 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
-import { appShortcutLogic } from 'lib/components/AppShortcuts/appShortcutLogic'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
-import { openCHQueriesDebugModal } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { openJumpToTimestampModal } from 'lib/components/DateFilter/openJumpToTimestampModal'
-import { healthMenuLogic } from 'lib/components/HealthMenu/healthMenuLogic'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
+import { shortcutLogic } from 'lib/components/Shortcuts/shortcutLogic'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
+import { openCHQueriesDebugModal } from 'lib/components/Shortcuts/utils/DebugCHQueries'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { SidePanelTab } from '~/types'
@@ -23,15 +22,14 @@ import { sceneLayoutLogic } from './scenes/sceneLayoutLogic'
 
 export function GlobalShortcuts(): null {
     const { superpowersEnabled } = useValues(superpowersLogic)
-    const { appShortcutMenuOpen } = useValues(appShortcutLogic)
+    const { shortcutMenuOpen } = useValues(shortcutLogic)
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
-    const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
+    const { setShortcutMenuOpen } = useActions(shortcutLogic)
     const { toggleZenMode } = useActions(navigation3000Logic)
     const { toggleCommand } = useActions(commandLogic)
     const { toggleHelpMenu } = useActions(helpMenuLogic)
     const { toggleAccountMenu, toggleProjectSwitcher, toggleOrgSwitcher } = useActions(newAccountMenuLogic)
     const { openSuperpowers } = useActions(superpowersLogic)
-    const { toggleHealthMenu } = useActions(healthMenuLogic)
     const { toggleTheme } = useActions(themeLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
@@ -39,26 +37,26 @@ export function GlobalShortcuts(): null {
     // Open Info tab if scene has panel content, otherwise default to PostHog AI
     const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
 
-    useAppShortcut({
+    useShortcut({
         name: 'Search',
         keybind: [keyBinds.search],
         intent: 'Search',
         interaction: 'function',
         callback: () => {
-            toggleCommand()
+            toggleCommand('keyboard-shortcut')
         },
         priority: 10,
     })
 
-    useAppShortcut({
+    useShortcut({
         name: 'ToggleShortcutMenu',
         keybind: [keyBinds.toggleShortcutMenu, keyBinds.toggleShortcutMenuFallback],
         intent: 'Toggle shortcut menu',
         interaction: 'function',
-        callback: () => setAppShortcutMenuOpen(!appShortcutMenuOpen),
+        callback: () => setShortcutMenuOpen(!shortcutMenuOpen),
     })
 
-    useAppShortcut({
+    useShortcut({
         name: 'DebugClickhouseQueries',
         keybind: [['command', 'option', 'tab']],
         intent: 'Debug clickhouse queries',
@@ -67,7 +65,7 @@ export function GlobalShortcuts(): null {
         disabled: !superpowersEnabled,
     })
 
-    useAppShortcut({
+    useShortcut({
         name: 'Superpowers',
         keybind: [['command', 'shift', 'p']],
         intent: 'Open superpowers panel',
@@ -76,15 +74,15 @@ export function GlobalShortcuts(): null {
         disabled: !superpowersEnabled,
     })
 
-    useAppShortcut({
+    useShortcut({
         name: 'ZenMode',
         keybind: [keyBinds.zenMode],
         intent: 'Toggle zen mode',
         interaction: 'function',
-        callback: toggleZenMode,
+        callback: () => toggleZenMode('shortcut'),
     })
 
-    useAppShortcut({
+    useShortcut({
         name: 'SQLEditor',
         keybind: [keyBinds.sqlEditor],
         intent: 'Open SQL editor',
@@ -96,7 +94,7 @@ export function GlobalShortcuts(): null {
         },
     })
 
-    useAppShortcut({
+    useShortcut({
         name: 'toggle-context-panel',
         keybind: [keyBinds.toggleRightNav],
         intent: 'Toggle context panel',
@@ -110,7 +108,7 @@ export function GlobalShortcuts(): null {
         },
     })
 
-    useAppShortcut({
+    useShortcut({
         name: 'toggle-help-menu',
         keybind: [keyBinds.helpMenu],
         intent: 'Toggle help menu',
@@ -118,15 +116,7 @@ export function GlobalShortcuts(): null {
         callback: () => toggleHelpMenu(),
     })
 
-    useAppShortcut({
-        name: 'toggle-health-menu',
-        keybind: [keyBinds.healthMenu],
-        intent: 'Toggle health menu',
-        interaction: 'function',
-        callback: () => toggleHealthMenu(),
-    })
-
-    useAppShortcut({
+    useShortcut({
         name: 'toggle-new-account-menu',
         keybind: [keyBinds.newAccountMenu],
         intent: 'Toggle new account menu',
@@ -134,7 +124,7 @@ export function GlobalShortcuts(): null {
         callback: () => toggleAccountMenu(),
     })
 
-    useAppShortcut({
+    useShortcut({
         name: 'toggle-project-switcher',
         keybind: [keyBinds.projectSwitcher],
         intent: 'Toggle project switcher',
@@ -142,7 +132,7 @@ export function GlobalShortcuts(): null {
         callback: () => toggleProjectSwitcher(),
     })
 
-    useAppShortcut({
+    useShortcut({
         name: 'toggle-org-switcher',
         keybind: [keyBinds.orgSwitcher],
         intent: 'Toggle organization switcher',
@@ -150,7 +140,7 @@ export function GlobalShortcuts(): null {
         callback: () => toggleOrgSwitcher(),
     })
 
-    useAppShortcut({
+    useShortcut({
         name: 'toggle-theme',
         keybind: [keyBinds.theme],
         intent: 'Toggle theme (dark / light)',
@@ -158,7 +148,7 @@ export function GlobalShortcuts(): null {
         callback: () => toggleTheme(),
     })
 
-    useAppShortcut({
+    useShortcut({
         name: 'jump-to-timestamp',
         keybind: [keyBinds.jumpToTimestamp],
         intent: 'Jump to timestamp',

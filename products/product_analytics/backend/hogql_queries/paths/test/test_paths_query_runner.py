@@ -12,6 +12,7 @@ from posthog.test.base import (
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 
 from posthog.schema import CachedPathsQueryResponse
 
@@ -933,6 +934,59 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(
             response[2].dict().items() >= {"source": "2_/pricing", "target": "3_/about", "value": 1}.items()
         )
+
+    @parameterized.expand(
+        [
+            ("both", "/pricing/", "/checkout/"),
+            ("start_only", "/pricing/", "/checkout"),
+            ("end_only", "/pricing", "/checkout/"),
+        ]
+    )
+    def test_paths_start_and_end_trailing_slashes(self, _name: str, start_point: str, end_point: str) -> None:
+        # `construct_event_hogql` strips trailing slashes from `$current_url`
+        # before paths runs its `indexOf` checks. The runner must apply the same
+        # normalization to `startPoint`/`endPoint` — otherwise a filter like
+        # `/pricing/` silently returns zero results even though `/pricing` would.
+        # Each endpoint goes through its own strip, so a trailing slash on only
+        # one side is a distinct code path worth asserting.
+        _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person_2"])
+
+        for distinct_id in ("person_1", "person_2"):
+            for url in ("/pricing/", "/about", "/checkout/"):
+                _create_event(
+                    properties={"$current_url": url},
+                    distinct_id=distinct_id,
+                    event="$pageview",
+                    team=self.team,
+                )
+
+        baseline = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {
+                    "startPoint": "/pricing",
+                    "endPoint": "/checkout",
+                },
+            },
+            team=self.team,
+        ).run()
+        assert isinstance(baseline, CachedPathsQueryResponse)
+        self.assertGreater(len(baseline.results), 0)
+
+        with_trailing_slashes = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {
+                    "startPoint": start_point,
+                    "endPoint": end_point,
+                },
+            },
+            team=self.team,
+        ).run()
+        assert isinstance(with_trailing_slashes, CachedPathsQueryResponse)
+
+        self.assertEqual(with_trailing_slashes.results, baseline.results)
 
     def test_paths_in_window(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])

@@ -216,6 +216,7 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="ErrorTrackingSimilarIssuesQuery",
                 timings=self.timings,
                 modifiers=self.modifiers,

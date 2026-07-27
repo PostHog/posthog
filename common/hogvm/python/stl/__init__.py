@@ -2,6 +2,7 @@ import re
 import json
 import math
 import time
+import random
 import datetime
 import dataclasses
 from collections.abc import Callable
@@ -10,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import pytz
 
 from ..objects import is_hog_callable, is_hog_closure, is_hog_error, new_hog_error, to_hog_interval
-from ..utils import get_nested_value, like
+from ..utils import HogVMException, _require_string, get_nested_value, like
 from .crypto import md5, sha256, sha256HmacChain
 from .date import (
     formatDateTime,
@@ -106,6 +107,12 @@ def empty(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], 
     if isinstance(args[0], bool) or isinstance(args[0], int) or isinstance(args[0], float):
         return False
     return not bool(args[0])
+
+
+def length(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
+    if args[0] is None:
+        raise HogVMException("Can not call length on null")
+    return len(args[0])
 
 
 def sleep(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
@@ -327,6 +334,10 @@ def generateUUIDv4(args: list[Any], team: Optional["Team"], stdout: Optional[lis
     return str(uuid.uuid4())
 
 
+def randomFloat(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> float:
+    return random.random()
+
+
 def keys(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
     obj = args[0]
     if isinstance(obj, dict):
@@ -451,7 +462,7 @@ def apply_interval_to_datetime(dt: dict, interval: dict) -> dict:
 
     zone = dt["zone"] if is_hog_datetime(dt) else "UTC"
     if is_hog_datetime(dt):
-        base_dt = datetime.datetime.utcfromtimestamp(dt["dt"])
+        base_dt = datetime.datetime.fromtimestamp(dt["dt"], datetime.UTC).replace(tzinfo=None)
         base_dt = pytz.timezone(zone).localize(base_dt)
     else:
         base_dt = datetime.datetime(dt["year"], dt["month"], dt["day"], tzinfo=pytz.timezone(zone))
@@ -539,7 +550,9 @@ def date_diff(args: list[Any], team: Optional["Team"], stdout: Optional[list[str
     def to_dt(obj):
         if is_hog_datetime(obj):
             z = obj["zone"]
-            return pytz.timezone(z).localize(datetime.datetime.utcfromtimestamp(obj["dt"]))
+            return pytz.timezone(z).localize(
+                datetime.datetime.fromtimestamp(obj["dt"], datetime.UTC).replace(tzinfo=None)
+            )
         elif is_hog_date(obj):
             return pytz.UTC.localize(datetime.datetime(obj["year"], obj["month"], obj["day"]))
         else:
@@ -579,7 +592,7 @@ def date_trunc(args: list[Any], team: Optional["Team"], stdout: Optional[list[st
         raise ValueError("Expected a DateTime for dateTrunc")
 
     zone = dt["zone"]
-    base_dt = datetime.datetime.utcfromtimestamp(dt["dt"])
+    base_dt = datetime.datetime.fromtimestamp(dt["dt"], datetime.UTC).replace(tzinfo=None)
     base_dt = pytz.timezone(zone).localize(base_dt)
 
     if unit == "year":
@@ -702,7 +715,9 @@ def extract(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]]
     def to_dt(obj):
         if is_hog_datetime(obj):
             z = obj["zone"]
-            return pytz.timezone(z).localize(datetime.datetime.utcfromtimestamp(obj["dt"]))
+            return pytz.timezone(z).localize(
+                datetime.datetime.fromtimestamp(obj["dt"], datetime.UTC).replace(tzinfo=None)
+            )
         elif is_hog_date(obj):
             return pytz.UTC.localize(datetime.datetime(obj["year"], obj["month"], obj["day"]))
         else:
@@ -808,7 +823,7 @@ def toStartOfWeek(args: list[Any], team: Optional["Team"], stdout: Optional[list
             dt = toDateTime(f"{dt['year']}-{dt['month']:02d}-{dt['day']:02d}")
         else:
             raise ValueError("Expected a Date or DateTime")
-    base_dt = datetime.datetime.utcfromtimestamp(dt["dt"])
+    base_dt = datetime.datetime.fromtimestamp(dt["dt"], datetime.UTC).replace(tzinfo=None)
     zone = dt["zone"]
     base_dt = pytz.timezone(zone).localize(base_dt)
     weekday = base_dt.isoweekday()  # Monday=1, Sunday=7
@@ -950,6 +965,17 @@ def extractRegex(args: list[Any], team: Optional["Team"], stdout: Optional[list[
         return ""
 
 
+def match(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+    if args[1] is None or args[0] is None:
+        return False
+    input_string = _require_string(args[0], "input", "match")
+    pattern = _require_string(args[1], "pattern", "match")
+    try:
+        return re.search(pattern, input_string) is not None
+    except re.error as e:
+        raise HogVMException(f"Invalid regex pattern: {e}") from e
+
+
 STL: dict[str, STLFunction] = {
     "concat": STLFunction(
         fn=lambda args, team, stdout, timeout: "".join(
@@ -958,13 +984,7 @@ STL: dict[str, STLFunction] = {
         minArgs=1,
         maxArgs=None,
     ),
-    "match": STLFunction(
-        fn=lambda args, team, stdout, timeout: False
-        if args[1] is None or args[0] is None
-        else bool(re.search(re.compile(args[1]), args[0])),
-        minArgs=2,
-        maxArgs=2,
-    ),
+    "match": STLFunction(fn=match, minArgs=2, maxArgs=2),
     "extractRegex": STLFunction(fn=extractRegex, minArgs=2, maxArgs=2),
     "like": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1]), minArgs=2, maxArgs=2),
     "ilike": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1], True), minArgs=2, maxArgs=2),
@@ -979,7 +999,7 @@ STL: dict[str, STLFunction] = {
     "ifNull": STLFunction(fn=ifNull, minArgs=2, maxArgs=2),
     "isNull": STLFunction(fn=lambda args, team, stdout, timeout: args[0] is None, minArgs=1, maxArgs=1),
     "isNotNull": STLFunction(fn=lambda args, team, stdout, timeout: args[0] is not None, minArgs=1, maxArgs=1),
-    "length": STLFunction(fn=lambda args, team, stdout, timeout: len(args[0]), minArgs=1, maxArgs=1),
+    "length": STLFunction(fn=length, minArgs=1, maxArgs=1),
     "empty": STLFunction(fn=empty, minArgs=1, maxArgs=1),
     "notEmpty": STLFunction(
         fn=lambda args, team, stdout, timeout: not empty(args, team, stdout, timeout), minArgs=1, maxArgs=1
@@ -1009,16 +1029,18 @@ STL: dict[str, STLFunction] = {
         fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2]), minArgs=3, maxArgs=3
     ),
     "position": STLFunction(
-        fn=lambda args, team, stdout, timeout: (args[0].index(str(args[1])) + 1)
-        if isinstance(args[0], str) and str(args[1]) in args[0]
-        else 0,
+        fn=lambda args, team, stdout, timeout: (
+            (args[0].index(str(args[1])) + 1) if isinstance(args[0], str) and str(args[1]) in args[0] else 0
+        ),
         minArgs=2,
         maxArgs=2,
     ),
     "positionCaseInsensitive": STLFunction(
-        fn=lambda args, team, stdout, timeout: (args[0].lower().index(str(args[1]).lower()) + 1)
-        if isinstance(args[0], str) and str(args[1]).lower() in args[0].lower()
-        else 0,
+        fn=lambda args, team, stdout, timeout: (
+            (args[0].lower().index(str(args[1]).lower()) + 1)
+            if isinstance(args[0], str) and str(args[1]).lower() in args[0].lower()
+            else 0
+        ),
         minArgs=2,
         maxArgs=2,
     ),
@@ -1027,6 +1049,7 @@ STL: dict[str, STLFunction] = {
     "trimRight": STLFunction(fn=trimRight, minArgs=1, maxArgs=2),
     "splitByString": STLFunction(fn=splitByString, minArgs=2, maxArgs=3),
     "generateUUIDv4": STLFunction(fn=generateUUIDv4, minArgs=0, maxArgs=0),
+    "randomFloat": STLFunction(fn=randomFloat, minArgs=0, maxArgs=0),
     "sha256Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha256(args[0]), minArgs=1, maxArgs=1),
     "sha256": STLFunction(
         fn=lambda args, team, stdout, timeout: sha256(args[0], args[1] if len(args) > 1 else "hex"),
@@ -1053,9 +1076,9 @@ STL: dict[str, STLFunction] = {
     "keys": STLFunction(fn=keys, minArgs=1, maxArgs=1),
     "values": STLFunction(fn=values, minArgs=1, maxArgs=1),
     "indexOf": STLFunction(
-        fn=lambda args, team, stdout, timeout: (args[0].index(args[1]) + 1)
-        if isinstance(args[0], list) and args[1] in args[0]
-        else 0,
+        fn=lambda args, team, stdout, timeout: (
+            (args[0].index(args[1]) + 1) if isinstance(args[0], list) and args[1] in args[0] else 0
+        ),
         minArgs=2,
         maxArgs=2,
     ),

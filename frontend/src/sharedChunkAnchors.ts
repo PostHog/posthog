@@ -20,6 +20,7 @@ import * as KeaWindowValues from 'kea-window-values'
 import * as Liquidjs from 'liquidjs'
 import * as Marked from 'marked'
 import * as PosthogJs from 'posthog-js'
+import * as PosthogRrweb from 'posthog-js/rrweb'
 import * as Re2Js from 're2js'
 import * as React from 'react'
 import * as ReactDom from 'react-dom'
@@ -27,7 +28,6 @@ import * as ReactDomClient from 'react-dom/client'
 import * as Zod from 'zod'
 
 import * as PosthogIcons from '@posthog/icons'
-import * as PosthogRrweb from '@posthog/rrweb'
 
 import * as Chart from 'lib/Chart'
 

@@ -1,7 +1,7 @@
 import { resetContext } from 'kea'
 import { expectLogic, partial, testUtilsPlugin } from 'kea-test-utils'
 
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 
 import { initKeaTests } from '~/test/init'
 
@@ -20,7 +20,7 @@ describe('stepDelayLogic', () => {
             plugins: [testUtilsPlugin],
         })
 
-        wfLogic = workflowLogic({ id: 'new', tabId: 'default' })
+        wfLogic = workflowLogic({ id: 'new' })
         wfLogic.mount()
 
         sdLogic = stepDelayLogic({ workflowLogicProps: wfLogic.props })

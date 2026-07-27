@@ -62,8 +62,28 @@ describe('Modifiers', () => {
                 job_inputs: {},
                 user_access_level: AccessControlLevel.Manager,
             },
+            {
+                id: 'mysql-connection-id',
+                source_id: 'source-2',
+                connection_id: 'conn-2',
+                source_type: 'MySQL',
+                status: ExternalDataJobStatus.Running,
+                schemas: [],
+                prefix: 'orders-db',
+                description: null,
+                access_method: 'direct',
+                created_via: 'web',
+                latest_error: null,
+                revenue_analytics_config: {
+                    enabled: false,
+                    include_invoiceless_charges: true,
+                },
+                sync_frequency: '24hour' as DataWarehouseSyncInterval,
+                job_inputs: {},
+                user_access_level: AccessControlLevel.Manager,
+            },
         ],
-        count: 1,
+        count: 2,
         next: null,
         previous: null,
     } satisfies {
@@ -100,7 +120,8 @@ describe('Modifiers', () => {
         )
 
         expect(screen.getByText('Connection ID:')).toBeInTheDocument()
-        await screen.findByRole('option', { name: 'analytics-db (Postgres)' })
+        await screen.findByText('analytics-db (Postgres)')
+        await screen.findByText('orders-db (MySQL)')
 
         await userEvent.selectOptions(screen.getByLabelText('Connection ID:'), 'postgres-connection-id')
 

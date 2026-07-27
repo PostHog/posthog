@@ -25,11 +25,7 @@ import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 const VALID_REVENUE_SOURCES: ExternalDataSource['source_type'][] = ['Stripe']
 
-export function ExternalDataSourceConfiguration({
-    buttonRef,
-}: {
-    buttonRef?: React.RefObject<HTMLButtonElement>
-}): JSX.Element {
+export function ExternalDataSourceConfiguration(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, joins } = useValues(revenueAnalyticsSettingsLogic)
     const { views, source: sourceToBeDisabled } = useValues(disableRevenueSourceModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -88,7 +84,6 @@ export function ExternalDataSourceConfiguration({
                 >
                     <LemonButton
                         className="my-1"
-                        ref={buttonRef}
                         type="primary"
                         icon={<IconPlus />}
                         size="small"

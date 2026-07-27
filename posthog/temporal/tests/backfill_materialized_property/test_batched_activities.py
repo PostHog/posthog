@@ -42,7 +42,7 @@ def _make_pending_slot(team, name: str) -> MaterializedColumnSlot:
     )
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestPlanColumnAssignments:
     def test_packs_two_teams_into_a_single_column(self, team, organization):
         from posthog.models import Team
@@ -193,7 +193,7 @@ class TestCycleMarkerEmbedding:
         assert 0 <= marker < 2**32
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestAssignPendingColumns:
     def test_transitions_pending_slots_to_backfill_with_indexes(self, team, activity_environment):
         slot_a = _make_pending_slot(team, "browser")
@@ -333,7 +333,7 @@ class TestAssignPendingColumns:
         assert any(a.column_index == 3 for a in result.assignments)
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestActivateAndFailSlots:
     def test_activate_slots_transitions_backfill_to_ready(self, team, activity_environment):
         prop = PropertyDefinition.objects.create(
@@ -398,7 +398,7 @@ class TestActivateAndFailSlots:
         assert slot.error_message == "ClickHouse OOM"
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestRunBatchedMutation:
     @patch("posthog.temporal.backfill_materialized_property.activities.AlterTableMutationRunner")
     @patch("posthog.temporal.backfill_materialized_property.activities.get_cluster")
@@ -442,7 +442,7 @@ class TestRunBatchedMutation:
         runner_instance.run_on_shards.assert_called_once_with(mock_get_cluster.return_value)
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestPopulateSlotAssignments:
     """The activity reads READY+BACKFILL slots from Postgres and pushes them as a CH-side
     table that the dmat_slot_assignments_dict reads from. The PENDING-allocation

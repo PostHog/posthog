@@ -11,6 +11,8 @@ chrono = { workspace = true }
 common-liveness = { path = "../liveness" }
 envconfig = { workspace = true }
 health = { path = "../health" }
+lz4 = { workspace = true }
+metrics = { workspace = true }
 rdkafka = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

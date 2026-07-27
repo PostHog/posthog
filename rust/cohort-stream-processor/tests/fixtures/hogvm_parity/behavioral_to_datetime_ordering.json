@@ -1,0 +1,37 @@
+{
+  "name": "to_datetime_ordering_lt",
+  "oracle": "clickhouse",
+  "note": "toDateTime instant ordering: Lt(toDateTime(toString(person.properties.signup_date)), toDateTime(\"2026-01-01 00:00:00\")). expected_result is the ClickHouse/instant-ordering answer the Rust VM matches; the Python/TS reference VMs cannot order Hog temporals, so this is a Rust-vs-ClickHouse oracle, not a cross-runtime one. See the module-level provenance caveat.",
+  "bytecode": [
+    "_H",
+    1,
+    32,
+    "2026-01-01 00:00:00",
+    2,
+    "toDateTime",
+    1,
+    32,
+    "signup_date",
+    32,
+    "properties",
+    32,
+    "person",
+    1,
+    3,
+    2,
+    "toString",
+    1,
+    2,
+    "toDateTime",
+    1,
+    15
+  ],
+  "expected_result": true,
+  "globals": {
+    "person": {
+      "properties": {
+        "signup_date": "2024-09-09 08:30:00"
+      }
+    }
+  }
+}

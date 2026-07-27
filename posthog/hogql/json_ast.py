@@ -30,6 +30,18 @@ NODE_MAP: dict[str, type[ast.AST]] = {
 # (when not list-encoded), and `replace`.
 _DICT_FIELDS = frozenset({"window_exprs", "ctes", "replace"})
 
+# Per-node fields whose inner JSON arrays should land as Python `tuple` (not
+# `list`). JSON has no tuple type, so cpp / rust-json emit `[[k,v]]` for fields
+# the Python AST types as `list[tuple[...]]`. Without this map the deserialiser
+# would return `list[list]`, which doesn't `==` the `list[tuple]` that
+# `rust-py` and `CloningVisitor` build — surfacing as bogus "position-only"
+# shadow mismatches on every Hog program containing a dict literal or a
+# try/catch.
+_TUPLE_INNER_FIELDS: dict[str, frozenset[str]] = {
+    "Dict": frozenset({"items"}),
+    "TryCatchStatement": frozenset({"catches"}),
+}
+
 # Per-class enum-typed field map, built once at import. Saves a per-node
 # `get_type_hints(cls)` call and a `hasattr(t, "__members__")` check.
 _ENUM_FIELDS: dict[type, dict[str, Any]] = {}
@@ -59,6 +71,21 @@ assert ast.CompareOperation in _ENUM_FIELDS, "_build_enum_fields did not registe
 _SPECIAL_FLOATS = {"Infinity": float("inf"), "-Infinity": float("-inf"), "NaN": float("nan")}
 
 
+def _parse_large_int_literal(value: str) -> int | None:
+    """Parse an integer literal the parser kept lossless as a string — a
+    decimal or `0x`-prefixed hex magnitude with an optional leading `-`.
+    An integer wider than 64 bits can't round-trip as a native JSON
+    number, so the parser emits the exact digits in the same
+    `value_type: "number"` string envelope the non-finite floats use.
+    Returns None when `value` isn't an integer literal."""
+    body = value[1:] if value.startswith("-") else value
+    base = 16 if body[:2] in ("0x", "0X") else 10
+    try:
+        return int(value, base)
+    except ValueError:
+        return None
+
+
 def deserialize_ast(json_str: str) -> ast.AST:
     """Deserialize a JSON string into a Python AST object."""
     return _deserialize_node(orjson.loads(json_str))
@@ -77,7 +104,11 @@ def _deserialize_node(data: Any) -> Any:
         message = data.get("message", "Unknown error")
         start = data.get("start") or {}
         end = data.get("end") or {}
-        if error_type == "SyntaxError" and "reserved keyword" in message:
+        # A parser that tags an error `SyntaxError` means a malformed
+        # query — surface it as `SyntaxError` (a subclass of
+        # `ExposedHogQLError`) so callers can distinguish it, matching
+        # what the C++ parser raises natively.
+        if error_type == "SyntaxError":
             raise HogQLSyntaxError(message, start=start.get("offset"), end=end.get("offset"))
         raise ExposedHogQLError(message, start=start.get("offset"), end=end.get("offset"))
 
@@ -104,18 +135,36 @@ def _deserialize_node(data: Any) -> Any:
                 kwargs[key] = offset
                 continue
 
-        # Non-finite floats on Constant nodes are emitted as strings.
+        # Numeric Constants emitted as strings: non-finite floats
+        # (Infinity / NaN) and integer literals too wide to round-trip
+        # as a native JSON number.
         if is_constant and key == "value" and value_type == "number" and isinstance(value, str):
             special = _SPECIAL_FLOATS.get(value)
             if special is not None:
                 kwargs[key] = special
                 continue
-            raise ValueError(f"Unknown special float value: {value}")
+            int_value = _parse_large_int_literal(value)
+            if int_value is not None:
+                kwargs[key] = int_value
+                continue
+            raise ValueError(f"Unknown numeric constant value: {value!r}")
 
         # `ctes` may be a list of nodes carrying a `name` (preserves order)
         # — fold it into a dict keyed by the name.
         if key == "ctes" and isinstance(value, list):
             kwargs[key] = {item["name"]: _deserialize_node(item) for item in value}
+            continue
+
+        # Inner-array → tuple for fields the Python AST types as `list[tuple]`
+        # (see `_TUPLE_INNER_FIELDS`). JSON arrays default to `list` everywhere
+        # else; this targeted conversion keeps `==` parity with `rust-py` /
+        # `CloningVisitor`, which both build tuples.
+        node_tuple_fields = _TUPLE_INNER_FIELDS.get(node_type)
+        if node_tuple_fields is not None and key in node_tuple_fields and isinstance(value, list):
+            kwargs[key] = [
+                tuple(_deserialize_node(item) for item in row) if isinstance(row, list) else _deserialize_node(row)
+                for row in value
+            ]
             continue
 
         # Other dict-shaped fields: {key: child_node}.

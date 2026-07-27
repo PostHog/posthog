@@ -14,9 +14,10 @@ from posthog.test.base import (
 )
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Group, GroupTypeMapping
+from posthog.models import Group
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import create_group
+from posthog.test.persons import create_group_type_mapping
 
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 
@@ -31,10 +32,10 @@ class BaseRelatedActorsTest(ABC, ClickhouseTestMixin, APIBaseTest):
         self.unrelated_person = _create_person(distinct_ids=["user3"], team=self.team)
         self.old_related_person = _create_person(distinct_ids=["user4"], team=self.team)
 
-        self.org_group_type = GroupTypeMapping.objects.create(
+        self.org_group_type = create_group_type_mapping(
             group_type_index=0, team=self.team, project=self.project, group_type="org"
         )
-        self.instance_group_type = GroupTypeMapping.objects.create(
+        self.instance_group_type = create_group_type_mapping(
             group_type_index=1, team=self.team, project=self.project, group_type="instance"
         )
         org_type_index = cast(GroupTypeIndex, self.org_group_type.group_type_index)

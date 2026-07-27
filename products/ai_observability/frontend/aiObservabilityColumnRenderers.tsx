@@ -1,0 +1,617 @@
+import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
+import { useEffect } from 'react'
+
+import { IconFilter } from '@posthog/icons'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
+import { urls } from 'scenes/urls'
+
+import { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
+import { LLMTrace } from '~/queries/schema/schema-general'
+import { QueryContextColumn } from '~/queries/types'
+import { hogql, isDataTableNode, isEventsQuery } from '~/queries/utils'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
+import { AIDataLoading } from './components/AIDataLoading'
+import { SentimentBar } from './components/SentimentTag'
+import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { EventData, useAIData } from './hooks/useAIData'
+import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { normalizeMessages } from './messageNormalization'
+import type { GenerationSentimentLookup } from './sentimentQueries'
+import { GENERATION_SENTIMENT_SELECT } from './sentimentResults'
+import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
+import { TraceReviewValue } from './traceReviews/TraceReviewValue'
+import { CompatMessage } from './types'
+import { parseJSONPreview } from './utils'
+
+const truncateValue = (value: string): string => {
+    if (value.length > 8) {
+        return `${value.substring(0, 4)}...${value.substring(value.length - 4)}`
+    }
+    return value
+}
+
+// Person types and utilities for filter functionality
+export interface PersonData {
+    distinct_id?: string
+    properties?: Record<string, unknown>
+}
+
+export type FilterIdentifier =
+    | { type: 'email'; value: string }
+    | { type: 'username'; value: string }
+    | { type: 'distinct_id'; value: string }
+
+export function getFilterIdentifier(person: PersonData | null | undefined): FilterIdentifier | null {
+    if (!person) {
+        return null
+    }
+
+    const email = typeof person.properties?.email === 'string' ? person.properties.email : undefined
+    const username = typeof person.properties?.username === 'string' ? person.properties.username : undefined
+    const distinctId = person.distinct_id
+
+    if (email) {
+        return { type: 'email', value: email }
+    }
+
+    if (username) {
+        return { type: 'username', value: username }
+    }
+
+    if (distinctId) {
+        return { type: 'distinct_id', value: distinctId }
+    }
+
+    return null
+}
+
+export function createPersonFilter(filterIdentifier: FilterIdentifier): AnyPropertyFilter {
+    if (filterIdentifier.type === 'distinct_id') {
+        return {
+            type: PropertyFilterType.HogQL,
+            key: hogql`distinct_id == ${filterIdentifier.value}`,
+        }
+    }
+
+    return {
+        type: PropertyFilterType.Person,
+        key: filterIdentifier.type,
+        operator: PropertyOperator.Exact,
+        value: filterIdentifier.value,
+    }
+}
+
+export function getTracesUrlWithPersonFilter(
+    filterIdentifier: FilterIdentifier,
+    dateRange?: { dateFrom: string | null; dateTo: string | null }
+): string {
+    const filter = createPersonFilter(filterIdentifier)
+    return combineUrl(urls.aiObservabilityTraces(), {
+        filters: [filter],
+        date_from: dateRange?.dateFrom ?? undefined,
+        date_to: dateRange?.dateTo ?? undefined,
+    }).url
+}
+
+function PersonColumnCell({ person }: { person: PersonData | null | undefined }): JSX.Element {
+    const { setPropertyFilters } = useActions(aiObservabilitySharedLogic)
+    const { propertyFilters } = useValues(aiObservabilitySharedLogic)
+
+    const filterIdentifier = getFilterIdentifier(person)
+
+    const handleFilterByPerson = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+
+        if (!filterIdentifier) {
+            return
+        }
+
+        const newFilter = createPersonFilter(filterIdentifier)
+        const filterExists = propertyFilters.some((f) => {
+            if (filterIdentifier.type === 'distinct_id') {
+                return f.type === PropertyFilterType.HogQL && f.key === newFilter.key
+            }
+            return (
+                f.type === PropertyFilterType.Person &&
+                f.key === filterIdentifier.type &&
+                'value' in f &&
+                f.value === filterIdentifier.value
+            )
+        })
+
+        if (!filterExists) {
+            setPropertyFilters([...propertyFilters, newFilter])
+        }
+    }
+
+    return (
+        <div className="flex items-center gap-1">
+            <PersonDisplay person={person ?? undefined} withIcon noPopover={false} />
+
+            {filterIdentifier && (
+                <Tooltip title={`Filter by ${filterIdentifier.value}`}>
+                    <LemonButton size="xsmall" icon={<IconFilter />} onClick={handleFilterByPerson} noPadding />
+                </Tooltip>
+            )}
+        </div>
+    )
+}
+
+function PersonColumnCellWithRedirect({ person }: { person: PersonData | null | undefined }): JSX.Element {
+    const { push } = useActions(router)
+    const { dateFilter } = useValues(aiObservabilitySharedLogic)
+    const filterIdentifier = getFilterIdentifier(person)
+
+    const handleFilterAndRedirect = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+
+        if (!filterIdentifier) {
+            return
+        }
+
+        const url = getTracesUrlWithPersonFilter(filterIdentifier, dateFilter)
+        push(url)
+    }
+
+    return (
+        <div className="flex items-center gap-1">
+            <PersonDisplay person={person ?? undefined} withIcon noPopover={false} />
+
+            {filterIdentifier && (
+                <Tooltip title={`View traces for ${filterIdentifier.value}`}>
+                    <LemonButton size="xsmall" icon={<IconFilter />} onClick={handleFilterAndRedirect} noPadding />
+                </Tooltip>
+            )}
+        </div>
+    )
+}
+
+export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
+    const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
+    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
+
+    const cached = personsCache[distinctId]
+
+    useEffect(() => {
+        if (currentTeamId && cached === undefined) {
+            ensurePersonLoaded(distinctId)
+        }
+    }, [currentTeamId, cached, distinctId, ensurePersonLoaded])
+
+    const personData: PersonData = cached
+        ? { distinct_id: cached.distinct_id, properties: cached.properties }
+        : { distinct_id: distinctId }
+
+    return <PersonColumnCell person={personData} />
+}
+
+// Avatar only (no name) for inline use beside a title; a click still opens the
+// full person popover. Shares the lazy person loader with LazyPersonColumnCell.
+export function LazyPersonAvatar({ distinctId }: { distinctId: string }): JSX.Element {
+    const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
+    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
+
+    const cached = personsCache[distinctId]
+
+    useEffect(() => {
+        if (currentTeamId && cached === undefined) {
+            ensurePersonLoaded(distinctId)
+        }
+    }, [currentTeamId, cached, distinctId, ensurePersonLoaded])
+
+    const personData: PersonData = cached
+        ? { distinct_id: cached.distinct_id, properties: cached.properties }
+        : { distinct_id: distinctId }
+
+    return (
+        <PersonDisplay person={personData}>
+            <PersonIcon person={personData} size="md" />
+        </PersonDisplay>
+    )
+}
+
+function getStringColumnValue(record: unknown[], columns: string[], column: string): string | null {
+    const index = columns.findIndex((col) => col === column)
+    if (index < 0) {
+        return null
+    }
+
+    const value = record[index]
+    return typeof value === 'string' && value ? value : null
+}
+
+function getGenerationSentimentLookup(record: unknown, query: DataTableNode): GenerationSentimentLookup | null {
+    if (!Array.isArray(record) || !isEventsQuery(query.source)) {
+        return null
+    }
+
+    const columns = query.source.select ?? []
+    const eventId = getStringColumnValue(record, columns, 'uuid')
+    const traceId = getStringColumnValue(record, columns, 'properties.$ai_trace_id')
+
+    if (!eventId || !traceId) {
+        return null
+    }
+
+    const generationId = getStringColumnValue(record, columns, 'properties.$ai_generation_id')
+    const generationIds = generationId && generationId !== eventId ? [eventId, generationId] : [eventId]
+
+    return {
+        key: eventId,
+        traceId,
+        generationIds,
+    }
+}
+
+function LazyGenerationSentimentCell({ lookup }: { lookup: GenerationSentimentLookup }): JSX.Element {
+    const { getGenerationSentiment, isGenerationLoading } = useValues(llmGenerationSentimentLazyLoaderLogic)
+    const { ensureGenerationSentimentLoaded } = useActions(llmGenerationSentimentLazyLoaderLogic)
+
+    const lookupKey = lookup.key
+    const lookupTraceId = lookup.traceId
+    const lookupGenerationIdsKey = lookup.generationIds.join('\0')
+    const cached = getGenerationSentiment(lookupKey)
+    const loading = isGenerationLoading(lookupKey)
+
+    useEffect(() => {
+        if (cached === undefined && !loading) {
+            ensureGenerationSentimentLoaded({
+                key: lookupKey,
+                traceId: lookupTraceId,
+                generationIds: lookupGenerationIdsKey ? lookupGenerationIdsKey.split('\0') : [],
+            })
+        }
+    }, [cached, ensureGenerationSentimentLoaded, loading, lookupGenerationIdsKey, lookupKey, lookupTraceId])
+
+    if (loading || cached === undefined) {
+        return <AIDataLoading variant="inline" />
+    }
+
+    if (cached === null) {
+        return <>–</>
+    }
+
+    return <SentimentBar label={cached.label} score={cached.score} size="full" messages={cached.messages} />
+}
+
+function LazyTraceReviewColumnCell({ traceId }: { traceId: string }): JSX.Element {
+    const { getTraceReview, isTraceLoading, didTraceReviewLoadFail } = useValues(traceReviewsLazyLoaderLogic)
+    const { ensureReviewsLoaded } = useActions(traceReviewsLazyLoaderLogic)
+    const cached = typeof getTraceReview === 'function' ? getTraceReview(traceId) : undefined
+    const loading = typeof isTraceLoading === 'function' ? isTraceLoading(traceId) : false
+    const failed = typeof didTraceReviewLoadFail === 'function' ? didTraceReviewLoadFail(traceId) : false
+
+    useEffect(() => {
+        if (!traceId || cached !== undefined || loading || failed) {
+            return
+        }
+
+        ensureReviewsLoaded([traceId])
+    }, [cached, ensureReviewsLoaded, failed, loading, traceId])
+
+    if (loading || cached === undefined) {
+        if (failed) {
+            return (
+                <Tooltip title="Failed to load review status.">
+                    <LemonButton type="tertiary" size="xsmall" onClick={() => ensureReviewsLoaded([traceId])}>
+                        Retry
+                    </LemonButton>
+                </Tooltip>
+            )
+        }
+
+        return <AIDataLoading variant="inline" />
+    }
+
+    if (cached === null) {
+        return <>–</>
+    }
+
+    return <TraceReviewValue review={cached} />
+}
+
+function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
+    const { input, isLoading } = useAIData(eventData)
+
+    if (isLoading) {
+        return <AIDataLoading variant="inline" />
+    }
+
+    let inputNormalized: CompatMessage[] | undefined
+    try {
+        const parsed = parseJSONPreview(input)
+        inputNormalized = normalizeMessages(parsed, 'user').messages
+    } catch (e) {
+        console.warn('Error normalizing properties.$ai_input', e)
+    }
+
+    if (!inputNormalized?.length) {
+        return <>–</>
+    }
+
+    return <LLMMessageDisplay message={inputNormalized.at(-1)!} isOutput={false} minimal />
+}
+
+function AIOutputCell({ eventData }: { eventData: EventData }): JSX.Element {
+    const { output, isLoading } = useAIData(eventData)
+
+    if (isLoading) {
+        return <AIDataLoading variant="inline" />
+    }
+
+    let outputNormalized: CompatMessage[] | undefined
+    try {
+        const parsed = parseJSONPreview(output)
+        outputNormalized = normalizeMessages(parsed, 'assistant').messages
+    } catch (e) {
+        console.warn('Error normalizing properties.$ai_output_choices', e)
+    }
+
+    if (!outputNormalized?.length) {
+        return <>–</>
+    }
+
+    return (
+        <div>
+            {outputNormalized.map((message, index) => (
+                <LLMMessageDisplay key={index} message={message} isOutput={true} minimal />
+            ))}
+        </div>
+    )
+}
+
+const getEventData = (record: unknown, query?: DataTableNode | DataVisualizationNode): EventData | undefined => {
+    // Object format (TracesQuery results)
+    if (record && typeof record === 'object' && !Array.isArray(record) && 'uuid' in record) {
+        const uuid = record.uuid
+        if (typeof uuid !== 'string') {
+            return undefined
+        }
+        const props = 'properties' in record && typeof record.properties === 'object' ? record.properties : null
+        return {
+            uuid,
+            input: (props as Record<string, unknown> | null)?.$ai_input,
+            output: (props as Record<string, unknown> | null)?.$ai_output_choices,
+        }
+    }
+
+    // Array format (EventsQuery results)
+    if (Array.isArray(record) && isDataTableNode(query) && isEventsQuery(query.source)) {
+        const select = query.source.select ?? []
+        const uuidIdx = select.findIndex((c) => c === 'uuid')
+        const inputIdx = select.findIndex((c) => c === 'properties.$ai_input' || c === 'properties.$ai_input[-1]')
+        const outputIdx = select.findIndex((c) => c === 'properties.$ai_output_choices')
+
+        const uuid = record[uuidIdx]
+        if (typeof uuid !== 'string') {
+            return undefined
+        }
+
+        return {
+            uuid,
+            input: inputIdx >= 0 ? record[inputIdx] : undefined,
+            output: outputIdx >= 0 ? record[outputIdx] : undefined,
+        }
+    }
+
+    return undefined
+}
+
+const MAX_VISIBLE_TOOLS = 5
+
+export function ToolsDisplay({ tools }: { tools: string[] | undefined | null }): JSX.Element {
+    if (!tools || tools.length === 0) {
+        return <>–</>
+    }
+    const visible = tools.slice(0, MAX_VISIBLE_TOOLS)
+    const remaining = tools.length - MAX_VISIBLE_TOOLS
+    return (
+        <div className="flex flex-wrap gap-1">
+            {visible.map((tool) => (
+                <LemonTag key={tool} type="muted">
+                    {tool}
+                </LemonTag>
+            ))}
+            {remaining > 0 && (
+                <Tooltip title={tools.slice(MAX_VISIBLE_TOOLS).join(', ')}>
+                    <LemonTag type="muted">+{remaining} more</LemonTag>
+                </Tooltip>
+            )}
+        </div>
+    )
+}
+
+export const aiObservabilityColumnRenderers: Record<string, QueryContextColumn> = {
+    'properties.$ai_input[-1]': {
+        title: 'Input',
+        render: ({ record, query }) => {
+            const eventData = getEventData(record, query)
+            if (!eventData) {
+                return <>–</>
+            }
+            return <AIInputCell eventData={eventData} />
+        },
+    },
+    'properties.$ai_input': {
+        title: 'Input (full)',
+        render: ({ record, query }) => {
+            const eventData = getEventData(record, query)
+            if (!eventData) {
+                return <>–</>
+            }
+            return <AIInputCell eventData={eventData} />
+        },
+    },
+    'properties.$ai_output_choices': {
+        title: 'Output',
+        render: ({ record, query }) => {
+            const eventData = getEventData(record, query)
+            if (!eventData) {
+                return <>–</>
+            }
+            return <AIOutputCell eventData={eventData} />
+        },
+    },
+    'properties.$ai_trace_id': {
+        title: 'Trace ID',
+        render: ({ value }) => {
+            if (!value || typeof value !== 'string') {
+                return null
+            }
+
+            const visualValue = truncateValue(value)
+
+            return (
+                <Tooltip title={value}>
+                    <Link to={urls.aiObservabilityTrace(value)} data-attr="generation-trace-link">
+                        {visualValue}
+                    </Link>
+                </Tooltip>
+            )
+        },
+    },
+    person: {
+        title: 'Person',
+        render: ({ value, record, query }) => {
+            // Handle TracesQuery results with lazy loading: person is null, distinctId is available
+            if (!value && record && typeof record === 'object' && !Array.isArray(record)) {
+                const traceRecord = record as LLMTrace
+                if (traceRecord.distinctId) {
+                    return <LazyPersonColumnCell distinctId={traceRecord.distinctId} />
+                }
+            }
+
+            // Handle object format (TracesQuery results - LLMTracePerson, for backwards compat)
+            if (value && typeof value === 'object' && !Array.isArray(value) && 'distinct_id' in value) {
+                return <PersonColumnCell person={value as PersonData} />
+            }
+
+            // Handle array format (EventsQuery results) - extract person from array by column index
+            if (Array.isArray(record) && isDataTableNode(query) && isEventsQuery(query.source)) {
+                const select = query.source.select ?? []
+                const personIdx = select.findIndex((c) => c === 'person')
+
+                if (personIdx >= 0) {
+                    const personValue = record[personIdx]
+
+                    // Person data from EventsQuery comes as a tuple [distinct_id, created_at, properties_json]
+                    if (Array.isArray(personValue) && personValue.length >= 3) {
+                        const [distinctId, , propertiesJson] = personValue
+                        let properties: Record<string, unknown> = {}
+
+                        try {
+                            properties = typeof propertiesJson === 'string' ? JSON.parse(propertiesJson) : {}
+                        } catch {
+                            // Ignore parsing errors
+                        }
+
+                        return <PersonColumnCell person={{ distinct_id: distinctId, properties }} />
+                    }
+                }
+            }
+
+            return <PersonColumnCell person={null} />
+        },
+    },
+    // Uses __llm_sentiment to avoid collision with user-defined 'sentiment' columns in SQL queries
+    __llm_sentiment: {
+        title: 'Sentiment',
+        render: ({ record }) => {
+            if (!record || typeof record !== 'object' || Array.isArray(record)) {
+                return <>–</>
+            }
+            const traceRecord = record as LLMTrace
+            if (!traceRecord.sentiment) {
+                return <>–</>
+            }
+            return (
+                <SentimentBar
+                    label={traceRecord.sentiment.label}
+                    score={traceRecord.sentiment.score}
+                    size="full"
+                    messages={traceRecord.sentiment.messages}
+                />
+            )
+        },
+    },
+    [GENERATION_SENTIMENT_SELECT]: {
+        title: 'Sentiment',
+        render: ({ record, query }) => {
+            if (!isDataTableNode(query)) {
+                return <>–</>
+            }
+
+            const lookup = getGenerationSentimentLookup(record, query)
+            return lookup ? <LazyGenerationSentimentCell lookup={lookup} /> : <>–</>
+        },
+    },
+    'properties.$ai_tools_called': {
+        title: 'Tools',
+        render: ({ value }) => {
+            if (!value || typeof value !== 'string') {
+                return <>–</>
+            }
+            const tools = [
+                ...new Set(
+                    value
+                        .split(',')
+                        .map((t) => t.trim())
+                        .filter(Boolean)
+                ),
+            ]
+            return <ToolsDisplay tools={tools} />
+        },
+    },
+    // Uses __llm_tools to avoid collision with user-defined 'tools' columns in SQL queries
+    __llm_tools: {
+        title: 'Tools',
+        render: ({ record }) => {
+            const row = record as LLMTrace
+            return <ToolsDisplay tools={row.tools} />
+        },
+    },
+    review: {
+        title: 'Review',
+        render: ({ record }) => {
+            if (!record || typeof record !== 'object' || Array.isArray(record)) {
+                return <>–</>
+            }
+
+            const traceRecord = record as LLMTrace
+            if (!traceRecord.id) {
+                return <>–</>
+            }
+
+            return <LazyTraceReviewColumnCell traceId={traceRecord.id} />
+        },
+    },
+    // LLM person column for Users tab - clicking filter redirects to traces page
+    // Uses __llm_person to avoid collision with user-defined 'user' columns in SQL queries
+    __llm_person: {
+        title: 'Person',
+        render: ({ value }) => {
+            // User data from HogQL query comes as a tuple [distinct_id, created_at, properties_json]
+            if (Array.isArray(value) && value.length >= 3) {
+                const [distinctId, , propertiesJson] = value
+                let properties: Record<string, unknown> = {}
+
+                try {
+                    properties = typeof propertiesJson === 'string' ? JSON.parse(propertiesJson) : {}
+                } catch {
+                    // Ignore parsing errors
+                }
+
+                return <PersonColumnCellWithRedirect person={{ distinct_id: distinctId, properties }} />
+            }
+
+            return <PersonColumnCellWithRedirect person={null} />
+        },
+    },
+}

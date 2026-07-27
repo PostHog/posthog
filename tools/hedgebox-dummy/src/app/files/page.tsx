@@ -11,7 +11,7 @@ import { posthog } from '@/lib/posthog'
 import { formatFileSize, getFileIcon } from '@/lib/utils'
 import { HedgeboxFile } from '@/types'
 
-export default function FilesPage(): React.JSX.Element {
+export default function FilesPage(): React.JSX.Element | null {
     const { user } = useAuth()
 
     const [files, setFiles] = useState<HedgeboxFile[]>(sampleFiles)

@@ -253,6 +253,39 @@ class TestBuildRasterizationInput:
         assert result.activity_input is not None
         assert getattr(result.activity_input, field) == expected_value
 
+    @parameterized.expand(
+        [
+            ("in_range", 24, 24),
+            ("at_cap", 60, 60),
+            ("above_cap", 1000, 60),
+            ("absurd", 100_000, 60),
+        ]
+    )
+    def test_recording_fps_capped(self, _name, recording_fps, expected_fps):
+        asset = _make_asset(pk=50, export_context={"session_recording_id": "s1", "recording_fps": recording_fps})
+        patches, _ = _patches(asset)
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            result = build_rasterization_input(50)
+        assert result.activity_input is not None
+        assert result.activity_input.recording_fps == expected_fps
+
+    @parameterized.expand(
+        [
+            ("slow_motion_preserved", 0.5, 0.5),
+            ("default_in_range", 4, 4),
+            ("at_cap", 360, 360),
+            ("above_cap", 1000, 360),
+            ("absurd", 99_999, 360),
+        ]
+    )
+    def test_playback_speed_capped(self, _name, playback_speed, expected_speed):
+        asset = _make_asset(pk=50, export_context={"session_recording_id": "s1", "playback_speed": playback_speed})
+        patches, _ = _patches(asset)
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            result = build_rasterization_input(50)
+        assert result.activity_input is not None
+        assert result.activity_input.playback_speed == expected_speed
+
 
 class TestBuildRasterizationCache:
     def _ctx_with_render(self, fingerprint: str, **overrides) -> dict:

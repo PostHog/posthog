@@ -1,4 +1,4 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
 
@@ -21,14 +21,14 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'bash',
                                 file: 'Expo',
                                 code: dedent`
-                                    npx expo install posthog-react-native expo-file-system expo-application expo-device expo-localization posthog-react-native-session-replay
+                                    npx expo install posthog-react-native expo-file-system expo-application expo-device expo-localization @posthog/react-native-plugin
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add posthog-react-native @react-native-async-storage/async-storage react-native-device-info react-native-localize posthog-react-native-session-replay
+                                    yarn add posthog-react-native @react-native-async-storage/async-storage react-native-device-info react-native-localize @posthog/react-native-plugin
 
                                     # for iOS
                                     cd ios && pod install
@@ -38,7 +38,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm i -s posthog-react-native @react-native-async-storage/async-storage react-native-device-info react-native-localize posthog-react-native-session-replay
+                                    npm i -s posthog-react-native @react-native-async-storage/async-storage react-native-device-info react-native-localize @posthog/react-native-plugin
 
                                     # for iOS
                                     cd ios && pod install
@@ -46,6 +46,13 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                             },
                         ]}
                     />
+                    <CalloutBox type="fyi" title="Plugin renamed in 4.47.0+">
+                        <Markdown>
+                            {dedent`
+                                \`@posthog/react-native-plugin\` (\`>= 2.0.1\`) is the renamed \`posthog-react-native-session-replay\` plugin — it was renamed in \`posthog-react-native\` 4.47.0+ and now also powers [native error tracking](https://posthog.com/docs/error-tracking/installation/react-native). If you're on a \`posthog-react-native\` version earlier than 4.47.0, install \`posthog-react-native-session-replay\` instead.
+                            `}
+                        </Markdown>
+                    </CalloutBox>
                     <CalloutBox type="fyi" title="SDK version">
                         <Markdown>
                             Session replay requires PostHog React Native SDK version 3.2.0 or higher. We recommend

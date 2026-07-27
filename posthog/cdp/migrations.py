@@ -4,11 +4,12 @@ from typing import Any
 from django.db import transaction
 from django.db.models import Q
 
-from posthog.api.hog_function import HogFunctionSerializer
-from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.plugin import PluginAttachment, PluginConfig
 from posthog.models.team.team import Team
+
+from products.cdp.backend.api.hog_function import HogFunctionSerializer
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.plugin import PluginAttachment, PluginConfig
 
 # python manage.py migrate_plugins_to_hog_functions --dry-run --test-mode --kind=transformation
 

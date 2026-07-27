@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "archived": {
+            "type": "boolean"
+        },
+        "description": {
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this agent application.",
+            "type": "string"
+        },
+        "name": {
+            "maxLength": 255,
+            "type": "string"
+        },
+        "slug": {
+            "maxLength": 63,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

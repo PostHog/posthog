@@ -21,16 +21,15 @@ import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { urlForSubscriptions } from 'lib/components/Subscriptions/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { slugify } from 'lib/utils'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
+import { slugify } from 'lib/utils/strings'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -48,6 +47,8 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat, SidePanelTab } from '~/types'
+
+import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
@@ -81,7 +82,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const { startExport } = useActions(exportsLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
-    const { newTab } = useActions(sceneLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
@@ -102,6 +102,11 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     }
 
     const canShowDelete = canEditDashboard
+    // Creating an export requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
     const customerTemplateEditorAccess = userHasAccess(AccessControlResourceType.Dashboard, AccessControlLevel.Editor)
     const customerTemplateDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Dashboard,
@@ -185,7 +190,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                                     effectiveEditBarFilters,
                                     tile?.filters_overrides
                                 )
-                                newTab(url)
+                                newInternalTab(url)
                             })
                             setScenePanelOpen(false)
                         }}
@@ -198,6 +203,8 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                     {canEditDashboard && (
                         <SceneMenuBarSubMenu label="Export">
                             <SceneMenuBarItem
+                                disabled={!!exportAccessControlDisabledReason}
+                                tooltip={exportAccessControlDisabledReason ?? undefined}
                                 onClick={() =>
                                     startExport({
                                         export_format: ExporterFormat.PNG,

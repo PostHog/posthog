@@ -235,23 +235,9 @@ def ALTER_SHARDED_RAW_SESSIONS_TABLE_SETTINGS_V3():
     )
 
 
-SESSION_V3_LOWER_TIER_AD_IDS = [
-    "gclsrc",
-    "dclid",
-    "gbraid",
-    "wbraid",
-    "msclkid",
-    "twclid",
-    "li_fat_id",
-    "mc_cid",
-    "igshid",
-    "ttclid",
-    "epik",
-    "qclid",
-    "sccid",
-    "_kx",
-    "irclid",
-]
+# Re-exported from the Django-free posthog.raw_sessions_v3_ad_ids module so the HogQL schema can
+# use it without booting Django; kept importable here for existing callers.
+from posthog.raw_sessions_v3_ad_ids import SESSION_V3_LOWER_TIER_AD_IDS  # noqa: E402
 
 new_line = "\n"
 
@@ -683,8 +669,8 @@ def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3():
 # This is the view that can be queried directly, that handles aggregation of potentially multiple rows per session.
 # Most queries won't use this directly as they will want to pre-filter rows before aggregation, but it's useful for
 # debugging
-RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3 = (
-    lambda: f"""
+RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3 = lambda: (
+    f"""
 CREATE OR REPLACE VIEW {TABLE_BASE_NAME_V3}_v AS
 SELECT
     session_id_v7,

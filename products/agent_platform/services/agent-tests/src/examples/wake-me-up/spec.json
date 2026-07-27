@@ -1,0 +1,66 @@
+{
+    "models": { "mode": "manual", "models": [{ "model": "anthropic/claude-sonnet-4-6" }] },
+    "reasoning": "high",
+    "triggers": [
+        {
+            "type": "cron",
+            "config": {
+                "name": "morning-brief",
+                "schedule": "0 8 * * 1-5",
+                "timezone": "America/Los_Angeles",
+                "prompt": "Build the morning briefing for {fired_at:date}. Pull overnight signals (PostHog alerts, github PRs awaiting your review, mentions), filter to what's actionable, write the markdown report, and post the condensed Slack version. Carry forward any unchecked items from yesterday that aren't already resolved.",
+                "external_key": "wake-me-up:{fired_at:date}",
+                "catch_up": "most_recent",
+                "max_catch_up_age_seconds": 7200
+            }
+        },
+        {
+            "type": "slack",
+            "config": {
+                "mention_only": true,
+                "allow_direct_messages": true,
+                "trusted_workspaces": ["T0XXXXXXX"]
+            }
+        },
+        {
+            "type": "chat",
+            "config": {},
+            "auth": {
+                "modes": [{ "type": "posthog" }, { "type": "posthog_internal" }]
+            }
+        }
+    ],
+    "tools": [
+        { "kind": "native", "id": "@posthog/query" },
+        { "kind": "native", "id": "@posthog/http-request" },
+        { "kind": "native", "id": "@posthog/slack-post-message" },
+        { "kind": "native", "id": "@posthog/slack-read-channel" },
+        { "kind": "native", "id": "@posthog/memory-search" },
+        { "kind": "native", "id": "@posthog/memory-write" },
+        { "kind": "native", "id": "@posthog/memory-read" },
+        { "kind": "native", "id": "@posthog/table-query" },
+        { "kind": "native", "id": "@posthog/table-append" }
+    ],
+    "skills": [
+        {
+            "id": "briefing-template",
+            "path": "skills/briefing-template/SKILL.md",
+            "description": "The output schema — section order, tone, when to omit a section, how to tag items (🔥 stale review, 🆕 new today). Load AT THE START of every briefing build. The model has wide latitude on content; this skill pins the SHAPE so day-to-day briefings look the same."
+        },
+        {
+            "id": "carry-over",
+            "path": "skills/carry-over/SKILL.md",
+            "description": "Pulling unchecked items from yesterday's briefing and filtering out ones that are already resolved. Load whenever you're about to draft a new briefing — it's the first step."
+        },
+        {
+            "id": "slack-post-format",
+            "path": "skills/slack-post-format/SKILL.md",
+            "description": "Slack-flavored condensed version of the briefing — mrkdwn quirks, separator lines, mobile-readable. Load BEFORE the final slack-post-message call, not at briefing start. The local markdown file is the source of truth; this is the projection."
+        }
+    ],
+    "limits": {
+        "max_turns": 40,
+        "max_tool_calls": 80,
+        "max_wall_seconds": 600
+    }
+}

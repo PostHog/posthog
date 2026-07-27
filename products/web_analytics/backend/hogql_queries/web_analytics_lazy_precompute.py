@@ -1,0 +1,454 @@
+"""Shared lazy-precompute building blocks for web analytics query runners.
+
+The web overview and web stats table runners both serve eligible queries from
+on-demand precomputed ClickHouse tables via the `lazy_computation` framework.
+The pieces that do not depend on which runner is calling — eligibility gating,
+filter-expression construction, TTL/sizing constants, UTC-day helpers — live
+here so both `web_overview_lazy_precompute.py` and `web_stats_lazy_precompute.py`
+share one implementation.
+"""
+
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import Optional, Protocol, Union
+
+import structlog
+from prometheus_client import Counter
+
+from posthog.schema import WebOverviewQuery, WebStatsTableQuery, WebVitalsPathBreakdownQuery
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import find_placeholders
+from posthog.hogql.property import get_property_type, property_to_expr
+from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
+
+from posthog.models.team import Team
+
+from products.access_control.backend.facade.api import team_has_property_access_rules
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    LAZY_TTL_SECONDS,  # noqa: F401 — re-exported; several runners import it from this module
+    is_precompute_enabled_for_team,
+)
+
+logger = structlog.get_logger(__name__)
+
+
+# Counts requests refused by `can_use_lazy_precompute`. `family` is the
+# `log_prefix` (`web_overview` / `web_stats`); `reason` is the
+# `LazyPrecomputeIneligible` subclass name. Together with `_fallback_total`
+# and `_success_total`, callers can compute lazy adoption per family.
+WEB_ANALYTICS_LAZY_PRECOMPUTE_REJECTED = Counter(
+    "web_analytics_lazy_precompute_rejected_total",
+    "Requests refused by the lazy precompute gate, by family and rejection reason.",
+    ["family", "reason"],
+)
+
+# Counts requests that passed the gate but couldn't be served from precompute
+# (window empty, no jobs created, current/previous period not yet READY). The
+# caller falls back to the raw / v2 path on each of these.
+WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK = Counter(
+    "web_analytics_lazy_precompute_fallback_total",
+    "Lazy precompute fall-throughs after the gate accepted, by family and reason.",
+    ["family", "reason"],
+)
+
+# Counts requests where the lazy path successfully returned a precomputed row.
+WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS = Counter(
+    "web_analytics_lazy_precompute_success_total",
+    "Requests served from the lazy precompute path, by family.",
+    ["family"],
+)
+
+# Today the gate accepts: empty user filters, or a single EventPropertyFilter
+# on `$host` with operator `exact`. Test-account filters are always allowed
+# (their content is hashed into the cache key).
+SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
+
+# Upper bound on the precompute span. Above this, the framework would create
+# enough daily jobs that the first request burns INSERT slots for minutes.
+MAX_PRECOMPUTE_DAYS = 90
+
+# Forward pad on the per-job event-scan window. The lazy_computation framework
+# chunks the precompute span into daily UTC jobs; each job covers
+# `[time_window_min, time_window_max)`. A session starting at 23:50 with events
+# spilling past midnight would lose its trailing events without a forward pad —
+# the HAVING clause attributes the session to its start hour, but the events
+# table scan needs to see those trailing events to compute correct per-session
+# aggregates. Forward-only is sufficient: the HAVING keeps only sessions whose
+# `min(session.$start_timestamp)` falls inside the job window, and every event
+# of such a session has `timestamp >= session.$start_timestamp`, so backward
+# scanning never picks up anything that survives HAVING.
+#
+# Sessions longer than 24 h crossing a UTC-day boundary are silently
+# undercounted — a documented limitation, not a sizing target (24 h is the
+# posthog-js hard cap, covering effectively the whole population).
+SESSION_FORWARD_PAD_MINUTES = 24 * 60
+
+
+class LazyPrecomputeRunner(Protocol):
+    """Structural type for the attributes the shared helpers read off a runner.
+
+    `WebOverviewQueryRunner`, `WebStatsTableQueryRunner` and
+    `WebVitalsPathBreakdownQueryRunner` all satisfy this.
+    """
+
+    team: Team
+
+    @property
+    def query(self) -> Union[WebOverviewQuery, WebStatsTableQuery, WebVitalsPathBreakdownQuery]: ...
+
+    @property
+    def query_date_range(self) -> object: ...
+
+    @property
+    def _test_account_filters(self) -> list: ...
+
+    @property
+    def events_session_property(self) -> ast.Expr: ...
+
+
+class LazyPrecomputeIneligible(Exception):
+    """Base class for reasons the lazy precompute path is not eligible.
+
+    Raised by the eligibility checks and caught by `can_use_lazy_precompute`,
+    which logs the exception class name. Subclass names are the canonical
+    identifiers used in logs/metrics — keep them stable across releases.
+    """
+
+
+class OrgFeatureFlagDisabled(LazyPrecomputeIneligible):
+    pass
+
+
+class PerQueryOptedOut(LazyPrecomputeIneligible):
+    """The user explicitly turned the "Allow precompute" toggle off."""
+
+    pass
+
+
+class NonIntegerTimezone(LazyPrecomputeIneligible):
+    pass
+
+
+class ConversionGoalUnsupported(LazyPrecomputeIneligible):
+    pass
+
+
+class SamplingEnabled(LazyPrecomputeIneligible):
+    pass
+
+
+class SessionsV2UuidMode(LazyPrecomputeIneligible):
+    pass
+
+
+class TooManyFilters(LazyPrecomputeIneligible):
+    pass
+
+
+class NonEventPropertyFilter(LazyPrecomputeIneligible):
+    pass
+
+
+class UnsupportedFilterKey(LazyPrecomputeIneligible):
+    def __init__(self, key: str):
+        self.key = key
+        super().__init__(f"key={key!r}")
+
+
+class UnsupportedFilterOperator(LazyPrecomputeIneligible):
+    def __init__(self, operator: object):
+        self.operator = operator
+        super().__init__(f"operator={operator!r}")
+
+
+class NonStringOrEmptyFilterValue(LazyPrecomputeIneligible):
+    pass
+
+
+class UnsupportedFilterType(LazyPrecomputeIneligible):
+    """A filter is not an event/person property — precompute only handles those,
+    since session/cohort filters are applied differently on the live path per family."""
+
+    def __init__(self, filter_type: object):
+        self.filter_type = filter_type
+        super().__init__(f"type={filter_type!r}")
+
+
+class PropertyAccessControlled(LazyPrecomputeIneligible):
+    """The team has property-level access controls — userless shared precompute
+    can't honor per-user property restrictions, so the query stays on the live path."""
+
+
+class MissingDateRange(LazyPrecomputeIneligible):
+    pass
+
+
+class DateRangeOverMax(LazyPrecomputeIneligible):
+    def __init__(self, days: int):
+        self.days = days
+        super().__init__(f"days={days} max={MAX_PRECOMPUTE_DAYS}")
+
+
+def can_use_lazy_precompute(
+    runner: LazyPrecomputeRunner,
+    *,
+    log_prefix: str,
+    extra_check: Optional[Callable[[LazyPrecomputeRunner], None]] = None,
+    require_integer_timezone: bool = True,
+) -> bool:
+    """Return True iff the lazy precompute gate is eligible. Logs the rejection
+    reason at INFO level so every fall-through can be attributed.
+
+    `log_prefix` differentiates the log event name per runner (e.g.
+    `web_overview` / `web_stats`). `extra_check` lets a runner add its own
+    eligibility checks — it must raise a `LazyPrecomputeIneligible` subclass on
+    rejection, and runs after the shared checks pass. `require_integer_timezone`
+    can be opted out by runners whose bucket key is computed in the team's
+    timezone (and therefore aligns cleanly for half-hour-offset teams too).
+    """
+    try:
+        check_common_eligible(runner, require_integer_timezone=require_integer_timezone)
+        if extra_check is not None:
+            extra_check(runner)
+    except LazyPrecomputeIneligible as exc:
+        reason = type(exc).__name__
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_REJECTED.labels(family=log_prefix, reason=reason).inc()
+        logger.info(
+            f"{log_prefix}_lazy_precompute_rejected",
+            team_id=runner.team.pk,
+            reason=reason,
+            detail=str(exc) or None,
+        )
+        return False
+    logger.info(
+        f"{log_prefix}_lazy_precompute_eligible",
+        team_id=runner.team.pk,
+    )
+    return True
+
+
+def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timezone: bool = True) -> None:
+    """Raise a `LazyPrecomputeIneligible` subclass if the query can't go through
+    the lazy path on grounds that apply to every web analytics runner. Returns
+    None on success.
+
+    `require_integer_timezone` defaults to True for hourly-UTC-bucketed runners
+    (overview, stats). Runners that bucket in the team's timezone can opt out.
+    """
+    query = runner.query
+
+    # Rollout gate: shared PostHog feature flag AND per-query opt-out.
+    #   - `web-analytics-precompute-toggle` (PostHog feature flag): the same
+    #     flag the frontend already uses to show/hide the "Allow precompute"
+    #     button in the Web Analytics ScenePanel. The flag is evaluated at the
+    #     organization level. The SDK swallows its own exceptions and returns
+    #     None (falsy) on failure, so a flag-service outage fails-closed.
+    #   - `query.useWebAnalyticsPrecompute` (per-query parameter set by the
+    #     "Allow precompute" toggle): precompute defaults ON for every enrolled
+    #     team — an untouched toggle (`None`) takes the precompute path; only an
+    #     explicit `False` opts a query out.
+    if not is_precompute_enabled_for_team(runner.team):
+        raise OrgFeatureFlagDisabled()
+
+    if query.useWebAnalyticsPrecompute is False:
+        raise PerQueryOptedOut()
+
+    # Half-hour-offset timezones (IST +5:30, Newfoundland -3:30, Nepal +5:45, etc.)
+    # can't be served by UTC hourly buckets without sub-hour precision. Skip them
+    # rather than return wrong totals on the boundary days. Runners that bucket
+    # by team-tz day instead (e.g. web vitals) can opt out of this check.
+    if require_integer_timezone and not is_integer_timezone(runner.team.timezone):
+        raise NonIntegerTimezone()
+
+    if query.conversionGoal is not None:
+        raise ConversionGoalUnsupported()
+
+    if query.sampling is not None and getattr(query.sampling, "enabled", False):
+        raise SamplingEnabled()
+
+    # UUID session-id mode produces `uniqState(UUID)` from
+    # `events.$session_id_uuid`, which fails to insert into the web overview
+    # table's `uniq_sessions_state AggregateFunction(uniq, String)` column. The
+    # web stats table has no session-uniq column (it stores `uniq, UUID` user
+    # state only), so this gate is conservative there — kept shared for
+    # simplicity until the web overview column is re-typed in a follow-up.
+    if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid":
+        raise SessionsV2UuidMode()
+
+    # Any event/person filter shape is accepted (any key, operator, count), translated
+    # as a whole via `user_filter_expr`; each distinct set becomes its own cache key,
+    # bounded by the per-team shape ceiling in `web_ensure_precomputed`. Session and
+    # cohort filters are refused: the precompute INSERT applies the whole list userlessly,
+    # but the live runners handle those types differently per family (web vitals drops
+    # them entirely), so precomputing them would serve a different population than the
+    # live fallback. Those queries fall through to the live path, which applies them right.
+    for prop in query.properties or []:
+        if get_property_type(prop) not in ("event", "person"):
+            raise UnsupportedFilterType(get_property_type(prop))
+
+    # Precompute results are built userless and shared by a user-independent cache
+    # key, so they cannot honor per-user property restrictions. If the team has any
+    # property-level access controls, skip precompute and let the live path enforce
+    # them per requesting user.
+    if team_has_property_access_rules(team_id=runner.team.id):
+        raise PropertyAccessControlled()
+
+    date_from = runner.query_date_range.date_from()  # type: ignore[attr-defined]
+    date_to = runner.query_date_range.date_to()  # type: ignore[attr-defined]
+    if date_from is None or date_to is None:
+        raise MissingDateRange()
+
+    days = (date_to - date_from).days
+    if days > MAX_PRECOMPUTE_DAYS:
+        raise DateRangeOverMax(days)
+
+
+def is_constant_true(expr: ast.Expr) -> bool:
+    """True when a substituted filter placeholder is the trivial `Constant(True)` —
+    i.e. the cache key carries no user or test-account filter."""
+    return isinstance(expr, ast.Constant) and expr.value is True
+
+
+# The line every no-join insert template's sessions-side WHERE ends with; the
+# session-id-set variants splice their id filter right after it.
+_SESSIONS_SIDE_ANCHOR = "or(sessions.$pageview_count > 0, sessions.$screen_count > 0),"
+
+# Sessions-side id-set filter for FILTERED insert keys: restrict the sessions scan
+# to sessions with at least one event matching the key's filters — the same session
+# membership the join insert template produces (full filters; a session qualifies
+# via ANY matching event in the padded window). `build_direct_session_id_in_pushdown`
+# rewrites the IN below the per-session GROUP BY when the caller passes modifiers
+# with `sessionIdPushdown=True` to `ensure_precomputed`.
+#
+# No selectivity preflight, deliberately. The concern a preflight would guard —
+# a broad filter putting a whole day of a huge team's sessions into the GLOBAL IN
+# set — is bounded and strictly cheaper than the alternative it replaces: the id
+# set costs ~190 MiB per million ids, a single day of the largest teams runs
+# low-single-digit millions of sessions, and the SAME key on the JOIN template
+# builds per-shard hash tables of those sessions PLUS their events (prod-measured
+# 4-8x the memory and read of the id-set shape). Falling back to the join on
+# "set too big" would therefore increase resource use, not cap it. Distinct-key
+# amplification (minting cache keys via filter values) is a property of filtered
+# precompute as such, not of this shape, and is bounded by the same controls as
+# today: the `WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS` allowlist, per-insert memory
+# limits (`_get_insert_settings`), and the OOM-pin machinery capping repeat
+# offenders to 1-day windows.
+_INSERT_SESSION_ID_SET_FILTER_SQL = """sessions.session_id_v7 IN (
+            SELECT DISTINCT events.$session_id_uuid
+            FROM events
+            WHERE and(
+                events.$session_id_uuid IS NOT NULL,
+                equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+                {event_type_filter},
+                timestamp >= {time_window_min},
+                timestamp < ({time_window_max} + toIntervalMinute({pad_minutes})),
+                {user_filter},
+                {test_account_filter}
+            )
+        ),"""
+
+
+def with_insert_session_id_set_filter(no_join_template: str) -> str:
+    """Derive the filtered (session-id-set) variant of a no-join insert template.
+
+    Splices the id-set filter into the sessions-side WHERE, leaving the source
+    template untouched — the unfiltered variant must stay byte-identical so
+    existing unfiltered jobs keep their AST hash and are not re-keyed."""
+    assert no_join_template.count(_SESSIONS_SIDE_ANCHOR) == 1, "no-join template sessions-side anchor drifted"
+    return no_join_template.replace(
+        _SESSIONS_SIDE_ANCHOR,
+        _SESSIONS_SIDE_ANCHOR + "\n        " + _INSERT_SESSION_ID_SET_FILTER_SQL,
+    )
+
+
+class _PartialPlaceholderReplacer(CloningVisitor):
+    """Substitute only the given placeholders, leaving unknown ones (the
+    framework-managed `{time_window_min}`/`{time_window_max}`) as `ast.Placeholder`
+    nodes for `ensure_precomputed` to fill per job."""
+
+    def __init__(self, placeholders: dict[str, ast.Expr]) -> None:
+        super().__init__()
+        self.placeholders = placeholders
+
+    def visit_placeholder(self, node: ast.Placeholder) -> ast.Expr:
+        chain = node.chain
+        if chain is not None and len(chain) == 1 and str(chain[0]) in self.placeholders:
+            return clone_expr(self.placeholders[str(chain[0])])
+        return super().visit_placeholder(node)
+
+
+class _GlobalizeSessionTupleIn(TraversingVisitor):
+    """Upgrade `(sessions.session_id_v7, ...) IN (subquery)` to GLOBAL IN.
+
+    HogQL has no grammar for `GLOBAL IN`, and the sessions_v2 pushdown rewrite
+    only handles the single-column `session_id_v7 IN` form — without the upgrade
+    a distributed read would execute the tuple's right-side subquery once per
+    shard, which is exactly the amplification the id-set shape exists to avoid."""
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if (
+            node.op == ast.CompareOperationOp.In
+            and isinstance(node.left, ast.Tuple)
+            and len(node.left.exprs) > 0
+            and isinstance(node.left.exprs[0], ast.Field)
+            and node.left.exprs[0].chain[-1] == "session_id_v7"
+        ):
+            node.op = ast.CompareOperationOp.GlobalIn
+        super().visit_compare_operation(node)
+
+
+def build_insert_select_ast(template: str, placeholders: dict[str, ast.Expr]) -> ast.SelectQuery:
+    """Parse an insert template into the `ast.SelectQuery` form of `ensure_precomputed`'s
+    `insert_query`, with every placeholder except the framework-managed time windows
+    substituted, and session-id tuple INs upgraded to GLOBAL IN (no HogQL grammar for it)."""
+    parsed = parse_select(template)
+    node = _PartialPlaceholderReplacer(placeholders).visit(parsed)
+    assert isinstance(node, ast.SelectQuery)
+    _GlobalizeSessionTupleIn().visit(node)
+    leftover = {str(chain[0]) for chain in find_placeholders(node).placeholder_fields}
+    assert leftover <= {"time_window_min", "time_window_max"}, f"unsubstituted placeholders: {leftover}"
+    return node
+
+
+def user_filter_expr(runner: LazyPrecomputeRunner) -> ast.Expr:
+    """Build the AST expression that gets substituted into the INSERT's WHERE clause.
+
+    The substituted AST is what `ensure_precomputed` hashes into the cache key —
+    different filter values therefore become different precomputed jobs.
+    """
+    if not runner.query.properties:
+        return ast.Constant(value=True)
+
+    # Any filter list is translated via the general `property_to_expr`; each distinct
+    # filter set becomes a distinct cache key. Filters the INSERT can't express fail the
+    # job and fall back to the live query automatically.
+    return property_to_expr(runner.query.properties, team=runner.team)
+
+
+def test_account_filter_expr(runner: LazyPrecomputeRunner) -> ast.Expr:
+    """Test-account filters land in the placeholder set, so they also shape the cache key.
+
+    `_test_account_filters` may be an empty list when filterTestAccounts is False
+    or the project has none configured.
+    """
+    if not runner._test_account_filters:
+        return ast.Constant(value=True)
+    return property_to_expr(runner._test_account_filters, team=runner.team)
+
+
+def events_session_id_expr(runner: LazyPrecomputeRunner) -> ast.Expr:
+    return runner.events_session_property
+
+
+def floor_utc_day(dt_utc: datetime) -> datetime:
+    return datetime(dt_utc.year, dt_utc.month, dt_utc.day, tzinfo=UTC)
+
+
+def ceil_utc_day(dt_utc: datetime) -> datetime:
+    floor = floor_utc_day(dt_utc)
+    if floor == dt_utc:
+        return floor
+    return floor + timedelta(days=1)

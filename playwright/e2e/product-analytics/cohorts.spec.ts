@@ -1,9 +1,16 @@
 import { CohortPage } from '../../page-models/cohortPage'
 import { randomString } from '../../utils'
-import { expect, test } from '../../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Cohorts', () => {
-    test.beforeEach(async ({ page }) => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        // Dedicated empty workspace per test — no shared demo team, so the cohorts list
+        // only ever contains what this test creates.
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+        await playwrightSetup.login(page, workspace)
+
         await page.goToMenuItem('people')
         await page.goToMenuItem('cohorts')
 
@@ -21,35 +28,5 @@ test.describe('Cohorts', () => {
         await page.goToMenuItem('cohorts')
 
         await expect(page.locator('tbody')).toContainText(name)
-    })
-
-    // works locally fails in CI
-    test.skip('Duplicate a cohort', async ({ page }) => {
-        const name = randomString('Test-Cohort-')
-
-        await new CohortPage(page).createCohort(name)
-
-        await page.goToMenuItem('people')
-        await page.goToMenuItem('cohorts')
-
-        // navigate to the page
-        await page.click('tbody >> text=' + name)
-        await expect(page.getByTestId('top-bar-name').getByText('Test-Cohort--')).toBeVisible()
-        await page.click('.TopBar3000 [data-attr="more-button"]', { force: true })
-        // click edit
-        await page.click('.Popover__content >> text=Duplicate as dynamic cohort')
-        await page.click('.Toastify__toast-body >> text=View cohort')
-
-        await page.click('.TopBar3000 [data-attr="more-button"]')
-        await page.click('.Popover__content >> text=Duplicate as static cohort')
-        await page.click('.Toastify__toast-body >> text=View cohort')
-
-        await page.click('[data-attr="more-button"]')
-        await page.click('.Popover__content >> text=Delete cohort')
-
-        await page.goToMenuItem('people')
-        await page.goToMenuItem('cohorts')
-
-        await expect(page.locator('tbody')).not.toContainText(name + ' (dynamic copy) (static copy)')
     })
 })

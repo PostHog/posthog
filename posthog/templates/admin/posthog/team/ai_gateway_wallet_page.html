@@ -1,0 +1,11 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<h2>AI gateway wallet — {{ team.name }}</h2>
+{% if error %}
+    <p><em>({{ error }})</em></p>
+{% else %}
+    {% include "admin/posthog/team/ai_gateway_wallet.html" %}
+{% endif %}
+<p style="margin-top: 16px;"><a href="{% url 'admin:posthog_team_change' team.pk %}">← Back to team</a></p>
+{% endblock %}

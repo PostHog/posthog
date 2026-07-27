@@ -73,6 +73,7 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
 
     host: str = settings.CLICKHOUSE_HOST
     cluster: str | None = None
+    retry_max_attempts: int = 8
 
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
         return get_cluster(
@@ -81,8 +82,39 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
             cluster=self.cluster,
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
-                max_attempts=8,
-                delay=ExponentialBackoff(20),
+                max_attempts=self.retry_max_attempts,
+                delay=ExponentialBackoff(20, max_delay=60),
+                exceptions=_is_retryable_clickhouse_exception,
+            ),
+        )
+
+
+class OpsClickhouseClusterResource(dagster.ConfigurableResource):
+    max_execution_time: int
+    max_memory_usage: int
+
+    # OPS is discoverable only from the migrations host/cluster: satellite discovery runs
+    # clusterAllReplicas(ops, system.clusters) WHERE cluster = <migrations cluster>, which the default
+    # app host/cluster don't match. Mirrors get_migrations_cluster, the path migrations use to reach OPS.
+    host: str = settings.CLICKHOUSE_MIGRATIONS_HOST
+    cluster: str = settings.CLICKHOUSE_MIGRATIONS_CLUSTER
+
+    def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
+        return get_cluster(
+            context.log,
+            host=self.host,
+            cluster=self.cluster,
+            satellite_clusters=[settings.CLICKHOUSE_OPS_CLUSTER],
+            client_settings={
+                "max_execution_time": str(self.max_execution_time),
+                "max_memory_usage": str(self.max_memory_usage),
+                # Socket read timeout must outlast the query's own time cap.
+                "receive_timeout": str(self.max_execution_time + 300),
+                "mutations_sync": "0",
+            },
+            retry_policy=RetryPolicy(
+                max_attempts=2,
+                delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
         )
@@ -125,7 +157,7 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
-                delay=ExponentialBackoff(20),
+                delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
             connection_overrides={"user": user, "password": password},
@@ -162,7 +194,7 @@ class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
-                delay=ExponentialBackoff(20),
+                delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
             connection_overrides={"user": user, "password": password},
@@ -242,7 +274,7 @@ class PostgresURLResource(dagster.ConfigurableResource):
 
 
 @dagster.resource
-def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer, None, None]:
+def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer]:
     """Yield a singleton Kafka producer bound to the INGESTION (WarpStream) profile; flush on teardown.
 
     Every existing consumer of this resource (`detach_distinct_id_op`,

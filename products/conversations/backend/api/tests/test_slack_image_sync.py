@@ -4,7 +4,11 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.conversations.backend.slack import _download_slack_image_bytes, extract_slack_files
+from products.conversations.backend.slack import (
+    _download_slack_image_bytes,
+    extract_slack_files,
+    split_slack_attachments,
+)
 from products.conversations.backend.tasks import _read_image_bytes_for_slack_upload, post_reply_to_slack
 
 VALID_PNG_BYTES = (
@@ -91,6 +95,62 @@ class TestSlackImageIngest(SimpleTestCase):
 
         assert images == []
         mock_save.assert_not_called()
+
+    @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
+    @patch("products.conversations.backend.slack._download_slack_image_bytes")
+    def test_extract_slack_files_keeps_non_image_file(self, mock_download: MagicMock, mock_save: MagicMock) -> None:
+        mock_download.return_value = b"%PDF-1.4 fake content"
+        mock_save.return_value = "https://app.posthog.com/uploaded_media/pdf"
+
+        fake_team = MagicMock()
+        fake_team.id = 1
+        fake_client = MagicMock()
+        fake_client.token = "xoxb-token"
+
+        files = [
+            {
+                "id": "F123",
+                "mimetype": "application/pdf",
+                "name": "invoice.pdf",
+                "url_private_download": "https://files.slack.com/files-pri/T/F/invoice.pdf",
+            }
+        ]
+        attachments = extract_slack_files(files, fake_team, fake_client)
+        images, file_attachments = split_slack_attachments(attachments)
+
+        assert images == []
+        assert len(file_attachments) == 1
+        assert file_attachments[0]["mimetype"] == "application/pdf"
+        assert file_attachments[0]["name"] == "invoice.pdf"
+        # Non-image bytes are stored without image validation
+        assert mock_save.call_args.kwargs["validate_images"] is False
+
+    @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
+    @patch("products.conversations.backend.slack._download_slack_image_bytes")
+    def test_extract_slack_files_sanitizes_markdown_in_name(
+        self, mock_download: MagicMock, mock_save: MagicMock
+    ) -> None:
+        mock_download.return_value = b"%PDF-1.4 fake content"
+        mock_save.return_value = "https://app.posthog.com/uploaded_media/pdf"
+
+        fake_team = MagicMock()
+        fake_team.id = 1
+        fake_client = MagicMock()
+        fake_client.token = "xoxb-token"
+
+        files = [
+            {
+                "id": "F123",
+                "mimetype": "application/pdf",
+                "name": "evil](https://phish.example.com).pdf",
+                "url_private_download": "https://files.slack.com/files-pri/T/F/evil.pdf",
+            }
+        ]
+        attachments = extract_slack_files(files, fake_team, fake_client)
+
+        # Markdown link syntax stripped so the name can't inject a link
+        assert "[" not in attachments[0]["name"]
+        assert "]" not in attachments[0]["name"]
 
 
 class TestSlackImageOutbound(SimpleTestCase):

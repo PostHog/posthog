@@ -1,16 +1,68 @@
 import { S3Client } from '@aws-sdk/client-s3'
+import { defaultProvider } from '@aws-sdk/credential-provider-node'
 import { Upload } from '@aws-sdk/lib-storage'
+import { NodeHttpHandler } from '@smithy/node-http-handler'
 import * as fs from 'fs'
+import { HttpsProxyAgent } from 'https-proxy-agent'
 
 import { config } from './config'
+import { RasterizationError } from './errors'
+import { createLogger } from './logger'
+
+const log = createLogger()
+
+// The AWS SDK attaches $responseBodyText to an error only when it could not parse the response body at
+// all, and hangs the HTTP response itself on a non-enumerable $response. Both are absent from its public
+// error type. That pair identifies the one failure worth translating: a proxy or gateway answering with
+// plaintext or an HTML error page instead of S3's XML, where the error the SDK raises describes its own
+// parser rather than the request, and the raw body is the only place the real reason survives.
+type UndecodableS3Response = {
+    $responseBodyText?: string
+    $response?: { statusCode?: number }
+}
+
+function undecodableResponse(err: unknown): { status?: number; body: string } | null {
+    const { $responseBodyText, $response } = (err ?? {}) as UndecodableS3Response
+    if (typeof $responseBodyText !== 'string') {
+        return null
+    }
+    return { status: $response?.statusCode, body: $responseBodyText.slice(0, 500) }
+}
 
 let s3Client: S3Client | null = null
 
+function resolveProxyUrl(): string | null {
+    const upstream =
+        process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
+    if (!upstream) {
+        return null
+    }
+    const killed = ['false', '0', 'no', 'off'].includes((process.env.RASTERIZER_USE_PROXY ?? '').trim().toLowerCase())
+    if (killed) {
+        log.warn(
+            { RASTERIZER_USE_PROXY: process.env.RASTERIZER_USE_PROXY },
+            'RASTERIZER_USE_PROXY disables egress proxy — s3 will dial direct'
+        )
+        return null
+    }
+    return upstream
+}
+
 function getS3Client(): S3Client {
     if (!s3Client) {
+        const proxyUrl = resolveProxyUrl()
+        const requestHandler = proxyUrl ? { httpsAgent: new HttpsProxyAgent(proxyUrl) } : undefined
         s3Client = new S3Client({
             region: config.s3Region,
             ...(config.s3Endpoint ? { endpoint: config.s3Endpoint, forcePathStyle: true } : {}),
+            ...(requestHandler ? { requestHandler } : {}),
+            // DO NOT REMOVE this credentials override. The SDK's nested STS client inherits
+            // the parent's requestHandler (parentClientConfig); without an explicit unproxied
+            // handler, IRSA STS credential refresh gets routed through the proxy, which rejects
+            // it (407) and fails every S3 upload.
+            ...(requestHandler
+                ? { credentials: defaultProvider({ clientConfig: { requestHandler: new NodeHttpHandler() } }) }
+                : {}),
         })
     }
     return s3Client
@@ -47,7 +99,29 @@ export async function uploadToS3(
         upload.on('httpUploadProgress', () => onProgress())
     }
 
-    await upload.done()
+    const target = `s3://${bucket}/${key}`
+    try {
+        await upload.done()
+    } catch (err) {
+        const undecodable = undecodableResponse(err)
+        if (!undecodable) {
+            throw err
+        }
+        // Bucket, key and the raw body stay in this log line. The thrown message reaches team users as
+        // ReplayObservation.error_reason, and the body is whatever an upstream proxy or gateway chose to
+        // return, so only the status code goes into it. Retryability is untouched: the workflow's retry
+        // policy keeps deciding, as it does for any other upload failure.
+        log.warn(
+            { bucket, key, status: undecodable.status, response_body: undecodable.body },
+            'S3 upload returned an unreadable response'
+        )
+        throw new RasterizationError(
+            `S3 upload failed: the object store returned an unreadable (non-XML) response (status ${undecodable.status ?? 'unknown'})`,
+            true,
+            'S3_UPLOAD_UNDECODABLE_RESPONSE',
+            err
+        )
+    }
 
-    return `s3://${bucket}/${key}`
+    return target
 }

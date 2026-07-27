@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import {
     __clearTaxonomicResourceCache,
     invalidateTaxonomicResource,
+    invalidateTaxonomicResourcesWhere,
     peekTaxonomicResource,
     useTaxonomicResource,
 } from './useTaxonomicResource'
@@ -210,6 +211,33 @@ describe('useTaxonomicResource', () => {
         rerender()
         await waitFor(() => expect(result.current.data).toBe('y'))
         expect(fn).toHaveBeenCalledTimes(2)
+    })
+
+    it('invalidateTaxonomicResourcesWhere() invalidates every key matching the predicate', async () => {
+        const fnA = jest.fn().mockResolvedValueOnce('a1').mockResolvedValueOnce('a2')
+        const fnB = jest.fn().mockResolvedValueOnce('b1').mockResolvedValueOnce('b2')
+        const fnC = jest.fn().mockResolvedValueOnce('c1')
+
+        const ra = renderHook(() => useTaxonomicResource(['taxonomic-list', 'cohorts', 'k1'], fnA))
+        const rb = renderHook(() => useTaxonomicResource(['taxonomic-list', 'cohorts', 'k2'], fnB))
+        const rc = renderHook(() => useTaxonomicResource(['taxonomic-list', 'events', 'k3'], fnC))
+
+        await waitFor(() => expect(ra.result.current.data).toBe('a1'))
+        await waitFor(() => expect(rb.result.current.data).toBe('b1'))
+        await waitFor(() => expect(rc.result.current.data).toBe('c1'))
+
+        // Invalidate only the cohort entries — events stays cached.
+        invalidateTaxonomicResourcesWhere((key) => key[0] === 'taxonomic-list' && key[1] === 'cohorts')
+
+        ra.rerender()
+        rb.rerender()
+        rc.rerender()
+
+        await waitFor(() => expect(ra.result.current.data).toBe('a2'))
+        await waitFor(() => expect(rb.result.current.data).toBe('b2'))
+        expect(fnA).toHaveBeenCalledTimes(2)
+        expect(fnB).toHaveBeenCalledTimes(2)
+        expect(fnC).toHaveBeenCalledTimes(1)
     })
 
     it('peekTaxonomicResource() returns current cached value', async () => {

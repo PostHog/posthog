@@ -1,3 +1,4 @@
+from typing import cast
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -19,7 +20,7 @@ def get_last_cached_domains(context: dagster.AssetExecutionContext, asset_key: s
     metadata = last_mat.asset_materialization.metadata
     cached_domains_meta = metadata.get("cached_domains")
     if cached_domains_meta and isinstance(cached_domains_meta, dagster.JsonMetadataValue):
-        return set(cached_domains_meta.value)
+        return set(cast(list[str], cached_domains_meta.value))
     return set()
 
 

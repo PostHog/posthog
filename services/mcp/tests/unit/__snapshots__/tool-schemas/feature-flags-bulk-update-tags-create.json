@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "action": {
+            "description": "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set",
+            "enum": ["add", "remove", "set"],
+            "type": "string"
+        },
+        "ids": {
+            "description": "List of object IDs to update tags on.",
+            "items": {
+                "type": "number"
+            },
+            "maxItems": 500,
+            "type": "array"
+        },
+        "tags": {
+            "description": "Tag names to add, remove, or set.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["ids", "action", "tags"],
+    "type": "object"
+}

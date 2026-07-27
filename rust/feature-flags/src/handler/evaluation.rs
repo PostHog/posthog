@@ -35,7 +35,8 @@ pub async fn evaluate_feature_flags(
     .with_skip_writes(context.skip_writes)
     .with_realtime_cohort_evaluation(context.enable_realtime_cohort_evaluation)
     .with_detailed_analysis(context.detailed_analysis)
-    .with_only_use_override_person_properties(context.only_use_override_person_properties);
+    .with_only_use_override_person_properties(context.only_use_override_person_properties)
+    .with_timezone(context.team_timezone);
 
     matcher
         .evaluate_all_feature_flags(

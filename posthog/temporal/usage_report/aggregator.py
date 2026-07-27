@@ -113,6 +113,7 @@ def build_manifest(
         date=ctx.date_str,
         period_start=ctx.period_start,
         period_end=ctx.period_end,
+        report_completeness=ctx.report_completeness,
         region=region,
         site_url=settings.SITE_URL,
         bucket=bucket(),

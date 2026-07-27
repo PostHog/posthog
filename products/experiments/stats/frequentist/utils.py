@@ -230,6 +230,126 @@ def validate_sample_sizes(treatment_stat: AnyStatistic, control_stat: AnyStatist
         raise StatisticError(f"Control sample size ({control_n}) below minimum ({min_sample_size})")
 
 
+def sequential_rho(alpha: float, sequential_tuning_parameter: float) -> float:
+    """
+    Convert the sequential testing tuning parameter `N` into the mixing parameter `rho`.
+
+    Implements eq. 161 of Waudby-Smith et al. 2023 (two-sided form):
+        rho = sqrt( ( -2*ln(alpha) + ln(-2*ln(alpha) + 1) ) / N )
+
+    Args:
+        alpha: Significance level (must be in (0, 1)).
+        sequential_tuning_parameter: Positive number `N` controlling where along the
+            data-collection timeline the confidence sequence is tightest.
+
+    Returns:
+        The mixing parameter rho.
+    """
+    if not (0 < alpha < 1):
+        raise StatisticError("Alpha must be between 0 and 1")
+    if sequential_tuning_parameter <= 0:
+        raise StatisticError("Sequential tuning parameter must be positive")
+
+    log_alpha = np.log(alpha)
+    return float(np.sqrt((-2 * log_alpha + np.log(-2 * log_alpha + 1)) / sequential_tuning_parameter))
+
+
+def sequential_interval_halfwidth(
+    s2: float,
+    n: int,
+    sequential_tuning_parameter: float,
+    alpha: float,
+    rho: float | None = None,
+) -> float:
+    """
+    Half-width of the two-sided always-valid confidence sequence.
+
+    Implements eq. 9 of Waudby-Smith et al. 2023:
+        halfwidth = sqrt(s2) * sqrt( 2*(n*rho^2 + 1) * ln(sqrt(n*rho^2 + 1)/alpha) / (n*rho)^2 )
+
+    `s2` here is the per-observation variance (matching the paper's notation), NOT the
+    variance of the estimator. For a two-sample test where the caller has
+    SE^2 = Var_T/n_T + Var_C/n_C, the corresponding per-observation analog to pass in
+    is `SE^2 * (n_T + n_C)`.
+
+    Args:
+        s2: Per-observation variance (must be positive).
+        n: Combined sample size across treatment + control (must be >= 1).
+        sequential_tuning_parameter: Tuning parameter `N`.
+        alpha: Significance level.
+        rho: Optional precomputed rho. If omitted, derived from alpha and N.
+
+    Returns:
+        Half-width of the confidence sequence.
+    """
+    if s2 <= 0:
+        raise StatisticError("s2 must be positive")
+    if n < 1:
+        raise StatisticError("Sample size must be at least 1")
+
+    if rho is None:
+        rho = sequential_rho(alpha, sequential_tuning_parameter)
+
+    n_rho_sq_p1 = n * rho**2 + 1
+    return float(np.sqrt(s2) * np.sqrt(2 * n_rho_sq_p1 * np.log(np.sqrt(n_rho_sq_p1) / alpha) / (n * rho) ** 2))
+
+
+def sequential_p_value(
+    point_estimate: float,
+    pooled_variance: float,
+    n: int,
+    sequential_tuning_parameter: float,
+    rho: float | None = None,
+    alpha: float | None = None,
+    null_hypothesis_value: float = 0.0,
+) -> float:
+    """
+    Two-sided always-valid p-value, derived analytically from the e-value.
+
+    Implements eq. 155 of Waudby-Smith et al. 2023:
+        t^2     = (theta_hat - theta_0)^2 * n / SE^2
+        evalue  = exp( rho^2 * t^2 / (2*(n*rho^2 + 1)) ) / sqrt(n*rho^2 + 1)
+        p_value = min(1 / evalue, 1)
+
+    Here `pooled_variance` is SE^2 of the estimator (e.g. Var_T/n_T + Var_C/n_C for the
+    two-sample diff). The `* n` factor is applied internally.
+
+    The e-value is < 1 (and so the p-value clamps to 1) until enough evidence has
+    accumulated. Early-in-experiment p-values of exactly 1.0 are expected behavior,
+    not a bug.
+
+    Args:
+        point_estimate: Estimated difference between treatment and control.
+        pooled_variance: Variance of the estimator (i.e. SE^2).
+        n: Combined sample size.
+        sequential_tuning_parameter: Tuning parameter `N`.
+        rho: Optional precomputed rho. If omitted, must supply alpha.
+        alpha: Significance level used to derive rho when not given.
+        null_hypothesis_value: Value under the null hypothesis.
+
+    Returns:
+        Always-valid p-value in (0, 1].
+    """
+    if pooled_variance <= 0:
+        raise StatisticError("Pooled variance must be positive")
+    if n < 1:
+        raise StatisticError("Sample size must be at least 1")
+
+    if rho is None:
+        if alpha is None:
+            raise StatisticError("Must supply either rho or alpha to compute sequential p-value")
+        rho = sequential_rho(alpha, sequential_tuning_parameter)
+
+    t_squared = (point_estimate - null_hypothesis_value) ** 2 * n / pooled_variance
+    n_rho_sq_p1 = n * rho**2 + 1
+    # Work in log-space to avoid np.exp overflowing to +inf for extremely strong evidence;
+    # the e-value can be astronomical but 1/e-value just collapses smoothly toward 0.
+    log_evalue = rho**2 * t_squared / (2 * n_rho_sq_p1) - 0.5 * np.log(n_rho_sq_p1)
+    if log_evalue <= 0:
+        return 1.0
+    return float(min(np.exp(-log_evalue), 1.0))
+
+
 def check_normal_approximation_validity(statistic: AnyStatistic) -> bool:
     """
     Check if normal approximation is valid for the given statistic.

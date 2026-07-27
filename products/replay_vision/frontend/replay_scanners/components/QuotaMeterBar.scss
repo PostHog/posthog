@@ -1,0 +1,34 @@
+// Shifting by exactly one integer tile keeps the loop pixel-exact, so the wrap-around is seamless.
+@keyframes QuotaMeterBar__stripes {
+    from {
+        background-position: 0 0;
+    }
+
+    to {
+        background-position: 16px 0;
+    }
+}
+
+.QuotaMeterBar__stripes {
+    // Quarter-tile stops at 135° in a 16px square tile ≈ the same stripe density as a
+    // repeating-linear-gradient with 4px/8px stops, but tiles seamlessly under animation.
+    background-image: linear-gradient(
+        135deg,
+        rgb(255 255 255 / 25%) 25%,
+        transparent 25%,
+        transparent 50%,
+        rgb(255 255 255 / 25%) 50%,
+        rgb(255 255 255 / 25%) 75%,
+        transparent 75%,
+        transparent
+    );
+    background-size: 16px 16px;
+}
+
+.QuotaMeterBar__stripes--animated {
+    animation: QuotaMeterBar__stripes 2s linear infinite;
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+    }
+}

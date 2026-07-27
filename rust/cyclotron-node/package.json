@@ -15,6 +15,7 @@
         "build:cross": "cross build --message-format=json > cross.log",
         "build:typescript": "tsc",
         "typecheck": "tsc --noEmit",
+        "typecheck:tsgo": "tsgo --noEmit",
         "clean": "rm -rf index.node",
         "package": "NODE_ENV=development pnpm --filter=@posthog/cyclotron run build"
     },

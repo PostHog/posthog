@@ -1,14 +1,21 @@
 import { useActions, useValues } from 'kea'
 
+import * as construction2 from '@posthog/brand/hoggies/png/construction-2'
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { BuilderHog3, DetectiveHog } from '../hedgehogs'
+import { MCPUseCaseCard } from '../MCPHint/MCPUseCaseCard'
+import type { SurfaceKey } from '../MCPHint/prompts'
+
+const HedgehogConstruction2 = pngHoggie(construction2)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 
 /**
  * A component to introduce new users to a product, and to show something
@@ -24,6 +31,8 @@ export type ProductIntroductionProps = {
     /** The name of the thing that they will create, e.g. "cohort" */
     thingName: string
     description: string
+    /** Overrides the default "Your team is already using {productName}..." copy shown when `isEmpty` is false. */
+    secondaryDescription?: string
     /** If you want to override the title, defaults to "Create your first *thing*" */
     titleOverride?: string
     /** If we should show the empty state */
@@ -39,9 +48,9 @@ export type ProductIntroductionProps = {
     /**
      * Default hides the hog below `md`. Use `responsive` to keep the hog visible on small screens with a vertical
      * layout (hog above copy), switching to the horizontal layout from `md` up (or from `main-content` width when
-     * `useMainContentContainerQueries` is set).
+     * `useMainContentContainerQueries` is set). Use `vertical` for always-stacked hog-above-copy (e.g. narrow dashboard tiles).
      */
-    hogLayout?: 'default' | 'responsive'
+    hogLayout?: 'default' | 'responsive' | 'vertical'
     /**
      * When set with `hogLayout="responsive"`, use the `main-content` container (see Navigation) instead of the
      * viewport for breakpoints so layout responds when the side panel narrows the main column.
@@ -52,13 +61,31 @@ export type ProductIntroductionProps = {
      * for wide empty states (e.g. template grids). Passed through `cn` with tailwind-merge so `max-w-*` replaces default.
      */
     contentClassName?: string
+    /**
+     * When set, renders an MCP use-case card below the actions, promoting the same product via PostHog MCP from
+     * the user's IDE. Auto-hides if the user has opted out of MCP hints.
+     */
+    mcpSurfaceKey?: SurfaceKey
 }
 
+/**
+ * @deprecated Use {@link ProductEmptyState} instead: declare {@link SceneExport.emptyState} on the
+ * scene's {@link SceneExport} (see {@link ../ProductEmptyState | ProductEmptyState} and the
+ * `building-product-empty-states` skill).
+ *
+ * {@link ProductEmptyState} covers both of this component's jobs -
+ * "product not installed" via real data detection and "no entities yet" via an
+ * entity-count status - with a local-only skip instead of {@link UserType.has_seen_product_intro_for}.
+ * Don't add new call sites; existing ones should migrate product by product.
+ *
+ * The Growth team is responsible for migrating all call sites to {@link ProductEmptyState}.
+ */
 export const ProductIntroduction = ({
     productName,
     productKey,
     thingName,
     description,
+    secondaryDescription,
     titleOverride,
     isEmpty,
     action,
@@ -70,6 +97,7 @@ export const ProductIntroduction = ({
     hogLayout = 'default',
     useMainContentContainerQueries = false,
     contentClassName,
+    mcpSurfaceKey,
 }: ProductIntroductionProps): JSX.Element | null => {
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     const { user } = useValues(userLogic)
@@ -84,7 +112,10 @@ export const ProductIntroduction = ({
     }
 
     const actionable = action || actionElementOverride
+    const isVerticalHogLayout = hogLayout === 'vertical'
     const isResponsiveHogLayout = hogLayout === 'responsive'
+
+    const HogComponent = CustomHog ? CustomHog : actionable ? HedgehogConstruction2 : HedgehogMagnifyingGlass
 
     return (
         <div
@@ -95,7 +126,7 @@ export const ProductIntroduction = ({
             data-attr={`product-introduction-${thingName}`}
         >
             {!isEmpty && (
-                <div className="flex justify-end -mb-6 -mt-2 -mr-2">
+                <div className="flex justify-end -mb-6 -mt-2 -mr-2 relative z-10">
                     <div>
                         <LemonButton
                             icon={<IconX />}
@@ -110,15 +141,18 @@ export const ProductIntroduction = ({
             <div
                 className={cn(
                     'flex w-full justify-center',
-                    isResponsiveHogLayout
-                        ? useMainContentContainerQueries
-                            ? 'flex-col @min-[48rem]/main-content:flex-row items-center gap-6 @min-[48rem]/main-content:gap-8'
-                            : 'flex-col md:flex-row items-center gap-6 md:gap-8'
-                        : 'flex-row items-center gap-8'
+                    isVerticalHogLayout
+                        ? 'flex-col items-center gap-6'
+                        : isResponsiveHogLayout
+                          ? useMainContentContainerQueries
+                              ? 'flex-col @min-[48rem]/main-content:flex-row items-center gap-6 @min-[48rem]/main-content:gap-8'
+                              : 'flex-col md:flex-row items-center gap-6 md:gap-8'
+                          : 'flex-row items-center gap-8'
                 )}
             >
                 <div
                     className={cn(
+                        isVerticalHogLayout && 'w-full flex justify-center',
                         isResponsiveHogLayout &&
                             (useMainContentContainerQueries
                                 ? 'w-full @min-[48rem]/main-content:w-auto flex justify-center'
@@ -128,25 +162,22 @@ export const ProductIntroduction = ({
                     <div
                         className={cn(
                             'mx-auto',
-                            isResponsiveHogLayout
-                                ? useMainContentContainerQueries
-                                    ? 'block w-36 sm:w-40 lg:w-50 mb-4 @min-[48rem]/main-content:mb-0'
-                                    : 'block w-36 sm:w-40 lg:w-50 mb-4 md:mb-0'
-                                : 'w-40 lg:w-50 mb-4 hidden md:block'
+                            isVerticalHogLayout
+                                ? 'block w-56 sm:w-60 lg:w-70 mb-4'
+                                : isResponsiveHogLayout
+                                  ? useMainContentContainerQueries
+                                      ? 'block w-56 sm:w-60 lg:w-70 mb-4 @min-[48rem]/main-content:mb-0'
+                                      : 'block w-56 sm:w-60 lg:w-70 mb-4 md:mb-0'
+                                  : 'w-60 lg:w-70 mb-4 hidden md:block'
                         )}
                     >
-                        {CustomHog ? (
-                            <CustomHog className="w-full h-full" />
-                        ) : actionable ? (
-                            <BuilderHog3 className="w-full h-full" />
-                        ) : (
-                            <DetectiveHog className="w-full h-full" />
-                        )}
+                        <HogComponent className="w-full h-full" />
                     </div>
                 </div>
                 <div
                     className={cn(
                         'flex-shrink max-w-140',
+                        isVerticalHogLayout && 'w-full text-center',
                         isResponsiveHogLayout &&
                             (useMainContentContainerQueries
                                 ? 'w-full text-center @min-[48rem]/main-content:text-left'
@@ -166,13 +197,18 @@ export const ProductIntroduction = ({
                     <p className="ml-0">{description}</p>
                     {!isEmpty && (
                         <p className="ml-0">
-                            Your team is already using {productName}. You can take a look at what they're doing, or get
-                            started yourself.
+                            {secondaryDescription ?? (
+                                <>
+                                    Your team is already using {productName}. You can take a look at what they're doing,
+                                    or get started yourself.
+                                </>
+                            )}
                         </p>
                     )}
                     <div
                         className={cn(
                             'flex items-center gap-x-4 gap-y-2 mt-6 flex-wrap',
+                            isVerticalHogLayout && 'justify-center',
                             isResponsiveHogLayout &&
                                 (useMainContentContainerQueries
                                     ? 'justify-center @min-[48rem]/main-content:justify-start'
@@ -207,6 +243,7 @@ export const ProductIntroduction = ({
                             </LemonButton>
                         )}
                     </div>
+                    {mcpSurfaceKey && <MCPUseCaseCard surfaceKey={mcpSurfaceKey} className="max-w-140" />}
                 </div>
             </div>
         </div>

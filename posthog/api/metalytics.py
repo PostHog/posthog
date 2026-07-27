@@ -7,8 +7,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.event.util import format_clickhouse_timestamp
-from posthog.models.plugin import PluginConfig
 from posthog.utils import cast_timestamp_or_now
+
+from products.cdp.backend.models.plugin import PluginConfig
 
 
 class MetalyticsCreateRequestSerializer(serializers.Serializer):

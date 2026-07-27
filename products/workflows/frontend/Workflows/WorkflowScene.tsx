@@ -21,8 +21,9 @@ import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { Workflow } from './Workflow'
+import { WorkflowAssets } from './WorkflowAssets'
+import { WorkflowInvocations } from './WorkflowInvocations'
 import { workflowLogic } from './workflowLogic'
-import { WorkflowLogs } from './WorkflowLogs'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
@@ -41,7 +42,6 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const workflowSceneProps: WorkflowSceneLogicProps = {
         id: props.id || 'new',
         tab: props.tab || 'workflow',
-        tabId: props.tabId || 'default',
     }
     const sceneLogic = workflowSceneLogic(workflowSceneProps)
     const { currentTab } = useValues(sceneLogic)
@@ -51,7 +51,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 
-    const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
+    const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
     const { workflowLoading, originalWorkflow, lastSavedAt, isAutoSavePending, autoSaveEnabled } = useValues(logic)
     const { setAutoSaveEnabled } = useActions(logic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
@@ -77,9 +77,11 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         },
 
         {
+            // Runtime view backed by hog_invocation_results, matching the hog function scene.
+            // Old /logs deep links (and batchWorkflowJobsLogic) redirect here via workflowSceneLogic.
             label: 'Invocations',
-            key: 'logs',
-            content: <WorkflowLogs id={workflowSceneProps.id!} />,
+            key: 'invocations',
+            content: <WorkflowInvocations id={workflowSceneProps.id!} />,
         },
         {
             label: 'Metrics',
@@ -89,6 +91,15 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              * defined and not "new" (see return statement below)
              */
             content: <WorkflowMetrics id={workflowSceneProps.id!} />,
+        },
+        {
+            label: 'Assets',
+            key: 'assets',
+            /**
+             * If we're rendering tabs, props.id is guaranteed to be
+             * defined and not "new" (see return statement below)
+             */
+            content: <WorkflowAssets id={workflowSceneProps.id!} />,
         },
         {
             label: 'History',
@@ -103,7 +114,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     return (
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
-            <BindLogic logic={workflowLogic} props={{ id: props.id, tabId: props.tabId, templateId, editTemplateId }}>
+            <BindLogic logic={workflowLogic} props={{ id: props.id, templateId, editTemplateId }}>
                 <WorkflowSceneHeader {...props} />
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (

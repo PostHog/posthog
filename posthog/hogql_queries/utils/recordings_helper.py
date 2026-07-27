@@ -7,11 +7,13 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
+from posthog.models.user import User
 
 
 class RecordingsHelper:
-    def __init__(self, team: Team):
+    def __init__(self, team: Team, user: User | None = None):
         self.team = team
+        self.user = user
 
     def _matching_clickhouse_recordings(
         self,
@@ -63,6 +65,7 @@ class RecordingsHelper:
                 "having_predicates": ast.And(exprs=[not_expired, not_deleted]),
             },
             team=self.team,
+            user=self.user,
         )
         if not response.results:
             return set()

@@ -21,6 +21,10 @@ const VIMEO_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:vimeo\.com\/|player\.vimeo\.co
 const LOOM_REGEX = /(?:https?:\/\/)?(?:www\.)?loom\.com\/(?:share|embed)\/([a-zA-Z0-9]+)/g
 
 export function parseEmbedUrl(url: string): { provider: EmbedProvider; videoId: string; embedUrl: string } | null {
+    if (typeof url !== 'string') {
+        return null
+    }
+
     const youtubeMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/)
     if (youtubeMatch) {
         return {
@@ -54,7 +58,10 @@ export function parseEmbedUrl(url: string): { provider: EmbedProvider; videoId: 
 function EmbedNodeView({ node }: { node: { attrs: Record<string, any> } }): JSX.Element {
     const { src, provider } = node.attrs as EmbedAttributes
     const parsed = parseEmbedUrl(src)
-    const embedUrl = parsed?.embedUrl
+
+    if (!parsed) {
+        return <NodeViewWrapper className="embed-wrapper" data-provider="unknown" />
+    }
 
     return (
         <NodeViewWrapper className="embed-wrapper" data-provider={provider}>
@@ -70,7 +77,7 @@ function EmbedNodeView({ node }: { node: { attrs: Record<string, any> } }): JSX.
                 }}
             >
                 <iframe
-                    src={embedUrl}
+                    src={parsed.embedUrl}
                     title="Embedded media"
                     style={{
                         position: 'absolute',
@@ -132,15 +139,17 @@ export const EmbedExtension = Node.create<EmbedOptions>({
     },
 
     renderHTML({ HTMLAttributes }) {
-        const src = HTMLAttributes.src as string
-        const parsed = parseEmbedUrl(src)
-        const embedUrl = parsed?.embedUrl || src
+        const parsed = parseEmbedUrl(HTMLAttributes.src as string)
+
+        if (!parsed) {
+            return ['div', mergeAttributes(this.options.HTMLAttributes, { class: 'ph-tour-embed' })]
+        }
 
         return [
             'div',
             mergeAttributes(this.options.HTMLAttributes, {
                 class: 'ph-tour-embed',
-                'data-provider': HTMLAttributes.provider,
+                'data-provider': parsed.provider,
             }),
             [
                 'div',
@@ -148,7 +157,7 @@ export const EmbedExtension = Node.create<EmbedOptions>({
                 [
                     'iframe',
                     {
-                        src: embedUrl,
+                        src: parsed.embedUrl,
                         frameborder: '0',
                         allowfullscreen: 'true',
                         allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture',

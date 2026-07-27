@@ -1,0 +1,15 @@
+[server]
+port = 8501
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+
+[client]
+toolbarMode = "minimal"
+showSidebarNavigation = false
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"

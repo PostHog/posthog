@@ -5,10 +5,12 @@ import {
     IconDatabase,
     IconGear,
     IconLeave,
+    IconPeople,
     IconPlusSmall,
     IconReceipt,
     IconServer,
     IconShieldLock,
+    IconToggle,
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -16,6 +18,7 @@ import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
@@ -24,18 +27,17 @@ import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { globalModalsLogic } from '~/layout/GlobalModals'
+import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { AvailableFeature } from '~/types'
 
-import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
-import { keyBinds } from '../AppShortcuts/shortcuts'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
+import { RenderKeybind } from '../Shortcuts/ShortcutMenu'
+import { keyBinds } from '../Shortcuts/shortcuts'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
 import { OrgModal } from './OrgModal'
@@ -68,9 +70,9 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
 
-    const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Emoji}/u) !== null
+    const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Extended_Pictographic}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
-        ? currentTeam?.name?.replace(/^\p{Emoji}/u, '').trimStart()
+        ? currentTeam?.name?.replace(/^\p{Extended_Pictographic}/u, '').trimStart()
         : currentTeam?.name
 
     return (
@@ -229,7 +231,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 tooltipPlacement="right"
                                                 data-attr="new-account-menu-project-settings-button"
                                                 to={urls.project(currentTeam.id, urls.settings('project'))}
-                                                skipContext
                                             >
                                                 <IconGear />
                                                 Project settings
@@ -319,7 +320,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                     menuItem: true,
                                                     truncate: true,
                                                 }}
-                                                skipContext
                                             >
                                                 <IconReceipt />
                                                 {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
@@ -341,7 +341,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             tooltip="Organization settings"
                                             tooltipPlacement="right"
                                             data-attr="new-account-menu-organization-settings-button"
-                                            skipContext
                                         >
                                             <IconGear />
                                             Organization settings
@@ -365,7 +364,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                     }}
                                                     data-attr="new-account-menu-django-admin"
                                                     disableClientSideRouting
-                                                    skipContext
                                                 >
                                                     <IconShieldLock />
                                                     Django admin
@@ -381,10 +379,39 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                         menuItem: true,
                                                     }}
                                                     data-attr="new-account-menu-instance-panel"
-                                                    skipContext
                                                 >
                                                     <IconServer />
                                                     Instance panel
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.featureFlagsStaffTools()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-flags-staff-tools"
+                                                >
+                                                    <IconToggle />
+                                                    Flags staff tools
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.cohortsStaffTools()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-cohorts-staff-tools"
+                                                >
+                                                    <IconPeople />
+                                                    Cohorts staff tools
                                                 </Link>
                                             )}
                                         />
@@ -397,7 +424,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                         menuItem: true,
                                                     }}
                                                     data-attr="new-account-menu-query-performance"
-                                                    skipContext
                                                 >
                                                     <IconDatabase />
                                                     Query performance
@@ -424,7 +450,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             tooltip="User settings"
                                             tooltipPlacement="right"
                                             data-attr="new-account-menu-account-owner-button"
-                                            skipContext
                                         >
                                             <ProfilePicture user={user} size="xs" />
                                             <span className="flex flex-col truncate">

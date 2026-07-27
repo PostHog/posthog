@@ -81,10 +81,13 @@ def capture_session_summary_generated(
     success: bool | None = None,
     error_type: str | None = None,
     error_message: str | None = None,
+    failed_session_count: int = 0,
 ) -> None:
     """Capture the completion of a session summary generation."""
     if not user.distinct_id:
         return
+    # Lets dashboards split clean runs from degraded ones.
+    is_partial = success is True and failed_session_count > 0
     properties: dict = {
         "ai_product": "session_replay",
         "tracking_id": tracking_id,
@@ -94,6 +97,8 @@ def capture_session_summary_generated(
         "session_count": len(session_ids),
         "video_based": video_based,
         "success": success,
+        "partial": is_partial,
+        "failed_session_count": failed_session_count,
     }
     if error_type is not None:
         properties["error_type"] = error_type

@@ -1,7 +1,5 @@
-import { expect } from '@playwright/test'
-
 import { mockFeatureFlags } from '../utils/mockApi'
-import { test } from '../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
 
 const TRIGGER_NODE_ID = 'trigger_node'
 const EXIT_NODE_ID = 'exit_node'
@@ -70,7 +68,16 @@ function buildConditionalBranchWorkflow(): Record<string, any> {
 }
 
 test.describe('Workflows conditional branch property filter category dropdown', () => {
-    test.beforeEach(async ({ page }) => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        // Log in (sets the session + CSRF cookie the test needs to create a hog_flow) without
+        // navigating into the app, so the feature flag mock is installed before the editor loads.
+        await playwrightSetup.login(page, workspace!)
         await mockFeatureFlags(page, {
             'taxonomic-filter-category-dropdown': 'pill',
         })
@@ -86,36 +93,18 @@ test.describe('Workflows conditional branch property filter category dropdown', 
         const teamId: number = meData.team.id
 
         const workflowPayload = buildConditionalBranchWorkflow()
-        const workflowId = await page.evaluate(
-            async ({ teamId, payload }) => {
-                const csrfToken =
-                    document.cookie
-                        .split(';')
-                        .map((c) => c.trim())
-                        .find((c) => c.startsWith('posthog_csrftoken='))
-                        ?.split('=')
-                        .slice(1)
-                        .join('=') || ''
-                if (!csrfToken) {
-                    throw new Error('CSRF cookie missing')
-                }
-                const response = await fetch(`/api/environments/${teamId}/hog_flows/`, {
-                    method: 'POST',
-                    credentials: 'include',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': decodeURIComponent(csrfToken),
-                    },
-                    body: JSON.stringify(payload),
-                })
-                if (!response.ok) {
-                    throw new Error(`hog_flows POST failed: ${response.status} ${await response.text()}`)
-                }
-                const data = await response.json()
-                return data.id as string
-            },
-            { teamId, payload: workflowPayload }
-        )
+        const csrfToken = (await page.context().cookies()).find((c) => c.name === 'posthog_csrftoken')?.value
+        if (!csrfToken) {
+            throw new Error('CSRF cookie missing')
+        }
+        const response = await page.request.post(`/api/environments/${teamId}/hog_flows/`, {
+            data: workflowPayload,
+            headers: { 'X-CSRFToken': decodeURIComponent(csrfToken) },
+        })
+        if (!response.ok()) {
+            throw new Error(`hog_flows POST failed: ${response.status()} ${await response.text()}`)
+        }
+        const workflowId: string = (await response.json()).id
 
         await test.step('open the workflow editor and select the conditional branch', async () => {
             await page.goto(`/workflows/${workflowId}/workflow`)

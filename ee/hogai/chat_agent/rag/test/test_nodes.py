@@ -10,8 +10,9 @@ from azure.core.credentials import AzureKeyCredential
 from posthog.schema import MaxActionContext, MaxUIContext, TeamTaxonomyQuery
 
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Action
 from posthog.models.ai.utils import PgEmbeddingRow, bulk_create_pg_embeddings
+
+from products.actions.backend.models.action import Action
 
 from ee.hogai.chat_agent.rag.nodes import InsightRagContextNode
 from ee.hogai.utils.types import AssistantState

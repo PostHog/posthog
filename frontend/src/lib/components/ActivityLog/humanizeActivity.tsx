@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 
 import { ActivityScope, InsightShortId, PersonType, UserBasicType } from '~/types'
 
@@ -55,6 +55,8 @@ export type ActivityLogItem = {
     was_impersonated?: boolean
     /** SDK or integration that triggered this action (from x-posthog-client header). */
     client?: string | null
+    /** Client IP address captured at request time. Null for non-HTTP activity (system, background jobs). */
+    ip_address?: string | null
 }
 
 // the description of a single activity log is a sentence describing one or more changes that makes up the entry
@@ -74,6 +76,8 @@ export type HumanizedActivityLogItem = {
     name?: string
     isSystem?: boolean
     wasImpersonated?: boolean
+    /** SDK or integration that triggered this action (from x-posthog-client header). */
+    client?: string | null
     description: Description
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     created_at: dayjs.Dayjs
@@ -121,6 +125,7 @@ export function humanize(
                     : impersonatedUserName,
                 isSystem: logItem.is_system,
                 wasImpersonated: logItem.was_impersonated,
+                client: logItem.client,
                 description,
                 extendedDescription,
                 created_at: dayjs(logItem.created_at),
@@ -154,6 +159,10 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
     [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API key', plural: 'Personal API keys' },
     [ActivityScope.LLM_TRACE]: { singular: 'LLM trace', plural: 'LLM traces' },
     [ActivityScope.LOG]: { singular: 'Log', plural: 'Logs' },
+    [ActivityScope.PROJECT_SECRET_API_KEY]: {
+        singular: 'Project secret API key',
+        plural: 'Project secret API keys',
+    },
 }
 
 export function humanizeScope(scope: ActivityScope | string, singular = false): string {

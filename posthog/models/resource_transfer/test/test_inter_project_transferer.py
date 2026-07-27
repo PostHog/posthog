@@ -4,7 +4,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models import Action, Insight, Project, Team
+from posthog.models import Project, Team
 from posthog.models.resource_transfer.inter_project_transferer import (
     _get_mapped_substitutions,
     build_resource_duplication_graph,
@@ -14,9 +14,13 @@ from posthog.models.resource_transfer.inter_project_transferer import (
 )
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.resource_transfer.types import ResourceKind, ResourceTransferVertex
+from posthog.models.scoping import team_scope
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
 
 
@@ -92,6 +96,25 @@ class TestBuildResourceDuplicationGraph(BaseTest):
         assert Text in model_types
         assert DashboardTile in model_types
 
+    def test_dashboard_with_widget_tile_includes_all_related_resources(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        with team_scope(self.team.id):
+            widget = DashboardWidget.objects.create(
+                team=self.team,
+                widget_type="error_tracking_list",
+                name="Top errors",
+                config={"limit": 10},
+            )
+        DashboardTile.objects.create(dashboard=dashboard, widget=widget, team=self.team)
+
+        graph = list(build_resource_duplication_graph(dashboard, set()))
+        model_types = {v.model for v in graph}
+
+        assert Dashboard in model_types
+        assert DashboardWidget in model_types
+        assert DashboardTile in model_types
+        assert Team in model_types
+
     def test_immutable_resources_have_no_edges(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My insight")
         graph = list(build_resource_duplication_graph(insight, set()))
@@ -107,7 +130,7 @@ class TestBuildResourceDuplicationGraph(BaseTest):
         assert len(graph) == 0
 
     def test_raises_for_unvisitable_model(self) -> None:
-        from posthog.models import Annotation
+        from products.annotations.backend.models.annotation import Annotation
 
         annotation = Annotation.objects.create(team=self.team, content="My annotation")
         with self.assertRaises(TypeError):
@@ -235,6 +258,35 @@ class TestDuplicateResourceToNewTeam(BaseTest):
 
         for r in new_insights:
             assert r.team == dest_team
+
+    def test_duplicates_dashboard_with_widget_tile(self) -> None:
+        dest_team = self._create_destination_team()
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        with team_scope(self.team.id):
+            widget = DashboardWidget.objects.create(
+                team=self.team,
+                widget_type="error_tracking_list",
+                name="Top errors",
+                config={"limit": 10},
+            )
+        DashboardTile.objects.create(dashboard=dashboard, widget=widget, team=self.team)
+
+        results = duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
+
+        new_dashboards = [r for r in results if isinstance(r, Dashboard)]
+        new_widgets = [r for r in results if isinstance(r, DashboardWidget)]
+        new_tiles = [r for r in results if isinstance(r, DashboardTile)]
+
+        assert len(new_dashboards) == 1
+        assert len(new_widgets) == 1
+        assert len(new_tiles) == 1
+
+        assert new_widgets[0].pk != widget.pk
+        assert new_widgets[0].team == dest_team
+        assert new_widgets[0].widget_type == "error_tracking_list"
+        assert new_widgets[0].config == {"limit": 10}
+        assert new_tiles[0].dashboard == new_dashboards[0]
+        assert new_tiles[0].widget == new_widgets[0]
 
     def test_does_not_modify_source_resources(self) -> None:
         dest_team = self._create_destination_team()

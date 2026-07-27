@@ -1,8 +1,8 @@
 import * as fs from 'fs/promises'
 import { CDPSession, Page } from 'puppeteer'
 
-import { config as defaultConfig } from '../config'
-import { type Logger, createLogger } from '../logger'
+import { config as defaultConfig } from '~/session-replay/recording-rasterizer/config'
+import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
 
 export const playerHtmlCache = {
     _html: null as string | null,

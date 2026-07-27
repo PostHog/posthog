@@ -60,7 +60,7 @@ for (let key, value in inputs.customData) {
     }
 }
 
-let res := fetch(f'https://graph.facebook.com/v21.0/{inputs.pixelId}/events', {
+let res := fetch(f'https://graph.facebook.com/v25.0/{inputs.pixelId}/events', {
     'method': 'POST',
     'headers': {
         'Content-Type': 'application/json',
@@ -180,7 +180,7 @@ if (res.status >= 400) {
                 "em": "{sha256Hex(lower(person.properties.email))}",
                 "fn": "{sha256Hex(lower(person.properties.first_name))}",
                 "ln": "{sha256Hex(lower(person.properties.last_name))}",
-                "fbc": "{not empty(person.properties.fbclid ?? person.properties.$initial_fbclid) ? f'fb.1.{toUnixTimestampMilli(now())}.{person.properties.fbclid ?? person.properties.$initial_fbclid}' : ''}",
+                "fbc": "{match(person.properties.fbclid ?? person.properties.$initial_fbclid ?? '', '^fb[.][0-9]+[.][0-9]+[.][A-Za-z0-9_-]+$') ? person.properties.fbclid ?? person.properties.$initial_fbclid : (match(person.properties.fbclid ?? person.properties.$initial_fbclid ?? '', '^[A-Za-z0-9_-]+$') ? f'fb.1.{toUnixTimestampMilli(now())}.{person.properties.fbclid ?? person.properties.$initial_fbclid}' : '')}",
                 "client_user_agent": "{event.properties.$raw_user_agent}",
             },
             "secret": False,

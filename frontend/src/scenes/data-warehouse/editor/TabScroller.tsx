@@ -1,7 +1,14 @@
-export default function TabScroller({ children }: { children: React.ReactNode }): JSX.Element {
+import clsx from 'clsx'
+import type { HTMLAttributes, ReactNode } from 'react'
+
+type TabScrollerProps = HTMLAttributes<HTMLDivElement> & {
+    children: ReactNode
+}
+
+export default function TabScroller({ children, className, ...props }: TabScrollerProps): JSX.Element {
     return (
-        <div className="relative w-full overflow-auto">
-            <div className="flex-1 absolute top-0 left-0 right-0 bottom-0">{children}</div>
+        <div className={clsx('relative flex min-h-0 min-w-0 flex-1 w-full overflow-auto', className)} {...props}>
+            <div className="absolute inset-0 min-h-0 min-w-0">{children}</div>
         </div>
     )
 }

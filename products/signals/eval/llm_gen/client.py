@@ -33,6 +33,7 @@ def _validator(schema_cls: type[T]) -> Callable[[str], T]:
 
 async def generate_canonical_signals(
     *,
+    team_id: int,
     system_prompt: str,
     user_prompt: str,
     temperature: float = 0.7,
@@ -42,12 +43,14 @@ async def generate_canonical_signals(
     Reuses `call_llm` from products.signals.backend.temporal.llm so we get the
     same retry-on-validation-failure behavior the rest of the pipeline uses.
     Model is controlled by the SIGNAL_MATCHING_LLM_MODEL env var (default
-    claude-sonnet-4-5).
+    claude-sonnet-4-5). LLM cost is attributed to team_id via the gateway.
     """
     batch = await call_llm(
+        team_id=team_id,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         validate=_validator(CanonicalSignalBatch),
         temperature=temperature,
+        stage="eval_signal_generation",
     )
     return batch.signals

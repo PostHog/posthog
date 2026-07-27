@@ -21,8 +21,10 @@ from posthog.models.property import PropertyName, TableColumn
 from posthog.settings import CLICKHOUSE_DATABASE
 
 from ee.clickhouse.materialized_columns.columns import (
+    MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
     MaterializedColumnDetails,
+    _clear_materialized_columns_cache,
     backfill_materialized_columns,
     drop_column,
     get_bloom_filter_index_name,
@@ -91,6 +93,9 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         super().tearDown()
 
     def recreate_database(self):
+        # Dropping the database removes materialized columns behind the metadata cache's back.
+        for table in MATERIALIZATION_VALID_TABLES:
+            _clear_materialized_columns_cache(table)
         sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC")
         sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}")
         create_clickhouse_tables()
@@ -252,14 +257,23 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         columns = [
             materialize("events", "myprop", create_minmax_index=True),
             materialize("events", "myprop_nullable", create_minmax_index=True, is_nullable=True),
+            materialize(
+                "events",
+                "myprop_float",
+                create_minmax_index=True,
+                is_nullable=True,
+                column_type="Nullable(Float64)",
+            ),
         ]
 
         expr_nonnullable = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
         expr_nullable = "JSONExtract(properties, 'myprop_nullable', 'Nullable(String)')"
+        expr_float = "JSONExtract(properties, 'myprop_float', 'Nullable(Float64)')"
 
         backfill_materialized_columns("events", columns, timedelta(days=50))
         assert self._get_column_types("mat_myprop") == ("String", "DEFAULT", expr_nonnullable)
         assert self._get_column_types("mat_myprop_nullable") == ("Nullable(String)", "DEFAULT", expr_nullable)
+        assert self._get_column_types("mat_myprop_float") == ("Nullable(Float64)", "DEFAULT", expr_float)
 
     def _count_materialized_rows(self, column):
         return sync_execute(
@@ -322,6 +336,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 destination_column,
                 MaterializedColumnDetails(source_column, property_name, is_disabled=False),
                 is_nullable=False,
+                column_type="String",
                 has_minmax_index=True,
             )
 
@@ -334,6 +349,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 destination_column,
                 MaterializedColumnDetails(source_column, property_name, is_disabled=True),
                 is_nullable=False,
+                column_type="String",
                 has_minmax_index=True,
             )
 
@@ -346,6 +362,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 destination_column,
                 MaterializedColumnDetails(source_column, property_name, is_disabled=False),
                 is_nullable=False,
+                column_type="String",
                 has_minmax_index=True,
             )
 

@@ -1,4 +1,4 @@
-import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
+import type { FeatureFlagKey } from 'lib/constants'
 
 import {
     AttributionMode,
@@ -28,12 +28,10 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
     'azure',
 ]
 
-// Map of native sources that require feature flags to be enabled
-export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
-    BingAds: FEATURE_FLAGS.BING_ADS_SOURCE,
-    SnapchatAds: FEATURE_FLAGS.SNAPCHAT_ADS_SOURCE,
-    PinterestAds: FEATURE_FLAGS.PINTEREST_ADS_SOURCE,
-}
+// Map of native sources that require a feature flag to be enabled. Empty today
+// (all current sources are fully rolled out), but kept so a new source can be
+// gated behind a flag while it's being rolled out.
+export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {}
 
 /**
  * Filter native marketing sources based on feature flags

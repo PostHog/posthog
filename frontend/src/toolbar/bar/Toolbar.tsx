@@ -3,9 +3,10 @@ import './Toolbar.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PostHog } from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 
 import {
+    IconApp,
     IconBolt,
     IconCamera,
     IconCheck,
@@ -29,35 +30,84 @@ import {
 } from '@posthog/icons'
 import { LemonBadge, Spinner } from '@posthog/lemon-ui'
 
-import { AnimatedLogomark } from 'lib/brand/Logomark'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { retryImport } from 'lib/utils/retryImport'
 
-import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
+import { AnimatedLogomark } from '~/toolbar/bar/AnimatedLogomark'
 import { AuthConfirmModal } from '~/toolbar/bar/AuthConfirmModal'
 import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { UiHostConfigModal } from '~/toolbar/bar/UiHostConfigModal'
-import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
-import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
-import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
+import { fieldNotesLogic } from '~/toolbar/field-notes/fieldNotesLogic'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
-import { ProductToursSidebar } from '~/toolbar/product-tours/ProductToursSidebar'
-import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToolbarMenu'
 import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUploadLogic'
 import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
-import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
-import { SurveySidebar } from '~/toolbar/surveys/SurveySidebar'
 import { surveysToolbarLogic } from '~/toolbar/surveys/surveysToolbarLogic'
-import { SurveysToolbarMenu } from '~/toolbar/surveys/SurveysToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
-import { WebVitalsToolbarMenu } from '~/toolbar/web-vitals/WebVitalsToolbarMenu'
 
 import { ToolbarButton } from './ToolbarButton'
+
+// Each feature menu is a lazy split point: its component graph (and per-tab logics only it
+// mounts, like the event debugger's 200KB+ taxonomy) is fetched when the tab first opens, not
+// on toolbar boot. Styles are unaffected — the shadow root loads the entry stylesheet, and
+// bin/check-toolbar-size.mjs fails the build if a lazy chunk holds CSS the entry doesn't.
+const ActionsToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/actions/ActionsToolbarMenu')).then((m) => ({
+        default: m.ActionsToolbarMenu,
+    }))
+)
+const EventDebugMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/debug/EventDebugMenu')).then((m) => ({ default: m.EventDebugMenu }))
+)
+const ExperimentsToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/experiments/ExperimentsToolbarMenu')).then((m) => ({
+        default: m.ExperimentsToolbarMenu,
+    }))
+)
+const FieldNotesOverlay = lazy(() =>
+    retryImport(() => import('~/toolbar/field-notes/FieldNotesOverlay')).then((m) => ({
+        default: m.FieldNotesOverlay,
+    }))
+)
+const FieldNotesToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/field-notes/FieldNotesToolbarMenu')).then((m) => ({
+        default: m.FieldNotesToolbarMenu,
+    }))
+)
+const FlagsToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/flags/FlagsToolbarMenu')).then((m) => ({ default: m.FlagsToolbarMenu }))
+)
+const ProductToursSidebar = lazy(() =>
+    retryImport(() => import('~/toolbar/product-tours/ProductToursSidebar')).then((m) => ({
+        default: m.ProductToursSidebar,
+    }))
+)
+const ProductToursToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/product-tours/ProductToursToolbarMenu')).then((m) => ({
+        default: m.ProductToursToolbarMenu,
+    }))
+)
+const HeatmapToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/stats/HeatmapToolbarMenu')).then((m) => ({ default: m.HeatmapToolbarMenu }))
+)
+const SurveySidebar = lazy(() =>
+    retryImport(() => import('~/toolbar/surveys/SurveySidebar')).then((m) => ({ default: m.SurveySidebar }))
+)
+const SurveysToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/surveys/SurveysToolbarMenu')).then((m) => ({
+        default: m.SurveysToolbarMenu,
+    }))
+)
+const WebVitalsToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/web-vitals/WebVitalsToolbarMenu')).then((m) => ({
+        default: m.WebVitalsToolbarMenu,
+    }))
+)
 
 const HELP_URL = 'https://posthog.com/docs/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
@@ -325,6 +375,9 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
     const showSurveys = surveysFlag
 
+    const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
+    const showFieldNotes = inStorybook() || inStorybookTestRunner() || fieldNotesFlag
+
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
@@ -339,6 +392,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <ExperimentsToolbarMenu />
     ) : visibleMenu === 'product-tours' && showProductTours ? (
         <ProductToursToolbarMenu />
+    ) : visibleMenu === 'field-notes' && showFieldNotes ? (
+        <FieldNotesToolbarMenu />
     ) : visibleMenu === 'surveys' && showSurveys ? (
         <SurveysToolbarMenu />
     ) : null
@@ -374,7 +429,15 @@ export function ToolbarInfoMenu(): JSX.Element | null {
                     maxHeight: menuProperties.maxHeight,
                 }}
             >
-                {content}
+                <Suspense
+                    fallback={
+                        <div className="flex items-center justify-center p-4">
+                            <Spinner />
+                        </div>
+                    }
+                >
+                    {content}
+                </Suspense>
             </div>
         </div>
     )
@@ -398,6 +461,10 @@ export function Toolbar(): JSX.Element | null {
 
     const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
     const showSurveys = surveysFlag
+
+    const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
+    const showFieldNotes = inStorybook() || inStorybookTestRunner() || fieldNotesFlag
+    const { hasOpenedFieldNotes } = useValues(fieldNotesLogic)
 
     useEffect(() => {
         setElement(ref.current)
@@ -437,8 +504,11 @@ export function Toolbar(): JSX.Element | null {
 
     return (
         <>
-            {showToursSidebar && <ProductToursSidebar />}
-            {isSurveyCreating && <SurveySidebar />}
+            <Suspense fallback={null}>
+                {showToursSidebar && <ProductToursSidebar />}
+                {showFieldNotes && <FieldNotesOverlay />}
+                {isSurveyCreating && <SurveySidebar />}
+            </Suspense>
             <ToolbarInfoMenu />
             <div
                 ref={ref}
@@ -446,9 +516,14 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--minimized': minimized,
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
-                    'Toolbar--extra-buttons-1': 1 + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 1,
-                    'Toolbar--extra-buttons-2': 1 + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
-                    'Toolbar--extra-buttons-3': 1 + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
+                    'Toolbar--extra-buttons-1':
+                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 1,
+                    'Toolbar--extra-buttons-2':
+                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
+                    'Toolbar--extra-buttons-3':
+                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
+                    'Toolbar--extra-buttons-4':
+                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 4,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -477,9 +552,27 @@ export function Toolbar(): JSX.Element | null {
                         <ToolbarButton menuId="inspect">
                             <IconSearch />
                         </ToolbarButton>
-                        <ToolbarButton menuId="heatmap">
-                            <IconCursorClick />
-                        </ToolbarButton>
+                        {/* When the field notes flag is on, field notes takes the heatmap slot + cursor icon */}
+                        {showFieldNotes ? (
+                            <ToolbarButton menuId="field-notes" title="Field notes">
+                                {/* Inline font-size because the wrapper breaks the `button > svg` size rule */}
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
+                                <span className="relative flex" style={{ fontSize: '1.5rem' }}>
+                                    <IconCursorClick />
+                                    {!hasOpenedFieldNotes && (
+                                        <span
+                                            className="absolute -top-1 -right-1 w-2 h-2 rounded-full"
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={{ backgroundColor: 'var(--primary-3000)' }}
+                                        />
+                                    )}
+                                </span>
+                            </ToolbarButton>
+                        ) : (
+                            <ToolbarButton menuId="heatmap">
+                                <IconCursorClick />
+                            </ToolbarButton>
+                        )}
                         <ToolbarButton menuId="actions">
                             <IconBolt />
                         </ToolbarButton>
@@ -498,6 +591,12 @@ export function Toolbar(): JSX.Element | null {
                         {showProductTours && (
                             <ToolbarButton menuId="product-tours" title="Product tours">
                                 <IconSpotlight />
+                            </ToolbarButton>
+                        )}
+                        {/* Heatmaps moves here and takes the app icon when field notes is enabled */}
+                        {showFieldNotes && (
+                            <ToolbarButton menuId="heatmap" title="Heatmaps">
+                                <IconApp />
                             </ToolbarButton>
                         )}
                         {showSurveys && (

@@ -104,6 +104,21 @@
         padding-inline: 0.75rem;
     }
 
+    /* `flush`: let a full-bleed child (Table, chart) reach the card's edges. Drops
+       the inter-section gap and bottom block padding on the card, and the inline
+       padding on its CardContent — so the header keeps its own padding + divider
+       while the content below runs corner to corner. Replaces the
+       `gap-0 pb-0` (Card) + `p-0` (CardContent) className combo. Declared after the
+       size rules above so it wins at equal specificity for a `size="sm" flush` card. */
+    .quill-card[data-flush] {
+        gap: 0;
+        padding-bottom: 0;
+    }
+
+    .quill-card[data-flush] > [data-slot='card-content'] {
+        padding-inline: 0;
+    }
+
     .quill-card__footer {
         display: flex;
         align-items: center;

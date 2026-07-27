@@ -1,13 +1,14 @@
-import posthog, { PostHogInterface } from 'posthog-js'
+import posthog, { BeforeSendFn, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
 import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { isOAuthMode } from 'lib/oauth/oauthClient'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 import { startFramerateTracking } from './framerateTracker'
 
-export const SDK_DEFAULTS_DATE = '2026-01-30'
+export const SDK_DEFAULTS_DATE = '2026-05-30'
 
 const shouldDefer = (): boolean => {
     const sessionId = posthog.get_session_id()
@@ -21,7 +22,21 @@ const shouldTrackFramerate = (loadedInstance: PostHogInterface): boolean => {
     )
 }
 
-export function loadPostHogJS(): void {
+export interface LoadPostHogJSOptions {
+    /**
+     * Hook posthog-js's `before_send` so the caller can mutate or drop events before they leave
+     * the browser. Used by the exporter app to redact the SharingConfiguration access token from
+     * URL-shaped properties on the interview share page — see `frontend/src/exporter/index.tsx`.
+     */
+    beforeSend?: BeforeSendFn | BeforeSendFn[]
+    /**
+     * Extra `session_recording` config merged on top of the defaults — useful for overriding URL
+     * / network-payload masking when the page renders sensitive bearer tokens in its own URL.
+     */
+    sessionRecording?: Partial<SessionRecordingOptions>
+}
+
+export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(window.JS_POSTHOG_API_KEY, {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
@@ -35,12 +50,13 @@ export function loadPostHogJS(): void {
             bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,
-            disable_product_tours: window.IMPERSONATED_SESSION,
+            disable_product_tours: true,
             opt_out_capturing_by_default: window.IMPERSONATED_SESSION,
             __preview_deferred_init_extensions: shouldDefer(),
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
+            before_send: options.beforeSend,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
@@ -143,11 +159,14 @@ export function loadPostHogJS(): void {
             },
             session_recording: {
                 blockSelector: '.ph-replay-block',
+                ...options.sessionRecording,
             },
             person_profiles: 'always',
-            __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
+            // posthog-js patches fetch to add X-POSTHOG-* tracing headers to these hosts. In OAuth
+            // mode the app's own /api calls go cross-origin to one of them, where the cloud CORS
+            // allowlist rejects those headers — so disable the feature then.
+            tracing_headers: isOAuthMode() ? [] : ['eu.posthog.com', 'us.posthog.com'],
             __preview_disable_xhr_credentials: true,
-            external_scripts_inject_target: 'head',
             capture_performance: {
                 //disabling to investigate if this is associated with memory leak in the posthog app
                 web_vitals_attribution: false,

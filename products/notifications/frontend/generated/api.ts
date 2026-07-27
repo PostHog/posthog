@@ -19,15 +19,15 @@ export const getNotificationsListUrl = (projectId: string, params?: Notification
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/notifications/?${stringifiedParams}`
-        : `/api/environments/${projectId}/notifications/`
+        ? `/api/projects/${projectId}/notifications/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notifications/`
 }
 
 export const notificationsList = async (
@@ -41,8 +41,23 @@ export const notificationsList = async (
     })
 }
 
+export const getNotificationsArchiveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/notifications/${id}/archive/`
+}
+
+export const notificationsArchiveCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotificationsArchiveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getNotificationsMarkReadCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/notifications/${id}/mark_read/`
+    return `/api/projects/${projectId}/notifications/${id}/mark_read/`
 }
 
 export const notificationsMarkReadCreate = async (
@@ -57,7 +72,7 @@ export const notificationsMarkReadCreate = async (
 }
 
 export const getNotificationsMarkUnreadCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/notifications/${id}/mark_unread/`
+    return `/api/projects/${projectId}/notifications/${id}/mark_unread/`
 }
 
 export const notificationsMarkUnreadCreate = async (
@@ -71,8 +86,36 @@ export const notificationsMarkUnreadCreate = async (
     })
 }
 
+export const getNotificationsArchiveAllCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/notifications/archive_all/`
+}
+
+export const notificationsArchiveAllCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getNotificationsArchiveAllCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getNotificationsArchiveBulkCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/notifications/archive_bulk/`
+}
+
+export const notificationsArchiveBulkCreate = async (
+    projectId: string,
+    bulkNotificationIdsRequestApi: BulkNotificationIdsRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotificationsArchiveBulkCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkNotificationIdsRequestApi),
+    })
+}
+
 export const getNotificationsMarkAllReadCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/notifications/mark_all_read/`
+    return `/api/projects/${projectId}/notifications/mark_all_read/`
 }
 
 export const notificationsMarkAllReadCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
@@ -83,7 +126,7 @@ export const notificationsMarkAllReadCreate = async (projectId: string, options?
 }
 
 export const getNotificationsMarkReadBulkCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/notifications/mark_read_bulk/`
+    return `/api/projects/${projectId}/notifications/mark_read_bulk/`
 }
 
 export const notificationsMarkReadBulkCreate = async (
@@ -100,7 +143,7 @@ export const notificationsMarkReadBulkCreate = async (
 }
 
 export const getNotificationsMarkUnreadBulkCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/notifications/mark_unread_bulk/`
+    return `/api/projects/${projectId}/notifications/mark_unread_bulk/`
 }
 
 export const notificationsMarkUnreadBulkCreate = async (
@@ -117,7 +160,7 @@ export const notificationsMarkUnreadBulkCreate = async (
 }
 
 export const getNotificationsUnreadCountRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/notifications/unread_count/`
+    return `/api/projects/${projectId}/notifications/unread_count/`
 }
 
 export const notificationsUnreadCountRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {

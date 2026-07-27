@@ -4,8 +4,8 @@ import { forwardRef } from 'react'
 import { IconTarget } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -45,7 +45,7 @@ export function ProductSetupButton(): JSX.Element | null {
         }
     }
 
-    useAppShortcut({
+    useShortcut({
         name: 'QuickStartGlobal',
         keybind: [keyBinds.quickStart],
         intent: 'Open quick start guide',

@@ -17,6 +17,11 @@ class TrackWorkflowEventInput:
     distinct_id: str
     properties: dict[str, Any]
     groups: dict[str, str] | None = None
+    # When False, only record metrics and logs — the analytics capture is owned
+    # elsewhere (e.g. update_task_run_status captures task_run_failed on the DB
+    # transition). Optional with a default so payloads from in-flight workflows
+    # started before this field existed still deserialize.
+    capture_analytics: bool = True
 
 
 @activity.defn
@@ -26,11 +31,15 @@ def track_workflow_event(input: TrackWorkflowEventInput) -> None:
         if input.event_name == "task_run_failed":
             observe_task_run_failed(input.properties)
 
+        if not input.capture_analytics:
+            return
+
         posthoganalytics.capture(
             distinct_id=input.distinct_id,
             event=input.event_name,
             properties=input.properties,
             groups=input.groups or {},
+            send_feature_flags=True,
         )
     except Exception:
         logger.exception(

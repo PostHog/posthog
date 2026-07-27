@@ -5,14 +5,18 @@ import * as http from 'http'
 import * as prometheus from 'prom-client'
 import express from 'ultimate-express'
 
-import { BrowserPool } from '../capture/browser-pool'
-import { playerHtmlCache } from '../capture/capture-page'
-import { config } from '../config'
-import { createLogger } from '../logger'
+import { EncryptionCodec } from '~/common/temporal/codec'
+import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
+import { playerHtmlCache } from '~/session-replay/recording-rasterizer/capture/capture-page'
+import { config } from '~/session-replay/recording-rasterizer/config'
+import { createLogger } from '~/session-replay/recording-rasterizer/logger'
+import { initMetrics, shutdownMetrics } from '~/session-replay/recording-rasterizer/otel-metrics'
+
 import { createActivities } from './activities'
-import { EncryptionCodec } from './codec'
 
 prometheus.collectDefaultMetrics()
+// OTLP push into the PostHog Metrics product; no-op unless OTEL_METRICS_EXPORT_URL/TOKEN are set.
+initMetrics()
 
 const log = createLogger()
 
@@ -125,7 +129,9 @@ async function main(): Promise<void> {
         taskQueue: config.taskQueue,
         activities: createActivities(pool, playerHtml),
         maxConcurrentActivityTaskExecutions: config.maxConcurrentActivities,
-        dataConverter: config.secretKey ? { payloadCodecs: [new EncryptionCodec(config.secretKey)] } : undefined,
+        dataConverter: config.secretKey
+            ? { payloadCodecs: [new EncryptionCodec(config.secretKey, config.fallbackKeys)] }
+            : undefined,
         // Throttle heartbeat *server flushes* (not heartbeat() calls) to 2s. Without
         // this override, the SDK throttles to 80% of the activity's heartbeat_timeout
         // (30s → 24s), which means capture-phase frame progress never reaches the
@@ -149,6 +155,7 @@ async function main(): Promise<void> {
 
     // run() resolves after shutdown drains all in-flight activities
     await pool.shutdown()
+    await shutdownMetrics()
     metricsServer.close()
 }
 

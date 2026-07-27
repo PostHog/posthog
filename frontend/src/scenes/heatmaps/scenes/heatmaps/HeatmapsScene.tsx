@@ -3,9 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -18,7 +19,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { HeatmapScreenshotType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, HeatmapScreenshotType } from '~/types'
 
 import { HEATMAPS_PER_PAGE, heatmapsSceneLogic } from './heatmapsSceneLogic'
 
@@ -86,14 +87,20 @@ export function HeatmapsScene(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => deleteHeatmap(row.short_id)}
-                                    fullWidth
-                                    loading={savedHeatmapsLoading}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Heatmap}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={row.user_access_level}
                                 >
-                                    Delete
-                                </LemonButton>
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() => deleteHeatmap(row.short_id)}
+                                        fullWidth
+                                        loading={savedHeatmapsLoading}
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                </AccessControlAction>
                             </>
                         }
                     />
@@ -112,24 +119,29 @@ export function HeatmapsScene(): JSX.Element {
                     type: sceneConfigurations[Scene.Heatmaps].iconType || 'default',
                 }}
                 actions={
-                    <AppShortcut
+                    <Shortcut
                         name="NewHeatmap"
                         keybind={[keyBinds.new]}
                         intent="New heatmap"
                         interaction="click"
                         scope={Scene.Heatmaps}
                     >
-                        <LemonButton
-                            type="primary"
-                            to={urls.heatmap('new')}
-                            data-attr="heatmaps-new-heatmap-button"
-                            size="small"
-                            icon={<IconPlusSmall />}
-                            tooltip="New heatmap"
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Heatmap}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            New heatmap
-                        </LemonButton>
-                    </AppShortcut>
+                            <LemonButton
+                                type="primary"
+                                to={urls.heatmap('new')}
+                                data-attr="heatmaps-new-heatmap-button"
+                                size="small"
+                                icon={<IconPlusSmall />}
+                                tooltip="New heatmap"
+                            >
+                                New heatmap
+                            </LemonButton>
+                        </AccessControlAction>
+                    </Shortcut>
                 }
             />
             <LemonBanner
@@ -144,7 +156,7 @@ export function HeatmapsScene(): JSX.Element {
                 </p>
             </LemonBanner>
             <div className="flex justify-between gap-2 items-center flex-wrap">
-                <AppShortcut
+                <Shortcut
                     name="SearchHeatmaps"
                     keybind={[keyBinds.filter]}
                     intent="Search heatmaps"
@@ -157,7 +169,7 @@ export function HeatmapsScene(): JSX.Element {
                         onChange={(value) => setHeatmapsFilters({ ...filters, search: value || '' })}
                         value={filters.search || ''}
                     />
-                </AppShortcut>
+                </Shortcut>
 
                 <div className="flex items-center gap-2">
                     <span>Created by:</span>

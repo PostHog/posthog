@@ -14,9 +14,10 @@ from posthog.schema import HumanMessage, MaxBillingContext
 from posthog.models import Team, User
 from posthog.temporal.ai.base import AgentBaseWorkflow
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.research_agent.runner import ResearchAgentRunner
 from ee.hogai.stream.redis_stream import ConversationRedisStream
-from ee.models import Conversation
 
 logger = structlog.get_logger(__name__)
 

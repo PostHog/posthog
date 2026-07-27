@@ -3,11 +3,10 @@
 //! The handler's async body is a sequence of contiguous spans of work
 //! between state transitions: `auth → billing_check → cookieless →
 //! fetch_and_filter → evaluate → record_billing → config_response`.
-//! Existing histograms (e.g. `flags_properties_db_fetch_time`,
-//! `flags_billing_increment_time_ms`) cover individual downstream calls,
-//! but a phase-level breakdown is the only way to attribute a multi-second
-//! request spike to the responsible await site when the underlying
-//! resource is itself un-instrumented.
+//! Existing histograms (e.g. `flags_properties_db_fetch_time`) cover
+//! individual downstream calls, but a phase-level breakdown is the only way
+//! to attribute a multi-second request spike to the responsible await site
+//! when the underlying resource is itself un-instrumented.
 //!
 //! [`PhaseGuard`] is the entry point. Construct one at the start of each
 //! phase; on drop it:
@@ -56,8 +55,8 @@ pub enum Phase {
     /// Flag evaluation: dependency graph build, per-flag matching,
     /// hash-key override resolution, group/cohort fetches.
     Evaluate = 4,
-    /// On-path billing increment (Redis HINCRBY) plus shadow-keyspace tee.
-    /// Awaited, not fire-and-forget; counts toward request latency.
+    /// In-process aggregator record for the billable request. No Redis I/O
+    /// on this path; the aggregator flushes batched counts asynchronously.
     RecordBilling = 5,
     /// Building the response payload from the cached config blob.
     ConfigResponse = 6,

@@ -8,13 +8,14 @@ from parameterized import parameterized
 
 from posthog.schema import AlertState
 
-from posthog.models import AlertConfiguration, Insight
-from posthog.models.alert import AlertCheck, InvestigationStatus
 from posthog.tasks.alerts.investigation_notifications import (
     INVESTIGATION_NOTIFY_GRACE_MINUTES,
     INVESTIGATION_RUNNING_GRACE_MINUTES,
     run_investigation_notification_safety_net,
 )
+
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
+from products.product_analytics.backend.models.insight import Insight
 
 NOW = datetime(2026, 5, 4, 12, 0, 0, tzinfo=UTC)
 

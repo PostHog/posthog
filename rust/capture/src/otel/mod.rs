@@ -1,3 +1,4 @@
+mod error_status;
 mod fan_out;
 mod filtering;
 mod identity;
@@ -134,10 +135,6 @@ pub async fn otel_handler(
     // size limit (4 MB) bounds the absolute maximum, but compact protobuf can
     // pack many spans into that budget.
     if raw_span_count > MAX_RAW_SPANS_PER_REQUEST {
-        warn!(
-            "OTEL request contains {} raw spans, exceeding limit of {}",
-            raw_span_count, MAX_RAW_SPANS_PER_REQUEST
-        );
         let err = CaptureError::RequestParsingError(format!(
             "Too many spans: {raw_span_count} exceeds limit of {MAX_RAW_SPANS_PER_REQUEST}"
         ));
@@ -162,10 +159,6 @@ pub async fn otel_handler(
         return Ok(Json(json!({})));
     }
     if span_count > MAX_SPANS_PER_REQUEST {
-        warn!(
-            "OTEL request contains {} AI spans, exceeding limit of {} ({} raw spans received)",
-            span_count, MAX_SPANS_PER_REQUEST, raw_span_count
-        );
         let err = CaptureError::RequestParsingError(format!(
             "Too many AI spans: {span_count} exceeds limit of {MAX_SPANS_PER_REQUEST}"
         ));
@@ -216,7 +209,11 @@ pub async fn otel_handler(
     // `OVERFLOW_ENABLED=true`). Per-span key evaluation matches the analytics
     // batch path: spans with different `token:distinct_id` keys can land
     // with different `overflow_reason` stamps in the same batch.
-    stamp_overflow_reason(&mut processed_events, state.overflow_limiter.as_ref());
+    stamp_overflow_reason(
+        &mut processed_events,
+        state.overflow_limiter.as_ref(),
+        state.ai_events_overflow_limiter.as_ref(),
+    );
 
     state.sink.send_batch(processed_events).await.map_err(|e| {
         report_internal_error_metrics(e.to_metric_tag(), "otel_sink");

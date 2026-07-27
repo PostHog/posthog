@@ -5,6 +5,7 @@ use crate::metrics::consts::{
     FLAG_BODY_READ_TIME_MS, FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS, FLAG_DB_OPERATIONS_PER_REQUEST,
     FLAG_PHASE_DURATION_MS, FLAG_PRE_HANDLER_TIME_MS, FLAG_QUEUE_TIME_MS,
 };
+use crate::utils::bot_detection::{BotCategory, BotSource};
 use std::cell::RefCell;
 use std::future::Future;
 use std::time::Instant;
@@ -182,7 +183,7 @@ pub struct FlagsCanonicalLogLine {
 
     // Request metadata (useful for SDK debugging)
     pub user_agent: Option<String>,
-    pub lib: Option<&'static str>,
+    pub lib: Option<String>,
     pub lib_version: Option<String>,
     pub api_version: Option<String>,
 
@@ -291,14 +292,6 @@ pub struct FlagsCanonicalLogLine {
     /// `team_id` is resolved.
     pub phases: PhaseDurations,
 
-    /// Duration of the synchronous Redis HINCRBY billing increment in
-    /// milliseconds. Only populated from endpoints that run inside a canonical
-    /// log scope (currently `/flags` and `/decide`). `None` when billing was
-    /// skipped (no billable flags or `skip_writes`), or when called from an
-    /// endpoint that does not emit a canonical log line (e.g.
-    /// `/flags/definitions`).
-    pub billing_duration_ms: Option<u64>,
-
     // Cache sources (populated during data fetching)
     /// Where team metadata was fetched from: "redis", "s3", "fallback", or None if not fetched
     pub team_cache_source: Option<&'static str>,
@@ -307,6 +300,15 @@ pub struct FlagsCanonicalLogLine {
     pub http_status: u16,
     /// Error code from FlagError::error_code(). Uses &'static str to avoid allocation.
     pub error_code: Option<&'static str>,
+
+    /// True when the request was short-circuited by the bot filter and
+    /// skipped token rate-limit, auth, billing, and evaluation.
+    pub is_bot: bool,
+    /// Matched bot category, set iff `is_bot` is true. The enum bounds
+    /// the label set; [`Self::emit`] stringifies at log time.
+    pub bot_category: Option<BotCategory>,
+    /// Which signal fired (UA or IP), set iff `is_bot` is true.
+    pub bot_source: Option<BotSource>,
 }
 
 impl Default for FlagsCanonicalLogLine {
@@ -351,10 +353,12 @@ impl Default for FlagsCanonicalLogLine {
             concurrency_limit_wait_ms: None,
             body_read_ms: None,
             phases: PhaseDurations::default(),
-            billing_duration_ms: None,
             team_cache_source: None,
             http_status: 200,
             error_code: None,
+            is_bot: false,
+            bot_category: None,
+            bot_source: None,
         }
     }
 }
@@ -384,7 +388,7 @@ impl FlagsCanonicalLogLine {
             anon_distinct_id = self.anon_distinct_id.as_deref(),
             ip = %self.ip,
             user_agent = user_agent,
-            lib = self.lib,
+            lib = self.lib.as_deref(),
             lib_version = self.lib_version.as_deref(),
             api_version = self.api_version.as_deref(),
             duration_ms = duration_ms,
@@ -421,9 +425,11 @@ impl FlagsCanonicalLogLine {
             pre_handler_duration_ms = self.pre_handler_duration_ms,
             concurrency_limit_wait_ms = self.concurrency_limit_wait_ms,
             body_read_ms = self.body_read_ms,
-            billing_duration_ms = self.billing_duration_ms,
             team_cache_source = self.team_cache_source,
             error_code = self.error_code,
+            is_bot = self.is_bot,
+            bot_category = self.bot_category.map(|c| c.as_str()),
+            bot_source = self.bot_source.map(|s| s.as_str()),
             "canonical_log_line"
         );
     }
@@ -594,6 +600,16 @@ impl FlagsCanonicalLogLine {
         self.set_error(error);
         self.emit();
     }
+
+    /// Emit dependent histograms then the canonical log. For short-circuit
+    /// paths that bypass `run_with_canonical_log` (IP rate-limit blocked,
+    /// bot-Enforced).
+    pub fn emit_short_circuit(&self) {
+        self.emit_db_operations_metrics();
+        self.emit_timing_metrics();
+        self.emit_phase_metrics();
+        self.emit();
+    }
 }
 
 #[cfg(test)]
@@ -692,7 +708,7 @@ mod tests {
     fn test_emit_with_all_fields_populated() {
         let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
         log.user_agent = Some("posthog-python/1.0.0".to_string());
-        log.lib = Some("posthog-python");
+        log.lib = Some("posthog-python".to_string());
         log.lib_version = Some("1.0.0".to_string());
         log.api_version = Some("3".to_string());
         log.team_id = Some(123);
@@ -1186,12 +1202,10 @@ mod tests {
         #[case(FlagError::NoAuthenticationProvided, 401, "no_authentication")]
         #[case(FlagError::RowNotFound, 500, "row_not_found")]
         #[case(FlagError::DataParsingErrorWithContext("test".into()), 500, "flag_data_parsing_error")]
-        #[case(FlagError::DeserializeFiltersError, 500, "deserialize_filters_error")]
         #[case(FlagError::RedisUnavailable, 503, "redis_unavailable")]
         #[case(FlagError::DatabaseUnavailable, 503, "database_unavailable")]
         #[case(FlagError::TimeoutError(None), 503, "timeout")]
         #[case(FlagError::TimeoutError(Some("pool".into())), 503, "timeout")]
-        #[case(FlagError::NoGroupTypeMappings, 500, "no_group_type_mappings")]
         #[case(
             FlagError::DependencyNotFound(DependencyType::Flag, 1),
             500,
@@ -1208,14 +1222,9 @@ mod tests {
             "cohort_filters_parsing_error"
         )]
         #[case(FlagError::PersonNotFound, 503, "person_not_found")]
-        #[case(FlagError::PropertiesNotInCache, 503, "properties_not_in_cache")]
-        #[case(
-            FlagError::StaticCohortMatchesNotCached,
-            503,
-            "static_cohort_not_cached"
-        )]
         #[case(FlagError::CacheMiss, 503, "cache_miss")]
         #[case(FlagError::DataParsingError, 500, "data_parsing_error")]
+        #[case(FlagError::HashKeyOverrideError, 500, "hash_key_override_error")]
         fn test_set_error_populates_fields(
             #[case] error: FlagError,
             #[case] expected_status: u16,

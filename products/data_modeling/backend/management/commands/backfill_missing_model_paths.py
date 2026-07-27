@@ -8,8 +8,8 @@ from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 
 logger = structlog.get_logger(__name__)
 
@@ -25,6 +25,12 @@ class Command(BaseCommand):
             default=None,
             type=str,
             help="Comma separated list of team IDs to filter by",
+        )
+        parser.add_argument(
+            "--start-after-team-id",
+            default=None,
+            type=int,
+            help="Resume after this team ID (exclusive), following the team_id ordering used by this command",
         )
         parser.add_argument(
             "--batch-size",
@@ -58,6 +64,9 @@ class Command(BaseCommand):
             except ValueError:
                 raise CommandError("team-ids must be a comma separated list of team IDs")
             queryset = queryset.filter(team_id__in=team_ids)
+
+        if options.get("start_after_team_id") is not None:
+            queryset = queryset.filter(team_id__gt=options["start_after_team_id"])
 
         saved_queries = list(queryset.order_by("team_id", "id"))
 

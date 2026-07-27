@@ -18,7 +18,8 @@ from langchain_core.tools import tool
 from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCallMessage
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Insight
+
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.core.node import AssistantNode
@@ -563,7 +564,9 @@ class InsightSearchNode(AssistantNode):
     ) -> str:
         """Execute query and format results with timing instrumentation."""
         try:
-            query_executor = AssistantQueryExecutor(team=self._team, utc_now_datetime=self._utc_now_datetime)
+            query_executor = AssistantQueryExecutor(
+                team=self._team, user=self._user, utc_now_datetime=self._utc_now_datetime
+            )
             results, _ = await query_executor.arun_and_format_query(query_obj, debug_timing=True)
             return results
         except Exception as e:

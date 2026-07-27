@@ -5,7 +5,7 @@ from django.db import migrations
 
 
 def copy_action_steps_to_json(apps, schema_editor):
-    from posthog.models import Action
+    from products.actions.backend.models.action import Action
 
     all_actions_with_steps = Action.objects.prefetch_related("action_steps").order_by("pk").all()
 

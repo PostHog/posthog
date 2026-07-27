@@ -13,8 +13,9 @@ from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization
-from posthog.models.plugin import Plugin, PluginConfig, PluginStorage
 from posthog.models.team.team import Team
+
+from products.cdp.backend.models.plugin import Plugin, PluginConfig, PluginStorage
 
 pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 

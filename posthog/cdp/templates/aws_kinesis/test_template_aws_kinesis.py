@@ -20,18 +20,25 @@ class TestTemplateAwsKinesis(BaseHogFunctionTemplateTest):
             }
         )
 
+        # The Hog template now hands signing off to the Node.js cyclotron fetch executor,
+        # which re-signs on every attempt. The aws_sigv4 bag carries input-key references,
+        # not credential values — the executor resolves them from HogFunction.inputs at
+        # fetch time so secrets never enter the plaintext queue payload.
         assert res.result is None
         assert self.get_mock_fetch_calls()[0] == (
             "https://kinesis.aws_region.amazonaws.com",
             {
+                "method": "POST",
                 "headers": {
                     "Content-Type": "application/x-amz-json-1.1",
                     "X-Amz-Target": "Kinesis_20131202.PutRecord",
-                    "X-Amz-Date": "20240416T123451Z",
-                    "Host": "kinesis.aws_region.amazonaws.com",
-                    "Authorization": "AWS4-HMAC-SHA256 Credential=aws_access_key_id/20240416/aws_region/kinesis/aws4_request, SignedHeaders=content-type;host;x-amz-date;x-amz-target, Signature=65b18913b42d8a7a1d33c0711da192d5a2e99eb79fb08ab3e5eefb6488b903ff",
                 },
                 "body": '{"StreamName": "aws_kinesis_stream_arn", "PartitionKey": "1", "Data": "eyJoZWxsbyI6ICJ3b3JsZCJ9"}',
-                "method": "POST",
+                "aws_sigv4": {
+                    "service": "kinesis",
+                    "region": "aws_region",
+                    "access_key_id_input": "aws_access_key_id",
+                    "secret_access_key_input": "aws_secret_access_key",
+                },
             },
         )

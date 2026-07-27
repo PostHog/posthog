@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { LemonDivider, LemonInputSelect, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import type { CustomInputRendererProps } from 'lib/components/CyclotronJob/customInputRenderers'
-import { timeZoneLabel } from 'lib/utils'
+import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

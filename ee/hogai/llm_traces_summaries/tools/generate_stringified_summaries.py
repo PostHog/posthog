@@ -13,8 +13,9 @@ from rich.console import Console
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
+from products.ai_observability.backend.models.llm_traces_summaries import LLMTraceSummary
+
 from ee.hogai.llm_traces_summaries.constants import LLM_TRACES_SUMMARIES_MODEL_TO_SUMMARIZE_STRINGIFIED_TRACES
-from ee.models.llm_traces_summaries import LLMTraceSummary
 
 logger = structlog.get_logger(__name__)
 

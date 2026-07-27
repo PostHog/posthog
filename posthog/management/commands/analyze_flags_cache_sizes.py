@@ -7,12 +7,13 @@ import json
 import statistics
 
 from posthog.management.commands._base_hypercache_command import BaseHyperCacheCommand
-from posthog.models.feature_flag.flags_cache import (
+from posthog.models.team import Team
+
+from products.feature_flags.backend.flags_cache import (
     FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
     _get_feature_flags_for_service,
     _get_feature_flags_for_teams_batch,
 )
-from posthog.models.team import Team
 
 
 class Command(BaseHyperCacheCommand):
@@ -46,7 +47,7 @@ class Command(BaseHyperCacheCommand):
             return
 
         # Random sample of teams for unbiased statistics
-        teams = list(Team.objects.select_related("organization", "project").order_by("?")[:sample_size])
+        teams = list(self.narrow_team_queryset(Team.objects.all()).order_by("?")[:sample_size])
 
         self.stdout.write(f"\nAnalyzing {len(teams)} teams (out of {total_teams} total)...")
 

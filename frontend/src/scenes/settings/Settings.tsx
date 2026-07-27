@@ -8,10 +8,10 @@ import React from 'react'
 import { IconExternal, IconList } from '@posthog/icons'
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import {
@@ -34,8 +34,8 @@ import {
     TooltipContent,
     TooltipTrigger,
 } from 'lib/ui/quill'
-import { inStorybookTestRunner } from 'lib/utils'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -66,9 +66,9 @@ export function Settings({
 }): JSX.Element {
     const {
         selectedSectionId,
+        selectedSection,
         selectedLevel,
         selectedSettingId,
-        selectedSetting,
         settings,
         isCompactNavigationOpen,
         searchTerm,
@@ -90,24 +90,46 @@ export function Settings({
         navigateToSetting,
     } = useActions(settingsLogic(props))
 
-    const { ref, size } = useResizeBreakpoints(
-        {
-            0: 'small',
-            700: 'medium',
-        },
-        {
-            initialSize: 'medium',
+    // Tailwind `md` breakpoint (768px). Matches `screens.md` in common/tailwind/tailwind.config.js.
+    const [isViewportCompact, setIsViewportCompact] = React.useState(() => {
+        if (typeof window === 'undefined') {
+            return false
         }
-    )
+        return window.matchMedia('(max-width: 767px)').matches
+    })
+    React.useEffect(() => {
+        const mql = window.matchMedia('(max-width: 767px)')
+        const update = (e: MediaQueryListEvent | MediaQueryList): void => setIsViewportCompact(e.matches)
+        update(mql)
+        mql.addEventListener('change', update)
+        return () => mql.removeEventListener('change', update)
+    }, [])
 
-    const isCompact = !inStorybookTestRunner() && size === 'small'
+    const isCompact = !inStorybookTestRunner() && isViewportCompact
 
     // The full settings scene fills the scene area, so its nav can be viewport-fixed.
     // Embeds (replay settings, error tracking config, side panel, modal) place the nav
     // in normal flow instead, so it sits beside the content rather than overlapping.
     const isFullScene = props.logicKey === 'settingsScene'
 
-    const settingsInSidebar = props.sectionId && !!selectedSetting
+    // Sections gated by access control render a generic denial instead of their settings,
+    // which would otherwise mount and immediately 403 against their endpoints.
+    const sectionAccessDeniedReason = selectedSection?.accessControl
+        ? getAccessControlDisabledReason(
+              selectedSection.accessControl.resourceType,
+              selectedSection.accessControl.minimumAccessLevel
+          )
+        : null
+
+    // When embedded in a specific section (replay, logs, error tracking, etc. — anything that
+    // passes a `sectionId`), the nav always lists that section's settings as in-context sub-tabs.
+    // It must NOT depend on `selectedSetting` resolving: that value is derived from asynchronously
+    // loaded feature flags / team config, so on a cold load it is briefly null. Folding it in here
+    // made the nav fall back to the full multi-level settings map, whose items link out to
+    // `/settings/...` — which is why clicking a replay settings sub-tab would occasionally bounce
+    // the user to the top-level settings page. The standalone settings scene passes no `sectionId`
+    // and keeps the full map. (Content single-vs-stacked is decided separately in SettingsRenderer.)
+    const settingsInSidebar = !!props.sectionId
 
     const searchItems: SearchResult[] = React.useMemo(
         () => searchResults.flatMap((group) => group.results),
@@ -143,13 +165,13 @@ export function Settings({
         return () => clearTimeout(timer)
     }, [selectedSectionId, isSearching])
 
-    // Currently environment and project settings do not require periodic re-authentication,
-    // though this is likely to change (see https://github.com/posthog/posthog/pull/22421).
-    // In the meantime, we don't want a needless re-authentication modal:
-    const AuthenticationAreaComponent =
-        selectedLevel !== 'environment' && selectedLevel !== 'project'
-            ? TimeSensitiveAuthenticationArea
-            : React.Fragment
+    // Environment and project settings don't require periodic re-authentication by default,
+    // so we avoid a needless re-authentication modal (see https://github.com/posthog/posthog/pull/22421).
+    // The exception is sections that opt in via `requiresReauthentication` — e.g. credential
+    // management — which prompt on navigation like user- and organization-level settings do.
+    const requiresReauthentication =
+        (selectedLevel !== 'environment' && selectedLevel !== 'project') || !!selectedSection?.requiresReauthentication
+    const AuthenticationAreaComponent = requiresReauthentication ? TimeSensitiveAuthenticationArea : React.Fragment
 
     const options: SettingOption[] = settingsInSidebar
         ? settings.map((s) => ({
@@ -319,9 +341,13 @@ export function Settings({
         </Combobox>
     )
 
+    // Embeds show only the denied section's sub-tabs, so hide the nav along with the content.
+    // The full settings scene keeps its nav so other sections stay reachable.
+    const hideNav = hideSections || (settingsInSidebar && !!sectionAccessDeniedReason)
+
     return (
-        <div className={clsx('Settings flex items-start', isCompact && 'Settings--compact')} ref={ref}>
-            {hideSections ? null : isCompact ? (
+        <div className={clsx('Settings flex items-start', isCompact && 'Settings--compact')}>
+            {hideNav ? null : isCompact ? (
                 <>
                     <Button variant="outline" left className="w-full" onClick={() => openCompactNavigation()}>
                         <IconList className="stroke-2 size-4 mr-1" />{' '}
@@ -358,25 +384,31 @@ export function Settings({
                     className={clsx(
                         'border rounded w-[var(--settings-nav-width)] flex flex-col',
                         isFullScene
-                            ? 'fixed top-[calc(var(--scene-layout-header-height)+var(--scene-padding))] bottom-[var(--scene-padding)]'
-                            : 'sticky top-[var(--scene-layout-header-height)] self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
+                            ? 'fixed top-(--settings-nav-top) bottom-(--scene-padding)'
+                            : 'sticky top-(--scene-layout-header-height) self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
                     )}
                 >
                     {navContent}
                 </div>
             )}
 
-            <AuthenticationAreaComponent>
-                <div
-                    className={clsx(
-                        'flex-1 w-full min-w-0 space-y-2 self-start pb-32',
-                        isFullScene && !hideSections && !isCompact && 'pl-[calc(var(--settings-nav-width)+2rem)]'
-                    )}
-                >
-                    {headerSlot}
-                    <SettingsRenderer {...props} handleLocally={handleLocally} />
-                </div>
-            </AuthenticationAreaComponent>
+            <div
+                className={clsx(
+                    'flex-1 w-full min-w-0 self-start pb-32',
+                    isFullScene && !hideSections && !isCompact && 'pl-[calc(var(--settings-nav-width)+2rem)]'
+                )}
+            >
+                <AuthenticationAreaComponent>
+                    <div className="space-y-2">
+                        {headerSlot}
+                        {sectionAccessDeniedReason ? (
+                            <AccessDenied reason={sectionAccessDeniedReason} />
+                        ) : (
+                            <SettingsRenderer {...props} handleLocally={handleLocally} />
+                        )}
+                    </div>
+                </AuthenticationAreaComponent>
+            </div>
         </div>
     )
 }
@@ -453,7 +485,7 @@ const OptionGroup = ({ options, depth = 0 }: { options: SettingOption[]; depth?:
                             variant="folder"
                         >
                             <CollapsibleTrigger
-                                render={<Button left className="w-full" />}
+                                render={<Button left className="w-full text-[13px]" />}
                                 className={cn(depth !== 0 && '-ml-2 w-[calc(100%+var(--spacing)*2)]')}
                             >
                                 <span className="flex-1 truncate text-left font-semibold">
@@ -502,7 +534,7 @@ const OptionButton = ({
     const button = (
         <Button
             left
-            className="w-full font-normal"
+            className="w-full font-normal text-[13px]"
             disabled={isDisabled}
             aria-selected={active || undefined}
             data-attr={dataAttr}

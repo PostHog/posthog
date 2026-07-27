@@ -1,0 +1,185 @@
+use std::sync::Arc;
+
+use async_trait::async_trait;
+
+use chunk_id::OrChunkId;
+use reqwest::Url;
+use sourcemap::OwnedSourceMapCache;
+
+use crate::{
+    error::ResolveError,
+    langs::hermes::HermesRef,
+    symbolication::symbol_store::{
+        apple::AppleRef,
+        hermesmap::ParsedHermesMap,
+        native::{NativeRef, ParsedNativeSymbols},
+        proguard::{FetchedMapping, ProguardRef},
+    },
+};
+
+pub mod apple;
+pub mod caching;
+pub mod chunk_id;
+pub mod concurrency;
+pub mod dart_minified_names;
+pub mod hermesmap;
+pub mod native;
+pub mod proguard;
+pub mod saving;
+pub mod sourcemap;
+
+mod s3;
+pub use s3::BlobClient;
+#[cfg(test)]
+pub use s3::MockBlobClient as MockS3Client;
+pub use s3::S3Impl as S3Client;
+
+#[async_trait]
+pub trait SymbolCatalog<Ref, Set>: Send + Sync + 'static {
+    // TODO - this doesn't actually need to return an Arc, but it does for now, because I'd
+    // need to re-write the cache to let it return &'s instead, and the Arc overhead is not
+    // going to be super critical right now
+    async fn lookup(&self, team_id: i32, r: Ref) -> Result<Arc<Set>, ResolveError>;
+}
+
+#[async_trait]
+pub trait Fetcher: Send + Sync + 'static {
+    type Ref;
+    type Fetched;
+    type Err;
+    async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Self::Err>;
+}
+
+#[async_trait]
+pub trait Parser: Send + Sync + 'static {
+    type Source;
+    type Set;
+    type Err;
+    async fn parse(&self, data: Self::Source) -> Result<Self::Set, Self::Err>;
+}
+
+#[async_trait]
+pub trait Provider: Send + Sync + 'static {
+    type Ref;
+    type Set;
+    type Err;
+
+    async fn lookup(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Self::Err>;
+}
+
+pub struct Catalog {
+    // "source map provider"
+    pub smp: Box<dyn Provider<Ref = OrChunkId<Url>, Set = OwnedSourceMapCache, Err = ResolveError>>,
+    // Hermes map provider
+    pub hmp:
+        Box<dyn Provider<Ref = OrChunkId<HermesRef>, Set = ParsedHermesMap, Err = ResolveError>>,
+    // Proguard map provider
+    pub pg:
+        Box<dyn Provider<Ref = OrChunkId<ProguardRef>, Set = FetchedMapping, Err = ResolveError>>,
+    // Apple dSYM provider
+    pub apple:
+        Box<dyn Provider<Ref = OrChunkId<AppleRef>, Set = ParsedNativeSymbols, Err = ResolveError>>,
+    // Native (ELF/dSYM) debug symbol provider
+    pub native: Box<
+        dyn Provider<Ref = OrChunkId<NativeRef>, Set = ParsedNativeSymbols, Err = ResolveError>,
+    >,
+}
+
+impl Catalog {
+    pub fn new(
+        smp: impl Provider<Ref = OrChunkId<Url>, Set = OwnedSourceMapCache, Err = ResolveError>,
+        hmp: impl Provider<Ref = OrChunkId<HermesRef>, Set = ParsedHermesMap, Err = ResolveError>,
+        pg: impl Provider<Ref = OrChunkId<ProguardRef>, Set = FetchedMapping, Err = ResolveError>,
+        apple: impl Provider<Ref = OrChunkId<AppleRef>, Set = ParsedNativeSymbols, Err = ResolveError>,
+        native: impl Provider<Ref = OrChunkId<NativeRef>, Set = ParsedNativeSymbols, Err = ResolveError>,
+    ) -> Self {
+        Self {
+            smp: Box::new(smp),
+            hmp: Box::new(hmp),
+            pg: Box::new(pg),
+            apple: Box::new(apple),
+            native: Box::new(native),
+        }
+    }
+}
+
+#[async_trait]
+impl SymbolCatalog<Url, OwnedSourceMapCache> for Catalog {
+    async fn lookup(&self, team_id: i32, r: Url) -> Result<Arc<OwnedSourceMapCache>, ResolveError> {
+        let r = OrChunkId::inner(r);
+        self.smp.lookup(team_id, r).await
+    }
+}
+
+#[async_trait]
+impl SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache> for Catalog {
+    async fn lookup(
+        &self,
+        team_id: i32,
+        r: OrChunkId<Url>,
+    ) -> Result<Arc<OwnedSourceMapCache>, ResolveError> {
+        self.smp.lookup(team_id, r).await
+    }
+}
+
+#[async_trait]
+impl SymbolCatalog<OrChunkId<HermesRef>, ParsedHermesMap> for Catalog {
+    async fn lookup(
+        &self,
+        team_id: i32,
+        r: OrChunkId<HermesRef>,
+    ) -> Result<Arc<ParsedHermesMap>, ResolveError> {
+        self.hmp.lookup(team_id, r).await
+    }
+}
+
+#[async_trait]
+impl SymbolCatalog<OrChunkId<ProguardRef>, FetchedMapping> for Catalog {
+    async fn lookup(
+        &self,
+        team_id: i32,
+        r: OrChunkId<ProguardRef>,
+    ) -> Result<Arc<FetchedMapping>, ResolveError> {
+        self.pg.lookup(team_id, r).await
+    }
+}
+
+#[async_trait]
+impl SymbolCatalog<OrChunkId<AppleRef>, ParsedNativeSymbols> for Catalog {
+    async fn lookup(
+        &self,
+        team_id: i32,
+        r: OrChunkId<AppleRef>,
+    ) -> Result<Arc<ParsedNativeSymbols>, ResolveError> {
+        self.apple.lookup(team_id, r).await
+    }
+}
+
+#[async_trait]
+impl SymbolCatalog<OrChunkId<NativeRef>, ParsedNativeSymbols> for Catalog {
+    async fn lookup(
+        &self,
+        team_id: i32,
+        r: OrChunkId<NativeRef>,
+    ) -> Result<Arc<ParsedNativeSymbols>, ResolveError> {
+        self.native.lookup(team_id, r).await
+    }
+}
+
+#[async_trait]
+impl<T> Provider for T
+where
+    T: Fetcher + Parser<Source = T::Fetched, Err = <T as Fetcher>::Err>,
+    T::Ref: Send,
+    T::Fetched: Send,
+{
+    type Ref = T::Ref;
+    type Set = T::Set;
+    type Err = <T as Fetcher>::Err;
+
+    async fn lookup(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Self::Err> {
+        let fetched = self.fetch(team_id, r).await?;
+        let parsed = self.parse(fetched).await?;
+        Ok(Arc::new(parsed))
+    }
+}

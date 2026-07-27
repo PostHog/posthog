@@ -5,15 +5,22 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.business_knowledge.backend.constants import CHUNK_HARD_MAX_CHARS
+from products.business_knowledge.backend.constants import CHUNK_HARD_MAX_CHARS, MAX_ALWAYS_ON_CONTEXT_CHARS
 from products.business_knowledge.backend.logic import (
     QuotaExceededError,
     TextTooLargeError,
     _chunk_id,
     chunk_text,
     create_text_source,
+    get_always_on_context,
 )
-from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, SourceStatus
+from products.business_knowledge.backend.models import (
+    KnowledgeChunk,
+    KnowledgeDocument,
+    KnowledgeSource,
+    SafetyVerdict,
+    SourceStatus,
+)
 
 
 class TestChunker(BaseTest):
@@ -132,3 +139,87 @@ class TestCreateTextSource(BaseTest):
 
         assert len(logic.list_for_team(self.team.id)) == 1
         assert len(logic.list_for_team(other_team.id)) == 0
+
+
+class TestGetAlwaysOnContext(BaseTest):
+    def _create_source(
+        self, *, always_include: bool = False, status: str = SourceStatus.READY, safe: bool = True
+    ) -> KnowledgeSource:
+        source = KnowledgeSource.objects.unscoped().create(
+            team_id=self.team.id,
+            name="test",
+            source_type="text",
+            status=status,
+            always_include=always_include,
+        )
+        doc = KnowledgeDocument.objects.unscoped().create(
+            team_id=self.team.id,
+            source=source,
+            stable_id=str(uuid.uuid4()),
+            title="doc",
+            content="chunk content here",
+            content_hash="abc",
+            safety_verdict=SafetyVerdict.SAFE if safe else SafetyVerdict.UNKNOWN,
+        )
+        KnowledgeChunk.objects.unscoped().create(
+            id=uuid.uuid4(),
+            team_id=self.team.id,
+            source=source,
+            document=doc,
+            ordinal=0,
+            content="chunk content here",
+            char_count=18,
+        )
+        return source
+
+    def test_returns_chunks_from_always_include_sources(self) -> None:
+        self._create_source(always_include=True)
+        self._create_source(always_include=False)
+        results = get_always_on_context(self.team.id)
+        assert len(results) == 1
+        assert results[0].content == "chunk content here"
+
+    def test_excludes_unsafe_documents(self) -> None:
+        self._create_source(always_include=True, safe=False)
+        results = get_always_on_context(self.team.id)
+        assert len(results) == 0
+
+    def test_excludes_non_ready_sources(self) -> None:
+        self._create_source(always_include=True, status=SourceStatus.PROCESSING)
+        results = get_always_on_context(self.team.id)
+        assert len(results) == 0
+
+    def test_respects_char_cap(self) -> None:
+        source = KnowledgeSource.objects.unscoped().create(
+            team_id=self.team.id,
+            name="big",
+            source_type="text",
+            status=SourceStatus.READY,
+            always_include=True,
+        )
+        doc = KnowledgeDocument.objects.unscoped().create(
+            team_id=self.team.id,
+            source=source,
+            stable_id=str(uuid.uuid4()),
+            title="big doc",
+            content="x",
+            content_hash="def",
+            safety_verdict=SafetyVerdict.SAFE,
+        )
+        # Create chunks that together exceed the cap
+        chunk_size = MAX_ALWAYS_ON_CONTEXT_CHARS // 2 + 1
+        for i in range(3):
+            KnowledgeChunk.objects.unscoped().create(
+                id=uuid.uuid4(),
+                team_id=self.team.id,
+                source=source,
+                document=doc,
+                ordinal=i,
+                content="x" * chunk_size,
+                char_count=chunk_size,
+            )
+        results = get_always_on_context(self.team.id)
+        total = sum(len(r.content) for r in results)
+        assert total <= MAX_ALWAYS_ON_CONTEXT_CHARS
+        # Should have gotten at most 1 chunk (2nd would exceed cap)
+        assert len(results) == 1

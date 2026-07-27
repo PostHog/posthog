@@ -4,8 +4,8 @@ import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { alphabet } from 'lib/utils'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import { alphabet } from 'lib/utils/strings'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -62,9 +62,7 @@ export function TrendsSeries(): JSX.Element | null {
               ? MathAvailability.BoxPlotOnly
               : MathAvailability.All
     const supportsDataWarehouse =
-        (isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot) ||
-        isLifecycle ||
-        isStickiness
+        (isTrends && display !== ChartDisplayType.CalendarHeatmap) || isLifecycle || isStickiness
 
     const showFormulaOption =
         isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot

@@ -25,6 +25,13 @@ export interface InterviewExportPayload {
     interviewee_identifier: string
     user_name: string
     topic: string
+    already_replied: boolean
+    /**
+     * True for a non-personalised (shared) topic link, where every visitor is a new anonymous
+     * respondent who self-identifies with a name before starting. False for a personalised
+     * per-invitee link (which greets a known `user_name`).
+     */
+    shared: boolean
     /**
      * NOTE: `agent_context`, `questions`, and the Vapi credentials are intentionally NOT in
      * this payload. They live behind `POST /api/user_interviews/share/<token>/start_call/`

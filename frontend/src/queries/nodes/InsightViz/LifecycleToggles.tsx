@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
 
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import {
     AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE,
     getAggregationTargetPronoun,

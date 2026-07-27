@@ -9,6 +9,7 @@ ResourceKind = Literal[
     "Cohort",
     "Dashboard",
     "DashboardTile",
+    "DashboardWidget",
     "EarlyAccessFeature",
     "Experiment",
     "ExperimentHoldout",

@@ -1,9 +1,22 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
+import { PersonType } from '~/types'
 
 import { livePersonDrillDownDrawerLogic, LivePersonDrillDownSelection } from './livePersonDrillDownDrawerLogic'
-import { COOKIELESS_DISTINCT_ID_PREFIX, partitionDistinctIds } from './livePersonDrillDownLogic'
+import {
+    aggregateRecordingCountsByPerson,
+    COOKIELESS_DISTINCT_ID_PREFIX,
+    partitionDistinctIds,
+} from './livePersonDrillDownLogic'
+
+const makePerson = (overrides: Partial<PersonType> & { id?: string | number; uuid?: string }): PersonType =>
+    ({
+        distinct_ids: [],
+        properties: {},
+        created_at: '2020-01-01T00:00:00Z',
+        ...overrides,
+    }) as PersonType
 
 describe('partitionDistinctIds', () => {
     it('separates cookieless ids from identified ones', () => {
@@ -45,6 +58,49 @@ describe('partitionDistinctIds', () => {
         const result = partitionDistinctIds(['user_with_cookieless_word', 'cookieless'])
         expect(result.identified).toEqual(['user_with_cookieless_word', 'cookieless'])
         expect(result.anonymous).toEqual([])
+    })
+})
+
+describe('aggregateRecordingCountsByPerson', () => {
+    it("sums counts across each person's distinct_ids", () => {
+        const persons = [
+            makePerson({ id: 'person-a', distinct_ids: ['d1', 'd2'] }),
+            makePerson({ id: 'person-b', distinct_ids: ['d3'] }),
+        ]
+        const counts = { d1: 2, d2: 3, d3: 1 }
+        expect(aggregateRecordingCountsByPerson(persons, counts)).toEqual({
+            'person-a': 5,
+            'person-b': 1,
+        })
+    })
+
+    it('omits persons with zero recordings', () => {
+        const persons = [
+            makePerson({ id: 'person-a', distinct_ids: ['d1'] }),
+            makePerson({ id: 'person-b', distinct_ids: ['d2'] }),
+        ]
+        const counts = { d2: 4 }
+        expect(aggregateRecordingCountsByPerson(persons, counts)).toEqual({ 'person-b': 4 })
+    })
+
+    it('falls back to uuid when id is missing', () => {
+        const persons = [makePerson({ uuid: 'uuid-1', distinct_ids: ['d1'] })]
+        expect(aggregateRecordingCountsByPerson(persons, { d1: 7 })).toEqual({ 'uuid-1': 7 })
+    })
+
+    it('skips persons with no id and no uuid', () => {
+        const persons = [makePerson({ distinct_ids: ['d1'] })]
+        expect(aggregateRecordingCountsByPerson(persons, { d1: 1 })).toEqual({})
+    })
+
+    it('ignores distinct_ids that are not present in the counts map', () => {
+        const persons = [makePerson({ id: 'person-a', distinct_ids: ['d1', 'd-missing'] })]
+        expect(aggregateRecordingCountsByPerson(persons, { d1: 2 })).toEqual({ 'person-a': 2 })
+    })
+
+    it('returns an empty object when no persons have recordings', () => {
+        const persons = [makePerson({ id: 'person-a', distinct_ids: ['d1'] })]
+        expect(aggregateRecordingCountsByPerson(persons, {})).toEqual({})
     })
 })
 

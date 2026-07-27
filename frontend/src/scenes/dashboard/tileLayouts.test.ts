@@ -1,6 +1,6 @@
 import { Layout, LayoutItem } from 'react-grid-layout'
 
-import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import { calculateDuplicateLayout, calculateInsertionLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 
 import { DashboardLayoutSize, DashboardTile, QueryBasedInsightModel, TileLayout } from '~/types'
 
@@ -115,6 +115,42 @@ describe('calculating tile layouts', () => {
         expect(ys.every((y, i) => i === 0 || y > ys[i - 1])).toBe(true)
     })
 
+    it.each([
+        {
+            name: 'uses default widget minH when catalog omits minH',
+            widgetType: 'unknown_widget',
+            expectedMinH: 4,
+            expectedMinW: 3,
+        },
+        {
+            name: 'uses catalog minW for error tracking list widgets',
+            widgetType: 'error_tracking_list',
+            expectedMinH: 3,
+            expectedMinW: 3,
+        },
+        {
+            name: 'uses catalog minW for session replay list widgets',
+            widgetType: 'session_replay_list',
+            expectedMinH: 3,
+            expectedMinW: 3,
+        },
+    ])('$name', ({ widgetType, expectedMinH, expectedMinW }) => {
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+            {
+                id: 1,
+                widget: { widget_type: widgetType, config: {} },
+                layouts: { sm: { i: '1', x: 0, y: 0, w: 6, h: 5 } },
+            } as unknown as DashboardTile<QueryBasedInsightModel>,
+        ]
+
+        const result = calculateLayouts(tiles)
+
+        expect(result.sm?.[0]?.minH).toBe(expectedMinH)
+        expect(result.xs?.[0]?.minH).toBe(expectedMinH)
+        expect(result.sm?.[0]?.minW).toBe(expectedMinW)
+        expect(result.xs?.[0]?.minW).toBe(expectedMinW)
+    })
+
     it('xs follows sm dirty-placement order when no tiles have stored sm layouts', () => {
         const tiles: DashboardTile<QueryBasedInsightModel>[] = [
             textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 1),
@@ -201,5 +237,108 @@ describe('calculateDuplicateLayout', () => {
 
         expect(result.duplicateLayouts.sm).toEqual({ x: 6, y: 0, w: 6, h: 5 })
         expect((result.duplicateLayouts as any).xs).toBeUndefined()
+    })
+})
+
+describe('calculateInsertionLayout', () => {
+    const smLayout = (i: string, x: number, y: number, w: number, h: number): LayoutItem => ({ i, x, y, w, h })
+
+    it.each([
+        {
+            name: 'inserting into the left column leaves the right column untouched',
+            layout: [smLayout('1', 0, 0, 6, 5), smLayout('2', 6, 0, 6, 5)],
+            newTileId: 9,
+            targetX: 0,
+            targetY: 0,
+            w: 6,
+            h: 2,
+            expected: {
+                newTileLayout: { sm: { x: 0, y: 0, w: 6, h: 2 } },
+                tilesToUpdate: [{ id: 1, layouts: { sm: { x: 0, y: 2, w: 6, h: 5 } } }],
+            },
+        },
+        {
+            name: 'inserting into the right column pushes only the right column',
+            layout: [smLayout('1', 0, 0, 6, 5), smLayout('2', 6, 0, 6, 5)],
+            newTileId: 9,
+            targetX: 6,
+            targetY: 0,
+            w: 6,
+            h: 2,
+            expected: {
+                newTileLayout: { sm: { x: 6, y: 0, w: 6, h: 2 } },
+                tilesToUpdate: [{ id: 2, layouts: { sm: { x: 6, y: 2, w: 6, h: 5 } } }],
+            },
+        },
+        {
+            name: 'a full-width insert pushes both columns down',
+            layout: [smLayout('1', 0, 0, 6, 5), smLayout('2', 6, 0, 6, 5)],
+            newTileId: 9,
+            targetX: 0,
+            targetY: 0,
+            w: 12,
+            h: 2,
+            expected: {
+                newTileLayout: { sm: { x: 0, y: 0, w: 12, h: 2 } },
+                tilesToUpdate: [
+                    { id: 1, layouts: { sm: { x: 0, y: 2, w: 6, h: 5 } } },
+                    { id: 2, layouts: { sm: { x: 6, y: 2, w: 6, h: 5 } } },
+                ],
+            },
+        },
+        {
+            name: 'insert in the middle only pushes same-column tiles at or below the row',
+            layout: [smLayout('1', 0, 0, 6, 5), smLayout('2', 0, 5, 6, 5), smLayout('3', 0, 10, 6, 5)],
+            newTileId: 9,
+            targetX: 0,
+            targetY: 5,
+            w: 6,
+            h: 3,
+            expected: {
+                newTileLayout: { sm: { x: 0, y: 5, w: 6, h: 3 } },
+                tilesToUpdate: [
+                    { id: 2, layouts: { sm: { x: 0, y: 8, w: 6, h: 5 } } },
+                    { id: 3, layouts: { sm: { x: 0, y: 13, w: 6, h: 5 } } },
+                ],
+            },
+        },
+        {
+            name: 'insert at the bottom shifts nothing',
+            layout: [smLayout('1', 0, 0, 6, 5)],
+            newTileId: 9,
+            targetX: 0,
+            targetY: 5,
+            w: 2,
+            h: 2,
+            expected: {
+                newTileLayout: { sm: { x: 0, y: 5, w: 2, h: 2 } },
+                tilesToUpdate: [],
+            },
+        },
+        {
+            name: 'ignores the newly-added tile already present in the layout',
+            layout: [smLayout('1', 0, 0, 6, 5), smLayout('9', 0, 5, 6, 5)],
+            newTileId: 9,
+            targetX: 0,
+            targetY: 0,
+            w: 6,
+            h: 5,
+            expected: {
+                newTileLayout: { sm: { x: 0, y: 0, w: 6, h: 5 } },
+                tilesToUpdate: [{ id: 1, layouts: { sm: { x: 0, y: 5, w: 6, h: 5 } } }],
+            },
+        },
+    ])('$name', ({ layout, newTileId, targetX, targetY, w, h, expected }) => {
+        const result = calculateInsertionLayout(layout, newTileId, targetY, targetX, w, h)
+
+        expect(result.newTileLayout).toEqual(expected.newTileLayout)
+        expect(result.tilesToUpdate).toEqual(expected.tilesToUpdate)
+    })
+
+    it('handles an undefined layout (first tile on an empty dashboard)', () => {
+        const result = calculateInsertionLayout(undefined, 1, 0, 0, 6, 5)
+
+        expect(result.newTileLayout).toEqual({ sm: { x: 0, y: 0, w: 6, h: 5 } })
+        expect(result.tilesToUpdate).toEqual([])
     })
 })

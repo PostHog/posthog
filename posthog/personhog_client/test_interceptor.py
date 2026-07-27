@@ -5,7 +5,19 @@ from posthog.test.base import BaseTest
 import grpc
 from parameterized import parameterized
 
-from posthog.personhog_client.interceptor import ClientNameInterceptor, _MutableClientCallDetails, _with_metadata
+from posthog.personhog_client.interceptor import (
+    ClientNameInterceptor,
+    ConsistencyHeaderInterceptor,
+    _MutableClientCallDetails,
+    _with_metadata,
+)
+from posthog.personhog_client.proto import (
+    CONSISTENCY_LEVEL_EVENTUAL,
+    CONSISTENCY_LEVEL_STRONG,
+    GetPersonRequest,
+    ReadOptions,
+    UpdateGroupRequest,
+)
 
 
 def _make_call_details(
@@ -79,3 +91,53 @@ class TestClientNameInterceptor(BaseTest):
         self.assertEqual(len(captured_details), 1)
         metadata = dict(captured_details[0].metadata)
         self.assertEqual(metadata["x-client-name"], client_name)
+
+
+class TestConsistencyHeaderInterceptor(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "strong_consistency",
+                GetPersonRequest(
+                    team_id=1,
+                    person_id=42,
+                    read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG),
+                ),
+                "strong",
+            ),
+            (
+                "eventual_consistency",
+                GetPersonRequest(
+                    team_id=1,
+                    person_id=42,
+                    read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_EVENTUAL),
+                ),
+                "eventual",
+            ),
+            (
+                "no_read_options_set",
+                GetPersonRequest(team_id=1, person_id=42),
+                "eventual",
+            ),
+            (
+                "request_type_without_read_options",
+                UpdateGroupRequest(team_id=1),
+                "eventual",
+            ),
+        ]
+    )
+    def test_sets_consistency_header(self, _name: str, request: object, expected: str) -> None:
+        interceptor = ConsistencyHeaderInterceptor()
+        original_details = _make_call_details()
+        captured_details: list[grpc.ClientCallDetails] = []
+
+        def mock_continuation(details: grpc.ClientCallDetails, req: object) -> str:
+            captured_details.append(details)
+            return "ok"
+
+        result = interceptor.intercept_unary_unary(mock_continuation, original_details, request=request)
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(len(captured_details), 1)
+        metadata = dict(captured_details[0].metadata)
+        self.assertEqual(metadata["x-read-consistency"], expected)

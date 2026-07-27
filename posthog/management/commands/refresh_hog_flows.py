@@ -6,8 +6,8 @@ from django.test import RequestFactory
 
 import structlog
 
-from posthog.api.hog_flow import HogFlowSerializer
-from posthog.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.api.hog_flow import HogFlowSerializer
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 

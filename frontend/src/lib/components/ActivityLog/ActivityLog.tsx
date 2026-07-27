@@ -4,10 +4,10 @@ import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTabs, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { ActivityLogLogicProps, activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityChange, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
@@ -20,7 +20,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -30,7 +30,7 @@ import { AccessDenied } from '../AccessDenied'
 import { PayGateMini } from '../PayGateMini/PayGateMini'
 import { ProductIntroduction } from '../ProductIntroduction/ProductIntroduction'
 
-const MonacoDiffEditor = lazy(() => import('../MonacoDiffEditor'))
+const MonacoDiffEditor = lazyWithRetry(() => import('../MonacoDiffEditor'))
 
 export type ActivityLogProps = ActivityLogLogicProps & {
     startingPage?: number
@@ -191,8 +191,15 @@ export const ActivityLogRow = ({
                     {logItem.extendedDescription && (
                         <div className="ActivityLogRow__description__extended">{logItem.extendedDescription}</div>
                     )}
-                    <div className="text-secondary">
+                    <div className="text-secondary flex items-center gap-1.5">
                         <TZLabel time={logItem.created_at} />
+                        {logItem.client && (
+                            <Tooltip title="Self-reported by the API client in the x-posthog-client request header">
+                                <LemonTag size="small" type="muted">
+                                    via {logItem.client === 'mcp' ? 'MCP' : logItem.client}
+                                </LemonTag>
+                            </Tooltip>
+                        )}
                     </div>
                 </div>
                 {logItem.id && (
@@ -258,15 +265,10 @@ export const ActivityLogRow = ({
 }
 
 export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element | null => {
-    const logic = activityLogLogic({ scope, id, caption, startingPage })
-    const { humanizedActivity, activityLoading, pagination, highlightedActivityId } = useValues(logic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { billingLoading } = useValues(billingLogic)
 
     const hasAccess = userHasAccess(AccessControlResourceType.ActivityLog, AccessControlLevel.Viewer)
-
-    const paginationState = usePagination(humanizedActivity || [], pagination)
 
     if (!hasAccess) {
         return <AccessDenied object="activity logs" />
@@ -275,32 +277,43 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
     return (
         <div className="ActivityLog" data-attr="activity-log">
             {caption && <div className="page-caption">{caption}</div>}
-            {(activityLoading && humanizedActivity.length === 0) || billingLoading ? (
-                <Loading />
-            ) : (
-                <PayGateMini
-                    feature={AvailableFeature.AUDIT_LOGS}
-                    overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
-                >
-                    {humanizedActivity.length === 0 ? (
-                        <Empty scope={scope} />
-                    ) : (
-                        <>
-                            <div className="deprecated-space-y-2">
-                                {humanizedActivity.map((logItem, index) => (
-                                    <ActivityLogRow
-                                        key={logItem.id || index}
-                                        logItem={logItem}
-                                        highlighted={logItem.id === highlightedActivityId}
-                                    />
-                                ))}
-                            </div>
-                            <LemonDivider />
-                            <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
-                        </>
-                    )}
-                </PayGateMini>
-            )}
+            <PayGateMini
+                feature={AvailableFeature.AUDIT_LOGS}
+                overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
+            >
+                <ActivityLogContents scope={scope} id={id} caption={caption} startingPage={startingPage} />
+            </PayGateMini>
         </div>
+    )
+}
+
+const ActivityLogContents = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element => {
+    const logic = activityLogLogic({ scope, id, caption, startingPage })
+    const { humanizedActivity, activityLoading, pagination, highlightedActivityId } = useValues(logic)
+
+    const paginationState = usePagination(humanizedActivity || [], pagination)
+
+    if (activityLoading && humanizedActivity.length === 0) {
+        return <Loading />
+    }
+
+    if (humanizedActivity.length === 0) {
+        return <Empty scope={scope} />
+    }
+
+    return (
+        <>
+            <div className="deprecated-space-y-2">
+                {humanizedActivity.map((logItem, index) => (
+                    <ActivityLogRow
+                        key={logItem.id || index}
+                        logItem={logItem}
+                        highlighted={logItem.id === highlightedActivityId}
+                    />
+                ))}
+            </div>
+            <LemonDivider />
+            <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
+        </>
     )
 }

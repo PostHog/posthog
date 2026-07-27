@@ -76,7 +76,7 @@ def _enable_source(team) -> None:
 
 
 class TestSamplingPushdown(ClickhouseTestMixin):
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     def test_full_rate_returns_all(self, team) -> None:
         _enable_source(team)
         sessions = self._produce_sessions(team.id, count=10)
@@ -84,7 +84,7 @@ class TestSamplingPushdown(ClickhouseTestMixin):
         ids = fetch_recent_session_ids(team=team, lookback_minutes=30, sample_rate=1.0)
         assert sorted(ids) == sorted(sessions)
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     def test_zero_rate_returns_none(self, team) -> None:
         _enable_source(team)
         self._produce_sessions(team.id, count=10)
@@ -92,7 +92,7 @@ class TestSamplingPushdown(ClickhouseTestMixin):
         ids = fetch_recent_session_ids(team=team, lookback_minutes=30, sample_rate=0.0)
         assert ids == []
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     def test_partial_rate_is_stable_across_calls(self, team) -> None:
         _enable_source(team)
         self._produce_sessions(team.id, count=40)

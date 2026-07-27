@@ -3,31 +3,22 @@ import { v7 as uuidv7 } from 'uuid'
 import { CyclotronV2JobInitSchema, CyclotronV2RescheduleOptionsSchema } from './types'
 
 describe('CyclotronV2 schema validation', () => {
-    describe('personId coercion in CyclotronV2JobInitSchema', () => {
+    describe('personId in CyclotronV2JobInitSchema', () => {
         it('accepts a valid UUID and preserves it', () => {
             const personId = uuidv7()
             const parsed = CyclotronV2JobInitSchema.parse({ teamId: 1, queueName: 'q', personId })
             expect(parsed.personId).toBe(personId)
         })
 
-        it('coerces non-UUID strings to null (e.g. group keys from blast radius)', () => {
-            const parsed = CyclotronV2JobInitSchema.parse({
-                teamId: 1,
-                queueName: 'q',
-                personId: 'group-key-not-a-uuid',
-            })
-            expect(parsed.personId).toBeNull()
-        })
-
         it.each([
+            ['arbitrary text', 'group-key-not-a-uuid'],
             ['empty string', ''],
-            ['arbitrary text', 'not-a-uuid'],
             ['nearly-uuid', '12345678-1234-1234-1234-12345678901'],
             ['numeric id', '12345'],
             ['email-like', 'user@example.com'],
-        ])('coerces %s to null', (_, value) => {
+        ])('passes %s through unchanged', (_, value) => {
             const parsed = CyclotronV2JobInitSchema.parse({ teamId: 1, queueName: 'q', personId: value })
-            expect(parsed.personId).toBeNull()
+            expect(parsed.personId).toBe(value)
         })
 
         it('passes through null', () => {
@@ -47,16 +38,16 @@ describe('CyclotronV2 schema validation', () => {
         })
     })
 
-    describe('personId coercion in CyclotronV2RescheduleOptionsSchema', () => {
+    describe('personId in CyclotronV2RescheduleOptionsSchema', () => {
         it('accepts a valid UUID', () => {
             const personId = uuidv7()
             const parsed = CyclotronV2RescheduleOptionsSchema.parse({ personId })
             expect(parsed.personId).toBe(personId)
         })
 
-        it('coerces non-UUID strings to null', () => {
+        it('passes a non-UUID string through unchanged', () => {
             const parsed = CyclotronV2RescheduleOptionsSchema.parse({ personId: 'group-key' })
-            expect(parsed.personId).toBeNull()
+            expect(parsed.personId).toBe('group-key')
         })
 
         it('passes through null', () => {

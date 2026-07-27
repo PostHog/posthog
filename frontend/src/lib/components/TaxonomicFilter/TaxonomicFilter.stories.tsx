@@ -11,9 +11,10 @@ import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import { actionsModel } from '~/models/actionsModel'
-import { type AnyPropertyFilter, AvailableFeature, PropertyFilterType, PropertyOperator } from '~/types'
+import { type AnyPropertyFilter, AvailableFeature, EntityTypes, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
@@ -441,6 +442,36 @@ export const AutocaptureContextPromotesElements: Story = {
     },
 }
 
+export const MCPToolCallContextLeadsWithMCPProperties: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <SeedRecents count={0} />
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'mcp-tool-call-context',
+        eventNames: ['$mcp_tool_call'],
+        taxonomicGroupTypes: [
+            TaxonomicFilterGroupType.SuggestedFilters,
+            TaxonomicFilterGroupType.MCPProperties,
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+        ],
+    },
+    parameters: {
+        ...SUGGESTED_FILTERS_PARAMETERS,
+        docs: {
+            description: {
+                story: 'When the picker is scoped to $mcp_tool_call, the known @posthog/mcp schema is separated into a leading "MCP properties" group, and SuggestedFilters leads with the tool name (the event\'s primary property) and error state. Without an $mcp_* event in scope the group disappears entirely.',
+            },
+        },
+    },
+}
+
 function CategoryDropdownStoryRender({
     variant,
     ...args
@@ -497,6 +528,112 @@ export const CategoryDropdownPill: Story = {
         docs: {
             description: {
                 story: 'Test variant "pill": left-hand Categories column is hidden; the current category is shown as a pill in the right-hand suffix of the search input.',
+            },
+        },
+    },
+}
+
+// The committed selection of a renamed series ('signed up', renamed "Completed sign-up")
+// is promoted to the top of the list, labelled with the rename and revealing the
+// underlying event as secondary text (tooltip on hover).
+const RENAMED_SERIES_ARGS: TaxonomicFilterProps = {
+    groupType: TaxonomicFilterGroupType.Events,
+    value: 'signed up',
+    filter: {
+        type: EntityTypes.EVENTS,
+        id: 'signed up',
+        name: 'signed up',
+        custom_name: 'Completed sign-up',
+        order: 0,
+    },
+    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+}
+
+const RENAMED_SERIES_PARAMETERS = {
+    // Wait on the promoted renamed row itself: the picker also mounts hidden, empty
+    // Recent/Pinned lists ahead of the active Events list, and the test runner waits on
+    // the FIRST `.taxonomic-infinite-list` match — which never becomes visible.
+    testOptions: { waitForSelector: '.taxonomic-list-row .EntityFilterInfo' },
+}
+
+export const RenamedSeriesSelected: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        ...RENAMED_SERIES_ARGS,
+        taxonomicFilterLogicKey: 'renamed-series-selected',
+    },
+    parameters: {
+        ...RENAMED_SERIES_PARAMETERS,
+        docs: {
+            description: {
+                story: 'Reopening the picker on a renamed series: the committed selection leads the Events list, labelled "Completed sign-up" with the underlying `signed up` event shown alongside (and in a tooltip on hover), so the row connects to the series the user clicked.',
+            },
+        },
+    },
+}
+
+export const RenamedSeriesSelectedPill: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        ...RENAMED_SERIES_ARGS,
+        taxonomicFilterLogicKey: 'renamed-series-selected-pill',
+    },
+    parameters: {
+        ...RENAMED_SERIES_PARAMETERS,
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill' },
+        docs: {
+            description: {
+                story: "Same renamed-series selection in the pill category-dropdown variant: the Categories column is folded into the search input's pill, and the promoted committed row still shows the rename with the underlying event.",
+            },
+        },
+    },
+}
+
+export const EmptyEventsWithStaleToggle: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        const { setSearchQuery } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
+
+        useOnMountEffect(() => setSearchQuery('my_ancient_event'))
+
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'events-stale-toggle',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions': [],
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="taxonomic-include-stale-events"]' },
+        docs: {
+            description: {
+                story: 'When a search on the Events tab returns no results (all matches are stale), an "Include stale events" button appears so users can opt in to seeing events older than 30 days.',
             },
         },
     },

@@ -94,16 +94,6 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub socket_receive_buffer_bytes: u32,
 
-    // -- QueueFull backpressure --
-    /// Max enqueue retry attempts when rdkafka returns QueueFull.
-    /// 0 = no retries (immediate failure, pre-backpressure behavior).
-    #[envconfig(default = "3")]
-    pub enqueue_retry_max: u32,
-    /// Pause between QueueFull retry attempts (ms). Gives rdkafka's
-    /// background poller time to drain in-flight deliveries.
-    #[envconfig(default = "33")]
-    pub enqueue_poll_ms: u32,
-
     // -- Topics (all required -- envconfig errors if any are missing) --
     pub topic_main: String,
     pub topic_historical: String,
@@ -114,6 +104,16 @@ pub struct Config {
     pub topic_exception: String,
     pub topic_heatmap: String,
     pub topic_client_ingestion_warning: String,
+
+    /// Optional dedicated topic for `$ai_*` events. Not meant to be set via
+    /// per-sink env: setup injects the deployment-level `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` into
+    /// every sink config, overwriting whatever the env parse produced.
+    pub topic_ai: Option<String>,
+
+    /// Optional overflow topic for the AI lane. Like `topic_ai`, injected at
+    /// setup from the deployment-level `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`; unset
+    /// means the pipeline never produces `Destination::AiEventsOverflow`.
+    pub topic_ai_overflow: Option<String>,
 }
 
 const VALID_ACKS: &[&str] = &["0", "1", "-1", "all"];
@@ -168,6 +168,8 @@ impl Config {
             Destination::ExceptionErrorTracking => Some(&self.topic_exception),
             Destination::HeatmapMain => Some(&self.topic_heatmap),
             Destination::ClientIngestionWarning => Some(&self.topic_client_ingestion_warning),
+            Destination::AiEvents => self.topic_ai.as_deref(),
+            Destination::AiEventsOverflow => self.topic_ai_overflow.as_deref(),
             Destination::Custom(t) => Some(t.as_str()),
             Destination::Drop => None,
         }
@@ -218,8 +220,6 @@ mod tests {
         env.insert("METADATA_MAX_AGE_MS".into(), "30000".into());
         env.insert("SOCKET_TIMEOUT_MS".into(), "30000".into());
         env.insert("STATISTICS_INTERVAL_MS".into(), "5000".into());
-        env.insert("ENQUEUE_RETRY_MAX".into(), "5".into());
-        env.insert("ENQUEUE_POLL_MS".into(), "50".into());
         env.insert("PARTITIONER".into(), "consistent_random".into());
         env.insert("MAX_RETRIES".into(), "6".into());
         env.insert("MAX_IN_FLIGHT_REQUESTS".into(), "500000".into());
@@ -248,8 +248,6 @@ mod tests {
         assert_eq!(cfg.metadata_max_age_ms, 30000);
         assert_eq!(cfg.socket_timeout_ms, 30000);
         assert_eq!(cfg.statistics_interval_ms, 5000);
-        assert_eq!(cfg.enqueue_retry_max, 5);
-        assert_eq!(cfg.enqueue_poll_ms, 50);
         assert_eq!(cfg.partitioner, "consistent_random");
         assert_eq!(cfg.max_retries, 6);
         assert_eq!(cfg.max_in_flight_requests, 500000);
@@ -282,8 +280,6 @@ mod tests {
         assert_eq!(cfg.metadata_max_age_ms, 15000);
         assert_eq!(cfg.socket_timeout_ms, 5000);
         assert_eq!(cfg.statistics_interval_ms, 10000);
-        assert_eq!(cfg.enqueue_retry_max, 3);
-        assert_eq!(cfg.enqueue_poll_ms, 33);
         assert_eq!(cfg.partitioner, "murmur2_random");
         assert_eq!(cfg.max_retries, 4);
         assert_eq!(cfg.max_in_flight_requests, 1000000);
@@ -402,5 +398,35 @@ mod tests {
     fn topic_for_resolves_destination(#[case] dest: Destination, #[case] expected: Option<&str>) {
         let cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
         assert_eq!(cfg.topic_for(&dest), expected);
+    }
+
+    #[test]
+    fn topic_ai_absent_defaults_to_none() {
+        let cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
+        assert_eq!(cfg.topic_ai, None);
+        assert_eq!(cfg.topic_for(&Destination::AiEvents), None);
+        assert_eq!(cfg.topic_ai_overflow, None);
+        assert_eq!(cfg.topic_for(&Destination::AiEventsOverflow), None);
+    }
+
+    #[test]
+    fn topic_ai_overflow_present_resolves_destination() {
+        // Set the field directly, mirroring how setup injects
+        // CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC into sink configs after env loading.
+        let mut cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
+        cfg.topic_ai_overflow = Some("ai_events_overflow".to_string());
+        assert_eq!(
+            cfg.topic_for(&Destination::AiEventsOverflow),
+            Some("ai_events_overflow")
+        );
+    }
+
+    #[test]
+    fn topic_ai_present_resolves_destination() {
+        // Set the field directly, mirroring how setup injects CAPTURE_ANALYTICS_AI_EVENTS_TOPIC
+        // into sink configs after env loading.
+        let mut cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
+        cfg.topic_ai = Some("ai_events".to_string());
+        assert_eq!(cfg.topic_for(&Destination::AiEvents), Some("ai_events"));
     }
 }

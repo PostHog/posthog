@@ -1,19 +1,21 @@
 """End-to-end workflow tests using a Temporal `WorkflowEnvironment`.
 
 The activities are mocked at the `@activity.defn` boundary so the workflow's
-orchestration logic — query fan-out, aggregation — can be verified without
-standing up real ClickHouse / Postgres / S3. The SQS pointer activity call
-is currently disabled in the workflow (see `workflow.py`), so it's not
-exercised here.
+orchestration logic — query fan-out, aggregation, and SQS pointer dispatch —
+can be verified without standing up real ClickHouse / Postgres / S3.
 """
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 
 import temporalio.worker
+from parameterized import parameterized
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.contrib.pydantic import pydantic_data_converter
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -26,14 +28,78 @@ from posthog.temporal.usage_report.types import (
     RunQueryToS3Result,
     RunUsageReportsInputs,
 )
-from posthog.temporal.usage_report.workflow import RunUsageReportsWorkflow
+from posthog.temporal.usage_report.workflow import RunUsageReportsWorkflow, build_context
+
+
+@parameterized.expand(
+    [
+        # (day_offset, now, expected_date, expected_completeness) — intraday run mid-day reports today
+        (0, datetime(2026, 5, 4, 13, 45, tzinfo=UTC), "2026-05-04", "partial"),
+        # intraday run just after midnight still reports the new day, not yesterday
+        (0, datetime(2026, 5, 4, 1, 45, tzinfo=UTC), "2026-05-04", "partial"),
+        # finalizer run early morning reports the completed previous day
+        (1, datetime(2026, 5, 4, 3, 0, tzinfo=UTC), "2026-05-03", "complete"),
+        # manual backfill of an older day is also complete
+        (3, datetime(2026, 5, 4, 3, 0, tzinfo=UTC), "2026-05-01", "complete"),
+    ]
+)
+def test_build_context_reports_full_day_at_offset(
+    day_offset: int, now: datetime, expected_date: str, expected_completeness: str
+) -> None:
+    ctx = build_context(RunUsageReportsInputs(day_offset=day_offset), run_id="run-1", now=now)
+
+    assert ctx.date_str == expected_date
+    assert ctx.report_completeness == expected_completeness
+    assert ctx.period_start.isoformat() == f"{expected_date}T00:00:00+00:00"
+    assert ctx.period_end.isoformat() == f"{expected_date}T23:59:59.999999+00:00"
+
+
+@pytest.mark.asyncio
+async def test_workflow_rejects_negative_day_offset() -> None:
+    # Without the guard, a manual-trigger typo like day_offset=-1 reports a
+    # future empty day and marks it "complete" for billing.
+    ran_queries: list[str] = []
+
+    @activity.defn(name="run-usage-report-query")
+    async def query_mock(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
+        ran_queries.append(inputs.query_name)
+        return RunQueryToS3Result(query_name=inputs.query_name, s3_key="unused", duration_ms=1)
+
+    async with await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter) as env:
+        async with Worker(
+            env.client,
+            task_queue=str(uuid.uuid4()),
+            workflows=[RunUsageReportsWorkflow],
+            activities=[query_mock],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ) as worker:
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await env.client.execute_workflow(
+                    RunUsageReportsWorkflow.run,
+                    RunUsageReportsInputs(day_offset=-1),
+                    id=str(uuid.uuid4()),
+                    task_queue=worker.task_queue,
+                )
+
+    cause = exc_info.value.cause
+    assert isinstance(cause, ApplicationError)
+    assert cause.non_retryable
+    assert "day_offset" in str(cause)
+    assert ran_queries == []
 
 
 @pytest.mark.asyncio
 async def test_workflow_runs_query_then_aggregate() -> None:
     seen_query_names: list[str] = []
     aggregated_with: list[list[str]] = []
+    aggregate_payloads: list[AggregateInputs] = []
     pointer_payloads: list[EnqueuePointerInputs] = []
+    expected_aggregate = AggregateResult(
+        chunk_keys=["chunks/chunk_0000.jsonl.gz"],
+        manifest_key="manifest.json",
+        total_orgs=2,
+        total_orgs_with_usage=1,
+    )
 
     @activity.defn(name="run-usage-report-query")
     async def query_mock(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
@@ -46,16 +112,10 @@ async def test_workflow_runs_query_then_aggregate() -> None:
 
     @activity.defn(name="aggregate-and-chunk-org-reports")
     async def aggregate_mock(inputs: AggregateInputs) -> AggregateResult:
+        aggregate_payloads.append(inputs)
         aggregated_with.append([r.query_name for r in inputs.query_results])
-        return AggregateResult(
-            chunk_keys=["chunks/chunk_0000.jsonl.gz"],
-            manifest_key="manifest.json",
-            total_orgs=2,
-            total_orgs_with_usage=1,
-        )
+        return expected_aggregate
 
-    # Pointer activity is registered so the worker accepts it if dispatched,
-    # but the workflow currently does not call it (see workflow.py for why).
     @activity.defn(name="usage-reports-enqueue-pointer-message")
     async def pointer_mock(inputs: EnqueuePointerInputs) -> None:
         pointer_payloads.append(inputs)
@@ -72,7 +132,7 @@ async def test_workflow_runs_query_then_aggregate() -> None:
         ):
             result = await env.client.execute_workflow(
                 RunUsageReportsWorkflow.run,
-                RunUsageReportsInputs(at="2026-05-04T12:00:00+00:00"),
+                RunUsageReportsInputs(day_offset=1),
                 id=workflow_id,
                 task_queue=task_queue,
             )
@@ -101,20 +161,13 @@ async def test_workflow_runs_query_then_aggregate() -> None:
     assert len(aggregated_with) == 1
     assert aggregated_with[0] == expected_names
 
-    # Pointer dispatch is currently disabled in the workflow.
-    assert pointer_payloads == []
+    assert len(pointer_payloads) == 1
+    assert pointer_payloads[0].ctx == aggregate_payloads[0].ctx
+    assert pointer_payloads[0].aggregate == expected_aggregate
 
     # Each scheduled query activity carries its query name as the Temporal
     # `summary`, so the UI surfaces which query is running.
     assert set(scheduled_summaries.values()) == set(expected_names)
     assert len(scheduled_summaries) == len(expected_names)
 
-    assert (
-        result
-        == AggregateResult(
-            chunk_keys=["chunks/chunk_0000.jsonl.gz"],
-            manifest_key="manifest.json",
-            total_orgs=2,
-            total_orgs_with_usage=1,
-        ).model_dump()
-    )
+    assert result == expected_aggregate.model_dump()

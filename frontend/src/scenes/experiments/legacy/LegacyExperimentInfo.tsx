@@ -23,7 +23,7 @@ import {
     isSingleVariantShipped,
     getShippedVariantKey,
 } from '../experimentsLogic'
-import { StatusTag } from '../ExperimentView/components'
+import { StatusTag } from '../ExperimentView/StatusTag'
 
 /**
  * @deprecated

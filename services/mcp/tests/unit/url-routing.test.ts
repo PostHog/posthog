@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { parseRequestProperties } from '@/lib/request-properties'
 import { parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 
 function parseIdFromRequest(
@@ -218,6 +219,61 @@ describe('URL Routing', () => {
 
             // Mirrors the merge order in `src/index.ts` — header wins over query param.
             expect(parseMcpMode(headerValue || queryValue)).toBe(expected)
+        })
+    })
+
+    describe('shared request property mode parsing', () => {
+        it('uses header mode before URL mode', () => {
+            const request = new Request('https://example.com/mcp?mode=tools', {
+                headers: {
+                    Authorization: 'Bearer phx_test',
+                    'x-posthog-mcp-mode': 'cli',
+                },
+            })
+
+            expect(parseRequestProperties(request, {}).mode).toBe('cli')
+        })
+    })
+
+    describe('mcpVendorClient parsing', () => {
+        it('captures x-anthropic-client into mcpVendorClient', () => {
+            const request = new Request('https://example.com/mcp', {
+                headers: {
+                    Authorization: 'Bearer phx_test',
+                    'x-anthropic-client': 'ClaudeCode',
+                },
+            })
+            expect(parseRequestProperties(request, {}).mcpVendorClient).toBe('ClaudeCode')
+        })
+
+        it('returns undefined when x-anthropic-client is missing', () => {
+            const request = new Request('https://example.com/mcp', {
+                headers: { Authorization: 'Bearer phx_test' },
+            })
+            expect(parseRequestProperties(request, {}).mcpVendorClient).toBeUndefined()
+        })
+
+        it('defaults mcpClientName from x-anthropic-client when clientInfo omits a name', () => {
+            // Anthropic clients pool MCP transports and send no `clientInfo.name`, so
+            // without this fallback `$mcp_client_name` is empty and the analytics
+            // dashboard buckets the traffic as "Other".
+            const request = new Request('https://example.com/mcp', {
+                headers: {
+                    Authorization: 'Bearer phx_test',
+                    'x-anthropic-client': 'ClaudeCode',
+                },
+            })
+            expect(parseRequestProperties(request, {}).mcpClientName).toBe('claude-code')
+        })
+
+        it('keeps the self-reported clientName over the vendor header', () => {
+            const request = new Request('https://example.com/mcp', {
+                headers: {
+                    Authorization: 'Bearer phx_test',
+                    'x-anthropic-client': 'ClaudeCode',
+                },
+            })
+            expect(parseRequestProperties(request, { clientName: 'Cursor' }).mcpClientName).toBe('Cursor')
         })
     })
 

@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import * as libUtils from 'lib/utils'
+import * as libUtils from 'lib/utils/dom'
 import { entityFilterLogic, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
 import { useMocks } from '~/mocks/jest'

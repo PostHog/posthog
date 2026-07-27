@@ -1,0 +1,52 @@
+name: Setup sqlx-cli
+description: |
+    Installs sqlx-cli and adds it to PATH.
+    Uses actions/cache to avoid recompiling from source on every run.
+    The binary is pinned to a specific version for reproducibility.
+
+inputs:
+    version:
+        description: 'sqlx-cli version to install (e.g. 0.8.0)'
+        required: false
+        default: '0.8.0'
+
+runs:
+    using: composite
+    steps:
+        - name: Restore sqlx-cli binary from cache
+          id: cache-sqlx-cli
+          uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          with:
+              path: ${{ runner.temp }}/sqlx-cli
+              key: sqlx-cli-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+        - name: Build sqlx-cli on cache miss
+          if: steps.cache-sqlx-cli.outputs.cache-hit != 'true'
+          shell: bash
+          env:
+              SQLX_CLI_VERSION: ${{ inputs.version }}
+          run: |
+              set -euo pipefail
+              echo "Cache miss — building sqlx-cli v$SQLX_CLI_VERSION from source"
+
+              cargo install sqlx-cli \
+                --version "$SQLX_CLI_VERSION" \
+                --features postgres \
+                --no-default-features \
+                --locked \
+                --root "$RUNNER_TEMP/sqlx-cli"
+
+              chmod +x "$RUNNER_TEMP/sqlx-cli/bin/sqlx"
+
+        - name: Save sqlx-cli binary to cache
+          if: steps.cache-sqlx-cli.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
+          uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          with:
+              path: ${{ runner.temp }}/sqlx-cli
+              key: sqlx-cli-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+        - name: Add sqlx-cli to PATH
+          shell: bash
+          run: |
+              echo "$RUNNER_TEMP/sqlx-cli/bin" >> "$GITHUB_PATH"
+              "$RUNNER_TEMP/sqlx-cli/bin/sqlx" --version

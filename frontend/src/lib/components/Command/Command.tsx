@@ -15,6 +15,10 @@ export function Command(): JSX.Element {
     const handleItemSelect = useCallback(
         (item: SearchItem) => {
             closeCommand()
+            if (item.onSelect) {
+                item.onSelect()
+                return
+            }
             if (item.href) {
                 router.actions.push(item.href)
             }

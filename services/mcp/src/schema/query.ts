@@ -167,7 +167,9 @@ const AnyEntityNode = EventsNode
 // Base query interface
 const InsightsQueryBase = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.boolean().optional().default(false),
+    // No hard default: omission lets the project's "Filter out internal and test
+    // users" default setting apply, matching UI behavior for new insights.
+    filterTestAccounts: z.boolean().optional(),
     properties: z
         .union([z.array(AnyPropertyFilter), PropertyGroupFilter])
         .optional()
@@ -216,7 +218,7 @@ const HogQLQuerySchema = z.object({
         .string()
         .optional()
         .describe(
-            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, the query runs against that source instead of ClickHouse. Use external-data-sources-list to discover available connection ids.'
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, the query runs against that source instead of ClickHouse. Use external-data-sources-connections-list to discover available connection ids.'
         ),
 })
 

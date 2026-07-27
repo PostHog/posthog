@@ -1,12 +1,9 @@
 import os
 import json
-import asyncio
 import datetime as dt
 import operator
 import collections.abc
 
-import aioboto3
-import botocore.exceptions
 from psycopg import sql
 
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -248,21 +245,3 @@ async def assert_clickhouse_records_in_redshift(
     assert inserted_records[0] == expected_records[0]
     assert inserted_records == expected_records
     assert len(inserted_records) == len(expected_records)
-
-
-async def check_valid_credentials() -> bool:
-    """Check if there are valid AWS credentials in the environment."""
-    session = aioboto3.Session()
-    async with session.client("sts") as sts:
-        try:
-            await sts.get_caller_identity()
-        except botocore.exceptions.ClientError:
-            return False
-        else:
-            return True
-
-
-def has_valid_credentials() -> bool:
-    """Synchronous wrapper around check_valid_credentials."""
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(check_valid_credentials())

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use sqlx::FromRow;
 
-use personhog_common::grpc::current_client_name;
+use personhog_common::grpc::{current_client_name, current_method_name};
 
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
@@ -35,6 +35,7 @@ impl FeatureFlagStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -43,6 +44,7 @@ impl FeatureFlagStorage for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -104,6 +106,7 @@ impl FeatureFlagStorage for PostgresStorage {
                     "get_hash_key_override_context".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -151,6 +154,7 @@ impl FeatureFlagStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -158,6 +162,7 @@ impl FeatureFlagStorage for PostgresStorage {
             ),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -184,35 +189,59 @@ impl FeatureFlagStorage for PostgresStorage {
         Ok(result.rows_affected() as i64)
     }
 
-    async fn delete_hash_key_overrides_by_teams(&self, team_ids: &[i64]) -> StorageResult<i64> {
-        if team_ids.is_empty() {
+    async fn delete_hash_key_overrides_by_teams(
+        &self,
+        team_ids: &[i64],
+        batch_size: i64,
+    ) -> StorageResult<i64> {
+        if team_ids.is_empty() || batch_size <= 0 {
             return Ok(0);
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
                 "delete_hash_key_overrides_by_teams".to_string(),
             ),
-            ("pool".to_string(), "primary".to_string()),
+            ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
-
-        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
         let team_ids_i32: Vec<i32> = team_ids.iter().map(|&id| id as i32).collect();
 
         let result = sqlx::query!(
             r#"
             DELETE FROM posthog_featureflaghashkeyoverride
-            WHERE team_id = ANY($1)
+            WHERE id IN (
+                SELECT id FROM posthog_featureflaghashkeyoverride
+                WHERE team_id = ANY($1)
+                LIMIT $2
+                FOR UPDATE SKIP LOCKED
+            )
             "#,
-            &team_ids_i32
+            &team_ids_i32,
+            batch_size
         )
-        .execute(&mut *conn)
+        .execute(&self.bulk_primary_pool)
         .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[
+                (
+                    "operation".to_string(),
+                    "delete_hash_key_overrides_by_teams".to_string(),
+                ),
+                ("pool".to_string(), "bulk_primary".to_string()),
+                ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
+            ],
+            result.rows_affected() as f64,
+        );
 
         Ok(result.rows_affected() as i64)
     }

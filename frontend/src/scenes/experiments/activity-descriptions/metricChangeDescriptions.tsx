@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
@@ -93,6 +93,14 @@ const getRatioChanges = (metricBefore: ExperimentMetric, metricAfter: Experiment
     // check if the denominator was changed
     if (!equal(metricBefore.denominator, metricAfter.denominator)) {
         return `changed the denominator`
+    }
+
+    // check if outlier handling was changed for either component
+    if (!equal(metricBefore.numerator_outlier_handling, metricAfter.numerator_outlier_handling)) {
+        return `changed the numerator outlier handling`
+    }
+    if (!equal(metricBefore.denominator_outlier_handling, metricAfter.denominator_outlier_handling)) {
+        return `changed the denominator outlier handling`
     }
 
     return null

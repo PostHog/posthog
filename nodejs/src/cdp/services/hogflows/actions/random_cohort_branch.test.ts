@@ -1,7 +1,7 @@
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
+import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
-import { HogFlowAction } from '~/schema/hogflow'
 
 import { findActionById, findActionByType } from '../hogflow-utils'
 import { getRandomCohort } from './random_cohort_branch'
@@ -88,6 +88,39 @@ describe('getRandomCohort', () => {
         ;(Math.random as jest.Mock).mockReturnValue(0.7) // Exactly at second boundary
         const result2 = getRandomCohort(invocation, action)
         expect(result2).toEqual(findActionById(invocation.hogFlow, 'cohort_b'))
+    })
+
+    it.each([
+        ['missing', undefined],
+        ['empty', []],
+        ['not an array', { percentage: 50 }],
+    ])('should fall through the continue edge when cohorts is %s', (_name, cohorts) => {
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withWorkflow({
+                actions: {
+                    broken_branch: {
+                        type: 'random_cohort_branch',
+                        config: { cohorts: [] },
+                    },
+                    after: {
+                        type: 'delay',
+                        config: { delay_duration: '2h' },
+                    },
+                },
+                edges: [
+                    {
+                        from: 'broken_branch',
+                        to: 'after',
+                        type: 'continue',
+                    },
+                ],
+            })
+            .build()
+        const brokenAction = findActionByType(hogFlow, 'random_cohort_branch')!
+        ;(brokenAction.config as any).cohorts = cohorts
+
+        const result = getRandomCohort(createExampleHogFlowInvocation(hogFlow), brokenAction)
+        expect(result).toEqual(findActionById(hogFlow, 'after'))
     })
 
     it('should handle single cohort', () => {

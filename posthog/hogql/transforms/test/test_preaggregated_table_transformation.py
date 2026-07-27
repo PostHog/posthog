@@ -21,11 +21,12 @@ from posthog.hogql.transforms.preaggregated_table_transformation import (
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
+from products.web_analytics.backend.hogql_queries.pre_aggregated.properties import (
     EVENT_PROPERTY_TO_FIELD,
     SESSION_PROPERTY_TO_FIELD,
 )
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 
 class TestPreaggregatedTableTransformation(BaseTest, QueryMatchingTest):

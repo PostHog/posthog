@@ -7,7 +7,6 @@ import { IconCopy, IconDrag, IconPlus } from '@posthog/icons'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../react_flow_utils/constants'
-import type { HogFlowActionNode } from '../types'
 import { StepView } from './components/StepView'
 import { HogFlowStepNodeProps } from './types'
 
@@ -69,7 +68,7 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
 function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
     const updateNodeInternals = useUpdateNodeInternals()
 
-    const { nodesById, isCopyingNode, isMovingNode, nodeToBeAdded, movingNodeId } = useValues(hogFlowEditorLogic)
+    const { nodesById } = useValues(hogFlowEditorLogic)
 
     useEffect(() => {
         updateNodeInternals(props.id)
@@ -77,17 +76,8 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
 
     const node = nodesById[props.id]
 
-    const shouldWiggleCopyingNode =
-        isCopyingNode && nodeToBeAdded && 'id' in nodeToBeAdded && (nodeToBeAdded as HogFlowActionNode).id === props.id
-    const shouldWiggleMovingNode = isMovingNode && movingNodeId === props.id
-
     return (
-        <div
-            className={clsx(
-                'transition-all hover:translate-y-[-2px]',
-                (shouldWiggleCopyingNode || shouldWiggleMovingNode) && 'animate-bounce'
-            )}
-        >
+        <div className="transition-all hover:translate-y-[-2px]">
             {node?.handles?.map((handle) => (
                 // isConnectable={false} prevents edges from being manually added
                 <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />

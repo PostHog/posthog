@@ -1,6 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
 export const getNuxtClientSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
@@ -63,7 +64,7 @@ export const getNuxtClientSteps = (ctx: OnboardingComponentsContext): StepDefini
                                         public: {
                                           posthogPublicKey: '<ph_project_token>',
                                           posthogHost: '<ph_client_api_host>',
-                                          posthogDefaults: '2026-01-30'
+                                          posthogDefaults: '${SDK_DEFAULTS_DATE}'
                                         }
                                       }
                                     })

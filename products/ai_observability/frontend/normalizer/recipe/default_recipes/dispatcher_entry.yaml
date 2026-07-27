@@ -1,0 +1,20 @@
+# Entry-level unwraps (array / {choices} envelope / bare string). Must stay at
+# the lowest priority so envelopes are peeled before any provider rule matches.
+
+id: dispatcher_entry
+
+rules:
+    - on:
+          $: { is: array }
+      delegateEach: $
+
+    # The response-level `{choices: [...]}` shape, distinct from litellm.yaml's
+    # per-choice match on `finish_reason`/`index`.
+    - on:
+          choices: { is: array }
+      delegateEach: $.choices
+
+    - on:
+          $: { is: string }
+      emit:
+          content: $

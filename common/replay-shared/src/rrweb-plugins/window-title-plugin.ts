@@ -1,5 +1,5 @@
-import { ReplayPlugin } from '@posthog/rrweb'
-import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
+import { ReplayPlugin } from 'posthog-js/rrweb'
+import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
 type Node = {
     id: number

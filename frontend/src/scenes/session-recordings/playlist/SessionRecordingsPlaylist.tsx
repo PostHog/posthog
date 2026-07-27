@@ -1,8 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useRef } from 'react'
 
+import * as directorPng from '@posthog/brand/hoggies/png/director'
+
+import { pngHoggie } from 'lib/brand/hoggies'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
@@ -18,6 +20,8 @@ import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+
+const HedgehogDirector = pngHoggie(directorPng)
 
 export function SessionRecordingsPlaylist({
     ...props
@@ -199,7 +203,7 @@ function PlayerWrapper({
             style={style}
         >
             {isFiltersExpanded && (
-                <div className="h-full rounded border">
+                <div className="h-full overflow-y-auto rounded border">
                     <RecordingsUniversalFiltersEmbed
                         resetFilters={resetFilters}
                         filters={filters}
@@ -251,7 +255,7 @@ function PlayerWrapper({
 
                     {/* Centered hedgehog overlay */}
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                        <FilmCameraHog className="w-60 h-60" />
+                        <HedgehogDirector className="w-60 h-60" />
                         <div className="mt-4 flex items-center gap-2">
                             <Spinner textColored />
                             <span className="text-secondary">Loading recordings...</span>

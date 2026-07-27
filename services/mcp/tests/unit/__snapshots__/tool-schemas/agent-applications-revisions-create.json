@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "application_id": {
+            "type": "string"
+        },
+        "bundle_uri": {
+            "default": "",
+            "description": "Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.",
+            "type": "string"
+        },
+        "parent_revision": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "spec": {}
+    },
+    "required": ["application_id"],
+    "type": "object"
+}

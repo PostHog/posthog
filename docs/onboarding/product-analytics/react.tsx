@@ -1,6 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
 export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
@@ -52,7 +53,7 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                 <>
                     <Markdown>
                         Add your PostHog project token and host to your environment variables. For Vite-based React
-                        apps, use the `VITE_PUBLIC_` prefix:
+                        apps, use the `VITE_` prefix to expose them to the client:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -60,8 +61,8 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                 language: 'bash',
                                 file: '.env',
                                 code: dedent`
-                                    VITE_PUBLIC_POSTHOG_PROJECT_TOKEN=<ph_project_token>
-                                    VITE_PUBLIC_POSTHOG_HOST=<ph_client_api_host>
+                                    VITE_POSTHOG_PROJECT_TOKEN=<ph_project_token>
+                                    VITE_POSTHOG_HOST=<ph_client_api_host>
                                 `,
                             },
                         ]}
@@ -91,13 +92,13 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                     import { PostHogProvider } from '@posthog/react'
 
                                     const options = {
-                                      api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
-                                      defaults: '2026-01-30',
+                                      api_host: import.meta.env.VITE_POSTHOG_HOST,
+                                      defaults: '${SDK_DEFAULTS_DATE}',
                                     } as const
 
                                     createRoot(document.getElementById('root')).render(
                                       <StrictMode>
-                                        <PostHogProvider apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN} options={options}>
+                                        <PostHogProvider apiKey={import.meta.env.VITE_POSTHOG_PROJECT_TOKEN} options={options}>
                                           <App />
                                         </PostHogProvider>
                                       </StrictMode>

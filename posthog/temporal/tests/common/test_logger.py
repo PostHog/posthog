@@ -5,6 +5,7 @@ import asyncio
 import datetime as dt
 import operator
 import dataclasses
+from typing import cast
 
 import pytest
 import freezegun
@@ -774,4 +775,145 @@ def test_resolve_log_source_dwh_cdp_producer_job():
     )
 
     assert source == "dwh_cdp_producer_job"
+    assert source_id == "019bdc25-3569-0000-9f32-e7d02775304b"
+
+
+def test_log_messages_renderer_event_level_log_source_override():
+    """Per-event log_source_id (and log_source) overrides feed into the produce message.
+
+    CDC extraction relies on this so per-schema log lines can route under each schema
+    even though the workflow is source-scoped.
+    """
+    from posthog.temporal.common.logger import LogMessagesRenderer
+
+    renderer = LogMessagesRenderer(event_key="msg")
+    event_dict = {
+        "msg": "per-schema line",
+        "level": "info",
+        "team_id": 2,
+        "timestamp": "2024-01-01 00:00:00.000000",
+        "workflow_type": "cdc-extraction",
+        "workflow_id": "cdc-extraction-019bdc25-3569-0000-9f32-e7d02775304b-2026-05-06T18:40:00Z",
+        "workflow_run_id": "abc-run-id",
+        "log_source_id": "019df430-79ff-0000-4434-e9fc02f7216b",  # per-schema override
+    }
+
+    # `LogMessagesRenderer.__call__` ignores the logger arg in this branch; cast to satisfy mypy.
+    from posthog.temporal.common.logger import Logger
+
+    rendered = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict)
+    assert rendered["produce_message"] is not None
+
+    payload = json.loads(rendered["produce_message"].decode("utf-8"))
+    assert payload["log_source"] == "external_data_jobs"
+    assert payload["log_source_id"] == "019df430-79ff-0000-4434-e9fc02f7216b"
+    assert payload["instance_id"] == "abc-run-id"
+
+
+def test_log_messages_renderer_appends_resource_to_message():
+    """`resource_name` / `resource` in the event dict gets appended to the produce message text.
+
+    CDC schemas with `cdc_table_mode='both'` produce two parallel batches per logical event
+    (one per write target). Without the inline marker the Syncs UI shows two identical-looking
+    rows; the marker keeps them distinguishable.
+    """
+    from posthog.temporal.common.logger import Logger, LogMessagesRenderer
+
+    renderer = LogMessagesRenderer(event_key="msg")
+    event_dict = {
+        "msg": "cdc_batch_written",
+        "level": "info",
+        "team_id": 2,
+        "timestamp": "2024-01-01 00:00:00.000000",
+        "workflow_type": "cdc-extraction",
+        "workflow_id": "cdc-extraction-019bdc25-3569-0000-9f32-e7d02775304b-2026-05-06T18:40:00Z",
+        "workflow_run_id": "abc-run-id",
+        "log_source_id": "019df430-79ff-0000-4434-e9fc02f7216b",
+        "resource": "example_table_cdc",
+    }
+
+    rendered = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict)
+    produced = rendered["produce_message"]
+    assert produced is not None
+    payload = json.loads(produced.decode("utf-8"))
+    assert payload["message"] == "cdc_batch_written [example_table_cdc]"
+
+    # `resource_name` (consumer-side contextvar) works too.
+    event_dict2 = dict(event_dict)
+    event_dict2.pop("resource")
+    event_dict2["resource_name"] = "example_table"
+    event_dict2["msg"] = "batch_picked_up"
+    rendered2 = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict2)
+    produced2 = rendered2["produce_message"]
+    assert produced2 is not None
+    payload2 = json.loads(produced2.decode("utf-8"))
+    assert payload2["message"] == "batch_picked_up [example_table]"
+
+    # Lines without a resource marker render unchanged.
+    event_dict3 = dict(event_dict)
+    event_dict3.pop("resource")
+    event_dict3["msg"] = "cdc_extract_completed"
+    rendered3 = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict3)
+    produced3 = rendered3["produce_message"]
+    assert produced3 is not None
+    payload3 = json.loads(produced3.decode("utf-8"))
+    assert payload3["message"] == "cdc_extract_completed"
+
+    # `batch_index` appends after the resource marker so consecutive batches are distinct.
+    event_dict4 = dict(event_dict)
+    event_dict4["msg"] = "batch_picked_up"
+    event_dict4["batch_index"] = 2
+    rendered4 = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict4)
+    produced4 = rendered4["produce_message"]
+    assert produced4 is not None
+    payload4 = json.loads(produced4.decode("utf-8"))
+    assert payload4["message"] == "batch_picked_up [example_table_cdc] #2"
+
+    # `batch_index` alone (no resource) still appends.
+    event_dict5 = dict(event_dict)
+    event_dict5.pop("resource")
+    event_dict5["msg"] = "batch_failed_will_retry"
+    event_dict5["batch_index"] = 0
+    rendered5 = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict5)
+    produced5 = rendered5["produce_message"]
+    assert produced5 is not None
+    payload5 = json.loads(produced5.decode("utf-8"))
+    assert payload5["message"] == "batch_failed_will_retry #0"
+
+
+def test_log_messages_renderer_does_not_append_for_non_data_warehouse_log_sources():
+    """Other Temporal workflows (batch exports, data modeling, etc.) must not see their
+    message text reshaped by the CDC-targeted resource/batch_index appender."""
+    from posthog.temporal.common.logger import Logger, LogMessagesRenderer
+
+    renderer = LogMessagesRenderer(event_key="msg")
+    event_dict = {
+        "msg": "batch_export_started",
+        "level": "info",
+        "team_id": 2,
+        "timestamp": "2024-01-01 00:00:00.000000",
+        "workflow_type": "s3-batch-export",
+        "workflow_id": "019bdc25-3569-0000-9f32-e7d02775304b-2024-01-01T00:00:00",
+        "workflow_run_id": "run-id",
+        # Even if a batch_export happens to log these fields, message must be unchanged.
+        "resource_name": "should_not_appear",
+        "batch_index": 42,
+    }
+
+    rendered = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict)
+    produced = rendered["produce_message"]
+    assert produced is not None
+    payload = json.loads(produced.decode("utf-8"))
+    assert payload["message"] == "batch_export_started"
+
+
+def test_resolve_log_source_cdc_extraction():
+    # CDC schedule fires workflows with id `cdc-extraction-{source_uuid}-{iso_ts}`. The renderer
+    # uses the source uuid as the default log_source_id; per-schema log lines override it at emit time.
+    source, source_id = resolve_log_source(
+        "cdc-extraction",
+        "cdc-extraction-019bdc25-3569-0000-9f32-e7d02775304b-2026-05-06T18:40:00Z",
+    )
+
+    assert source == "external_data_jobs"
     assert source_id == "019bdc25-3569-0000-9f32-e7d02775304b"

@@ -90,6 +90,7 @@ class SessionBatchEventsQueryRunner(QueryRunner):
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="SessionBatchEventsQuery",
                 timings=self.timings,
                 modifiers=self.modifiers,

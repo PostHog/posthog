@@ -76,6 +76,12 @@ Each recording in results contains:
 - `activity_score` — engagement score (higher = more active)
 - `ongoing` — whether the session is still active
 
+# Deep links to specific recordings
+
+To link a user to a specific recording, build the URL as `{posthog_base_url}/replay/{id}` using the `id` returned in each result row.
+
+Do not use `/replay/home?sessionRecordingId={id}` — that path takes the user to the replay list with the default filter applied and does not open the recording.
+
 # Examples
 
 ## Recent recordings with console errors
@@ -145,5 +151,6 @@ When you have known `$session_id` values (e.g., from `$exception` events or othe
 - Use `filter_test_accounts: true` by default to exclude internal users.
 - Only include property filters directly relevant to the user's question.
 - Default time range is last 3 days. Adjust based on the user's needs.
+- Deep-link to a specific recording as `{posthog_base_url}/replay/{id}`, never `/replay/home?sessionRecordingId={id}`.
 - For detailed analysis of a single recording, use `session-recording-get` with the recording's `id`.
 - **If no recordings are found** or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from recent events (no `$session_id` filter needed for project-wide issues). Common causes: sampling excluded sessions, recording disabled in project settings, ad blocker blocked the recorder script, or SDK misconfigured.

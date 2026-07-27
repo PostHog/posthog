@@ -54,6 +54,7 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
                 query_type="TeamTaxonomyQuery",
                 query=query,
                 team=self.team,
+                user=self.user,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,

@@ -1,4 +1,4 @@
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { PersonType } from '~/types'
@@ -9,6 +9,7 @@ import {
     coercePropertyValue,
     getPersonColorIndex,
     parsePersonFromHogQLRow,
+    pickBestPersonDistinctId,
     scoreDistinctId,
 } from './person-utils'
 
@@ -76,14 +77,24 @@ describe('the person header', () => {
                 expectedLink: urls.personByDistinctId('a+dicey/@!'),
                 name: 'with no ids',
             },
+            {
+                // Anonymous ID first, identified ID second — the link should use the identified one
+                distinctIds: ['03b16e4c0b14ef-00000000000000-1633685d-13c680-17878af3ba9d1c', 'user@example.com'],
+                expectedLink: urls.personByDistinctId('user@example.com'),
+                name: 'preferring an identified ID over an anonymous one',
+            },
         ]
 
         it.each(personLinksTestCases.map((testCase) => [testCase.name, testCase]))(
             'returns a link %s',
             (_, testCase) => {
-                expect(asLink({ distinct_ids: testCase.distinctIds })).toEqual(testCase.expectedLink)
+                expect(asLink({ distinct_ids: testCase.distinctIds, properties: {} })).toEqual(testCase.expectedLink)
             }
         )
+
+        it('returns undefined for a person without a profile', () => {
+            expect(asLink({ distinct_ids: ['a uuid'] })).toBeUndefined()
+        })
     })
 
     const displayTestCases = [
@@ -282,5 +293,37 @@ describe('scoreDistinctId', () => {
         },
     ])('$label: $id → $expected', ({ id, expected }) => {
         expect(scoreDistinctId(id)).toBe(expected)
+    })
+})
+
+describe('pickBestPersonDistinctId', () => {
+    const anonId = '03b16e4c0b14ef-00000000000000-1633685d-13c680-17878af3ba9d1c'
+    it.each([
+        { distinctIds: undefined, expected: undefined, label: 'undefined returns undefined' },
+        { distinctIds: [], expected: undefined, label: 'empty array returns undefined' },
+        { distinctIds: ['only-one'], expected: 'only-one', label: 'single ID is returned as-is' },
+        {
+            distinctIds: [anonId, 'user@example.com'],
+            expected: 'user@example.com',
+            label: 'prefers an email over an anonymous ID regardless of position',
+        },
+        {
+            distinctIds: [anonId, 'custom-123'],
+            expected: 'custom-123',
+            label: 'prefers a custom ID over an anonymous ID',
+        },
+        {
+            distinctIds: ['custom-123', anonId, 'user@example.com'],
+            expected: 'user@example.com',
+            label: 'prefers an email over both custom and anonymous IDs',
+        },
+    ])('$label', ({ distinctIds, expected }) => {
+        expect(pickBestPersonDistinctId(distinctIds)).toBe(expected)
+    })
+
+    it('does not mutate the input array', () => {
+        const distinctIds = [anonId, 'user@example.com']
+        pickBestPersonDistinctId(distinctIds)
+        expect(distinctIds).toEqual([anonId, 'user@example.com'])
     })
 })

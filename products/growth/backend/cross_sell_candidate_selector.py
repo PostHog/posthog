@@ -1,11 +1,8 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-import numpy as np
-
-from posthog.schema import ProductItemCategory, ProductKey
-
 from posthog.products import Products
+from posthog.schema_enums import ProductItemCategory, ProductKey
 
 # Base weights for high-value products.
 # Analysis: https://us.posthog.com/project/2/notebooks/x3AWOfsm
@@ -60,7 +57,7 @@ class CrossSellCandidateSelector:
          See BASE_PREFERENCE_WEIGHTS for the full list and the linked notebook
          for the analysis behind these numbers.
 
-      b) LLM adjacent boost: if the user already has LLM Analytics enabled,
+      b) LLM adjacent boost: if the user already has AI observability enabled,
          all LLM-adjacent products (Evaluations, Datasets, Prompts, Clusters)
          are set to weight 10, because they're most useful together.
 
@@ -132,7 +129,7 @@ class CrossSellCandidateSelector:
 
         Three layers, applied in order:
         1. Base weights for universally high-value products
-        2. Contextual boost when the user already uses LLM Analytics
+        2. Contextual boost when the user already uses AI observability
         3. +2 bump for products in the same category as the user's enabled products
         """
         weights: defaultdict[str, int] = defaultdict(lambda: 1)
@@ -209,6 +206,10 @@ class CrossSellCandidateSelector:
         sampling from the candidate set. Returns an empty list when there
         are no eligible candidates.
         """
+        # this module loads at django.setup() via the file-system product list — numpy at
+        # module scope would put it on every process's startup path
+        import numpy as np  # noqa: PLC0415
+
         weighted = self._get_weighted_candidates()
         if not weighted:
             return []

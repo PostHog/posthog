@@ -154,9 +154,138 @@ class TestSlackFormatting(SimpleTestCase):
         slack_text, slack_blocks = rich_content_to_slack_payload(rich_content, "")
         content, parsed_rich_content = slack_to_content_and_rich_content(slack_text, slack_blocks)
 
-        assert content == "line1  \nline2\n\nline3"
+        assert content == "line1  \nline2\n\n  \n\n\nline3"
         assert parsed_rich_content is not None
-        assert len(parsed_rich_content["content"]) == 2
+        # 3 paragraphs: original 2 + spacer section between them
+        assert len(parsed_rich_content["content"]) == 3
+
+    def test_inbound_preformatted_becomes_code_block(self) -> None:
+        blocks = [
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_preformatted",
+                        "elements": [{"type": "text", "text": "const x = 1\nconsole.log(x)"}],
+                    }
+                ],
+            }
+        ]
+
+        content, rich_content = slack_to_content_and_rich_content("", blocks)
+
+        assert rich_content is not None
+        code_node = rich_content["content"][0]
+        assert code_node["type"] == "codeBlock"
+        assert code_node["content"] == [{"type": "text", "text": "const x = 1\nconsole.log(x)"}]
+        assert content == "```\nconst x = 1\nconsole.log(x)\n```"
+
+    def test_inbound_preformatted_preserves_non_text_elements(self) -> None:
+        blocks = [
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_preformatted",
+                        "elements": [
+                            {"type": "text", "text": "see "},
+                            {"type": "link", "url": "https://posthog.com"},
+                            {"type": "text", "text": " or ping "},
+                            {"type": "user", "user_id": "U123ABC"},
+                        ],
+                    }
+                ],
+            }
+        ]
+
+        _, rich_content = slack_to_content_and_rich_content("", blocks, user_names={"U123ABC": "Alice"})
+
+        assert rich_content is not None
+        code_node = rich_content["content"][0]
+        assert code_node["type"] == "codeBlock"
+        assert code_node["content"] == [{"type": "text", "text": "see https://posthog.com or ping @Alice"}]
+
+    def test_outbound_code_block_emits_preformatted_and_nonempty_text(self) -> None:
+        rich_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "codeBlock",
+                    "attrs": {"language": "python"},
+                    "content": [{"type": "text", "text": "print('hi')"}],
+                }
+            ],
+        }
+
+        slack_text, slack_blocks = rich_content_to_slack_payload(rich_content, "")
+
+        assert slack_blocks is not None
+        preformatted = slack_blocks[0]["elements"][0]
+        assert preformatted["type"] == "rich_text_preformatted"
+        assert preformatted["elements"] == [{"type": "text", "text": "print('hi')"}]
+        # Guard in tasks.py only posts when text or blocks are truthy - a code-only
+        # message must produce non-empty fallback text so it isn't silently dropped.
+        assert slack_text.strip() != ""
+
+    def test_outbound_empty_code_block_emits_no_preformatted_element(self) -> None:
+        rich_content = {
+            "type": "doc",
+            "content": [
+                {"type": "codeBlock", "content": []},
+                {"type": "paragraph", "content": [{"type": "text", "text": "after"}]},
+            ],
+        }
+
+        _, slack_blocks = rich_content_to_slack_payload(rich_content, "")
+
+        assert slack_blocks is not None
+        element_types = [el["type"] for el in slack_blocks[0]["elements"]]
+        assert "rich_text_preformatted" not in element_types
+
+    def test_code_block_roundtrip_preserves_content(self) -> None:
+        rich_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "codeBlock",
+                    "content": [{"type": "text", "text": "a = 1\nb = 2"}],
+                }
+            ],
+        }
+
+        slack_text, slack_blocks = rich_content_to_slack_payload(rich_content, "")
+        _, parsed_rich_content = slack_to_content_and_rich_content(slack_text, slack_blocks)
+
+        assert parsed_rich_content is not None
+        code_node = parsed_rich_content["content"][0]
+        assert code_node["type"] == "codeBlock"
+        assert code_node["content"] == [{"type": "text", "text": "a = 1\nb = 2"}]
+
+    @parameterized.expand(
+        [
+            ("single_paragraph", 1, 1),
+            ("two_paragraphs", 2, 3),
+            ("three_paragraphs", 3, 5),
+        ]
+    )
+    def test_outbound_paragraph_spacer_sections(self, _name: str, para_count: int, expected_elements: int) -> None:
+        rich_content = {
+            "type": "doc",
+            "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": f"para{i + 1}"}]} for i in range(para_count)
+            ],
+        }
+
+        _, slack_blocks = rich_content_to_slack_payload(rich_content, "")
+        assert slack_blocks is not None
+
+        elements = slack_blocks[0]["elements"]
+        assert len(elements) == expected_elements
+        for i, el in enumerate(elements):
+            if i % 2 == 0:
+                assert el["elements"][0]["text"] == f"para{i // 2 + 1}"
+            else:
+                assert el["elements"][0]["text"] == "\n"
 
     def test_outbound_excludes_images_from_text_when_requested(self) -> None:
         rich_content = {

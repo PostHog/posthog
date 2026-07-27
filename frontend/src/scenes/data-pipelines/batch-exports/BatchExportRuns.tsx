@@ -7,7 +7,8 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, humanFriendlyNumber, humanizeBytes } from 'lib/utils'
+import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from '~/types'
 

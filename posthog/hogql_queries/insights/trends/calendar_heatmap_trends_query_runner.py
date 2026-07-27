@@ -15,13 +15,16 @@ class CalendarHeatmapTrendsQueryRunner(TrendsQueryRunner):
     def _calculate(self):
         from posthog.hogql_queries.insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
 
-        # Convert TrendsQuery to CalendarHeatmapQuery
+        # Convert TrendsQuery to CalendarHeatmapQuery. Forward calendarHeatmapFilter as-is
+        # so opt-in flags (e.g. bucketBySessionStart, set by the web analytics Active Hours
+        # tile) flow through without the wrapper needing to know about each one.
         calendar_query = CalendarHeatmapQuery(
             dateRange=self.query.dateRange,
             filterTestAccounts=self.query.filterTestAccounts,
             properties=self.query.properties,
             series=self.query.series,
             conversionGoal=getattr(self.query, "conversionGoal", None),
+            calendarHeatmapFilter=getattr(self.query, "calendarHeatmapFilter", None),
         )
 
         # Create and run calendar heatmap query runner

@@ -2,8 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
-import { urls } from 'scenes/urls'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 import {
     METRIC_DESCRIPTION,
@@ -13,6 +12,7 @@ import {
 } from '~/queries/nodes/WebVitals/definitions'
 import { WebVitalsMetric } from '~/queries/schema/schema-general'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
+import { urls } from '~/toolbar/urls'
 import { joinWithUiHost } from '~/toolbar/utils'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'

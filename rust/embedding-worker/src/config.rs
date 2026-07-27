@@ -46,6 +46,12 @@ pub struct Config {
 
     #[envconfig(default = "10")]
     pub max_event_batch_wait_seconds: u64,
+
+    // Per-request timeout for calls to the embedding provider, covering the whole
+    // request (connect through response body). Bounds a slow/hung request so it
+    // can't stall batch processing indefinitely.
+    #[envconfig(default = "10")]
+    pub embedding_request_timeout_seconds: u64,
 }
 
 impl Config {

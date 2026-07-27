@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { dateMapping } from 'lib/utils'
+import { dateMapping } from 'lib/utils/dateFilters'
 
 import { dateFilterLogic } from './dateFilterLogic'
 

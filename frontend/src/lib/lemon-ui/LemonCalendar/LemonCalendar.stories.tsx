@@ -25,15 +25,22 @@ export const Default: Story = { args: {} }
 
 export const MultipleMonths: Story = { args: { months: 3 } }
 
-export const CustomStyles: Story = {
+export const RangeSelection: Story = {
     args: {
-        getLemonButtonProps: ({ date, props }) => {
-            return {
-                ...props,
-                active: date.day() % 2 === 0,
-                type: date.date() % 10 === 0 ? 'primary' : undefined,
-            }
-        },
+        getDateState: ({ date }) => ({
+            isStart: date.date() === 10,
+            isEnd: date.date() === 20,
+            isBetween: date.date() > 10 && date.date() < 20,
+        }),
+    },
+}
+
+export const SingleSelection: Story = {
+    args: {
+        getDateState: ({ date }) => ({
+            selected: date.date() === 15,
+            disabledReason: date.date() > 20 ? 'Cannot select dates after the 20th' : undefined,
+        }),
     },
 }
 

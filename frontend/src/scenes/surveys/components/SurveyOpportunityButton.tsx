@@ -8,13 +8,13 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { formatPercentage } from 'lib/utils'
+import { formatPercentage } from 'lib/utils/numbers'
 import { addProductIntent, addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     FunnelsQuery,
     FunnelsQueryResponse,
@@ -24,6 +24,8 @@ import {
     QuerySchema,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
+
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { SURVEY_CREATED_SOURCE } from '../constants'
 import { QuickSurveyType } from '../quick-create/types'
@@ -103,6 +105,22 @@ export function SurveyOpportunityButton({
             }
         },
     })
+
+    useAttachedContext(
+        funnelContext
+            ? [
+                  { type: 'insight', key: insight.id, label: funnelContext.insightName },
+                  {
+                      type: 'survey_opportunity_funnel_context',
+                      value: JSON.stringify({
+                          conversionRate: funnelContext.conversionRate,
+                          steps: funnelContext.steps,
+                      }),
+                      label: 'Funnel conversion context',
+                  },
+              ]
+            : null
+    )
 
     const handleClick = (): void => {
         posthog.capture('survey opportunity clicked', {

@@ -1,12 +1,82 @@
 import { dayjs } from 'lib/dayjs'
 
+import { DashboardPlacement, DashboardTile, DashboardType, InsightModel, QueryBasedInsightModel } from '~/types'
+
 import {
+    dashboardToSaveableTemplate,
+    getDashboardTileDisplayName,
+    isWidgetTileVisibleOnPlacement,
     parseURLFilters,
     parseURLVariables,
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
+
+describe('getDashboardTileDisplayName', () => {
+    it('uses widget header title when no custom name is set', () => {
+        const tile: DashboardTile<QueryBasedInsightModel> = {
+            id: 1,
+            widget: { id: '1', widget_type: 'error_tracking_list', config: {} },
+            layouts: {},
+            color: null,
+        }
+
+        expect(getDashboardTileDisplayName(tile)).toBe('Top issues')
+    })
+
+    it('uses custom widget name when set', () => {
+        const tile: DashboardTile<QueryBasedInsightModel> = {
+            id: 1,
+            widget: { id: '1', widget_type: 'error_tracking_list', config: {}, name: 'Critical errors' },
+            layouts: {},
+            color: null,
+        }
+
+        expect(getDashboardTileDisplayName(tile)).toBe('Critical errors')
+    })
+})
+
+describe('dashboardToSaveableTemplate', () => {
+    it('serializes a button tile with a BUTTON type discriminator', () => {
+        const dashboard = {
+            name: 'My dashboard',
+            description: '',
+            filters: {},
+            tags: [],
+            tiles: [
+                {
+                    id: 1,
+                    button_tile: {
+                        id: '1',
+                        url: '/replay/home',
+                        text: 'Watch replays',
+                        placement: 'left',
+                        style: 'primary',
+                    },
+                    layouts: {},
+                    color: null,
+                },
+            ],
+        } as unknown as DashboardType<InsightModel>
+
+        const tile = dashboardToSaveableTemplate(dashboard)?.tiles[0]
+        expect(tile).toMatchObject({
+            type: 'BUTTON',
+            button_tile: { url: '/replay/home', text: 'Watch replays' },
+        })
+    })
+})
+
+describe('isWidgetTileVisibleOnPlacement', () => {
+    it.each([
+        [DashboardPlacement.Dashboard, true],
+        [DashboardPlacement.Public, true],
+        [DashboardPlacement.Export, false],
+    ])('placement=%s → %s', (placement, expected) => {
+        expect(isWidgetTileVisibleOnPlacement(placement)).toBe(expected)
+    })
+})
 
 describe('parseURLVariables', () => {
     it.each([

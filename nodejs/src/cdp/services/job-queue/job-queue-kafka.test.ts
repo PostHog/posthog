@@ -1,6 +1,6 @@
 import { migrateKafkaCyclotronInvocation } from './job-queue-kafka'
 
-describe('CyclotronJobQueue - kafka', () => {
+describe('CyclotronJobQueueKafka', () => {
     describe('migrateKafkaCyclotronInvocation', () => {
         // Pulled from a real job in kafka
         const legacyFormat = {

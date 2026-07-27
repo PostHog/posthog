@@ -153,7 +153,9 @@ export const HogFunctionTestEditor = ({
 }
 
 export function HogFunctionTest(): JSX.Element {
-    const { logicProps, canLoadSampleGlobals, hogFunction, template } = useValues(hogFunctionConfigurationLogic)
+    const { logicProps, canLoadSampleGlobals, hogFunction, template, configuration } =
+        useValues(hogFunctionConfigurationLogic)
+    const isDataWarehouse = configuration?.filters?.source === 'data-warehouse-table'
     const {
         isTestInvocationSubmitting,
         testResult,
@@ -199,7 +201,9 @@ export function HogFunctionTest(): JSX.Element {
                         <h2 className="flex gap-2 items-center mb-0">
                             <span>Testing</span>
                         </h2>
-                        {inactive ? <p>Click here to test your function with an example event</p> : null}
+                        {inactive ? (
+                            <p>Click here to test your function with an example {isDataWarehouse ? 'row' : 'event'}</p>
+                        ) : null}
                     </div>
 
                     {inactive ? (

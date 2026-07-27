@@ -1,4 +1,4 @@
-import { RasterizationError } from '../errors'
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 
 describe('RasterizationError', () => {
     it('sets name, message, retryable, and code', () => {

@@ -13,9 +13,12 @@ import {
     LemonSelect,
 } from '@posthog/lemon-ui'
 
+import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { urls } from 'scenes/urls'
+
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 import { CategorySelect } from 'products/workflows/frontend/OptOuts/CategorySelect'
 
@@ -23,7 +26,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
-import { isOptOutEligibleAction } from '../steps/types'
+import { isOptOutEligibleAction, isScheduleTrigger } from '../steps/types'
 import type { HogFlowAction } from '../types'
 import { hogFlowOutputMappingLogic } from './hogFlowOutputMappingLogic'
 import { OutputTestResultTree } from './OutputTestResultTree'
@@ -32,9 +35,8 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, workflow, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setMode } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(workflowLogic)
-    const { mappings, pendingPath, testLoading, testError, testResultData, shakePickButton } = useValues(
-        hogFlowOutputMappingLogic(logicProps)
-    )
+    const { mappings, pendingPath, testLoading, testError, testResultData, shakePickButton, pendingSuggestions } =
+        useValues(hogFlowOutputMappingLogic(logicProps))
     const {
         setSelectedActionId,
         setMappings,
@@ -45,6 +47,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
         assignPendingPathToMapping,
         cancelPendingPath,
         runOutputTest,
+        applySuggestion,
     } = useActions(hogFlowOutputMappingLogic(logicProps))
 
     useEffect(() => {
@@ -79,7 +82,45 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                 innerClassName="flex flex-col gap-2 p-3"
                 styledScrollbars
             >
-                {Step?.renderConfiguration(selectedNode)}
+                <div className="flex flex-col gap-1">
+                    <EditableField
+                        name="step-name"
+                        value={action.name}
+                        onSave={(value) => {
+                            const trimmed = value.trim()
+                            if (trimmed) {
+                                setWorkflowAction(action.id, { ...action, name: trimmed })
+                            }
+                        }}
+                        placeholder="Step name"
+                        minLength={1}
+                        saveOnBlur
+                        clickToEdit
+                        compactButtons
+                        compactIcon
+                        className="font-semibold text-base"
+                        data-attr="workflow-step-name"
+                    />
+                    {!isScheduleTrigger(action) && (
+                        <EditableField
+                            name="step-description"
+                            value={action.description || ''}
+                            onSave={(value) => setWorkflowAction(action.id, { ...action, description: value.trim() })}
+                            placeholder="Add a description (optional)"
+                            multiline
+                            saveOnBlur
+                            clickToEdit
+                            compactButtons
+                            compactIcon
+                            className="text-sm text-secondary"
+                            data-attr="workflow-step-description"
+                        />
+                    )}
+                </div>
+                <LemonDivider className="my-2" />
+                <ErrorBoundary exceptionProps={{ feature: 'workflow-step-config' }}>
+                    {Step?.renderConfiguration(selectedNode)}
+                </ErrorBoundary>
             </ScrollableShadows>
 
             {isOptOutEligibleAction(action) && (
@@ -200,6 +241,24 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                     </LemonField.Pure>
                                                 </div>
                                             ))}
+                                            {pendingSuggestions.length > 0 && (
+                                                <div className="w-full">
+                                                    <p className="text-xs text-secondary mb-1">Suggested</p>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {pendingSuggestions.map((suggestion) => (
+                                                            <LemonButton
+                                                                key={suggestion.key}
+                                                                size="xsmall"
+                                                                type="secondary"
+                                                                icon={<IconPlus />}
+                                                                onClick={() => applySuggestion(suggestion)}
+                                                            >
+                                                                {suggestion.label}
+                                                            </LemonButton>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
                                             <div className="flex gap-2 w-full">
                                                 <LemonButton
                                                     icon={<IconPlus />}

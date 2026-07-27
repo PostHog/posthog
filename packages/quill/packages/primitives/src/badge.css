@@ -41,7 +41,7 @@
     /* Variants */
     .quill-badge--variant-default {
         color: var(--foreground);
-        background-color: var(--muted);
+        background-color: var(--fill-hover);
     }
 
     .quill-badge--variant-info {
@@ -62,5 +62,10 @@
     .quill-badge--variant-success {
         color: var(--success-foreground);
         background-color: var(--success);
+    }
+
+    .quill-badge--variant-completed {
+        color: var(--completed-foreground);
+        background-color: var(--completed);
     }
 }

@@ -1,0 +1,45 @@
+# Dockerfile for the VM sandbox image (Docker-in-Docker capable).
+#
+# Layers a working Docker engine on top of the base sandbox image so a Modal VM
+# sandbox (real Linux kernel) can run nested containers — e.g. the PostHog dev
+# stack via `hogli`. This image only functions under the Modal VM runtime;
+# dockerd cannot run under the default gVisor sandbox, so sandboxes created from
+# it are always provisioned with vm_runtime.
+ARG BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:master
+FROM ${BASE_IMAGE}
+
+# Docker engine, compose v2 plugin and buildx from the Ubuntu archive (no extra
+# apt repo). docker.io ships dockerd + containerd; docker-compose-v2 provides
+# `docker compose`, which hogli / bin/start invoke.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    docker.io \
+    docker-compose-v2 \
+    docker-buildx && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /etc/docker && \
+    printf '%s\n' '{' '  "storage-driver": "overlay2"' '}' > /etc/docker/daemon.json
+
+# There is no init system in the sandbox, so dockerd is launched on demand by
+# this idempotent helper rather than by systemd. dockerd is detached with setsid
+# and </dev/null so it survives its launching process. On the Modal VM runtime
+# the first invocation's exec is still reaped while dockerd brings up its bridge,
+# so treat this script's exit status as advisory and confirm with `docker info`
+# (or just re-run it — it is idempotent and returns 0 once the daemon is up).
+RUN printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -uo pipefail' \
+    'if docker info >/dev/null 2>&1; then echo "dockerd already running"; exit 0; fi' \
+    'setsid dockerd </dev/null >/var/log/dockerd.log 2>&1 &' \
+    'for _ in $(seq 1 60); do' \
+    '  if docker info >/dev/null 2>&1; then echo "dockerd ready"; exit 0; fi' \
+    '  sleep 0.5' \
+    'done' \
+    'echo "dockerd failed to start; recent log:" >&2' \
+    'tail -n 20 /var/log/dockerd.log >&2 || true' \
+    'exit 1' \
+    > /usr/local/bin/start-dockerd && \
+    chmod +x /usr/local/bin/start-dockerd
+
+CMD ["/bin/bash"]

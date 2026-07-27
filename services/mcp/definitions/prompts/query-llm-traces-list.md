@@ -126,6 +126,10 @@ Generations (`$ai_generation`) and embeddings (`$ai_embedding`) are always leaf 
 
 **Important:** This list tool only returns **direct children** of the trace (events where `$ai_parent_id` = trace ID) plus all `$ai_metric` and `$ai_feedback` events — NOT deeply nested events. For the full event tree with all nested children, use `query-llm-trace` with the trace's `id`.
 
+## Response size
+
+To protect the agent's context window, the response is bounded before it reaches you. Long string values are truncated (with a `… [truncated N chars]` marker) and oversized arrays/objects have their tail members dropped. If the combined list is still too large, trailing traces are dropped and a final `{ "_truncated": { "omittedTraces": N, ... } }` entry reports how many. When you see these markers, narrow the query (shorter date range, filters, or a smaller `limit`) or fetch a specific trace with `query-llm-trace`. The underlying data is never altered — only this response is bounded.
+
 ## Pagination
 
 Use `limit` and `offset` for pagination. The default limit is 100. The response includes a `hasMore` field indicating whether more results are available.

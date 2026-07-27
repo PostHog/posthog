@@ -6,7 +6,7 @@ import pytest
 import modal
 from asgiref.sync import async_to_sync
 
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.create_snapshot.activities.cleanup_sandbox import (
     CleanupSandboxInput,
     cleanup_sandbox,

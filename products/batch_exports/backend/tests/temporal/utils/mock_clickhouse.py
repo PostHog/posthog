@@ -32,11 +32,13 @@ class MockClickHouseClient:
     def __init__(
         self,
         read_query_as_jsonl_responses: JsonResponseSequence | None = None,
+        written_rows: int = 0,
     ):
         self.calls: list[CapturedCall] = []
         self.mock_client = AsyncMock(spec=ClickHouseClient)
         self.mock_client.read_query_as_jsonl = self._capture_read_query_as_jsonl
         self.mock_client.execute_query = self._capture_execute_query
+        self.mock_client.execute_query_with_summary = self._capture_execute_query_with_summary
         self.mock_client_cm = mock.AsyncMock()
         self.mock_client_cm.__aenter__.return_value = self.mock_client
         self.mock_client_cm.__aexit__.return_value = None
@@ -44,6 +46,9 @@ class MockClickHouseClient:
         # Return values for read_query_as_jsonl.
         # Each call pops from the front; the last value is reused for any extra calls.
         self.read_query_as_jsonl_responses: JsonResponseSequence = read_query_as_jsonl_responses or []
+
+        # `written_rows` reported back in the query summary by `execute_query_with_summary`.
+        self.written_rows = written_rows
 
     # -- recording helpers ---------------------------------------------------
 
@@ -66,6 +71,10 @@ class MockClickHouseClient:
 
     async def _capture_execute_query(self, query, *data, query_parameters=None, query_id=None, **kwargs):
         self._snapshot_call(query, query_parameters, query_id)
+
+    async def _capture_execute_query_with_summary(self, query, *data, query_parameters=None, query_id=None, **kwargs):
+        self._snapshot_call(query, query_parameters, query_id)
+        return {"written_rows": str(self.written_rows)}
 
     # -- assertion helpers ---------------------------------------------------
 

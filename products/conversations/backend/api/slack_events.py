@@ -10,26 +10,21 @@ from django.views.decorators.csrf import csrf_exempt
 import structlog
 
 from posthog.models.integration import SlackIntegrationError
-from posthog.models.team import Team
 
-from products.conversations.backend.models import TeamConversationsSlackConfig
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
-from products.conversations.backend.support_slack import validate_support_request
+from products.conversations.backend.support_slack import team_exists_for_slack_workspace, validate_support_request
 from products.conversations.backend.tasks import process_supporthog_event
 
 logger = structlog.get_logger(__name__)
 
 # Event types we handle for support tickets
-SUPPORT_EVENT_TYPES = ["app_mention", "message", "reaction_added"]
-
-
-def _team_for_slack_workspace(slack_team_id: str) -> Team | None:
-    config = (
-        TeamConversationsSlackConfig.objects.filter(slack_team_id=slack_team_id, slack_bot_token__isnull=False)
-        .select_related("team")
-        .first()
-    )
-    return config.team if config else None
+SUPPORT_EVENT_TYPES = [
+    "app_mention",
+    "message",
+    "reaction_added",
+    "member_joined_channel",
+    "member_left_channel",
+]
 
 
 def _route_event_to_relevant_region(request: HttpRequest, data: dict) -> None:
@@ -48,9 +43,9 @@ def _route_event_to_relevant_region(request: HttpRequest, data: dict) -> None:
     if inner_event_type not in SUPPORT_EVENT_TYPES:
         return
 
-    team = _team_for_slack_workspace(slack_team_id) if slack_team_id else None
+    team_exists = team_exists_for_slack_workspace(slack_team_id) if slack_team_id else False
 
-    if team and not (settings.DEBUG and is_primary_region(request)):
+    if team_exists and not (settings.DEBUG and is_primary_region(request)):
         cast(Any, process_supporthog_event).delay(event=event, slack_team_id=slack_team_id, event_id=event_id)
     elif is_primary_region(request):
         proxy_to_secondary_region(request, log_prefix="supporthog")

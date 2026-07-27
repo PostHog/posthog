@@ -1,0 +1,144 @@
+// Effect colors are intentionally hardcoded so styles render identically in light/dark mode and exports
+.WordArt {
+    display: inline-block;
+
+    // Breathing room so glows/shadows aren't clipped by overflow-auto ancestors
+    padding: 0.35em 0.3em;
+    font-size: 2em;
+    font-style: normal;
+    font-weight: 900;
+    line-height: 1.1;
+    letter-spacing: 0.02em;
+    white-space: pre-wrap;
+
+    &.WordArt--rainbow {
+        color: transparent;
+        background: linear-gradient(90deg, #f00, #f80, #fc0, #0a0, #06f, #83f);
+        background-clip: text;
+    }
+
+    &.WordArt--sunset {
+        color: transparent;
+        background: linear-gradient(180deg, #ff5f6d 0%, #ff9a44 55%, #a44fd0 100%);
+        filter: drop-shadow(0 0.06em 0.08em rgb(164 79 208 / 40%));
+        background-clip: text;
+    }
+
+    &.WordArt--chrome {
+        color: transparent;
+        background: linear-gradient(
+            180deg,
+            #eef3f8 0%,
+            #b8c6db 38%,
+            #5a749c 49%,
+            #2e4a76 51%,
+            #7fa3d4 62%,
+            #d9e6f5 100%
+        );
+        background-clip: text;
+        -webkit-text-stroke: 1px #47586e;
+    }
+
+    &.WordArt--neon {
+        color: #ff2ee6;
+        text-shadow:
+            0 0 0.08em #fff,
+            0 0 0.25em #ff2ee6,
+            0 0 0.55em #b517ff;
+    }
+
+    &.WordArt--outline {
+        // White fill + stroke-under-fill: glyph paths self-intersect (e.g. the bar of "e"),
+        // so a transparent fill would expose internal stroke edges as lines through the letters
+        color: #fff;
+        paint-order: stroke;
+        -webkit-text-stroke: 4px #f54e00;
+    }
+
+    &.WordArt--extrude {
+        color: #2f80ed;
+        text-shadow:
+            0.02em 0.02em 0 #1b4f9c,
+            0.04em 0.04em 0 #1b4f9c,
+            0.06em 0.06em 0 #1b4f9c,
+            0.08em 0.08em 0 #1b4f9c,
+            0.1em 0.1em 0 #1b4f9c,
+            0.12em 0.12em 0 #1b4f9c,
+            0.14em 0.14em 0.16em rgb(0 0 0 / 35%);
+        transform: skewY(-3deg);
+    }
+
+    &.WordArt--shadow {
+        font-style: italic;
+        color: #fff;
+        text-shadow: 0.1em 0.1em 0 #000;
+        -webkit-text-stroke: 1px #000;
+    }
+
+    &.WordArt--fire {
+        color: transparent;
+        background: linear-gradient(0deg, #c00 0%, #f60 45%, #fc0 75%, #ffa 100%);
+        filter: drop-shadow(0 -0.04em 0.12em rgb(255 120 0 / 55%));
+        background-clip: text;
+    }
+
+    &.WordArt--ice {
+        color: transparent;
+        background: linear-gradient(180deg, #fff 0%, #a5f3fc 55%, #0ea5e9 100%);
+        background-clip: text;
+        -webkit-text-stroke: 1px #0369a1;
+    }
+
+    &.WordArt--stripes {
+        color: transparent;
+        background: repeating-linear-gradient(180deg, #f36 0 0.14em, #fff 0.14em 0.2em, #36f 0.2em 0.34em);
+        background-clip: text;
+        -webkit-text-stroke: 1px #1a1a4d;
+    }
+}
+
+// 9em of width ≈ 1em of glyph height given the 500x170 viewBox, so the arch tracks font-size like the CSS styles
+.WordArt--arch-svg {
+    display: inline-block;
+    width: 9em;
+    max-width: 100%;
+    font-size: 2em;
+    vertical-align: middle;
+}
+
+.WordArt,
+.WordArt--arch-svg {
+    // Explicit so the class emitted for the default 'small' size maps to a real rule
+    &.WordArt--size-small {
+        font-size: 2em;
+    }
+
+    &.WordArt--size-medium {
+        font-size: 3em;
+    }
+
+    &.WordArt--size-large {
+        font-size: 4.5em;
+    }
+}
+
+.WordArtNode {
+    display: inline-block;
+    max-width: 100%;
+}
+
+.WordArtNode--editable {
+    cursor: pointer;
+}
+
+.WordArtNode--selected {
+    border-radius: 4px;
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+.WordArt.WordArt--preview,
+.WordArt--arch-svg.WordArt--preview {
+    font-size: 1.375rem;
+    white-space: nowrap;
+}

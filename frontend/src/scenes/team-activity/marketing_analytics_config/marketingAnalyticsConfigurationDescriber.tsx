@@ -1,5 +1,5 @@
 import { ActivityChange, ChangeMapping } from 'lib/components/ActivityLog/humanizeActivity'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { MarketingAnalyticsConfig, SourceMap } from '~/queries/schema/schema-general'
 

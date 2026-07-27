@@ -27,7 +27,7 @@ import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } fr
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
-import { isThumbQuestion, splitChoicesOnPaste } from './utils'
+import { canQuestionSkipSubmitButton, isThumbQuestion, splitChoicesOnPaste } from './utils'
 
 type SurveyQuestionHeaderProps = {
     index: number
@@ -111,15 +111,6 @@ export function SurveyEditQuestionHeader({
                 )}
             </div>
         </div>
-    )
-}
-
-function canQuestionSkipSubmitButton(
-    question: SurveyQuestion
-): question is RatingSurveyQuestion | MultipleSurveyQuestion {
-    return (
-        question.type === SurveyQuestionType.Rating ||
-        (question.type === SurveyQuestionType.SingleChoice && !question.hasOpenChoice)
     )
 }
 
@@ -366,7 +357,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             disabled={!!editingLanguage}
                             disabledReason={
                                 editingLanguage
-                                    ? 'Question type can only be changed in the default language'
+                                    ? 'Question type can only be changed in the original language'
                                     : undefined
                             }
                             data-attr={`survey-question-type-${index}`}
@@ -469,7 +460,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             disabled={!!editingLanguage}
                             disabledReason={
                                 editingLanguage
-                                    ? 'Question settings can only be changed in the default language'
+                                    ? 'Question settings can only be changed in the original language'
                                     : undefined
                             }
                         />
@@ -480,7 +471,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         name="validation"
                         info={
                             editingLanguage
-                                ? 'Validation settings can only be changed in the default language'
+                                ? 'Validation settings can only be changed in the original language'
                                 : undefined
                         }
                     >
@@ -488,7 +479,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             <Tooltip
                                 title={
                                     editingLanguage
-                                        ? 'Validation settings can only be changed in the default language'
+                                        ? 'Validation settings can only be changed in the original language'
                                         : undefined
                                 }
                             >
@@ -536,7 +527,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                     disabled={!!editingLanguage}
                                     disabledReason={
                                         editingLanguage
-                                            ? 'Display type can only be changed in the default language'
+                                            ? 'Display type can only be changed in the original language'
                                             : undefined
                                     }
                                     options={[
@@ -565,7 +556,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                     disabled={!!editingLanguage}
                                     disabledReason={
                                         editingLanguage
-                                            ? 'Rating scale can only be changed in the default language'
+                                            ? 'Rating scale can only be changed in the original language'
                                             : undefined
                                     }
                                     options={question.display === 'emoji' ? SCALE_OPTIONS.EMOJI : SCALE_OPTIONS.NUMBER}
@@ -639,7 +630,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         disabled={!!editingLanguage}
                                         disabledReason={
                                             editingLanguage
-                                                ? 'Question settings can only be changed in the default language'
+                                                ? 'Question settings can only be changed in the original language'
                                                 : undefined
                                         }
                                         onChange={toggleIsNpsQuestion}
@@ -731,7 +722,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                             <Tooltip
                                                                 title={
                                                                     editingLanguage
-                                                                        ? 'Choices can only be modified in the default language'
+                                                                        ? 'Choices can only be modified in the original language'
                                                                         : undefined
                                                                 }
                                                             >
@@ -817,7 +808,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                         disabled={!!editingLanguage}
                                                                         disabledReason={
                                                                             editingLanguage
-                                                                                ? 'Shuffle options can only be changed in the default language'
+                                                                                ? 'Shuffle options can only be changed in the original language'
                                                                                 : undefined
                                                                         }
                                                                         onChange={(checked) =>
@@ -891,7 +882,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         disabled={!!editingLanguage}
                                         disabledReason={
                                             editingLanguage
-                                                ? 'Submit settings can only be changed in the default language'
+                                                ? 'Submit settings can only be changed in the original language'
                                                 : undefined
                                         }
                                     />

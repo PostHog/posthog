@@ -9,62 +9,6 @@
  */
 import * as zod from 'zod'
 
-export const approvalPoliciesCreateBodyActionKeyMax = 128
-
-export const ApprovalPoliciesCreateBody = /* @__PURE__ */ zod.object({
-    action_key: zod.string().max(approvalPoliciesCreateBodyActionKeyMax),
-    conditions: zod.unknown().optional(),
-    approver_config: zod.unknown(),
-    allow_self_approve: zod.boolean().optional(),
-    bypass_org_membership_levels: zod.unknown().optional(),
-    bypass_roles: zod.array(zod.uuid()).optional(),
-    expires_after: zod.string().optional().describe('Auto-expire change requests after this duration'),
-    enabled: zod.boolean().optional(),
-})
-
-export const approvalPoliciesUpdateBodyActionKeyMax = 128
-
-export const ApprovalPoliciesUpdateBody = /* @__PURE__ */ zod.object({
-    action_key: zod.string().max(approvalPoliciesUpdateBodyActionKeyMax),
-    conditions: zod.unknown().optional(),
-    approver_config: zod.unknown(),
-    allow_self_approve: zod.boolean().optional(),
-    bypass_org_membership_levels: zod.unknown().optional(),
-    bypass_roles: zod.array(zod.uuid()).optional(),
-    expires_after: zod.string().optional().describe('Auto-expire change requests after this duration'),
-    enabled: zod.boolean().optional(),
-})
-
-export const approvalPoliciesPartialUpdateBodyActionKeyMax = 128
-
-export const ApprovalPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    action_key: zod.string().max(approvalPoliciesPartialUpdateBodyActionKeyMax).optional(),
-    conditions: zod.unknown().optional(),
-    approver_config: zod.unknown().optional(),
-    allow_self_approve: zod.boolean().optional(),
-    bypass_org_membership_levels: zod.unknown().optional(),
-    bypass_roles: zod.array(zod.uuid()).optional(),
-    expires_after: zod.string().optional().describe('Auto-expire change requests after this duration'),
-    enabled: zod.boolean().optional(),
-})
-
-/**
- * Approve a change request.
-If quorum is reached, automatically applies the change immediately.
- */
-export const ChangeRequestsApproveCreateBody = /* @__PURE__ */ zod.looseObject({})
-
-/**
- * Cancel a change request.
-Only the requester can cancel their own pending change request.
- */
-export const ChangeRequestsCancelCreateBody = /* @__PURE__ */ zod.looseObject({})
-
-/**
- * Reject a change request.
- */
-export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.looseObject({})
-
 export const createBodyNameMax = 64
 
 export const CreateBody = /* @__PURE__ */ zod.object({
@@ -72,9 +16,25 @@ export const CreateBody = /* @__PURE__ */ zod.object({
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
     members_can_invite: zod.boolean().nullish(),
+    members_can_create_projects: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
+        ),
     members_can_use_personal_api_keys: zod.boolean().optional(),
+    members_can_see_org_members: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When False, members (below admin) only see themselves in the members list and only project members in access control.'
+        ),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
+    is_ai_training_opted_in: zod
+        .boolean()
+        .nullish()
+        .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
     default_experiment_stats_method: zod
         .union([
             zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
@@ -102,9 +62,25 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
     members_can_invite: zod.boolean().nullish(),
+    members_can_create_projects: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
+        ),
     members_can_use_personal_api_keys: zod.boolean().optional(),
+    members_can_see_org_members: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When False, members (below admin) only see themselves in the members list and only project members in access control.'
+        ),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
+    is_ai_training_opted_in: zod
+        .boolean()
+        .nullish()
+        .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
     default_experiment_stats_method: zod
         .union([
             zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
@@ -132,9 +108,25 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
     members_can_invite: zod.boolean().nullish(),
+    members_can_create_projects: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
+        ),
     members_can_use_personal_api_keys: zod.boolean().optional(),
+    members_can_see_org_members: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When False, members (below admin) only see themselves in the members list and only project members in access control.'
+        ),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
+    is_ai_training_opted_in: zod
+        .boolean()
+        .nullish()
+        .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
     default_experiment_stats_method: zod
         .union([
             zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
@@ -169,24 +161,40 @@ export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesCreateBodyNameMax = 200
 
 export const RolesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(rolesCreateBodyNameMax),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesUpdateBodyNameMax = 200
 
 export const RolesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(rolesUpdateBodyNameMax),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesPartialUpdateBodyNameMax = 200
 
 export const RolesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(rolesPartialUpdateBodyNameMax).optional(),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const RolesRoleMembershipsCreateBody = /* @__PURE__ */ zod.object({
     user_uuid: zod.uuid(),
 })
@@ -241,11 +249,76 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
     was_impersonated: zod.boolean().nullish(),
     is_system: zod.boolean().nullish(),
     client: zod.string().max(advancedActivityLogsExportCreateBodyClientMax).nullish(),
+    ip_address: zod.string().nullish(),
     activity: zod.string().max(advancedActivityLogsExportCreateBodyActivityMax),
     item_id: zod.string().max(advancedActivityLogsExportCreateBodyItemIdMax).nullish(),
     scope: zod.string().max(advancedActivityLogsExportCreateBodyScopeMax),
     detail: zod.unknown().optional(),
     created_at: zod.iso.datetime({ offset: true }).optional(),
+})
+
+export const approvalPoliciesCreateBodyActionKeyMax = 128
+
+export const ApprovalPoliciesCreateBody = /* @__PURE__ */ zod.object({
+    action_key: zod.string().max(approvalPoliciesCreateBodyActionKeyMax),
+    conditions: zod.unknown().optional(),
+    approver_config: zod.unknown(),
+    allow_self_approve: zod.boolean().optional(),
+    bypass_org_membership_levels: zod.unknown().optional(),
+    bypass_roles: zod.array(zod.uuid()).optional(),
+    expires_after: zod.string().optional().describe('Auto-expire change requests after this duration'),
+    enabled: zod.boolean().optional(),
+})
+
+export const approvalPoliciesUpdateBodyActionKeyMax = 128
+
+export const ApprovalPoliciesUpdateBody = /* @__PURE__ */ zod.object({
+    action_key: zod.string().max(approvalPoliciesUpdateBodyActionKeyMax),
+    conditions: zod.unknown().optional(),
+    approver_config: zod.unknown(),
+    allow_self_approve: zod.boolean().optional(),
+    bypass_org_membership_levels: zod.unknown().optional(),
+    bypass_roles: zod.array(zod.uuid()).optional(),
+    expires_after: zod.string().optional().describe('Auto-expire change requests after this duration'),
+    enabled: zod.boolean().optional(),
+})
+
+export const approvalPoliciesPartialUpdateBodyActionKeyMax = 128
+
+export const ApprovalPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    action_key: zod.string().max(approvalPoliciesPartialUpdateBodyActionKeyMax).optional(),
+    conditions: zod.unknown().optional(),
+    approver_config: zod.unknown().optional(),
+    allow_self_approve: zod.boolean().optional(),
+    bypass_org_membership_levels: zod.unknown().optional(),
+    bypass_roles: zod.array(zod.uuid()).optional(),
+    expires_after: zod.string().optional().describe('Auto-expire change requests after this duration'),
+    enabled: zod.boolean().optional(),
+})
+
+/**
+ * Approve a change request.
+ * If quorum is reached, automatically applies the change immediately.
+ */
+export const ChangeRequestsApproveCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod.string().optional().describe('Optional note recorded with the approval vote explaining the decision.'),
+})
+
+/**
+ * Cancel a change request.
+ * Only the requester can cancel their own pending change request.
+ */
+export const ChangeRequestsCancelCreateBody = /* @__PURE__ */ zod.looseObject({})
+
+/**
+ * Reject a change request.
+ */
+export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod
+        .string()
+        .describe(
+            'Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester.'
+        ),
 })
 
 export const commentsCreateBodyIsTaskDefault = false

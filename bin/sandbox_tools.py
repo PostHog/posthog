@@ -1,7 +1,8 @@
 """Pure data layer for tools.yaml: schema, parsing, persistence, and the
 generated artifacts (compose override + user Dockerfile). No docker calls,
-no interactive prompts, no side effects at import. Callers wrap ToolsError
-with their own error reporter.
+no interactive prompts, no side effects at import. Shares the catalog/user-file
+YAML format with MCP servers via sandbox_addons; adds the tool-specific schema
+and apply logic.
 """
 
 from __future__ import annotations
@@ -10,8 +11,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+import sandbox_addons
+from sandbox_addons import REGISTRY_DIR, AddonError
 
-REGISTRY_DIR = Path.home() / ".posthog-sandboxes"
 TOOLS_FILE = REGISTRY_DIR / "tools.yaml"
 TOOL_AUTH_COMPOSE_FILE = REGISTRY_DIR / "docker-compose.tool-auth.yml"
 USER_DOCKERFILE = REGISTRY_DIR / "Dockerfile.user"
@@ -32,10 +34,6 @@ def expand_sandbox_path(raw: str) -> str:
     return raw
 
 
-class ToolsError(Exception):
-    """Raised on any malformed tools.yaml or catalog entry."""
-
-
 @dataclass
 class ToolCopy:
     # Stored exactly as written in tools.yaml. ~ expands per side at copy time:
@@ -54,65 +52,46 @@ class Tool:
     description: str | None = None
 
 
-class _BlockLiteralDumper(yaml.SafeDumper):
-    # Scoped subclass so the str representer below doesn't mutate yaml.SafeDumper globally.
-    pass
-
-
-def _block_literal_str(dumper: yaml.SafeDumper, data: str) -> yaml.ScalarNode:
-    if "\n" in data:
-        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
-    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
-
-
-_BlockLiteralDumper.add_representer(str, _block_literal_str)
-
-
 def parse_tool_copy(entry: object, *, source_label: str) -> ToolCopy:
     """Short form (one string used for both sides) or long form ({source, target})."""
     if isinstance(entry, str):
         return ToolCopy(source=entry, target=entry)
     if isinstance(entry, dict):
         return ToolCopy(source=str(entry["source"]), target=str(entry["target"]))
-    raise ToolsError(f"{source_label}: invalid copy entry {entry!r} (expected string or mapping).")
+    raise AddonError(f"{source_label}: invalid copy entry {entry!r} (expected string or mapping).")
 
 
-def _parse_entry(raw: dict, *, label: str) -> Tool:
+def _parse_entry(raw: dict) -> Tool:
+    # name presence/uniqueness is validated by sandbox_addons.load_named_entries.
+    name = raw["name"]
     # Migration guard: 'mounts' was renamed to 'copy' in a recent commit.
     if "mounts" in raw:
-        raise ToolsError(
-            f"{label} uses 'mounts:' which was renamed to 'copy:'. "
+        raise AddonError(
+            f"tool {name!r} uses 'mounts:' which was renamed to 'copy:'. "
             "Edit the YAML key (the field semantics are unchanged)."
         )
-    name = raw.get("name")
-    if not isinstance(name, str) or not name.strip():
-        raise ToolsError(f"{label}: 'name' is required and must be a non-empty string.")
-    copy = [parse_tool_copy(c, source_label=f"{label}.copy[{i}]") for i, c in enumerate(raw.get("copy") or [])]
+    copy = [parse_tool_copy(c, source_label=f"tool {name!r} copy[{i}]") for i, c in enumerate(raw.get("copy") or [])]
     return Tool(name=name, install=raw.get("install"), copy=copy, description=raw.get("description") or None)
 
 
-def _load_tools(path: Path) -> list[Tool]:
-    if not path.is_file():
-        return []
-    raw = yaml.safe_load(path.read_text()) or {}
-    tools: list[Tool] = []
-    seen: set[str] = set()
-    for i, entry in enumerate(raw.get("tools") or []):
-        tool = _parse_entry(entry, label=f"{path}: tools[{i}]")
-        if tool.name in seen:
-            raise ToolsError(f"{path}: duplicate tool name {tool.name!r}.")
-        seen.add(tool.name)
-        tools.append(tool)
-    return tools
-
-
 def load_user_tools() -> list[Tool]:
-    return _load_tools(TOOLS_FILE)
+    return sandbox_addons.load_entries(TOOLS_FILE, "tools", _parse_entry)
 
 
 def load_catalog(catalog_file: Path) -> dict[str, Tool]:
     # Catalog Tool instances have `description` set; user tools.yaml does not.
-    return {t.name: t for t in _load_tools(catalog_file)}
+    return sandbox_addons.load_catalog(catalog_file, "tools", _parse_entry)
+
+
+def resolved_tools(catalog_file: Path) -> list[tuple[str, str]]:
+    """Return (name, description) for the user's selected tools.
+
+    Descriptions come from the catalog, since the user tools.yaml doesn't store
+    them; tools added ad hoc (not in the catalog) get an empty description.
+    bin/sandbox uses this to list installed tools in the sandbox CLAUDE.md.
+    """
+    catalog = load_catalog(catalog_file)
+    return [(t.name, (catalog[t.name].description if t.name in catalog else None) or "") for t in load_user_tools()]
 
 
 def _format_copy(c: ToolCopy) -> str | dict[str, str]:
@@ -128,16 +107,7 @@ def save_user_tools(tools: list[Tool]) -> None:
         if t.copy:
             entry["copy"] = [_format_copy(c) for c in t.copy]
         entries.append(entry)
-    TOOLS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TOOLS_FILE.write_text(
-        yaml.dump(
-            {"tools": entries},
-            Dumper=_BlockLiteralDumper,
-            sort_keys=False,
-            default_flow_style=False,
-            indent=2,
-        )
-    )
+    sandbox_addons.save_named_entries(TOOLS_FILE, "tools", entries)
 
 
 def write_user_dockerfile(tools: list[Tool], *, out: Path = USER_DOCKERFILE) -> Path:

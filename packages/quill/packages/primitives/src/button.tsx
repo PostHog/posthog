@@ -1,9 +1,11 @@
+import './button.css'
+
 import { Button as ButtonPrimitive } from '@base-ui/react/button'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
-import './button.css'
 import { cn } from './lib/utils'
+import { Spinner } from './spinner'
 
 const buttonVariants = cva(
     'quill-button group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap',
@@ -47,11 +49,25 @@ const buttonVariants = cva(
     }
 )
 
-export type ButtonProps = ButtonPrimitive.Props & VariantProps<typeof buttonVariants>
+export type ButtonProps = ButtonPrimitive.Props &
+    VariantProps<typeof buttonVariants> & {
+        /** Hides the label under a centered spinner and disables the button. Width stays stable. */
+        loading?: boolean
+    }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     (
-        { className, variant = 'default', size = 'default', focusableWhenDisabled = true, left = false, ...props },
+        {
+            className,
+            variant = 'default',
+            size = 'default',
+            focusableWhenDisabled = true,
+            left = false,
+            loading = false,
+            disabled,
+            children,
+            ...props
+        },
         ref
     ) => {
         return (
@@ -60,9 +76,21 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 data-quill
                 data-slot="button"
                 data-size={size}
+                data-loading={loading || undefined}
+                aria-busy={loading || undefined}
+                disabled={disabled || loading}
+                // While loading, stay focusable: Base UI then renders aria-disabled instead of
+                // the native disabled attribute, keeping the button in the tab order so screen
+                // readers can reach it and announce busy. Activation stays blocked.
+
+                focusableWhenDisabled={loading ? true : focusableWhenDisabled}
+
                 className={cn(buttonVariants({ variant, size, className, focusableWhenDisabled, left }))}
                 {...props}
-            />
+            >
+                {children}
+                {loading && <Spinner className="quill-button__spinner" />}
+            </ButtonPrimitive>
         )
     }
 )

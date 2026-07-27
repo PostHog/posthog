@@ -1,6 +1,8 @@
 from typing import Literal, TypedDict
+from urllib.parse import urlparse
 
 from django.db import models
+from django.db.models import Q
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -28,6 +30,11 @@ CATEGORY_CHOICES = [
     ("productivity", "Productivity & Collaboration"),
 ]
 
+SCOPE_CHOICES = [
+    ("personal", "Personal"),
+    ("shared", "Shared"),
+]
+
 
 class SensitiveConfig(TypedDict, total=False):
     api_key: str
@@ -42,6 +49,7 @@ class SensitiveConfig(TypedDict, total=False):
     # the install form instead of a DCR handshake.
     dcr_client_id: str
     dcr_client_secret: str
+    dcr_token_endpoint_auth_method: str
     dcr_is_user_provided: bool
 
 
@@ -59,6 +67,17 @@ def normalize_mcp_template_icon_key(value: str) -> str:
     return "_".join((value or "").lower().split())
 
 
+def normalize_mcp_icon_domain(value: str) -> str:
+    """Lowercase hostname, no scheme/path/query/port — the id logo.dev keys brand icons on."""
+    value = (value or "").strip().lower()
+    if not value:
+        return ""
+    # urlparse only treats the leading segment as a host when a netloc separator is present.
+    if "//" not in value:
+        value = f"//{value}"
+    return (urlparse(value).hostname or "").rstrip(".")
+
+
 class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """A curated, pre-registered MCP server. PostHog operators register a real
     OAuth app with the provider ahead of time and paste the client_id /
@@ -72,8 +91,12 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     docs_url = models.URLField(max_length=2048, blank=True, default="")
     description = models.TextField(blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="oauth")
+    # Deprecated: icons resolve from icon_domain via logo.dev; the column drop is a follow-up.
     icon_key = models.CharField(max_length=100, blank=True, default="")
-    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default="dev")
+    # The vendor's brand domain (e.g. "linear.app") — resolved to an icon at render time via
+    # the logo.dev proxy, so catalog entries need no committed image assets.
+    icon_domain = models.CharField(max_length=253, blank=True, default="")
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default="dev", db_default="dev")
     oauth_issuer_url = models.URLField(max_length=2048, blank=True, default="")
     oauth_metadata = models.JSONField(default=dict, blank=True)
     oauth_credentials = EncryptedJSONField(default=dict, blank=True)
@@ -83,6 +106,8 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         update_fields = kwargs.get("update_fields")
         if update_fields is None or "icon_key" in update_fields:
             self.icon_key = normalize_mcp_template_icon_key(self.icon_key or "")
+        if update_fields is None or "icon_domain" in update_fields:
+            self.icon_domain = normalize_mcp_icon_domain(self.icon_domain or "")
         super().save(*args, **kwargs)
 
     class Meta:
@@ -101,6 +126,9 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     description = models.TextField(blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="oauth")
     is_enabled = models.BooleanField(default=True)
+    # db_default keeps a real Postgres DEFAULT so inserts from code predating
+    # this column (old pods during a rolling deploy) don't hit the NOT NULL.
+    scope = models.CharField(max_length=20, choices=SCOPE_CHOICES, default="personal", db_default="personal")
     # Cached per-installation OAuth metadata for custom (non-template) installs. Non-secret.
     oauth_issuer_url = models.URLField(max_length=2048, blank=True, default="")
     oauth_metadata = models.JSONField(default=dict, blank=True)
@@ -108,7 +136,18 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     class Meta:
         db_table = "mcp_store_mcpserverinstallation"
-        unique_together = [("team", "user", "url")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "user", "url"],
+                condition=Q(scope="personal"),
+                name="uniq_personal_install",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "url"],
+                condition=Q(scope="shared"),
+                name="uniq_shared_install",
+            ),
+        ]
 
 
 class MCPServerInstallationTool(CreatedMetaFields, UpdatedMetaFields, UUIDModel):

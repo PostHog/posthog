@@ -4,7 +4,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from products.data_modeling.backend.models import DAG, CycleDetectionError, Edge, Node
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 LINKED_LIST_DAG_ID = "linked_list"
 BALANCED_TREE_DAG_ID = "balanced_tree"

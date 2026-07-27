@@ -1,0 +1,62 @@
+name: Backend CI shadow drift check
+
+# Fails when .github/workflows/ci-backend.yml changes without a matching update
+# to .depot/workflows/ci-backend.yml. The depot file is a hand-maintained shadow
+# of canonical (see header comment in the depot file for the intentional deltas);
+# without this check, canonical drifts silently and the depot timing trial stops
+# measuring the same work.
+#
+# Cheap to run — only triggers when one of the two files changes, so it costs ~nothing.
+# Always enforced (no variable gate): keeping the depot mirror in sync with canonical is
+# a structural invariant worth holding whether or not the shadow is currently sampling —
+# you want them already in sync the moment the shadow is switched on. The sampling rate
+# lives in the CI_DEPOT_SHADOW_PERCENT Depot CI variable, which this check deliberately
+# does not read.
+
+on:
+    pull_request:
+        paths:
+            - .github/workflows/ci-backend.yml
+            - .depot/workflows/ci-backend.yml
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    check:
+        name: Both ci-backend files updated together
+        runs-on: ubuntu-latest
+        # 5 min absorbs cold-runner startup + the explicit depth=100 fetch of BASE_SHA below.
+        # `actions/checkout` defaults to depth=1 (HEAD only); a full-history clone is unnecessary
+        # — we only need to diff two SHAs.
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Compare PR diff scope
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              run: |
+                  set -euo pipefail
+                  # actions/checkout checks out refs/pull/<n>/merge by default, so HEAD
+                  # is the merge commit — diffing BASE_SHA..HEAD gives the PR's effective
+                  # changes. We only need to fetch BASE_SHA (HEAD is already local).
+                  git fetch --no-tags --depth=100 origin "$BASE_SHA"
+                  changed=$(git diff --name-only "$BASE_SHA" HEAD -- \
+                      .github/workflows/ci-backend.yml \
+                      .depot/workflows/ci-backend.yml)
+                  if echo "$changed" | grep -q '^.github/workflows/ci-backend.yml$' && \
+                     ! echo "$changed" | grep -q '^.depot/workflows/ci-backend.yml$'; then
+                      echo "::error::Canonical .github/workflows/ci-backend.yml changed without a matching update to .depot/workflows/ci-backend.yml."
+                      echo "The depot shadow must stay apples-to-apples with canonical. Mirror the change into the depot file"
+                      echo "(or, if the change is one of the intentional deltas listed in the depot file header, document why it is depot-exempt)."
+                      exit 1
+                  fi
+                  if echo "$changed" | grep -q '^.depot/workflows/ci-backend.yml$' && \
+                     ! echo "$changed" | grep -q '^.github/workflows/ci-backend.yml$'; then
+                      echo "::notice::Only the depot shadow changed. That is allowed (e.g. tuning a depot-only knob), but worth a glance from the reviewer."
+                  fi
+                  echo "Shadow drift check passed."

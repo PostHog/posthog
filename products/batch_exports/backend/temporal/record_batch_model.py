@@ -234,7 +234,7 @@ INSERT INTO FUNCTION {s3_function}
 
         return ast.SelectQuery(
             select=[
-                parse_expr("min($end_timestamp) as min_timestamp"),
+                parse_expr("toTimeZone(min($end_timestamp), 'UTC') as min_timestamp"),
                 parse_expr("count() as record_count"),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),

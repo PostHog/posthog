@@ -1,0 +1,10 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "section": {
+            "description": "Return only this top-level slice of the spec schema to save tokens — one of `models`, `triggers`, `tools`, `mcps`, `skills`, `identity_providers`, `secrets`, `limits`, `reasoning`, `framework_prompt`, `resume`. Omit for the whole spec schema.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

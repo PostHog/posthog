@@ -1,5 +1,7 @@
 import { Counter, Gauge, Summary } from 'prom-client'
 
+import { recordActivity, recordError } from './otel-metrics'
+
 const QUANTILES = [0.5, 0.95, 0.99]
 const MAX_AGE_SECONDS = 600
 const AGE_BUCKETS = 5
@@ -122,6 +124,7 @@ export class RasterizationMetrics {
     public static observeActivity(result: 'success' | 'error', seconds: number): void {
         this.activityDuration.labels({ result }).observe(seconds)
         this.activitiesTotal.labels({ result }).inc()
+        recordActivity(result, seconds)
     }
 
     public static observeSetup(result: 'success' | 'error', seconds: number): void {
@@ -148,6 +151,7 @@ export class RasterizationMetrics {
 
     public static incrementError(code: string, retryable: boolean): void {
         this.errorsTotal.labels({ code, retryable: String(retryable) }).inc()
+        recordError(code, retryable)
     }
 
     public static browserLaunched(): void {

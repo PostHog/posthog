@@ -42,7 +42,7 @@ class SurveyVisitor(
 
     @classmethod
     def get_dynamic_edges(cls, resource: Any) -> list[ResourceTransferEdge]:
-        from posthog.models import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         cohort_ids = cls._extract_cohort_ids_from_conditions(resource.conditions)
 

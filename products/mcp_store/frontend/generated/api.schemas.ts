@@ -9,7 +9,7 @@
  */
 /**
  * * `api_key` - API Key
- * `oauth` - OAuth
+ * * `oauth` - OAuth
  */
 export type MCPAuthTypeEnumApi = (typeof MCPAuthTypeEnumApi)[keyof typeof MCPAuthTypeEnumApi]
 
@@ -18,13 +18,27 @@ export const MCPAuthTypeEnumApi = {
     Oauth: 'oauth',
 } as const
 
+/**
+ * * `personal` - Personal
+ * * `shared` - Shared
+ */
+export type MCPServerInstallationScopeEnumApi =
+    (typeof MCPServerInstallationScopeEnumApi)[keyof typeof MCPServerInstallationScopeEnumApi]
+
+export const MCPServerInstallationScopeEnumApi = {
+    Personal: 'personal',
+    Shared: 'shared',
+} as const
+
 export interface MCPServerInstallationApi {
     readonly id: string
     /** @nullable */
     readonly template_id: string | null
     readonly name: string
-    /** Lowercase key from the linked template for brand icons. Empty if custom install (no template). */
+    /** Deprecated: use icon_domain instead. Lowercase key from the linked template for clients that still render bundled icon assets. Empty if custom install (no template). */
     readonly icon_key: string
+    /** Brand domain from the linked template, rendered via the logo.dev icon proxy. Empty if custom install (no template). */
+    readonly icon_domain: string
     /** @maxLength 200 */
     display_name?: string
     /** @maxLength 2048 */
@@ -32,6 +46,9 @@ export interface MCPServerInstallationApi {
     description?: string
     auth_type?: MCPAuthTypeEnumApi
     is_enabled?: boolean
+    readonly scope: MCPServerInstallationScopeEnumApi
+    /** True when the requesting user owns this installation. Lets clients gate owner-only controls instead of surfacing 403s. */
+    readonly is_owner: boolean
     readonly needs_reauth: boolean
     readonly pending_oauth: boolean
     readonly proxy_url: string
@@ -59,8 +76,8 @@ export interface PatchedMCPServerInstallationUpdateApi {
 
 /**
  * * `approved` - Approved
- * `needs_approval` - Needs approval
- * `do_not_use` - Do not use
+ * * `needs_approval` - Needs approval
+ * * `do_not_use` - Do not use
  */
 export type MCPServerInstallationToolApprovalStateEnumApi =
     (typeof MCPServerInstallationToolApprovalStateEnumApi)[keyof typeof MCPServerInstallationToolApprovalStateEnumApi]
@@ -97,8 +114,8 @@ export interface PaginatedMCPServerInstallationToolListApi {
 
 /**
  * * `approved` - approved
- * `needs_approval` - needs_approval
- * `do_not_use` - do_not_use
+ * * `needs_approval` - needs_approval
+ * * `do_not_use` - do_not_use
  */
 export type ToolApprovalUpdateApprovalStateEnumApi =
     (typeof ToolApprovalUpdateApprovalStateEnumApi)[keyof typeof ToolApprovalUpdateApprovalStateEnumApi]
@@ -115,7 +132,7 @@ export interface PatchedToolApprovalUpdateApi {
 
 /**
  * * `api_key` - api_key
- * `oauth` - oauth
+ * * `oauth` - oauth
  */
 export type InstallCustomAuthTypeEnumApi =
     (typeof InstallCustomAuthTypeEnumApi)[keyof typeof InstallCustomAuthTypeEnumApi]
@@ -127,13 +144,24 @@ export const InstallCustomAuthTypeEnumApi = {
 
 /**
  * * `posthog` - posthog
- * `posthog-code` - posthog-code
+ * * `posthog-code` - posthog-code
  */
 export type InstallSourceEnumApi = (typeof InstallSourceEnumApi)[keyof typeof InstallSourceEnumApi]
 
 export const InstallSourceEnumApi = {
     Posthog: 'posthog',
     PosthogCode: 'posthog-code',
+} as const
+
+/**
+ * * `personal` - personal
+ * * `shared` - shared
+ */
+export type MCPInstallationScopeEnumApi = (typeof MCPInstallationScopeEnumApi)[keyof typeof MCPInstallationScopeEnumApi]
+
+export const MCPInstallationScopeEnumApi = {
+    Personal: 'personal',
+    Shared: 'shared',
 } as const
 
 export interface InstallCustomApi {
@@ -148,6 +176,11 @@ export interface InstallCustomApi {
     client_secret?: string
     install_source?: InstallSourceEnumApi
     posthog_code_callback_url?: string
+    /** 'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).
+     *
+     * * `personal` - personal
+     * * `shared` - shared */
+    scope?: MCPInstallationScopeEnumApi
 }
 
 export interface OAuthRedirectResponseApi {
@@ -159,15 +192,20 @@ export interface InstallTemplateApi {
     api_key?: string
     install_source?: InstallSourceEnumApi
     posthog_code_callback_url?: string
+    /** 'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).
+     *
+     * * `personal` - personal
+     * * `shared` - shared */
+    scope?: MCPInstallationScopeEnumApi
 }
 
 /**
  * * `business` - Business Operations
- * `data` - Data & Analytics
- * `design` - Design & Content
- * `dev` - Developer Tools & APIs
- * `infra` - Infrastructure
- * `productivity` - Productivity & Collaboration
+ * * `data` - Data & Analytics
+ * * `design` - Design & Content
+ * * `dev` - Developer Tools & APIs
+ * * `infra` - Infrastructure
+ * * `productivity` - Productivity & Collaboration
  */
 export type MCPServerTemplateCategoryEnumApi =
     (typeof MCPServerTemplateCategoryEnumApi)[keyof typeof MCPServerTemplateCategoryEnumApi]
@@ -191,8 +229,10 @@ export interface MCPServerTemplateApi {
     docs_url?: string
     description?: string
     auth_type?: MCPAuthTypeEnumApi
-    /** @maxLength 100 */
-    icon_key?: string
+    /** Deprecated: use icon_domain instead. Lowercase key for clients that still render bundled icon assets. */
+    readonly icon_key: string
+    /** The vendor's brand domain (e.g. 'linear.app'), resolved to an icon at render time via the logo.dev proxy endpoint. Empty when no brand icon is known. */
+    readonly icon_domain: string
     category?: MCPServerTemplateCategoryEnumApi
 }
 
@@ -219,7 +259,7 @@ export type McpServerInstallationsListParams = {
 export type McpServerInstallationsAuthorizeRetrieveParams = {
     /**
      * * `posthog` - posthog
-     * `posthog-code` - posthog-code
+     * * `posthog-code` - posthog-code
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource

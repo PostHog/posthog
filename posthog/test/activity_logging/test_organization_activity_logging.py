@@ -172,6 +172,20 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         assert twofa_change is not None
         self.assertEqual(twofa_change["after"], True)
 
+    def test_organization_ai_data_processing_consent_logging(self):
+        organization = self.create_organization("AI Consent Test Org")
+        self.update_organization(organization["id"], {"is_ai_data_processing_approved": False})
+
+        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+        assert log is not None
+        assert log.detail is not None
+        self.assertEqual(log.user, self.user)
+        changes = log.detail.get("changes", [])
+        consent_change = next((c for c in changes if c["field"] == "third-party AI services"), None)
+        assert consent_change is not None
+        self.assertEqual(consent_change["before"], True)
+        self.assertEqual(consent_change["after"], False)
+
     def test_organization_membership_creation_activity_logging(self):
         org_response = self.create_organization("Test Membership Org")
         org = Organization.objects.get(id=org_response["id"])

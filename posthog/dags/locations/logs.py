@@ -2,7 +2,7 @@ import dagster
 
 from posthog.dags import backups
 
-from . import resources
+from . import loggers, resources
 
 defs = dagster.Definitions(
     jobs=[
@@ -12,5 +12,6 @@ defs = dagster.Definitions(
         backups.full_logs_backup_schedule,
         backups.incremental_logs_backup_schedule,
     ],
+    loggers=loggers,
     resources=resources,
 )

@@ -1,8 +1,8 @@
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -22,7 +22,7 @@ export const scene: SceneExport = {
 
 export function TransformationsScene(): JSX.Element {
     const action = (
-        <AppShortcut
+        <Shortcut
             name="NewPipelineTransformation"
             keybind={[keyBinds.new]}
             intent="New transformation"
@@ -39,7 +39,7 @@ export function TransformationsScene(): JSX.Element {
             >
                 New transformation
             </LemonButton>
-        </AppShortcut>
+        </Shortcut>
     )
 
     return (

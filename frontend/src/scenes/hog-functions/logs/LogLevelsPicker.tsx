@@ -2,7 +2,7 @@ import { IconFilter } from '@posthog/icons'
 import { LemonMenu } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { ALL_LOG_LEVELS } from 'scenes/hog-functions/logs/logsViewerLogic'
 
 import { LogEntryLevel } from '~/types'

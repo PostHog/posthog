@@ -1,0 +1,431 @@
+"""Reconcile a DAG's Temporal schedules to its per-node freshness targets.
+
+Replaces the single per-DAG `data-modeling-execute-dag` schedule with one schedule per
+distinct effective cadence (a "cohort"), each scoped to that tier's node_ids. Idempotent:
+computes the desired tiers from the current graph and creates/updates/deletes schedules so
+Temporal matches, converging a DAG whether it currently has the old single schedule or N
+tiered ones.
+
+The tier/plan math is pure (`cohort_scheduling`); this module is the only part that talks to
+the Temporal schedule API.
+"""
+
+import uuid
+import dataclasses
+from collections.abc import Iterable
+from datetime import timedelta
+from typing import TYPE_CHECKING
+
+from django.conf import settings
+from django.db import transaction
+
+import structlog
+from asgiref.sync import async_to_sync
+from temporalio.client import (
+    Client,
+    Schedule,
+    ScheduleActionStartWorkflow,
+    ScheduleAlreadyRunningError,
+    ScheduleListActionStartWorkflow,
+    ScheduleOverlapPolicy,
+    SchedulePolicy,
+    ScheduleState,
+)
+from temporalio.common import RetryPolicy
+from temporalio.service import RPCError, RPCStatusCode
+
+from posthog.exceptions_capture import capture_exception
+from posthog.ph_client import feature_enabled_or_false
+from posthog.temporal.common.client import async_connect, sync_connect
+from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule, delete_schedule
+from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
+
+from products.data_modeling.backend.logic.cohort_scheduling import (
+    ScheduleReconcilePlan,
+    bucket_into_cadence_tiers,
+    is_tier_schedule_id,
+    plan_schedule_reconciliation,
+    tier_schedule_id,
+)
+from products.data_modeling.backend.logic.freshness import (
+    SCHEDULABLE_BUCKETS,
+    ClampedCadence,
+    InvalidTarget,
+    UnsupportedFrequencyTargetError,
+    clamp_to_source_floor,
+    compute_effective_cadences,
+    find_invalid_targets,
+    format_cadence,
+    validate_declared_target,
+)
+from products.data_modeling.backend.logic.node_frequency import (
+    FrequencyGraph,
+    build_frequency_graph,
+    persist_seed_targets,
+    schedulable_nodes,
+    seed_targets,
+    set_declared_target,
+)
+from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.node import Node
+from products.data_modeling.backend.schedule import (
+    DATA_MODELING_EXECUTE_DAG_WORKFLOW,
+    build_schedule_spec,
+    dag_schedule_search_attributes,
+)
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+logger = structlog.get_logger(__name__)
+
+TIERED_SCHEDULES_FLAG = "data-modeling-tiered-schedules"
+
+
+def tiered_schedules_enabled(team: "Team") -> bool:
+    """Whether per-node cadence tiers may drive this team's DAG schedules."""
+    return feature_enabled_or_false(
+        TIERED_SCHEDULES_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        send_feature_flag_events=False,
+    )
+
+
+def maybe_reconcile_dag(dag: DAG) -> None:
+    """Trigger hook for graph/target mutations: reconcile an already-tiered DAG, best-effort.
+
+    Runs after commit so the reconcile reads the mutated graph, and never raises past the
+    commit — the user's write already succeeded. Only DAGs already converted to cadence
+    tiers are touched: legacy single-schedule DAGs are converted solely by the
+    reconcile_freshness_schedules command, so a stray mutation can neither unschedule an
+    unseeded DAG nor create tiers alongside live v1 schedules on an unmigrated team.
+    """
+    if not tiered_schedules_enabled(dag.team):
+        return
+    transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
+
+
+def _reconcile_dag_best_effort(dag: DAG) -> None:
+    try:
+        graph = build_frequency_graph(dag)
+        _warn_on_invalid_targets(dag, graph)
+        reconcile_dag_schedules(dag, require_tiered=True, graph=graph)
+    except Exception as error:
+        logger.exception("Freshness schedule reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
+        capture_exception(error)
+
+
+def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> None:
+    """Surface declared targets that drifted outside their bounds; never blocks the mutation."""
+    if graph is None:
+        graph = build_frequency_graph(dag)
+    for invalid in find_invalid_targets(
+        edges=graph.edges, declared_targets=graph.declared_targets, source_intervals=graph.source_intervals
+    ):
+        logger.warning(
+            "Declared freshness target outside its legal range",
+            dag_id=str(dag.id),
+            node_id=invalid.node_id,
+            declared=str(invalid.declared),
+            source_floor=str(invalid.source_floor),
+            consumer_ceiling=str(invalid.consumer_ceiling),
+        )
+
+
+def apply_saved_query_frequency_target(
+    saved_query: "DataWarehouseSavedQuery", target: timedelta | None, *, reconcile: bool = True
+) -> int:
+    """Write a frequency target through to the DAG node(s) carrying this saved query.
+
+    On tiered v2 the node target is the only durable store of frequency intent. `target=None`
+    clears it ("never" / revert) and must be a deliberate caller choice, never a default —
+    otherwise a caller with no frequency opinion would silently wipe targets. Non-None targets
+    are validated against the node's [floor, ceiling] bounds (raising for the caller to
+    surface) before writing, then each affected DAG is queued for reconcile (skippable for
+    callers batching many writes into one reconcile).
+
+    Returns the number of nodes written (0 = no DAG node, so a non-None target was stored nowhere).
+    """
+    written = 0
+    for node in Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team"):
+        if target is None:
+            set_declared_target(node, None)
+        else:
+            graph = build_frequency_graph(node.dag)
+            validate_declared_target(
+                node_id=str(node.id),
+                target=target,
+                edges=graph.edges,
+                declared_targets=graph.declared_targets,
+                source_intervals=graph.source_intervals,
+            )
+            set_declared_target(node, target)
+        written += 1
+        if reconcile:
+            maybe_reconcile_dag(node.dag)
+    return written
+
+
+def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: FrequencyGraph | None = None) -> None:
+    """Make Temporal's schedules for this DAG match its nodes' effective cadences.
+
+    Converging a covered DAG to zero schedules is refused only while it still has just legacy
+    (non-tier) schedules — an empty tier set there almost always means unseeded targets. Once tier
+    schedules exist, an empty tier set is a deliberate wind-down (last target reverted/cleared) and
+    those tiers are torn down. With `require_tiered`, a DAG that has no tiered schedule yet (legacy
+    single schedule or nothing) is left untouched.
+    """
+    team = dag.team
+    if graph is None:
+        graph = build_frequency_graph(dag)
+    effective = compute_effective_cadences(
+        nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
+    )
+    effective, _clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
+    desired_tiers = bucket_into_cadence_tiers(effective)
+    _apply_reconciliation(
+        dag_id=str(dag.id),
+        team_id=team.pk,
+        organization_id=str(team.organization_id),
+        team_timezone=team.timezone,
+        desired_tiers=desired_tiers,
+        require_tiered=require_tiered,
+    )
+
+
+def convert_dag_to_tiers(dag: DAG, default: timedelta | None = None) -> int:
+    """Seed per-node targets from the DAG's current cadence, then reconcile it to per-cadence tier
+    schedules. The shared conversion step both entry points (the v1 migrate command and
+    reconcile_freshness_schedules) run before clearing the now-redundant saved-query intervals.
+    Returns how many targets were seeded.
+    """
+    seeded = persist_seed_targets(dag, default=default)
+    reconcile_dag_schedules(dag)
+    return seeded
+
+
+def null_saved_query_intervals(dag: DAG, *, only_saved_query_ids: Iterable[str] | None = None) -> int:
+    """Clear `sync_frequency_interval` on the DAG's schedulable saved queries — on tiered teams the
+    node target is authoritative, and a lingering interval could revive a v1 schedule. Pass
+    `only_saved_query_ids` to skip queries whose v1 delete failed, so a re-run retries them.
+    """
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    saved_query_ids = list(schedulable_nodes(dag).values_list("saved_query_id", flat=True))
+    if only_saved_query_ids is not None:
+        allowed = {str(sq_id) for sq_id in only_saved_query_ids}
+        saved_query_ids = [sq_id for sq_id in saved_query_ids if str(sq_id) in allowed]
+    return DataWarehouseSavedQuery.objects.filter(
+        id__in=saved_query_ids, team_id=dag.team_id, sync_frequency_interval__isnull=False
+    ).update(sync_frequency_interval=None)
+
+
+def delete_v1_saved_query_schedules(
+    nodes: Iterable[Node], *, team_id: int, dag_id: str, temporal: Client | None = None
+) -> set[str]:
+    """Delete live v1 per-query Temporal schedules for the given nodes' saved queries.
+
+    NOT_FOUND is treated as already-gone, so this is a safe no-op on a team that never had v1
+    schedules — which lets the tiered conversion run on a v1 team directly instead of stacking
+    tiers on top of live v1 schedules. Returns the saved-query ids whose delete genuinely failed,
+    so the caller keeps their interval for a retry instead of orphaning a live schedule.
+    """
+    node_list = list(nodes)
+    if temporal is None:
+        temporal = sync_connect()
+    deleted = 0
+    failed: list[str] = []
+    for node in node_list:
+        saved_query = node.saved_query
+        if saved_query is None:
+            continue
+        try:
+            delete_schedule(temporal, schedule_id=str(saved_query.id))
+            deleted += 1
+        except RPCError as e:
+            if e.status == RPCStatusCode.NOT_FOUND:
+                logger.warning("v1 schedule already gone", saved_query_id=str(saved_query.id), team_id=team_id)
+            else:
+                failed.append(str(saved_query.id))
+                logger.exception("Failed to delete v1 schedule", saved_query_id=str(saved_query.id), team_id=team_id)
+    if failed:
+        logger.warning(
+            "Some v1 schedules could not be deleted", dag_id=dag_id, team_id=team_id, failed_schedule_ids=failed
+        )
+    logger.info("Swept v1 per-query schedules", dag_id=dag_id, team_id=team_id, deleted=deleted, total=len(node_list))
+    return set(failed)
+
+
+@dataclasses.dataclass
+class DagSchedulePreview:
+    """What reconcile would do for a DAG, computed read-only (no schedule writes)."""
+
+    effective: dict[str, timedelta | None]  # every schedulable node's resolved cadence (post-clamp)
+    desired_tiers: dict[timedelta, set[str]]
+    plan: ScheduleReconcilePlan
+    best_effort_source_ids: set[str]  # sources whose freshness is not actually guaranteed
+    clamped: list[ClampedCadence]  # nodes coarsened to what their sources can deliver
+    invalid_targets: list[InvalidTarget]  # declared targets that drifted outside their bounds
+    unsupported_tiers: list[timedelta]  # tiers reconcile would refuse (non-bucket cadence)
+    seeded: bool  # whether targets were seeded in-memory from current cadence
+
+
+def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview:
+    """Compute the reconciliation a DAG would undergo, without creating/updating/deleting anything.
+
+    Reads the graph and lists the DAG's current schedules; never writes. This is the dry-run
+    behind the preview management command. With `seed`, nodes lacking an explicit target fall
+    back in memory to `seed_targets(dag)`, modelling the go-live plan once targets are
+    backfilled, without persisting anything (explicit targets still win).
+    """
+    graph = build_frequency_graph(dag)
+    declared = {**seed_targets(dag), **graph.declared_targets} if seed else graph.declared_targets
+    effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, declared_targets=declared)
+    effective, clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
+    desired_tiers = bucket_into_cadence_tiers(effective)
+    existing_ids = _list_existing_schedule_ids(str(dag.id))
+    plan = plan_schedule_reconciliation(str(dag.id), desired_tiers, existing_ids)
+    return DagSchedulePreview(
+        effective=effective,
+        desired_tiers=desired_tiers,
+        plan=plan,
+        best_effort_source_ids=graph.best_effort_source_ids,
+        clamped=clamped,
+        invalid_targets=find_invalid_targets(
+            edges=graph.edges, declared_targets=declared, source_intervals=graph.source_intervals
+        ),
+        unsupported_tiers=sorted(interval for interval in desired_tiers if interval not in SCHEDULABLE_BUCKETS),
+        seeded=seed,
+    )
+
+
+@async_to_sync
+async def _list_existing_schedule_ids(dag_id: str) -> set[str]:
+    temporal = await async_connect()
+    return await _list_execute_dag_schedule_ids(temporal, dag_id)
+
+
+@async_to_sync
+async def _apply_reconciliation(
+    *,
+    dag_id: str,
+    team_id: int,
+    organization_id: str,
+    team_timezone: str,
+    desired_tiers: dict[timedelta, set[str]],
+    require_tiered: bool = False,
+) -> None:
+    unsupported = sorted(interval for interval in desired_tiers if interval not in SCHEDULABLE_BUCKETS)
+    if unsupported:
+        tiers = ", ".join(format_cadence(interval) for interval in unsupported)
+        raise UnsupportedFrequencyTargetError(
+            f"refusing to reconcile DAG {dag_id}: tiers ({tiers}) are not schedulable cadence buckets"
+        )
+
+    temporal = await async_connect()
+    existing_ids = await _list_execute_dag_schedule_ids(temporal, dag_id)
+    if require_tiered and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids):
+        logger.debug("DAG not converted to cadence tiers yet, skipping reconcile", dag_id=dag_id)
+        return
+    # An empty tier set on a DAG that still has only legacy (non-tier) schedules means an unseeded
+    # conversion — protect it. Once tier schedules exist, empty desired is a deliberate wind-down
+    # (last target reverted/cleared/"never"), so let the teardown sweep the stale tiers instead of
+    # leaving them firing execute-dag on node_ids that no longer materialize.
+    if not desired_tiers and existing_ids and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids):
+        logger.warning(
+            "Refusing to unschedule an unseeded DAG with only legacy schedules",
+            dag_id=dag_id,
+            existing_schedule_ids=sorted(existing_ids),
+        )
+        return
+    plan = plan_schedule_reconciliation(dag_id, desired_tiers, existing_ids)
+
+    # Includes the schedule-type tag: get_v2_scheduled_dag_ids' unscoped sweep filters on
+    # it server-side, so an untagged tier schedule would make its DAG look un-migrated.
+    search_attributes = dag_schedule_search_attributes(team_id=team_id, organization_id=organization_id, dag_id=dag_id)
+
+    # Create/update every desired tier before deleting stale schedules so nodes are never left
+    # uncovered; on failure, best-effort-delete the tiers we created (already-applied updates
+    # stay — a re-run converges) without letting a failed delete mask the original error.
+    created: list[str] = []
+    try:
+        for schedule_id, (interval, node_ids) in plan.to_create.items():
+            schedule = _build_tier_schedule(dag_id, team_id, team_timezone, interval, node_ids)
+            try:
+                await a_create_schedule(
+                    temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes
+                )
+                created.append(schedule_id)
+            except ScheduleAlreadyRunningError:
+                # A concurrent reconcile of the same DAG created this tier from the same graph;
+                # converge onto it. It is deliberately NOT in `created`: it isn't ours to roll back.
+                await a_update_schedule(
+                    temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes
+                )
+        for schedule_id, (interval, node_ids) in plan.to_update.items():
+            schedule = _build_tier_schedule(dag_id, team_id, team_timezone, interval, node_ids)
+            await a_update_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
+    except Exception:
+        for schedule_id in created:
+            try:
+                await a_delete_schedule(temporal, schedule_id=schedule_id)
+            except Exception:
+                logger.exception("Failed to roll back created schedule", schedule_id=schedule_id, dag_id=dag_id)
+        raise
+
+    # A failed delete leaves transient dual coverage (e.g. the legacy whole-DAG schedule alongside
+    # tiers); the next reconcile sweeps it, so log and keep going rather than fail the converge.
+    for schedule_id in plan.to_delete:
+        try:
+            await a_delete_schedule(temporal, schedule_id=schedule_id)
+        except Exception as error:
+            logger.exception("Failed to delete stale schedule", schedule_id=schedule_id, dag_id=dag_id)
+            capture_exception(error)
+
+
+async def _list_execute_dag_schedule_ids(temporal: Client, dag_id: str) -> set[str]:
+    schedules = await temporal.list_schedules(query=f"{POSTHOG_DAG_ID_KEY.name} = '{dag_id}'")
+    ids: set[str] = set()
+    async for listing in schedules:
+        action = listing.schedule.action if listing.schedule else None
+        if (
+            isinstance(action, ScheduleListActionStartWorkflow)
+            and action.workflow == DATA_MODELING_EXECUTE_DAG_WORKFLOW
+        ):
+            ids.add(listing.id)
+    return ids
+
+
+def _build_tier_schedule(
+    dag_id: str, team_id: int, team_timezone: str, interval: timedelta, node_ids: Iterable[str]
+) -> Schedule:
+    from posthog.temporal.data_modeling.workflows.execute_dag import (  # noqa: PLC0415 — the workflows package imports this product's models back; importing it lazily keeps this module importable from models code and temporal off django.setup()
+        ExecuteDAGInputs,
+    )
+
+    inputs = ExecuteDAGInputs(team_id=team_id, dag_id=dag_id, node_ids=sorted(node_ids), duckgres_only=False)
+    spec = build_schedule_spec(entity_id=uuid.UUID(dag_id), interval=interval, team_timezone=team_timezone)
+    return Schedule(
+        action=ScheduleActionStartWorkflow(
+            DATA_MODELING_EXECUTE_DAG_WORKFLOW,
+            dataclasses.asdict(inputs),
+            id=f"execute-dag-{tier_schedule_id(dag_id, interval)}",
+            task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=10),
+                maximum_interval=timedelta(seconds=60),
+                maximum_attempts=3,
+                non_retryable_error_types=["NondeterminismError", "CancelledError"],
+            ),
+        ),
+        spec=spec,
+        state=ScheduleState(note=f"data-modeling DAG {dag_id} cadence tier {interval}"),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )

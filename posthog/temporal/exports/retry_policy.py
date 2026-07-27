@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from temporalio.common import RetryPolicy
 
-from posthog.tasks.exports.failure_handler import USER_QUERY_ERROR_NAMES
+from products.exports.backend.tasks.failure_handler import USER_QUERY_ERROR_NAMES
 
 EXPORT_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=30),

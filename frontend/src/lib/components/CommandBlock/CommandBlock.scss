@@ -1,0 +1,24 @@
+// Copy-interaction styles for CommandBlock.
+// The optional rainbow text decoration is opted into via the global
+// `.rainbow-text` utility (defined in styles/base.scss) — keep this file
+// focused on what's specific to the copy button itself.
+
+.CommandBlock__flash {
+    position: absolute;
+    inset: 0;
+    color: #36c46f;
+    pointer-events: none;
+    animation: CommandBlock-flash 1500ms ease-out forwards;
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes CommandBlock-flash {
+    0%,
+    50% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0;
+    }
+}

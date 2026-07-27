@@ -1,0 +1,61 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "archived": {
+            "description": "Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.\n\n* `true` - true\n* `false` - false\n* `all` - all",
+            "enum": ["true", "false", "all"],
+            "type": "string"
+        },
+        "created_by": {
+            "description": "Filter by creator user ID",
+            "type": "number"
+        },
+        "internal": {
+            "description": "When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.",
+            "type": "boolean"
+        },
+        "limit": {
+            "default": 50,
+            "description": "Number of results to return per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "The initial index from which to return the results.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "organization": {
+            "description": "Filter by repository organization",
+            "minLength": 1,
+            "type": "string"
+        },
+        "origin_product": {
+            "description": "Filter by origin product",
+            "minLength": 1,
+            "type": "string"
+        },
+        "repository": {
+            "description": "Filter by repository name (can include org/repo format)",
+            "minLength": 1,
+            "type": "string"
+        },
+        "search": {
+            "description": "Case-insensitive substring search over task title and description. A numeric value also matches the task number. An empty value disables the filter.",
+            "type": "string"
+        },
+        "stage": {
+            "description": "Filter by task run stage",
+            "minLength": 1,
+            "type": "string"
+        },
+        "status": {
+            "description": "Filter tasks by the status of their most recent run.\n\n* `not_started` - not_started\n* `queued` - queued\n* `in_progress` - in_progress\n* `completed` - completed\n* `failed` - failed\n* `cancelled` - cancelled",
+            "enum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

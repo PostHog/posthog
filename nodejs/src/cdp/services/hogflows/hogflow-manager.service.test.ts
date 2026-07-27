@@ -1,12 +1,13 @@
 import '~/tests/helpers/mocks/date.mock'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
 
 import { insertHogFlow } from '../../_tests/fixtures-hogflows'
 import { HogFlowManagerService } from './hogflow-manager.service'
@@ -101,6 +102,47 @@ describe('HogFlowManager', () => {
             id: hogFlows[0].id,
             name: 'Test Hog Flow team 1 updated',
         })
+    })
+
+    describe('cache staleness bounds', () => {
+        // Own timeout: the polling window below plus DB round-trips can exceed the suite's 2s default
+        it('picks up an edit without a reload notification once the background refresh age passes', async () => {
+            const baseNow = Date.now()
+            try {
+                let items = await manager.getHogFlowsForTeam(teamId1)
+                expect(items.find((item) => item.id === hogFlows[0].id)?.name).toBe('Test Hog Flow team 1')
+
+                // Edit WITHOUT dispatching the reload notification - the missed-publish case
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_hogflow SET name='Renamed without notification', updated_at = NOW() WHERE id = $1`,
+                    [hogFlows[0].id],
+                    'testKey'
+                )
+
+                // Still within the background refresh age: served from cache
+                items = await manager.getHogFlowsForTeam(teamId1)
+                expect(items.find((item) => item.id === hogFlows[0].id)?.name).toBe('Test Hog Flow team 1')
+
+                // Past the background age (30s + up to 24s jitter) but under the 2 min hard cap:
+                // this get serves stale and kicks off a non-blocking refresh
+                jest.spyOn(Date, 'now').mockReturnValue(baseNow + 60_000)
+                items = await manager.getHogFlowsForTeam(teamId1)
+                expect(items.find((item) => item.id === hogFlows[0].id)?.name).toBe('Test Hog Flow team 1')
+
+                // The background refresh lands and the edit becomes visible - self-healed with no
+                // markForRefresh. Guards against reverting to the LazyLoader defaults (5 min
+                // blocking-only refresh), which would leave this stale until well past 60s.
+                await waitForExpect(async () => {
+                    const refreshed = await manager.getHogFlowsForTeam(teamId1)
+                    expect(refreshed.find((item) => item.id === hogFlows[0].id)?.name).toBe(
+                        'Renamed without notification'
+                    )
+                }, 1500)
+            } finally {
+                jest.spyOn(Date, 'now').mockReturnValue(baseNow)
+            }
+        }, 10000)
     })
 
     describe('getHogFlowIdsForTeam', () => {

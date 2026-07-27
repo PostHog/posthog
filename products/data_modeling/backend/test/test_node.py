@@ -4,8 +4,8 @@ from posthog.test.base import BaseTest
 from django.db import IntegrityError
 
 from products.data_modeling.backend.models import DAG
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node, NodeType
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 
 @pytest.mark.django_db

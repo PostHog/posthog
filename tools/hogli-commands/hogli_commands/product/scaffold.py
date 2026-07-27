@@ -50,6 +50,7 @@ def _render_template(template: str, product_name: str, *, separate_db: bool) -> 
     pascal_name = "".join(word.capitalize() for word in product_name.split("_"))
     return template.format(
         product=product_name,
+        product_kebab=product_name.replace("_", "-"),
         Product=pascal_name,
         **_team_scope_template_vars(separate_db=separate_db),
     )
@@ -203,7 +204,17 @@ def _prompt_for_separate_db(name: str) -> tuple[bool, str | None]:
     return True, db_name
 
 
-def bootstrap_product(name: str, dry_run: bool, force: bool, *, non_interactive: bool = False) -> None:
+def bootstrap_product(
+    name: str,
+    dry_run: bool,
+    force: bool,
+    *,
+    non_interactive: bool = False,
+    separate_db_override: bool | None = None,
+    db_name_override: str | None = None,
+    owner_override: str | None = None,
+    display_name_override: str | None = None,
+) -> None:
     if not _VALID_PRODUCT_NAME_RE.match(name):
         raise click.ClickException(
             f"Invalid product name '{name}' — must be lowercase, start with a letter, and contain only [a-z0-9_]."
@@ -214,10 +225,14 @@ def bootstrap_product(name: str, dry_run: bool, force: bool, *, non_interactive:
         raise click.ClickException(f"Product '{name}' already exists at {product_dir}. Use --force to overwrite.")
 
     # Resolve the DB layout up front so file rendering can branch on it.
-    # Dry-run and non-interactive both default to separate-DB to match the
-    # previous preview / automation behavior.
-    if dry_run or non_interactive:
-        separate_db, db_name = True, name
+    # Precedence: explicit --separate-db/--no-separate-db override > non-interactive
+    # default > interactive prompt. The non-interactive default stays separate-DB
+    # to match the previous CI behavior.
+    if separate_db_override is not None:
+        separate_db = separate_db_override
+        db_name = (db_name_override or name) if separate_db else None
+    elif dry_run or non_interactive:
+        separate_db, db_name = True, db_name_override or name
     else:
         separate_db, db_name = _prompt_for_separate_db(name)
 
@@ -269,20 +284,27 @@ def bootstrap_product(name: str, dry_run: bool, force: bool, *, non_interactive:
         for path in skipped:
             click.echo(f"    {path}")
 
-    # product.yaml — canonical metadata
+    # product.yaml — canonical metadata.
+    # Precedence: explicit --display-name / --owner override > non-interactive
+    # default > interactive prompt.
+    display_name = display_name_override or _default_display_name(name)
     if dry_run:
-        _write_product_yaml(product_dir, _default_display_name(name), ["team-CHANGEME"], dry_run=True)
-    elif non_interactive:
-        _write_product_yaml(product_dir, _default_display_name(name), ["team-devex"], dry_run=False)
+        owners = [owner_override] if owner_override else ["team-CHANGEME"]
+        _write_product_yaml(product_dir, display_name, owners, dry_run=True)
+    elif non_interactive or owner_override is not None or display_name_override is not None:
+        owners = [owner_override] if owner_override else ["team-devex"]
+        _write_product_yaml(product_dir, display_name, owners, dry_run=False)
+        if not owner_override:
+            click.secho("  ⚠ No --owner provided. Set the real team slug in product.yaml before merging.", fg="yellow")
     else:
-        display_name = click.prompt("  Display name", default=_default_display_name(name), show_default=True)
+        prompted_display_name = click.prompt("  Display name", default=display_name, show_default=True)
         owner = click.prompt(
             "  Owning GitHub team slug (e.g. team-product-analytics)",
             default="",
             show_default=False,
         )
         owners = [owner] if owner else ["team-CHANGEME"]
-        _write_product_yaml(product_dir, display_name, owners, dry_run=False)
+        _write_product_yaml(product_dir, prompted_display_name, owners, dry_run=False)
         if not owner:
             click.secho("  ⚠ Set the real team slug in product.yaml before merging.", fg="yellow")
 

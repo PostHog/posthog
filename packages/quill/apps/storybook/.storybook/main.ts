@@ -1,8 +1,13 @@
 import type { StorybookConfig } from '@storybook/react-vite'
 import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import chokidar from 'chokidar'
 import path from 'path'
 import type { Plugin, ViteDevServer } from 'vite'
+
+// Storybook 10 loads the config as a native ES module, where `__dirname` is
+// not defined — derive it from the module URL instead.
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /**
  * Regenerates @posthog/quill-tokens dist CSS whenever the tokens source
@@ -31,7 +36,7 @@ function quillTokensWatcher(): Plugin {
         }
         rebuildPending = false
         rebuilding = true
-        console.log('[quill-tokens-watcher] rebuilding tokens…')
+        console.info('[quill-tokens-watcher] rebuilding tokens…')
         const proc = spawn('pnpm', ['exec', 'tsx', 'src/build.ts'], {
             cwd: tokensRoot,
             stdio: 'inherit',
@@ -43,7 +48,7 @@ function quillTokensWatcher(): Plugin {
         proc.on('exit', (code) => {
             rebuilding = false
             if (code === 0) {
-                console.log('[quill-tokens-watcher] rebuild ok → reloading')
+                console.info('[quill-tokens-watcher] rebuild ok → reloading')
                 server.ws.send({ type: 'full-reload' })
             } else {
                 console.error('[quill-tokens-watcher] rebuild failed, exit', code)
@@ -75,7 +80,7 @@ function quillTokensWatcher(): Plugin {
                 rebuildTimer = setTimeout(() => rebuild(server), 100)
             })
             watcher.on('ready', () => {
-                console.log('[quill-tokens-watcher] watching', tokensSrc)
+                console.info('[quill-tokens-watcher] watching', tokensSrc)
             })
         },
         closeBundle() {
@@ -91,12 +96,7 @@ const config: StorybookConfig = {
         // Also pick up stories co-located in packages
         '../../../packages/*/src/**/*.stories.@(js|jsx|mjs|ts|tsx)',
     ],
-    addons: [
-        '@storybook/addon-docs',
-        '@storybook/addon-toolbars',
-        'storybook-addon-pseudo-states',
-        'storybook-dark-mode',
-    ],
+    addons: ['@storybook/addon-docs', 'storybook-addon-pseudo-states', 'storybook-dark-mode'],
     framework: {
         name: '@storybook/react-vite',
         options: {},

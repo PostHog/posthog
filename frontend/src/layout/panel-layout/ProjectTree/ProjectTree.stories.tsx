@@ -1,11 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { useActions } from 'kea'
-import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
-import { setFeatureFlags } from '~/mocks/browser'
 
 import { ProjectTree, ProjectTreeProps } from './ProjectTree'
 
@@ -16,12 +11,11 @@ interface StoryProps extends ProjectTreeProps {
 type Story = StoryObj<(props: StoryProps) => JSX.Element>
 
 const meta: Meta<(props: StoryProps) => JSX.Element> = {
-    title: 'Layout/Project Tree/Custom Products',
+    title: 'Layout/Project Tree',
     parameters: {
         layout: 'padded',
         viewMode: 'story',
         featureFlags: [
-            FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR,
             FEATURE_FLAGS.CUSTOMER_ANALYTICS,
             FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
             FEATURE_FLAGS.ENDPOINTS,
@@ -33,15 +27,6 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
         ],
     },
     render: (props: StoryProps) => {
-        const { setFeatureFlags: logicSetFeatureFlags } = useActions(featureFlagLogic)
-
-        useEffect(() => {
-            setFeatureFlags([FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR])
-            logicSetFeatureFlags([FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR], {
-                [FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR]: 'test',
-            })
-        }, [logicSetFeatureFlags])
-
         return (
             <div className="w-[280px] h-[600px] border rounded bg-surface-primary overflow-hidden">
                 <div className="p-2 border-b text-sm font-semibold text-secondary">Custom Products Sidebar</div>

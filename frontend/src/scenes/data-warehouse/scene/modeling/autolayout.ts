@@ -3,7 +3,7 @@ import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
 
 import { getElk } from 'lib/elk'
 
-import { NODE_HEIGHT, NODE_WIDTH } from './constants'
+import { LARGE_GRAPH_NODE_THRESHOLD, NODE_HEIGHT, NODE_WIDTH } from './constants'
 import type { ElkDirection, Node } from './types'
 
 const getElkPortSide = (position: Position): string => {
@@ -25,6 +25,10 @@ export const getFormattedNodes = async (nodes: Node[], edges: Edge[], direction?
     }
 
     direction ??= 'DOWN'
+    // NETWORK_SIMPLEX node placement gives the tightest layout but scales
+    // super-linearly; on large graphs it's the main reason the DAG takes
+    // seconds to appear. BRANDES_KOEPF is ~5x cheaper with a comparable result.
+    const nodePlacementStrategy = nodes.length > LARGE_GRAPH_NODE_THRESHOLD ? 'BRANDES_KOEPF' : 'NETWORK_SIMPLEX'
     const elkOptions = {
         'elk.algorithm': 'layered',
         'elk.direction': direction,
@@ -34,7 +38,7 @@ export const getFormattedNodes = async (nodes: Node[], edges: Edge[], direction?
         'elk.layered.layering.strategy': 'NETWORK_SIMPLEX',
         'elk.layered.mergeEdges': 'true',
         'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
-        'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+        'elk.layered.nodePlacement.strategy': nodePlacementStrategy,
         'elk.layered.spacing.nodeNodeBetweenLayers': '60',
         'elk.padding': '[left=0, top=0, right=0, bottom=0]',
         'elk.separateConnectedComponents': 'true',

@@ -2,6 +2,9 @@
 // instead of trying to load them from a CDN or different origin.
 // This prevents cross-origin errors with json.worker.js and other language workers.
 
+import { loader } from '@monaco-editor/react'
+import * as monacoModule from 'monaco-editor'
+
 function createWorker(path: string): Worker {
     try {
         return new Worker(path, { type: 'module' })
@@ -25,4 +28,12 @@ globalThis.MonacoEnvironment = {
         }
         return createWorker('/static/monacoEditorWorker.js')
     },
+}
+
+// Point @monaco-editor/react at the bundled monaco-editor module so its components
+// don't race to fetch a different Monaco build (and its workerMain.js) from jsdelivr.
+// Must run before any @monaco-editor/react component instantiates, so this side-effect
+// lives here rather than inside CodeEditor.tsx (which only loads when CodeEditor mounts).
+if (loader) {
+    loader.config({ monaco: monacoModule })
 }

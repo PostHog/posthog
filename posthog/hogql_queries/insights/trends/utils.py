@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional, Union
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
     BreakdownType,
     DataWarehouseNode,
     EventsNode,
+    FilterLogicalOperator,
     GroupNode,
     MultipleBreakdownType,
 )
@@ -63,7 +66,12 @@ def is_groups_math(series: Union[EventsNode, ActionsNode, DataWarehouseNode | Gr
 
 
 def group_node_to_expr(group: GroupNode, team: Team) -> ast.Expr | None:
-    from posthog.models import Action
+    from products.actions.backend.models.action import Action
+
+    # AND grouping isn't supported yet. Validate up front so it fails loudly regardless of how
+    # many nodes resolve, rather than silently dropping the event filter and matching every event.
+    if group.operator != FilterLogicalOperator.OR_:
+        raise ValidationError(f"Event groups only support the OR operator, got {group.operator}")
 
     group_filters: list[ast.Expr] = []
     for node in group.nodes:
@@ -97,7 +105,4 @@ def group_node_to_expr(group: GroupNode, team: Team) -> ast.Expr | None:
     if len(group_filters) == 1:
         return group_filters[0]
 
-    if group.operator == "OR":
-        return ast.Or(exprs=group_filters)
-
-    return None
+    return ast.Or(exprs=group_filters)

@@ -70,7 +70,7 @@ class DataColorThemeSerializer(PublicDataColorThemeSerializer, UserAccessControl
         return super().create(validated_data, *args, **kwargs)
 
 
-@extend_schema(tags=["dashboards"])
+@extend_schema(extensions={"x-product": "dashboards"})
 class DataColorThemeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
     queryset = DataColorTheme.objects.all().order_by("-created_at")

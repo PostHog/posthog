@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
@@ -27,9 +28,14 @@ function FiltersSummaryDisplay({ filters }: { filters: Record<string, any> }): J
     )
 }
 
-function SaveViewModal({ id }: LogsViewsLogicProps): JSX.Element {
+function SaveViewModal({ id }: LogsViewsLogicProps): JSX.Element | null {
     const { isSaveModalOpen, viewName, filters } = useValues(logsViewsListLogic({ id }))
     const { closeSaveModal, setViewName, saveView } = useActions(logsViewsListLogic({ id }))
+    const shouldRender = useKeepMountedWhileOpen(isSaveModalOpen)
+
+    if (!shouldRender) {
+        return null
+    }
 
     return (
         <LemonModal
@@ -70,6 +76,7 @@ export function SavedViewsModal({ id }: LogsViewsLogicProps): JSX.Element {
     const { closeModal, openSaveModal } = useActions(logsViewsListLogic({ id }))
     const { views, viewsLoading } = useValues(logsViewsLogic({ id }))
     const { deleteView, loadView } = useActions(logsViewsLogic({ id }))
+    const shouldRenderList = useKeepMountedWhileOpen(isModalOpen)
 
     const columns: LemonTableColumns<LogsView> = [
         {
@@ -137,31 +144,33 @@ export function SavedViewsModal({ id }: LogsViewsLogicProps): JSX.Element {
 
     return (
         <>
-            <LemonModal
-                isOpen={isModalOpen}
-                onClose={closeModal}
-                title="Saved views"
-                width={720}
-                footer={
-                    <div className="flex justify-between w-full">
-                        <LemonButton type="primary" onClick={openSaveModal}>
-                            Save current view
-                        </LemonButton>
-                        <LemonButton type="secondary" onClick={closeModal}>
-                            Close
-                        </LemonButton>
-                    </div>
-                }
-            >
-                <LemonTable
-                    columns={columns}
-                    dataSource={views}
-                    rowKey="id"
-                    loading={viewsLoading}
-                    emptyState="No saved views yet."
-                    size="small"
-                />
-            </LemonModal>
+            {shouldRenderList && (
+                <LemonModal
+                    isOpen={isModalOpen}
+                    onClose={closeModal}
+                    title="Saved views"
+                    width={720}
+                    footer={
+                        <div className="flex justify-between w-full">
+                            <LemonButton type="primary" onClick={openSaveModal}>
+                                Save current view
+                            </LemonButton>
+                            <LemonButton type="secondary" onClick={closeModal}>
+                                Close
+                            </LemonButton>
+                        </div>
+                    }
+                >
+                    <LemonTable
+                        columns={columns}
+                        dataSource={views}
+                        rowKey="id"
+                        loading={viewsLoading}
+                        emptyState="No saved views yet."
+                        size="small"
+                    />
+                </LemonModal>
+            )}
             <SaveViewModal id={id} />
         </>
     )

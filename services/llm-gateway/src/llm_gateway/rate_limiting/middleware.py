@@ -7,9 +7,9 @@ from llm_gateway.rate_limiting.redis_limiter import RateLimiter
 logger = structlog.get_logger(__name__)
 
 
-async def check_rate_limit(user: AuthenticatedUser, limiter: RateLimiter) -> bool:
+async def check_rate_limit(user: AuthenticatedUser, limiter: RateLimiter, product: str = "unknown") -> bool:
     allowed, scope = await limiter.check(user.user_id)
     if not allowed and scope:
-        RATE_LIMIT_EXCEEDED.labels(scope=scope).inc()
-        logger.warning("rate_limit_exceeded", user_id=user.user_id, scope=scope)
+        RATE_LIMIT_EXCEEDED.labels(scope=scope, product=product).inc()
+        logger.warning("rate_limit_exceeded", user_id=user.user_id, scope=scope, product=product)
     return allowed

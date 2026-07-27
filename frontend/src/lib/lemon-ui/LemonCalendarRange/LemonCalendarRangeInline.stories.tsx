@@ -3,7 +3,7 @@ import { useState } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarRangeProps } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
-import { formatDateRange } from 'lib/utils'
+import { formatDateRange } from 'lib/utils/datetime'
 
 import { LemonCalendarRangeInline } from './LemonCalendarRangeInline'
 

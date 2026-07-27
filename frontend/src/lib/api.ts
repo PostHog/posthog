@@ -1,17 +1,35 @@
 import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-source'
 import { encodeParams } from 'kea-router'
+
+// Re-exported so code outside frontend/ (e.g. products/*/frontend) can type stream
+// callbacks without importing @microsoft/fetch-event-source directly — that package
+// only resolves from frontend/node_modules, not the repo root.
+export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
+import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
+import { assertNotReadOnly } from 'lib/readOnlyGuard'
+import { objectClean } from 'lib/utils/objects'
+import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
-import { SignalNode } from 'scenes/debug/signals/types'
-import { SignalReport, SignalReportArtefactResponse, SignalSourceConfig } from 'scenes/inbox/types'
+import {
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportArtefactResponse,
+    SignalReportStateRequest,
+    SignalScoutEmission,
+    SignalScoutEmissionReportLink,
+    SignalScoutRunSummary,
+    SignalSourceConfig,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
+} from 'scenes/inbox/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -19,7 +37,7 @@ import { SessionSummaryContent } from 'scenes/session-recordings/player/player-m
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
-import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
+import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AggregatedSpanRow,
@@ -49,7 +67,6 @@ import {
     MatchingEventsResponse,
     Node,
     NodeKind,
-    PersistedFolder,
     QueryLogTags,
     QuerySchema,
     QueryStatusResponse,
@@ -94,17 +111,12 @@ import {
     DataModelingEdge,
     DataModelingJob,
     DataModelingNode,
-    DataWarehouseActivityRecord,
-    DataWarehouseJobStats,
-    DataWarehouseJobStatsRequestPayload,
     DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryFolder,
     DataWarehouseSavedQueryRunHistory,
-    DataWarehouseProvisioningStatus,
-    DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
     DataWarehouseViewLinkValidation,
@@ -122,8 +134,8 @@ import {
     Experiment,
     ExportedAssetType,
     ExternalDataJob,
+    ExternalDataSchemaWithSource,
     ExternalDataSource,
-    ExternalDataSourceConnectionOption,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
@@ -149,7 +161,6 @@ import {
     LLMPrompt,
     LLMPromptPublic,
     LLMPromptResolveResponse,
-    LineageGraph,
     LinearTeamType,
     LinkType,
     LinkedInAdsAccountType,
@@ -160,7 +171,8 @@ import {
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     ObjectMediaPreview,
-    OrganizationFeatureFlags,
+    OrganizationFeatureFlag,
+    OrganizationFeatureFlagKeysResponse,
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
     OrganizationMemberType,
@@ -174,6 +186,7 @@ import {
     ProductTour,
     ProductTourAIGenerationResponse,
     ProductTourStep,
+    ProjectSecretAPIKeyRequest,
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
@@ -208,10 +221,12 @@ import {
     UserBasicType,
     UserInterviewType,
     UserType,
+    WarehouseTableFileUpload,
     WebAnalyticsFilterPresetType,
     WebhookInfo,
 } from '~/types'
 
+import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from 'products/alerts/frontend/types'
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 import type {
     ErrorTrackingRule,
@@ -219,8 +234,14 @@ import type {
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
 import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
-import type { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
+import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
+import type {
+    GitHubBranchesResponseApi,
+    GitHubReposResponseApi,
+} from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
+import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
@@ -230,7 +251,10 @@ import type {
     SessionGroupSummaryType,
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
-import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
+import type {
+    TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
+    TaskRunCreateRequestSchemaApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
@@ -244,8 +268,7 @@ import type {
 } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
-import { MaxUIContext } from '../scenes/max/maxTypes'
-import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
+import type { AttachedContext, MaxUIContext } from '../scenes/max/maxTypes'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
@@ -302,55 +325,7 @@ export interface ApiMethodOptions {
     headers?: Record<string, any>
 }
 
-export class ApiError extends Error {
-    /** Django REST Framework `detail` - used in downstream error handling. */
-    detail: string | null
-    /** Django REST Framework `code` - used in downstream error handling. */
-    code: string | null
-    /** Django REST Framework `statusText` - used in downstream error handling. */
-    statusText: string | null
-    /** Django REST Framework `attr` - used in downstream error handling. */
-    attr: string | null
-
-    /** Link to external resources, e.g. stripe invoices */
-    link: string | null
-
-    constructor(
-        message?: string,
-        public status?: number,
-        public headers?: Headers,
-        public data?: any
-    ) {
-        message = message || `API request failed with status: ${status ?? 'unknown'}`
-        super(message)
-        this.statusText = data?.statusText || null
-        this.detail = data?.detail || null
-        this.code = data?.code || null
-        this.link = data?.link || null
-        this.attr = data?.attr || null
-    }
-
-    /**
-     * For when the API returned a 429 (Too Many Requests) error:
-     * If the `Retry-After` header is present, return a human-friendly duration, e.g. "in 4 hours", otherwise just "later".
-     * Return null for other status codes.
-     */
-    get formattedRetryAfter(): string | null {
-        if (this.status !== 429) {
-            return null
-        }
-        if (this.headers?.has('Retry-After')) {
-            const retryAfter = this.headers.get('Retry-After') as string
-            let secondsLeft = Number(retryAfter) // Let's assume we're dealing with an integer by default
-            if (isNaN(secondsLeft)) {
-                // Nope, here we're dealing with date in this format: Wed, 21 Oct 2015 07:28:00 GMT
-                secondsLeft = dayjs(retryAfter).diff(dayjs(), 'seconds')
-            }
-            return `in ${humanFriendlyDuration(secondsLeft, { maxUnits: 2 })}`
-        }
-        return 'later'
-    }
-}
+export { ApiError }
 
 export class RateLimitError extends Error {
     constructor(public retryAfterSeconds: number) {
@@ -386,11 +361,63 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
+function isAbortError(error: unknown): boolean {
+    return (error as { name?: string } | null)?.name === 'AbortError'
+}
+
 export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()
-    } catch {
+    } catch (error) {
+        // A body read cancelled mid-stream (navigation, superseded request) surfaces here as an
+        // AbortError. Propagate it so it flows through the normal cancellation path instead of
+        // masquerading as a successful `null` — otherwise callers dereference it (`.results`,
+        // `.count`, …) and blow up with a `Cannot read properties of null` TypeError.
+        if (isAbortError(error)) {
+            throw error
+        }
         return null
+    }
+}
+
+/**
+ * Parse the body of a *successful* response, which is expected to be JSON.
+ *
+ * Unlike getJSONOrNull (best-effort parsing of error bodies, where callers opt into handling
+ * null), a non-empty body that isn't valid JSON is treated as a failure rather than silently
+ * yielding null. Handing null back where callers expect the documented JSON shape is what turns
+ * a transient backend/proxy hiccup (a non-JSON 2xx body) into a
+ * `Cannot read properties of null (reading 'results')` crash deep inside loaders across the app.
+ * An empty body (e.g. 204 No Content) still resolves to null, and aborts propagate as AbortError.
+ *
+ * The body is read as text first so the decision rests on actual content, not on headers —
+ * chunked/compressed responses carry no content-length, and a truncated `application/json` body
+ * must still surface as a failure. The thrown ApiError deliberately carries no `status`: the
+ * HTTP status was 2xx, and recovery paths keyed on `status === undefined || status >= 500`
+ * should classify a garbled body like the fetch-level network failure it effectively is. The
+ * real status stays in the message for triage.
+ */
+async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
+    const requestContext = (): string =>
+        `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
+    let text: string
+    try {
+        text = await response.text()
+    } catch (error) {
+        if (isAbortError(error)) {
+            throw error
+        }
+        // The body stream failed mid-read (e.g. a network drop truncating a chunked response) —
+        // the response is unusable, so surface it instead of handing callers a null.
+        throw new ApiError(`Failed to read response body ${requestContext()}`)
+    }
+    if (!text.trim()) {
+        return null
+    }
+    try {
+        return JSON.parse(text)
+    } catch {
+        throw new ApiError(`Malformed JSON response ${requestContext()}`)
     }
 }
 
@@ -513,6 +540,10 @@ export class ApiRequest {
             .addPathComponent('copy_flags')
     }
 
+    public organizationFeatureFlagKeys(orgId: OrganizationType['id']): ApiRequest {
+        return this.organizations().addPathComponent(orgId).addPathComponent('feature_flags').addPathComponent('keys')
+    }
+
     // # Projects
     public projects(): ApiRequest {
         return this.addPathComponent('projects')
@@ -537,9 +568,9 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
     }
 
-    // # LLM Analytics
+    // # AI observability
 
-    public llmAnalyticsTranslate(teamId?: TeamType['id']): ApiRequest {
+    public aiObservabilityTranslate(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('llm_analytics').addPathComponent('translate')
     }
 
@@ -586,6 +617,11 @@ export class ApiRequest {
     }
 
     // # File System
+    // These endpoints operate on the "web" surface — the tree shown in this app's sidebar.
+    // Surface is server-controlled per route (clients can't send it): the `file_system*`
+    // routes are pinned to "web" server-side, while the separate `desktop_file_system*` routes
+    // (used by a different app, not this frontend) serve the "desktop" surface. So every call
+    // from this frontend is implicitly and exclusively scoped to "web".
     public fileSystem(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('file_system')
     }
@@ -632,15 +668,6 @@ export class ApiRequest {
 
     public fileSystemShortcutReorder(teamId?: TeamType['id']): ApiRequest {
         return this.fileSystemShortcut(teamId).addPathComponent('reorder')
-    }
-
-    // # Persisted folder
-    public persistedFolder(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('persisted_folder')
-    }
-
-    public persistedFolderDetail(id: NonNullable<PersistedFolder['id']>, projectId?: ProjectType['id']): ApiRequest {
-        return this.persistedFolder(projectId).addPathComponent(id)
     }
 
     // # User product list
@@ -1049,6 +1076,10 @@ export class ApiRequest {
         return this.organizations().current().addPathComponent('members')
     }
 
+    public organizationMembersForAccount(): ApiRequest {
+        return this.projectsDetail().addPathComponent('organization_members')
+    }
+
     public organizationMember(uuid: OrganizationMemberType['user']['uuid']): ApiRequest {
         return this.organizationMembers().addPathComponent(uuid)
     }
@@ -1202,6 +1233,11 @@ export class ApiRequest {
         return this.signalReports(teamId).addPathComponent(id)
     }
 
+    // Per-user signal autonomy config (singleton keyed by user). Not project-scoped.
+    public signalUserAutonomy(userId: string | '@me' = '@me'): ApiRequest {
+        return this.addPathComponent('users').addPathComponent(userId).addPathComponent('signal_autonomy')
+    }
+
     // # Signal Source Configs
     public signalSourceConfigs(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent('source_configs')
@@ -1209,6 +1245,28 @@ export class ApiRequest {
 
     public signalSourceConfig(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.signalSourceConfigs(teamId).addPathComponent(id)
+    }
+
+    // # Signal Team Config (singleton per team)
+    public signalTeamConfig(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent('config')
+    }
+
+    // # Signal Report Artefacts (suggested_reviewers is the only writable type)
+    public signalReportArtefact(reportId: SignalReport['id'], artefactId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.signalReport(reportId, teamId).addPathComponent('artefacts').addPathComponent(artefactId)
+    }
+
+    // # Signal Scouts
+    public signalScoutRuns(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('signals')
+            .addPathComponent('scout')
+            .addPathComponent('runs')
+    }
+
+    public signalScoutRun(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.signalScoutRuns(teamId).addPathComponent(id)
     }
 
     // # Tasks
@@ -1507,12 +1565,13 @@ export class ApiRequest {
     public integrationSlackChannels(
         id: IntegrationType['id'],
         forceRefresh: boolean,
+        params?: { search?: string; limit?: number; offset?: number },
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.integrations(teamId)
             .addPathComponent(id)
             .addPathComponent('channels')
-            .withQueryString({ force_refresh: forceRefresh })
+            .withQueryString({ force_refresh: forceRefresh, ...params })
     }
 
     public integrationSlackChannelsById(
@@ -1543,6 +1602,10 @@ export class ApiRequest {
 
     public integrationGitHubRepositories(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('github_repos')
+    }
+
+    public integrationGitHubBranches(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('github_branches')
     }
 
     public integrationJiraProjects(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1713,6 +1776,11 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations').addPathComponent(id)
     }
 
+    // Max hands-free mode (ElevenLabs Scribe token proxy)
+    public maxHandsFree(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('max_hands_free')
+    }
+
     // Conversations (Support product)
     public conversationsTickets(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('conversations').addPathComponent('tickets')
@@ -1773,14 +1841,6 @@ export class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
-    public externalDataSourceConnections(teamId?: TeamType['id']): ApiRequest {
-        return this.externalDataSources(teamId).addPathComponent('connections')
-    }
-
-    public dataWarehouse(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_warehouse')
-    }
-
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
     }
@@ -1810,15 +1870,6 @@ export class ApiRequest {
         return this.insightVariables(teamId).addPathComponent(variableId)
     }
 
-    public upstream(modelId: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId)
-            .addPathComponent('lineage')
-            .addPathComponent('get_upstream')
-            .withQueryString({
-                model_id: modelId,
-            })
-    }
-
     // ActivityLog
     public activityLog(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('activity_log')
@@ -1831,6 +1882,15 @@ export class ApiRequest {
 
     public personalApiKey(id: PersonalAPIKeyType['id']): ApiRequest {
         return this.personalApiKeys().addPathComponent(id)
+    }
+
+    // Project API Keys
+    public projectSecretApiKeys(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('project_secret_api_keys')
+    }
+
+    public projectSecretApiKey(id: ProjectSecretAPIKeyApi['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.projectSecretApiKeys(projectId).addPathComponent(id)
     }
 
     // Request finalization
@@ -2056,6 +2116,14 @@ const normalizeUrl = (url: string): string => {
 const prepareUrl = (url: string): string => {
     let output = normalizeUrl(url)
 
+    // OAuth mode: route the data API to the selected region's host. Only `/api/*` is rewritten —
+    // it's what the cloud CORS allowlist covers. Other endpoints (e.g. `/_preflight/`) aren't
+    // cross-origin accessible, so they stay same-origin on the local instance.
+    const backendHost = getBackendHost()
+    if (backendHost && output.startsWith('/api/')) {
+        output = backendHost + output
+    }
+
     const exporterContext = getCurrentExporterData()
 
     if (exporterContext && exporterContext.accessToken) {
@@ -2068,6 +2136,35 @@ const prepareUrl = (url: string): string => {
     }
 
     return output
+}
+
+/**
+ * Bearer auth header for standalone OAuth mode, attached only to requests bound for the OAuth
+ * backend host (the remote region). Requests that `prepareUrl` left on the local origin (non-`/api`
+ * paths) must not carry the remote region's token. Empty when served by Django (session auth).
+ * Synchronous so requests still dispatch synchronously — an expired token is handled by the
+ * 401 → refresh → retry path in handleFetch. Pass the already-`prepareUrl`'d request URL.
+ */
+function oauthAuthHeaders(url: string): Record<string, string> {
+    const session = getStoredSession()
+    return session && url.startsWith(session.backendHost) ? { Authorization: `Bearer ${session.accessToken}` } : {}
+}
+
+/**
+ * PostHog session/distinct tracing headers. Omitted in OAuth mode because the cross-origin CORS
+ * allowlist (CORS_ALLOWED_TRACING_HEADERS) doesn't include them, so a preflight would fail —
+ * they're debugging aids, not functionally required.
+ */
+function tracingHeaders({ includeDistinctId = false } = {}): Record<string, string> {
+    if (isOAuthMode()) {
+        return {}
+    }
+    const sessionId = getSessionId()
+    const distinctId = includeDistinctId ? getDistinctId() : undefined
+    return {
+        ...(sessionId ? { 'X-POSTHOG-SESSION-ID': sessionId } : {}),
+        ...(distinctId ? { 'X-POSTHOG-DISTINCT-ID': distinctId } : {}),
+    }
 }
 
 const PROJECT_ID_REGEX = /\/api\/(project|environment)s\/(\w+)(?:$|[/?#])/
@@ -2178,7 +2275,7 @@ const api = {
             return new ApiRequest().cspReportingExplanation().create({ data: { properties } })
         },
     },
-    llmAnalytics: {
+    aiObservability: {
         translate(params: { text: string; targetLanguage?: string }): Promise<{
             translation: string
             detected_language?: string
@@ -2189,7 +2286,7 @@ const api = {
                 text: params.text,
                 target_language: params.targetLanguage,
             }
-            return new ApiRequest().llmAnalyticsTranslate().create({ data })
+            return new ApiRequest().aiObservabilityTranslate().create({ data })
         },
     },
     insights: {
@@ -2389,6 +2486,7 @@ const api = {
             createdAtGt,
             createdAtLt,
             searchNameOnly,
+            signal,
         }: {
             parent?: string
             path?: string
@@ -2404,6 +2502,7 @@ const api = {
             createdAtGt?: string
             createdAtLt?: string
             searchNameOnly?: boolean
+            signal?: AbortSignal
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
@@ -2423,7 +2522,7 @@ const api = {
                     created_at__lt: createdAtLt,
                     search_name_only: searchNameOnly,
                 })
-                .get()
+                .get({ signal })
         },
         async unfiled(type?: string): Promise<CountResponse | null> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
@@ -2466,12 +2565,17 @@ const api = {
     },
 
     fileSystemLogView: {
-        async list(params?: { type?: string; limit?: number }): Promise<FileSystemViewLogEntry[]> {
+        async list(params?: {
+            type?: string
+            limit?: number
+            signal?: AbortSignal
+        }): Promise<FileSystemViewLogEntry[]> {
+            const { signal, ...query } = params ?? {}
             const request = new ApiRequest().fileSystemLogView()
-            if (params) {
-                request.withQueryString(params)
+            if (Object.keys(query).length) {
+                request.withQueryString(query)
             }
-            return await request.get()
+            return await request.get({ signal })
         },
         async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemLogView().create({ data })
@@ -2483,12 +2587,14 @@ const api = {
             limit?: number
             offset?: number
             ordering?: string
+            signal?: AbortSignal
         }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            const { signal, ...query } = params ?? {}
             const request = new ApiRequest().fileSystemShortcut()
-            if (params) {
-                request.withQueryString(params)
+            if (Object.keys(query).length) {
+                request.withQueryString(query)
             }
-            return await request.get()
+            return await request.get({ signal })
         },
         async create(data: { path: string; href?: string; ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemShortcut().create({ data })
@@ -2501,27 +2607,9 @@ const api = {
         },
     },
 
-    persistedFolder: {
-        async list(): Promise<CountedPaginatedResponse<PersistedFolder>> {
-            return await new ApiRequest().persistedFolder().get()
-        },
-        async create(data: { protocol: string; path: string; type?: string }): Promise<PersistedFolder> {
-            return await new ApiRequest().persistedFolder().create({ data })
-        },
-        async delete(id: PersistedFolder['id']): Promise<void> {
-            return await new ApiRequest().persistedFolderDetail(id).delete()
-        },
-    },
-
     userProductList: {
         async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
-        },
-        async seed(): Promise<CountedPaginatedResponse<UserProductListItem>> {
-            return await new ApiRequest().userProductList().withAction('seed').create()
-        },
-        async updateByPath(data: { product_path: string; enabled: boolean }): Promise<UserProductListItem> {
-            return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
         },
         async bulkUpdate(
             items: { product_path: string; enabled: boolean }[]
@@ -2534,14 +2622,23 @@ const api = {
         async get(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
             featureFlagKey: FeatureFlagType['key']
-        ): Promise<OrganizationFeatureFlags> {
+        ): Promise<OrganizationFeatureFlag[]> {
             return await new ApiRequest().organizationFeatureFlags(orgId, featureFlagKey).get()
         },
         async copy(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
             data: OrganizationFeatureFlagsCopyBody
-        ): Promise<{ success: FeatureFlagType[]; failed: any }> {
+        ): Promise<CopyFlagsResponseApi> {
             return await new ApiRequest().copyOrganizationFeatureFlags(orgId).create({ data })
+        },
+        async keys(
+            orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
+            params: { team_ids: number[]; search?: string; limit?: number; offset?: number }
+        ): Promise<OrganizationFeatureFlagKeysResponse> {
+            return await new ApiRequest()
+                .organizationFeatureFlagKeys(orgId)
+                .withQueryString(toParams(params, true))
+                .get()
         },
     },
 
@@ -2558,7 +2655,7 @@ const api = {
         async migrate(id: ActionType['id']): Promise<HogFunctionType> {
             return await new ApiRequest().actionsDetail(id).withAction('migrate').create()
         },
-        async list(params?: string): Promise<PaginatedResponse<ActionType>> {
+        async list(params?: string): Promise<CountedPaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
         },
         async listMatchingPluginConfigs(
@@ -2627,6 +2724,10 @@ const api = {
                     ActivityScope.PRODUCT_TOUR,
                     ActivityScope.TICKET,
                     ActivityScope.COHORT,
+                    ActivityScope.OAUTH_APPLICATION,
+                    ActivityScope.EXTERNAL_DATA_SCHEMA,
+                    ActivityScope.LLM_PROMPT,
+                    ActivityScope.LLM_PROMPT_LABEL,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -2768,6 +2869,9 @@ const api = {
             hasMore: boolean
             nextCursor?: string
             maxExportableLogs: number
+            // Aliases for the requested customColumns, in request order; rows carry
+            // their custom values under these keys. Null without custom columns.
+            columns?: string[] | null
         }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
@@ -2817,16 +2921,30 @@ const api = {
     },
 
     tracing: {
+        async hasSpans(): Promise<boolean> {
+            return new ApiRequest()
+                .tracingSpans()
+                .withAction('has_spans')
+                .get()
+                .then((response) => Boolean(response.hasSpans))
+        },
         async listSpans(
             query: {
                 dateRange?: { date_from?: string | null; date_to?: string | null }
                 serviceNames?: string[]
                 statusCodes?: number[]
                 filterGroup?: PropertyGroupFilter
-                orderBy?: 'latest' | 'earliest'
+                orderBy?: 'timestamp' | 'duration'
+                orderDirection?: 'ASC' | 'DESC'
                 limit?: number
                 after?: string
+                offset?: number
                 prefetchSpans?: number
+                // false (default) groups by trace_id and returns root spans; true returns every
+                // matching span (root and child) flat. See products/tracing/backend logic.py.
+                flatSpans?: boolean
+                // true omits the per-span attribute maps — use when only scalar span fields are read.
+                excludeAttributes?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -2843,12 +2961,15 @@ const api = {
                 serviceNames?: string[]
                 statusCodes?: number[]
                 filterGroup?: PropertyGroupFilter
-            }
-        ): Promise<{ results: Record<string, any>[] }> {
+                offset?: number
+            },
+            signal?: AbortSignal
+        ): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextOffset?: number | null }> {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
                 .create({
+                    signal,
                     data: {
                         ...query,
                         dateRange: query?.dateRange ?? { date_from: '-24h' },
@@ -2861,6 +2982,8 @@ const api = {
                 serviceNames?: string[]
                 statusCodes?: number[]
                 filterGroup?: PropertyGroupFilter
+                // true counts root spans only (Traces view); false/absent counts every span (Spans view).
+                rootSpans?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -2868,17 +2991,66 @@ const api = {
         }> {
             return new ApiRequest().tracingSpans().withAction('sparkline').create({ signal, data: { query } })
         },
+        async count(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+            },
+            signal?: AbortSignal
+        ): Promise<{ count: number; traceCount: number }> {
+            return new ApiRequest().tracingSpans().withAction('count').create({ signal, data: { query } })
+        },
+        async durationHistogram(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+                // true (default) buckets root spans only (a distribution of traces); false buckets
+                // every matching span — pair with a span name filter for operation-scoped pages.
+                rootSpans?: boolean
+            },
+            signal?: AbortSignal
+        ): Promise<{
+            results: { bucket_ns: number; service: string; count: number }[]
+        }> {
+            return new ApiRequest().tracingSpans().withAction('duration-histogram').create({ signal, data: { query } })
+        },
+        async latencyHeatmap(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+                // true (default) buckets root spans only (a distribution of traces); false buckets
+                // every matching span — pair with a span name filter for operation-scoped pages.
+                rootSpans?: boolean
+            },
+            signal?: AbortSignal
+        ): Promise<{
+            // Sparse cells ordered by time then bucket. Every time bucket appears at least once —
+            // empty buckets come back as a {time, bucket_ns: 0, count: 0} sentinel row.
+            results: { time: string; bucket_ns: number; count: number }[]
+        }> {
+            return new ApiRequest().tracingSpans().withAction('latency-heatmap').create({ signal, data: { query } })
+        },
         async aggregate(
             query: {
                 dateRange?: { date_from?: string | null; date_to?: string | null }
                 serviceNames?: string[]
                 filterGroup?: PropertyGroupFilter
                 compareFilter?: { compare?: boolean; compare_to?: string | null }
+                limit?: number
+                offset?: number
             },
             signal?: AbortSignal
         ): Promise<{
             results: AggregatedSpanRow[]
             compare?: AggregatedSpanRow[] | null
+            has_more?: boolean
+            next_offset?: number | null
         }> {
             return new ApiRequest().tracingSpans().withAction('aggregate').create({ signal, data: { query } })
         },
@@ -3024,6 +3196,9 @@ const api = {
         } = {}): Promise<{ primary_properties: Record<string, string> }> {
             const params = names && names.length > 0 ? toParams({ names }, true) : ''
             return new ApiRequest().eventDefinitions().withAction('primary_properties').withQueryString(params).get()
+        },
+        async byName({ name }: { name: string }): Promise<EventDefinition> {
+            return new ApiRequest().eventDefinitions().withAction('by_name').withQueryString(toParams({ name })).get()
         },
         async getMetrics({
             eventDefinitionId,
@@ -3493,6 +3668,16 @@ const api = {
             return api.loadPaginatedResults<OrganizationMemberType>(url)
         },
 
+        async listForOrg(
+            organizationId: OrganizationType['id'],
+            params: { limit?: number; offset?: number } = {}
+        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user'>>> {
+            return await new ApiRequest()
+                .organizationMembersForAccount()
+                .withQueryString({ organization_id: organizationId, ...params })
+                .get()
+        },
+
         async delete(uuid: OrganizationMemberType['user']['uuid']): Promise<PaginatedResponse<void>> {
             return await new ApiRequest().organizationMember(uuid).delete()
         },
@@ -3944,6 +4129,12 @@ const api = {
         async delete(id: string): Promise<void> {
             await new ApiRequest().mcpServerInstallation(id).delete()
         },
+        async share(id: string): Promise<Record<string, any>> {
+            return await new ApiRequest().mcpServerInstallation(id).withAction('share').create({ data: {} })
+        },
+        async unshare(id: string): Promise<Record<string, any>> {
+            return await new ApiRequest().mcpServerInstallation(id).withAction('unshare').create({ data: {} })
+        },
         async installCustom(data: {
             name: string
             url: string
@@ -3952,10 +4143,15 @@ const api = {
             description?: string
             client_id?: string
             client_secret?: string
+            scope?: 'personal' | 'shared'
         }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('install_custom').create({ data })
         },
-        async installTemplate(data: { template_id: string; api_key?: string }): Promise<Record<string, any>> {
+        async installTemplate(data: {
+            template_id: string
+            api_key?: string
+            scope?: 'personal' | 'shared'
+        }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('install_template').create({ data })
         },
         async listTools(
@@ -3990,21 +4186,32 @@ const api = {
         },
         async update(
             annotationId: RawAnnotationType['id'],
-            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id'>
+            data: Pick<
+                RawAnnotationType,
+                'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id' | 'emoji'
+            >
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
-        async list(params?: { limit?: number; offset?: number }): Promise<PaginatedResponse<RawAnnotationType>> {
+        async list(params?: {
+            limit?: number
+            offset?: number
+            hidden_in_user_interface?: boolean
+        }): Promise<PaginatedResponse<RawAnnotationType>> {
             return await new ApiRequest()
                 .annotations()
                 .withQueryString({
                     limit: params?.limit,
                     offset: params?.offset,
+                    hidden_in_user_interface: params?.hidden_in_user_interface,
                 })
                 .get()
         },
         async create(
-            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id'>
+            data: Pick<
+                RawAnnotationType,
+                'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id' | 'emoji'
+            >
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotations().create({ data })
         },
@@ -4084,17 +4291,20 @@ const api = {
                 offset = 0,
                 limit = 100,
                 orderBy = '-created_at',
+                search,
             }: {
                 status?: SymbolSetStatusFilter
                 offset: number
                 limit: number
                 orderBy?: SymbolSetOrder
+                search?: string
             }): Promise<CountedPaginatedResponse<ErrorTrackingSymbolSet>> {
                 const queryString = {
                     order_by: orderBy,
                     status,
                     offset,
                     limit,
+                    search,
                 }
                 return await new ApiRequest().errorTrackingSymbolSets().withQueryString(toParams(queryString)).get()
             },
@@ -4337,6 +4547,11 @@ const api = {
         },
         async getMatchingEvents(params: string): Promise<MatchingEventsResponse> {
             return await new ApiRequest().recordingMatchingEvents().withQueryString(params).get()
+        },
+        async getCaptureDiagnostics(
+            recordingId: SessionRecordingType['id']
+        ): Promise<{ properties: Record<string, any> | null }> {
+            return await new ApiRequest().recording(recordingId).withAction('capture_diagnostics').get()
         },
         async get(
             recordingId: SessionRecordingType['id'],
@@ -4735,20 +4950,107 @@ const api = {
         async kernelStatus(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/status').get()
         },
+        async sqlV2Run(
+            notebookId: NotebookType['short_id'],
+            data: {
+                node_id: string
+                code: string
+                refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
+                node_type?: 'hogql' | 'python'
+                output_name?: string
+            }
+        ): Promise<{ run_id: string }> {
+            return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
+        },
+        async sqlV2RunInterrupt(
+            notebookId: NotebookType['short_id'],
+            runId: string
+        ): Promise<{ status: string; detail?: string }> {
+            return await new ApiRequest().notebook(notebookId).withAction(`sql_v2/runs/${runId}/interrupt`).create()
+        },
+        async sqlV2RunResult(
+            notebookId: NotebookType['short_id'],
+            runId: string
+        ): Promise<{
+            status: 'running' | 'done' | 'failed' | 'interrupted'
+            result: {
+                columns?: string[]
+                types?: [string, string][]
+                row_count?: number
+                first_page?: (string | number | null)[][]
+                has_more?: boolean
+                stdout?: string
+                stderr?: string
+                media?: { mime_type: string; data: string }[]
+            } | null
+            error: string | null
+            // Direct (no-sandbox) runs only: the full capped row set for client-side paging,
+            // present while the backend's query result is alive (~20 min).
+            rows?: (string | number | null)[][]
+        }> {
+            return await new ApiRequest().notebook(notebookId).withAction(`sql_v2/runs/${runId}`).get()
+        },
+        async sqlV2RunPage(
+            notebookId: NotebookType['short_id'],
+            runId: string,
+            params: { offset: number; limit: number }
+        ): Promise<{
+            columns: string[]
+            types: [string, string][]
+            rows: (string | number | null)[][]
+            has_more: boolean
+        }> {
+            return await new ApiRequest()
+                .notebook(notebookId)
+                .withAction(`sql_v2/runs/${runId}/page`)
+                .withQueryString(params)
+                .get()
+        },
+        async markdownSave(
+            notebookId: NotebookType['short_id'],
+            data: {
+                client_id: string
+                /** The notebook version the content is based on (optimistic concurrency baseline). */
+                version: number
+                content: NotebookType['content']
+                text_content?: string
+                title?: string
+                /** The author's caret in the saved markdown, broadcast with the update event. */
+                cursor?: NotebookCollabCursorApi
+            }
+        ): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).withAction('collab/markdown_save').create({ data })
+        },
         async collabStream(
             notebookId: NotebookType['short_id'],
             {
                 onMessage,
                 onError,
+                onOpen,
+                onClose,
                 signal,
+                lastEventId,
             }: {
                 onMessage: (data: EventSourceMessage) => void
                 onError: (error: any) => void
+                onOpen?: () => void
+                onClose?: () => void
                 signal?: AbortSignal
+                /** Stream id of the last received event; sent as `Last-Event-ID` so the
+                 *  server resumes from there instead of restarting at the stream tip. */
+                lastEventId?: string
             }
         ): Promise<void> {
             const url = new ApiRequest().notebook(notebookId).withAction('collab/stream').assembleFullUrl(true)
-            await api.stream(url, { method: 'GET', onMessage, onError, signal })
+            await api.stream(url, {
+                method: 'GET',
+                onMessage,
+                onError,
+                onOpen,
+                onClose,
+                signal,
+                headers: lastEventId ? { 'Last-Event-ID': lastEventId } : undefined,
+            })
         },
     },
 
@@ -4921,6 +5223,16 @@ const api = {
             status?: string
             search?: string
             ordering?: string
+            /** Comma-separated source products. */
+            source_product?: string
+            /** Comma-separated P0–P4. */
+            priority?: string
+            /** Comma-separated actionability values (immediately_actionable|requires_human_input|not_actionable). */
+            actionability?: string
+            /** Filter by whether a shipped implementation PR exists. */
+            has_implementation_pr?: 'true' | 'false'
+            /** Comma-separated reviewer user UUIDs (For-you / teammate scope). */
+            suggested_reviewers?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -4930,17 +5242,116 @@ const api = {
         async get(id: SignalReport['id']): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).get()
         },
-        async artefacts(id: SignalReport['id']): Promise<SignalReportArtefactResponse> {
-            return await new ApiRequest().signalReport(id).withAction('artefacts').get()
-        },
-        async getReportSignals(reportId: string): Promise<{ report: SignalReport | null; signals: SignalNode[] }> {
-            return await new ApiRequest().signalReport(reportId).withAction('signals').get()
+        async artefacts(
+            id: SignalReport['id'],
+            params: { limit?: number } = {}
+        ): Promise<SignalReportArtefactResponse> {
+            return await new ApiRequest().signalReport(id).withAction('artefacts').withQueryString(params).get()
         },
         async delete(id: SignalReport['id']): Promise<void> {
             await new ApiRequest().signalReport(id).delete()
         },
         async reingest(id: SignalReport['id']): Promise<{ status: string; report_id: string }> {
             return await new ApiRequest().signalReport(id).withAction('reingest').create()
+        },
+        // State transitions: suppress (dismiss) or snooze back to potential. Backend: `state` action.
+        async setState(id: SignalReport['id'], data: SignalReportStateRequest): Promise<SignalReport> {
+            return await new ApiRequest().signalReport(id).withAction('state').create({ data })
+        },
+        // Backend returns a flat `{ [user_uuid]: { name, email } }` map (not paginated).
+        async availableReviewers(query?: string): Promise<{ user_uuid: string; name: string; email: string }[]> {
+            const response: Record<string, { name: string; email: string }> = await new ApiRequest()
+                .signalReports()
+                .withAction('available_reviewers')
+                .withQueryString(query ? { query } : undefined)
+                .get()
+            return Object.entries(response).map(([user_uuid, { name, email }]) => ({ user_uuid, name, email }))
+        },
+        // PUT the report's full suggested-reviewers list (create-or-replace). Addressed by report so a
+        // report with no reviewers yet (and thus no artefact) can still be assigned one.
+        // Backend: SignalReportViewSet.reviewers.
+        async setReviewers(
+            reportId: SignalReport['id'],
+            content: Record<string, any>[]
+        ): Promise<SignalReportArtefact> {
+            return await new ApiRequest().signalReport(reportId).withAction('reviewers').put({ data: { content } })
+        },
+    },
+
+    // Team-level signal autonomy config (singleton). Backend: SignalTeamConfigViewSet.
+    signalTeamConfig: {
+        async get(): Promise<SignalTeamConfig> {
+            return await new ApiRequest().signalTeamConfig().get()
+        },
+        // Backend exposes update via POST to the collection (singleton create-or-update, partial).
+        async update(data: Partial<SignalTeamConfig>): Promise<SignalTeamConfig> {
+            return await new ApiRequest().signalTeamConfig().create({ data })
+        },
+    },
+
+    // Scout runs still use the legacy client. Scout configs use the generated Signals client.
+    signalScout: {
+        runs: {
+            // Newest-first raw array (not paginated), capped at 100 server-side.
+            async list(params?: {
+                limit?: number
+                text?: string
+                emitted?: boolean
+                date_from?: string
+                date_to?: string
+            }): Promise<SignalScoutRunSummary[]> {
+                return await new ApiRequest().signalScoutRuns().withQueryString(params).get()
+            },
+            async get(runId: string): Promise<SignalScoutRunSummary> {
+                return await new ApiRequest().signalScoutRun(runId).get()
+            },
+            async emissions(runId: string): Promise<SignalScoutEmission[]> {
+                return await new ApiRequest().signalScoutRun(runId).withAction('emissions').get()
+            },
+            // Per-finding reverse lookup: which inbox report each emitted finding grouped into.
+            // `report` is null when a finding hasn't grouped, was deduped, or its signal was deleted.
+            async emissionReports(runId: string): Promise<SignalScoutEmissionReportLink[]> {
+                return await new ApiRequest().signalScoutRun(runId).withAction('emissions/reports').get()
+            },
+            // Batched form of `emissions`: every run's findings in one request, flat newest-first
+            // (each row carries its `run_id`). POST since the run-id set can be large.
+            async emissionsBatch(runIds: string[]): Promise<SignalScoutEmission[]> {
+                return await new ApiRequest()
+                    .signalScoutRuns()
+                    .withAction('emissions/batch')
+                    .create({ data: { run_ids: runIds } })
+            },
+            // Batched form of `emissionReports`: resolves every run's findings to their inbox report
+            // in a single ClickHouse round-trip, instead of one query per run.
+            async emissionReportsBatch(runIds: string[]): Promise<SignalScoutEmissionReportLink[]> {
+                return await new ApiRequest()
+                    .signalScoutRuns()
+                    .withAction('emissions/reports/batch')
+                    .create({ data: { run_ids: runIds } })
+            },
+        },
+    },
+
+    signalUserAutonomy: {
+        async get(userId: string | '@me' = '@me'): Promise<SignalUserAutonomyConfig | null> {
+            try {
+                return await new ApiRequest().signalUserAutonomy(userId).get()
+            } catch (error: any) {
+                // 404 = no config yet (user hasn't opted in). Treat as null.
+                if (error?.status === 404) {
+                    return null
+                }
+                throw error
+            }
+        },
+        async update(
+            data: Partial<SignalUserAutonomyConfig>,
+            userId: string | '@me' = '@me'
+        ): Promise<SignalUserAutonomyConfig> {
+            return await new ApiRequest().signalUserAutonomy(userId).create({ data })
+        },
+        async remove(userId: string | '@me' = '@me'): Promise<void> {
+            await new ApiRequest().signalUserAutonomy(userId).delete()
         },
     },
 
@@ -4966,8 +5377,8 @@ const api = {
         async repositories(): Promise<{ repositories: string[] }> {
             return await new ApiRequest().tasks().withAction('repositories').get()
         },
-        async get(id: Task['id']): Promise<Task> {
-            return await new ApiRequest().task(id).get()
+        async get(id: Task['id'], params: Record<string, any> = {}): Promise<Task> {
+            return await new ApiRequest().task(id).withQueryString(params).get()
         },
         async create(data: TaskUpsertProps): Promise<Task> {
             return await new ApiRequest().tasks().create({ data })
@@ -4981,15 +5392,18 @@ const api = {
         async bulkReorder(columns: Record<string, string[]>): Promise<{ updated: number; tasks: Task[] }> {
             return await new ApiRequest().tasks().withAction('bulk_reorder').create({ data: { columns } })
         },
-        async run(id: Task['id']): Promise<Task> {
-            return await new ApiRequest().task(id).withAction('run').create()
+        async run(id: Task['id'], data?: TaskRunCreateRequestSchemaApi): Promise<Task> {
+            return await new ApiRequest()
+                .task(id)
+                .withAction('run')
+                .create(data ? { data } : undefined)
         },
         runs: {
-            async list(taskId: Task['id']): Promise<PaginatedResponse<TaskRun>> {
-                return await new ApiRequest().taskRuns(taskId).get()
+            async list(taskId: Task['id'], params: Record<string, any> = {}): Promise<PaginatedResponse<TaskRun>> {
+                return await new ApiRequest().taskRuns(taskId).withQueryString(params).get()
             },
-            async get(taskId: Task['id'], runId: TaskRun['id']): Promise<TaskRun> {
-                return await new ApiRequest().taskRun(taskId, runId).get()
+            async get(taskId: Task['id'], runId: TaskRun['id'], params: Record<string, any> = {}): Promise<TaskRun> {
+                return await new ApiRequest().taskRun(taskId, runId).withQueryString(params).get()
             },
             async getLogs(taskId: Task['id'], runId: TaskRun['id']): Promise<string> {
                 const run = await new ApiRequest().taskRun(taskId, runId).get()
@@ -5004,6 +5418,77 @@ const api = {
                 }
                 return ''
             },
+            /**
+             * Fetch the assembled resume-chain ACP log for a run (the products/tasks `logs/`
+             * endpoint returns JSONL — one `StoredLogEntry` per line, concatenated server-side
+             * across the entire resume chain). Used to bootstrap the sandbox stream before
+             * opening SSE.
+             */
+            async getLogEntries(taskId: Task['id'], runId: TaskRun['id']): Promise<Record<string, any>[]> {
+                const response = await new ApiRequest().taskRun(taskId, runId).withAction('logs').getResponse()
+                const text = await response.text()
+                const entries: Record<string, any>[] = []
+                for (const line of text.split('\n')) {
+                    const trimmed = line.trim()
+                    if (!trimmed) {
+                        continue
+                    }
+                    try {
+                        entries.push(JSON.parse(trimmed))
+                    } catch {
+                        // Skip unparseable lines — the stream is best-effort historical replay.
+                    }
+                }
+                return entries
+            },
+            /**
+             * Open the live SSE stream for a run as a `fetch` response (the caller reads it with
+             * `response.body.getReader()` + an `eventsource-parser`). Unlike a native `EventSource`,
+             * a `fetch` lets us set request headers — so a reconnect resumes exactly after the
+             * last-seen frame via `Last-Event-ID` (the Redis stream id) instead of re-broadcasting
+             * the whole stream. `startLatest` (the first connect after replaying S3 history) streams
+             * only frames newer than the connect cutoff; it is ignored once a `lastEventId` is
+             * present, since the header resume is exact.
+             */
+            async openStream(
+                taskId: Task['id'],
+                runId: TaskRun['id'],
+                options: {
+                    signal: AbortSignal
+                    lastEventId?: string
+                    startLatest?: boolean
+                    /**
+                     * When set, read the stream from the standalone agent-proxy instead of the Django
+                     * endpoint. `baseUrl` is the proxy origin the server resolved via `stream_token`,
+                     * and the run-scoped `token` is sent as a Bearer header. Absent ⇒ the same-origin
+                     * Django stream (session auth) — the pre-proxy behavior.
+                     */
+                    proxyTarget?: { baseUrl: string; token: string }
+                }
+            ): Promise<Response> {
+                const headers: Record<string, string> = {}
+                if (options.lastEventId) {
+                    headers['Last-Event-ID'] = options.lastEventId
+                }
+                if (options.proxyTarget) {
+                    // Absolute proxy URL with a run-scoped Bearer token — `ApiRequest` only builds
+                    // Django-relative paths, so assemble the proxy URL directly. `start=latest` applies
+                    // only on a first connect (no resume cursor); the Last-Event-ID header, when
+                    // present, takes precedence and an exact resume ignores `start`.
+                    const base = options.proxyTarget.baseUrl.replace(/\/+$/, '')
+                    const url =
+                        !options.lastEventId && options.startLatest
+                            ? `${base}/v1/runs/${runId}/stream?start=latest`
+                            : `${base}/v1/runs/${runId}/stream`
+                    headers['Authorization'] = `Bearer ${options.proxyTarget.token}`
+                    return api.getResponse(url, { signal: options.signal, headers })
+                }
+                let request = new ApiRequest().taskRun(taskId, runId).withAction('stream')
+                if (!options.lastEventId && options.startLatest) {
+                    request = request.withQueryString({ start: 'latest' })
+                }
+                return request.getResponse({ signal: options.signal, headers })
+            },
         },
     },
 
@@ -5014,6 +5499,7 @@ const api = {
                 offset?: number
                 search?: string
                 archived?: boolean
+                ids?: string
             } = {
                 limit: SURVEY_PAGE_SIZE,
             }
@@ -5214,8 +5700,16 @@ const api = {
     },
 
     dataWarehouseTables: {
-        async list(): Promise<PaginatedResponse<DataWarehouseTable>> {
-            return await new ApiRequest().dataWarehouseTables().get()
+        async list(params?: {
+            limit?: number
+            offset?: number
+            search?: string
+            include_columns?: boolean
+        }): Promise<PaginatedResponse<DataWarehouseTable>> {
+            return await new ApiRequest()
+                .dataWarehouseTables()
+                .withQueryString(params ?? {})
+                .get()
         },
         async get(tableId: DataWarehouseTable['id']): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).get()
@@ -5240,6 +5734,19 @@ const api = {
         },
         async refreshSchema(tableId: DataWarehouseTable['id']): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).withAction('refresh_schema').create()
+        },
+        // FormData, not JSON — the browser sets the multipart boundary itself, so don't add a
+        // Content-Type header here (`api.createResponse` already skips it for FormData bodies).
+        async uploadFile(data: FormData): Promise<WarehouseTableFileUpload> {
+            return await new ApiRequest().dataWarehouseTables().withAction('upload_file').create({ data })
+        },
+        async createFromUpload(data: {
+            upload_id: string
+            filename: string
+            file_format: string
+            table_name: string
+        }): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTables().withAction('create_from_upload').create({ data })
         },
     },
 
@@ -5308,7 +5815,7 @@ const api = {
                 savedQueryId: DataWarehouseSavedQuery['id'],
                 pageSize: number,
                 offset: number
-            ): Promise<PaginatedResponse<DataModelingJob>> {
+            ): Promise<CountedPaginatedResponse<DataModelingJob>> {
                 return await new ApiRequest().dataWarehouseDataModelingJobs(savedQueryId, pageSize, offset).get()
             },
         },
@@ -5381,10 +5888,21 @@ const api = {
         }> {
             return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
-        async lineage(
-            nodeId: DataModelingNode['id']
-        ): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
-            return await new ApiRequest().dataModelingNode(nodeId).withAction('lineage').get()
+        async lineage({
+            nodeId,
+            savedQueryId,
+        }: {
+            nodeId?: DataModelingNode['id']
+            savedQueryId?: string
+        }): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
+            const params: Record<string, string> = {}
+            if (nodeId) {
+                params.node_id = nodeId
+            }
+            if (savedQueryId) {
+                params.saved_query_id = savedQueryId
+            }
+            return await new ApiRequest().dataModelingNodes().withAction('lineage').withQueryString(params).get()
         },
     },
 
@@ -5432,9 +5950,6 @@ const api = {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataSource>> {
             return await new ApiRequest().externalDataSources().get(options)
         },
-        async connections(options?: ApiMethodOptions | undefined): Promise<ExternalDataSourceConnectionOption[]> {
-            return await new ApiRequest().externalDataSourceConnections().get(options)
-        },
         async get(sourceId: ExternalDataSource['id']): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSource(sourceId).get()
         },
@@ -5471,22 +5986,22 @@ const api = {
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('delete_webhook').create()
         },
-        async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{ added: number; deleted: number }> {
+        async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{
+            added: number
+            deleted: number
+            auto_enabled: number
+            total_tables_seen: number
+        }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
         },
         async bulkUpdateSchemas(
             sourceId: ExternalDataSource['id'],
-            schemas: Pick<
-                ExternalDataSourceSchema,
-                | 'id'
-                | 'should_sync'
-                | 'sync_type'
-                | 'incremental_field'
-                | 'incremental_field_type'
-                | 'sync_frequency'
-                | 'sync_time_of_day'
-                | 'cdc_table_mode'
-            >[]
+            // Callers send a minimal diff — only `id` is required; the backend writes just the fields
+            // present and leaves the rest untouched. (Matches `externalDataSchemas.update`'s shape.)
+            // `apply_sync_defaults` asks the backend to discover and fill in default sync settings
+            // for schemas that have no sync method configured yet.
+            schemas: (Partial<ExternalDataSourceSchema> &
+                Pick<ExternalDataSourceSchema, 'id'> & { apply_sync_defaults?: boolean })[]
         ): Promise<ExternalDataSourceSchema[]> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
                 data: { schemas },
@@ -5535,6 +6050,66 @@ const api = {
                 .withAction('check_cdc_prerequisites')
                 .create({ data: payload })
         },
+        async check_cdc_prerequisites_for_source(
+            sourceId: ExternalDataSource['id'],
+            payload: {
+                cdc_management_mode: 'posthog' | 'self_managed'
+                cdc_slot_name?: string | null
+                cdc_publication_name?: string | null
+            }
+        ): Promise<{ valid: boolean; errors: string[] }> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('check_cdc_prerequisites_for_source')
+                .create({ data: payload })
+        },
+        async enable_cdc(
+            sourceId: ExternalDataSource['id'],
+            payload: {
+                cdc_management_mode: 'posthog' | 'self_managed'
+                cdc_slot_name?: string | null
+                cdc_publication_name?: string | null
+                cdc_auto_drop_slot?: boolean
+                cdc_lag_warning_threshold_mb?: number
+                cdc_lag_critical_threshold_mb?: number
+            }
+        ): Promise<{ success: boolean }> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('enable_cdc')
+                .create({ data: payload })
+        },
+        async disable_cdc(sourceId: ExternalDataSource['id']): Promise<{ success: boolean }> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('disable_cdc').create()
+        },
+        async cdc_status(sourceId: ExternalDataSource['id']): Promise<{
+            enabled: boolean
+            management_mode?: 'posthog' | 'self_managed'
+            slot_name?: string
+            publication_name?: string
+            lag_warning_threshold_mb?: number
+            lag_critical_threshold_mb?: number
+            slot_exists?: boolean
+            publication_exists?: boolean
+            lag_bytes?: number | null
+            published_tables?: string[]
+            schedule_paused?: boolean
+        }> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('cdc_status').get()
+        },
+        async update_cdc_settings(
+            sourceId: ExternalDataSource['id'],
+            payload: {
+                cdc_auto_drop_slot?: boolean
+                cdc_lag_warning_threshold_mb?: number
+                cdc_lag_critical_threshold_mb?: number
+            }
+        ): Promise<{ success: boolean }> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('update_cdc_settings')
+                .create({ data: payload })
+        },
         async jobs(
             sourceId: ExternalDataSource['id'],
             before: string | null,
@@ -5555,107 +6130,10 @@ const api = {
         },
     },
 
-    dataWarehouse: {
-        async totalRowsStats(options?: ApiMethodOptions): Promise<DataWarehouseSourceRowCount> {
-            return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
-        },
-
-        async runningActivity(
-            options?: ApiMethodOptions & {
-                limit?: number
-                offset?: number
-                cutoff_days?: number
-            }
-        ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('running_activity')
-                .withQueryString({
-                    limit: options?.limit,
-                    offset: options?.offset,
-                    cutoff_days: options?.cutoff_days,
-                })
-                .get(options)
-        },
-
-        async completedActivity(
-            options?: ApiMethodOptions & {
-                limit?: number
-                offset?: number
-                cutoff_days?: number
-            }
-        ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('completed_activity')
-                .withQueryString({
-                    limit: options?.limit,
-                    offset: options?.offset,
-                    cutoff_days: options?.cutoff_days,
-                })
-                .get(options)
-        },
-
-        async jobStats(
-            options?: ApiMethodOptions & DataWarehouseJobStatsRequestPayload
-        ): Promise<DataWarehouseJobStats> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('job_stats')
-                .withQueryString({ days: options?.days })
-                .get(options)
-        },
-
-        async dataOpsDashboard(options?: ApiMethodOptions): Promise<{ dashboard_id: number }> {
-            return await new ApiRequest().dataWarehouse().withAction('data_ops_dashboard').get(options)
-        },
-
-        async provisionWarehouse(
-            databaseName: string,
-            options?: ApiMethodOptions
-        ): Promise<{
-            status: string
-            org: string
-            username: string
-            password: string
-        }> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('provision')
-                .create({
-                    data: { database_name: databaseName },
-                    ...options,
-                } as any)
-        },
-
-        async deprovisionWarehouse(options?: ApiMethodOptions): Promise<{ status: string; org: string }> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('deprovision')
-                .create(options as any)
-        },
-
-        async warehouseStatus(options?: ApiMethodOptions): Promise<DataWarehouseProvisioningStatus> {
-            return await new ApiRequest().dataWarehouse().withAction('warehouse_status').get(options)
-        },
-
-        async checkDatabaseName(name: string): Promise<{ name: string; available: boolean }> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('check-database-name')
-                .withQueryString({ name })
-                .get()
-        },
-
-        async resetPassword(): Promise<{ username: string; password: string }> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('reset_password')
-                .create({} as any)
-        },
-    },
-
     externalDataSchemas: {
+        async get(schemaId: ExternalDataSourceSchema['id']): Promise<ExternalDataSchemaWithSource> {
+            return await new ApiRequest().externalDataSourceSchema(schemaId).get()
+        },
         async update(
             schemaId: ExternalDataSourceSchema['id'],
             data: Partial<ExternalDataSourceSchema>
@@ -5736,11 +6214,6 @@ const api = {
             return await new ApiRequest().queryTabStateUser().withQueryString({ user_id: userId }).get()
         },
     },
-    upstream: {
-        async get(modelId: string): Promise<LineageGraph> {
-            return await new ApiRequest().upstream(modelId).get()
-        },
-    },
     insightVariables: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<Variable>> {
             return await new ApiRequest().insightVariables().get(options)
@@ -5770,16 +6243,23 @@ const api = {
             return await new ApiRequest().subscription(subscriptionId).update({ data })
         },
         async list({
-            insightId,
+            insights,
             dashboardId,
+            dashboardTiles,
+            resourceType,
         }: {
-            insightId?: number
+            insights?: number[]
             dashboardId?: number
+            dashboardTiles?: number
+            resourceType?: SubscriptionType['resource_type']
         }): Promise<PaginatedResponse<SubscriptionType>> {
-            return await new ApiRequest()
-                .subscriptions()
-                .withQueryString(insightId ? `insight=${insightId}` : dashboardId ? `dashboard=${dashboardId}` : '')
-                .get()
+            const params = [
+                insights?.length ? `insights=${insights.join(',')}` : null,
+                dashboardId ? `dashboard=${dashboardId}` : null,
+                dashboardTiles ? `dashboard_tiles=${dashboardTiles}` : null,
+                resourceType ? `resource_type=${resourceType}` : null,
+            ].filter(Boolean)
+            return await new ApiRequest().subscriptions().withQueryString(params.join('&')).get()
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().subscriptions().assembleEndpointUrl()
@@ -5805,14 +6285,15 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
         },
-        authorizeUrl(params: { kind: string; next?: string; is_sandbox?: boolean }): string {
+        authorizeUrl(params: { kind: string; next?: string }): string {
             return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
         },
         async slackChannels(
             id: IntegrationType['id'],
-            forceRefresh: boolean
-        ): Promise<{ channels: SlackChannelType[]; lastRefreshedAt: string }> {
-            return await new ApiRequest().integrationSlackChannels(id, forceRefresh).get()
+            forceRefresh: boolean,
+            params?: { search?: string; limit?: number; offset?: number }
+        ): Promise<{ channels: SlackChannelType[]; lastRefreshedAt: string; has_more?: boolean }> {
+            return await new ApiRequest().integrationSlackChannels(id, forceRefresh, params).get()
         },
         async slackChannelsById(
             id: IntegrationType['id'],
@@ -5834,9 +6315,15 @@ const api = {
         },
         async githubRepositories(
             id: IntegrationType['id'],
-            params?: { limit?: number; offset?: number }
+            params?: { limit?: number; offset?: number; search?: string }
         ): Promise<GitHubReposResponseApi> {
             return await new ApiRequest().integrationGitHubRepositories(id).withQueryString(params).get()
+        },
+        async githubBranches(
+            id: IntegrationType['id'],
+            params: { repo: string; limit?: number; offset?: number; search?: string }
+        ): Promise<GitHubBranchesResponseApi> {
+            return await new ApiRequest().integrationGitHubBranches(id).withQueryString(params).get()
         },
         async githubLinkExisting(
             data: {
@@ -6018,6 +6505,30 @@ const api = {
         },
     },
 
+    projectSecretApiKeys: {
+        async list(): Promise<ProjectSecretAPIKeyApi[]> {
+            const response: CountedPaginatedResponse<ProjectSecretAPIKeyApi> = await new ApiRequest()
+                .projectSecretApiKeys()
+                .get()
+            return response.results
+        },
+        async create(data: ProjectSecretAPIKeyRequest): Promise<ProjectSecretAPIKeyApi> {
+            return await new ApiRequest().projectSecretApiKeys().create({ data })
+        },
+        async update(
+            id: ProjectSecretAPIKeyApi['id'],
+            data: Partial<ProjectSecretAPIKeyRequest>
+        ): Promise<ProjectSecretAPIKeyApi> {
+            return await new ApiRequest().projectSecretApiKey(id).update({ data })
+        },
+        async delete(id: ProjectSecretAPIKeyApi['id']): Promise<void> {
+            return await new ApiRequest().projectSecretApiKey(id).delete()
+        },
+        async roll(id: ProjectSecretAPIKeyApi['id']): Promise<ProjectSecretAPIKeyApi> {
+            return await new ApiRequest().projectSecretApiKey(id).withAction('roll').create()
+        },
+    },
+
     alerts: {
         /**
          * Retrieve includes check history; pass `checksLimit` / `checksOffset` for pagination (newest first).
@@ -6045,8 +6556,15 @@ const api = {
         async update(alertId: AlertType['id'], data: Partial<AlertTypeWrite>): Promise<AlertType> {
             return await new ApiRequest().alert(alertId).update({ data })
         },
-        async list(insightId?: InsightModel['id']): Promise<PaginatedResponse<AlertType>> {
-            return await new ApiRequest().alerts(undefined, insightId).get()
+        async list(
+            insightId?: InsightModel['id'],
+            params: { limit?: number; offset?: number; search?: string; created_by?: string } = {}
+        ): Promise<CountedPaginatedResponse<AlertType>> {
+            const queryParams: Record<string, any> = { ...params }
+            if (insightId !== undefined) {
+                queryParams.insight_id = insightId
+            }
+            return await new ApiRequest().alerts().withQueryString(toParams(queryParams)).get()
         },
         async delete(alertId: AlertType['id']): Promise<void> {
             return await new ApiRequest().alert(alertId).delete()
@@ -6056,6 +6574,7 @@ const api = {
             detector_config: Record<string, any>
             series_index?: number
             date_from?: string
+            config?: AlertConfig | null
         }): Promise<AlertSimulationResult> {
             return await new ApiRequest().alerts().withAction('simulate').create({ data })
         },
@@ -6180,7 +6699,12 @@ const api = {
         async createHogFlow(data: Partial<HogFlow>): Promise<HogFlow> {
             return await new ApiRequest().hogFlows().create({ data })
         },
-        async updateHogFlow(hogFlowId: HogFlow['id'], data: Partial<HogFlow>): Promise<HogFlow> {
+        async updateHogFlow(
+            hogFlowId: HogFlow['id'],
+            // `base_updated_at` is the updated_at the client loaded; the server rejects the write with a
+            // 409 if the stored copy is newer (optimistic concurrency). Omit it for last-writer-wins.
+            data: Partial<HogFlow> & { base_updated_at?: string | null }
+        ): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).update({ data })
         },
         async deleteHogFlow(hogFlowId: HogFlow['id']): Promise<void> {
@@ -6203,9 +6727,13 @@ const api = {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
         async getBatchTriggerBlastRadius(
-            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
+            dedupeKey?: 'email'
         ): Promise<BlastRadiusApi> {
-            return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
+            return await new ApiRequest()
+                .hogFlows()
+                .withAction('user_blast_radius')
+                .create({ data: { filters, dedupe_key: dedupeKey ?? null } })
         },
         async createHogFlowBatchJob(
             hogFlowId: HogFlow['id'],
@@ -6376,6 +6904,23 @@ const api = {
         },
     },
 
+    maxHandsFree: {
+        async token(options?: ApiMethodOptions): Promise<{ token: string }> {
+            return await api.create(
+                new ApiRequest().maxHandsFree().withAction('token').assembleFullUrl(),
+                undefined,
+                options
+            )
+        },
+        async synthesize(text: string, options?: ApiMethodOptions): Promise<Response> {
+            return await api.createResponse(
+                new ApiRequest().maxHandsFree().withAction('synthesize').assembleFullUrl(),
+                { text },
+                options
+            )
+        },
+    },
+
     conversations: {
         async stream(
             data: {
@@ -6398,6 +6943,43 @@ const api = {
             return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data, options)
         },
 
+        /**
+         * Single sandbox session opener (`agent_runtime === 'sandbox'`). Create-or-resume: the
+         * conversation row is created on first use from the client-minted id. With `content`,
+         * processes the turn (first message, in-progress follow-up, or terminal resume); with
+         * null/omitted `content`, warms a sandbox that idles awaiting the first message. Returns the
+         * `(task, run)` handle to open SSE against, or `null` on a 204 (a warm that provisioned
+         * nothing — the pool was full). Control verbs (cancel, permission reply, warm release) go
+         * through the generic `runs/{run}/command/` relay, not this endpoint.
+         */
+        async open(
+            conversationId: string,
+            data: {
+                content?: string | null
+                trace_id?: string
+                attached_context?: AttachedContext[]
+                initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
+                /** Bind a brand-new sandbox conversation to an existing Task, resuming its run on the first message. */
+                task_id?: string
+            }
+        ): Promise<{
+            task_id: string
+            run_id: string
+            trace_id: string | null
+            run_status: 'queued' | 'in_progress'
+            just_created_run: boolean
+        } | null> {
+            const response = await api.createResponse(
+                new ApiRequest().conversation(conversationId).withAction('open').assembleFullUrl(),
+                data
+            )
+            if (response.status === 204) {
+                return null
+            }
+            return response.json()
+        },
+
+        /** Cancel an in-progress LangGraph run. Sandbox runs cancel through the tasks relay. */
         cancel(conversationId: string): Promise<void> {
             return new ApiRequest().conversation(conversationId).withAction('cancel').update()
         },
@@ -6530,6 +7112,7 @@ const api = {
                 assignee?: string
                 tags?: string
                 distinct_ids?: string
+                emails?: string
                 search?: string
                 date_from?: string
                 date_to?: string
@@ -6571,10 +7154,6 @@ const api = {
             return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
         },
 
-        async suggestReply(ticketId: string): Promise<{ suggestion: string }> {
-            return await new ApiRequest().conversationsTicket(ticketId).withAction('suggest_reply').create({ data: {} })
-        },
-
         async compose(data: {
             message: string
             recipient_email: string
@@ -6584,6 +7163,20 @@ const api = {
             rich_content?: Record<string, unknown> | null
         }): Promise<{ id: string; ticket_number: number }> {
             return await new ApiRequest().conversationsTickets().withAction('compose').create({ data })
+        },
+
+        async bulkUpdateStatus(ids: string[], ticketStatus: string): Promise<{ updated: number; ids: string[] }> {
+            return await new ApiRequest()
+                .conversationsTickets()
+                .withAction('bulk_update_status')
+                .create({ data: { ids, status: ticketStatus } })
+        },
+
+        async submitAiFeedback(
+            ticketId: string,
+            data: { message_id: string; rating: 'good' | 'bad'; feedback_text?: string }
+        ): Promise<void> {
+            await new ApiRequest().conversationsTicket(ticketId).withAction('ai_feedback').create({ data })
         },
     },
 
@@ -6616,7 +7209,7 @@ const api = {
 
         async update(
             promptName: string,
-            data: { prompt: LLMPrompt['prompt']; base_version: number }
+            data: { prompt: LLMPrompt['prompt']; base_version: number; version_description?: string }
         ): Promise<LLMPrompt> {
             return await new ApiRequest().llmPromptByName(promptName).update({ data })
         },
@@ -6637,7 +7230,7 @@ const api = {
     /** Fetch data from specified URL. The result already is JSON-parsed. */
     async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
         const res = await api.getResponse(url, options)
-        return await getJSONOrNull(res)
+        return await getJSONFromSuccessResponse(res, 'GET', url)
     },
 
     async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
@@ -6651,13 +7244,13 @@ const api = {
             authHeaders['Authorization'] = `Bearer ${exporterContext.shareToken}`
         }
 
-        return await handleFetch(url, 'GET', () => {
+        return await handleFetch(url, 'GET', async () => {
             return fetch(url, {
                 signal: options?.signal,
                 headers: {
                     ...objectClean(options?.headers ?? {}),
-                    ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
-                    ...(getDistinctId() ? { 'X-POSTHOG-DISTINCT-ID': getDistinctId() } : {}),
+                    ...tracingHeaders({ includeDistinctId: true }),
+                    ...oauthAuthHeaders(url),
                     ...authHeaders,
                 },
             })
@@ -6672,6 +7265,7 @@ const api = {
     ): Promise<T> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
+        assertNotReadOnly(method, url)
         const isFormData = data instanceof FormData
 
         const response = await handleFetch(url, method, async () => {
@@ -6681,14 +7275,15 @@ const api = {
                     ...objectClean(options?.headers ?? {}),
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                    ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                    ...tracingHeaders(),
+                    ...oauthAuthHeaders(url),
                 },
                 body: isFormData ? data : JSON.stringify(data),
                 signal: options?.signal,
             })
         })
 
-        return await getJSONOrNull(response)
+        return await getJSONFromSuccessResponse(response, method, url)
     },
 
     async update<T = any, P = any>(url: string, data: P, options?: ApiMethodOptions): Promise<T> {
@@ -6701,22 +7296,24 @@ const api = {
 
     async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
         const res = await api.createResponse(url, data, options)
-        return await getJSONOrNull(res)
+        return await getJSONFromSuccessResponse(res, 'POST', url)
     },
 
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
+        assertNotReadOnly('POST', url)
         const isFormData = data instanceof FormData
 
-        return await handleFetch(url, 'POST', () =>
+        return await handleFetch(url, 'POST', async () =>
             fetch(url, {
                 method: 'POST',
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                    ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                    ...tracingHeaders(),
+                    ...oauthAuthHeaders(url),
                 },
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
                 signal: options?.signal,
@@ -6727,13 +7324,15 @@ const api = {
     async delete(url: string): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        return await handleFetch(url, 'DELETE', () =>
+        assertNotReadOnly('DELETE', url)
+        return await handleFetch(url, 'DELETE', async () =>
             fetch(url, {
                 method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                    ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                    ...tracingHeaders(),
+                    ...oauthAuthHeaders(url),
                 },
             })
         )
@@ -6747,6 +7346,8 @@ const api = {
             data,
             onMessage,
             onError,
+            onOpen,
+            onClose,
             headers,
             signal,
         }:
@@ -6756,6 +7357,12 @@ const api = {
                   data?: never
                   onMessage: (data: EventSourceMessage) => void
                   onError: (error: any) => void
+                  /** Fires every time the underlying fetch returns a healthy response — i.e.
+                   *  on initial open *and* on each successful internal reconnect by fetch-event-source. */
+                  onOpen?: () => void
+                  /** Fires when the server cleanly closes the response body (not on errors,
+                   *  not on abort). Use this to react to server-initiated stream rotation. */
+                  onClose?: () => void
                   headers?: Record<string, string>
                   signal?: AbortSignal
               }
@@ -6765,6 +7372,8 @@ const api = {
                   data: any
                   onMessage: (data: EventSourceMessage) => void
                   onError: (error: any) => void
+                  onOpen?: () => void
+                  onClose?: () => void
                   headers?: Record<string, string>
                   signal?: AbortSignal
               }
@@ -6778,7 +7387,7 @@ const api = {
             headers: {
                 ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
                 'X-CSRFToken': getCookie('posthog_csrftoken') || '',
-                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                ...tracingHeaders(),
                 ...objectClean(headers ?? {}),
             },
             body: data !== undefined ? JSON.stringify(data) : undefined,
@@ -6823,15 +7432,19 @@ const api = {
                         )
                     )
                     abortController.abort()
-                } else if (isLivestreamUrl) {
-                    posthog.capture('livestream_sse_opened', {
-                        url,
-                        status: response.status,
-                    })
+                } else {
+                    onOpen?.()
+                    if (isLivestreamUrl) {
+                        posthog.capture('livestream_sse_opened', {
+                            url,
+                            status: response.status,
+                        })
+                    }
                 }
             },
             onmessage: onMessage,
             onerror: onError,
+            onclose: onClose,
             // By default fetch-event-source stops connection when document is no longer focused, but that is not how
             // EventSource works normally, hence reverting (https://github.com/Azure/fetch-event-source/issues/36)
             openWhenHidden: true,
@@ -6892,6 +7505,7 @@ const api = {
             data_url?: string | null
             width?: number
             type?: HeatmapType
+            block_consent_modals?: boolean
         }): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotsSaved().create({ data })
         },
@@ -6907,6 +7521,7 @@ const api = {
                 data_url: string | null
                 width: number
                 type: HeatmapType
+                block_consent_modals: boolean
             }>
         ): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotSaved(id).update({ data })
@@ -6970,7 +7585,12 @@ const api = {
 
 const warnedSharedViewLeaks = new Set<string>()
 
-async function handleFetch(url: string, method: string, fetcher: () => Promise<Response>): Promise<Response> {
+async function handleFetch(
+    url: string,
+    method: string,
+    fetcher: () => Promise<Response>,
+    isRetry = false
+): Promise<Response> {
     const startTime = new Date().getTime()
 
     let response
@@ -6988,6 +7608,15 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
             throw error
         }
         throw new ApiError(error as any, response?.status)
+    }
+
+    // Standalone OAuth mode: a 401 likely means the access token expired — refresh once and retry.
+    // The fetcher rebuilds its Authorization header on re-invocation, picking up the new token.
+    if (response.status === 401 && isOAuthMode() && !isRetry) {
+        const refreshed = await refreshAccessToken()
+        if (refreshed) {
+            return await handleFetch(url, method, fetcher, true)
+        }
     }
 
     if (!response.ok) {

@@ -2,13 +2,17 @@ import '@testing-library/jest-dom'
 
 import { render } from '@testing-library/react'
 
-import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import { describerFor, ensureActivityDescribersLoaded } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 
 import { ActivityScope, InsightShortId } from '~/types'
 
 describe('the activity log logic', () => {
     describe('humanizing notebooks', () => {
+        beforeEach(async () => {
+            await ensureActivityDescribersLoaded()
+        })
+
         it('can handle notebook changes', async () => {
             const notebookChange = {
                 user: {

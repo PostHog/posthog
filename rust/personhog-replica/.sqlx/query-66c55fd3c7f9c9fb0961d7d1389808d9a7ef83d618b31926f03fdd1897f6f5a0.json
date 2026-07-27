@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM posthog_featureflaghashkeyoverride\n            WHERE id IN (\n                SELECT id FROM posthog_featureflaghashkeyoverride\n                WHERE team_id = ANY($1)\n                LIMIT $2\n                FOR UPDATE SKIP LOCKED\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4Array",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "66c55fd3c7f9c9fb0961d7d1389808d9a7ef83d618b31926f03fdd1897f6f5a0"
+}

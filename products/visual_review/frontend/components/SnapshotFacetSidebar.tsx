@@ -35,7 +35,7 @@ export function SnapshotFacetSidebar({
     onToggle: (group: keyof FacetGroups, value: string) => void
 }): JSX.Element {
     return (
-        <aside className="w-52 shrink-0 flex flex-col gap-4 text-sm">
+        <aside className="w-full sm:w-52 shrink-0 flex flex-col gap-4 text-sm">
             {GROUP_LABELS.map(({ key, label }) => {
                 const buckets = groups[key]
                 if (!buckets.length) {

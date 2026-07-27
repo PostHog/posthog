@@ -2,7 +2,7 @@ import { mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { InternalCaptureService } from './internal-capture'
 

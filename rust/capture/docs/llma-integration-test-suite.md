@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the Rust integration test suite for the LLM Analytics capture service. These tests validate HTTP endpoint behavior, multipart parsing, and validation logic without requiring external dependencies.
+This document describes the Rust integration test suite for the AI observability capture service. These tests validate HTTP endpoint behavior, multipart parsing, and validation logic without requiring external dependencies.
 
 **Implementation Requirement**: Each phase in the implementation plan must pass its corresponding integration tests before proceeding to the next phase. This ensures incremental validation and prevents regression as new features are added.
 

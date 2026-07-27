@@ -2,6 +2,7 @@ export type CommonFilters = {
     date_from?: string | null
     date_to?: string | null
     filter_test_accounts?: boolean
+    cohort_ids?: number[]
 }
 
 export type HeatmapKind = 'click' | 'rageclick' | 'mousemove' | 'scrolldepth'
@@ -37,6 +38,23 @@ export type HeatmapJsData = {
 }
 
 export type HeatmapFixedPositionMode = 'fixed' | 'relative' | 'hidden'
+
+export type HeatmapBounds = {
+    left: number
+    right: number
+    top: number
+    bottom: number
+}
+
+// pixel bounds of a page element the heatmap is filtered to. Fixed/sticky targets are
+// recorded in viewport coordinates and everything else in document coordinates (posthog-js's
+// target_fixed rule), so points are only comparable to an area of the same kind: a filter
+// carries the one rect that matches its area's kind, and points of the other kind are
+// excluded rather than compared across coordinate spaces (where they'd go stale on scroll)
+export type HeatmapBoundsFilter = {
+    bounds: HeatmapBounds
+    areaFixed: boolean
+}
 
 export type HeatmapAreaPoint = {
     x: number

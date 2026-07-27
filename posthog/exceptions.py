@@ -6,6 +6,7 @@ from django.http.response import JsonResponse
 import structlog
 from rest_framework import status
 from rest_framework.exceptions import APIException
+from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud
@@ -81,8 +82,15 @@ class ClickHouseQueryTimeOut(APIException):
 
 
 class ClickHouseQueryMemoryLimitExceeded(APIException):
-    status_code = 504
-    default_detail = "Query has reached the max memory limit before completing. See our docs for how to improve your query memory footprint. You may need to narrow date range or materialize."
+    # Custom code in the actionable-validation family (400/512/513) the frontend routes to the
+    # "problem with this query" panel. Distinct from 512 (query-too-slow) so an out-of-memory
+    # failure is never mistaken for a timeout on either the client or in status-based alerting.
+    status_code = 513
+    # Stable machine-readable code so the frontend can recognise out-of-memory failures without
+    # matching on the (translatable, changeable) detail copy. Keep in sync with the frontend
+    # CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE constant.
+    default_code = "clickhouse_memory_limit_exceeded"
+    default_detail = "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries"
 
 
 class ExceptionContext(TypedDict):
@@ -122,3 +130,35 @@ def generate_exception_response(
         tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr},
     )
     return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code)
+
+
+def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Response]:
+    """
+    Wraps drf-exceptions-hog and, on 401, advertises the OAuth protected resource
+    metadata document via WWW-Authenticate per RFC 9728, so that MCP-style agents
+    can bootstrap from a stock 401.
+    """
+    # Imported lazily: exceptions_hog calls a non-lazy gettext at module import time,
+    # which raises AppRegistryNotReady when posthog.exceptions is imported during
+    # manage.py bootstrap (before Django apps are loaded).
+    from exceptions_hog import exception_handler as _exceptions_hog_handler
+
+    # Imported lazily to avoid pulling settings into module import.
+    from posthog.utils import absolute_uri
+
+    response = _exceptions_hog_handler(exc, context)
+    if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
+        # A view may pin its own challenge (e.g. the skills marketplace git endpoints, which
+        # git clients can only satisfy with Basic — they cannot complete a Bearer/OAuth flow).
+        view_challenge = getattr(context.get("view"), "www_authenticate_challenge", None)
+        if view_challenge:
+            # Strip CR/LF defensively — this is a view-supplied value, so never let it inject
+            # additional response headers even if a future view derives it from request data.
+            response["WWW-Authenticate"] = view_challenge.replace("\r", "").replace("\n", "")
+        else:
+            # Pin to SITE_URL rather than request.build_absolute_uri(): with permissive
+            # ALLOWED_HOSTS, the Host header can otherwise steer the discovery hint to an
+            # attacker-controlled origin.
+            metadata_url = absolute_uri("/.well-known/oauth-protected-resource")
+            response["WWW-Authenticate"] = f'Bearer resource_metadata="{metadata_url}"'
+    return response

@@ -9,13 +9,13 @@
  */
 /**
  * * `acquisition` - Acquisition
- * `activation` - Activation
- * `monetization` - Monetization
- * `expansion` - Expansion
- * `referral` - Referral
- * `retention` - Retention
- * `churn` - Churn
- * `reactivation` - Reactivation
+ * * `activation` - Activation
+ * * `monetization` - Monetization
+ * * `expansion` - Expansion
+ * * `referral` - Referral
+ * * `retention` - Retention
+ * * `churn` - Churn
+ * * `reactivation` - Reactivation
  */
 export type CoreEventCategoryEnumApi = (typeof CoreEventCategoryEnumApi)[keyof typeof CoreEventCategoryEnumApi]
 
@@ -40,15 +40,15 @@ export interface CoreEventApi {
     /** Optional description */
     description?: string
     /** Lifecycle category for this core event
-
-  * `acquisition` - Acquisition
-  * `activation` - Activation
-  * `monetization` - Monetization
-  * `expansion` - Expansion
-  * `referral` - Referral
-  * `retention` - Retention
-  * `churn` - Churn
-  * `reactivation` - Reactivation */
+     *
+     * * `acquisition` - Acquisition
+     * * `activation` - Activation
+     * * `monetization` - Monetization
+     * * `expansion` - Expansion
+     * * `referral` - Referral
+     * * `retention` - Retention
+     * * `churn` - Churn
+     * * `reactivation` - Reactivation */
     category: CoreEventCategoryEnumApi
     /** Filter configuration - event, action, or data warehouse node */
     filter: unknown
@@ -75,15 +75,15 @@ export interface PatchedCoreEventApi {
     /** Optional description */
     description?: string
     /** Lifecycle category for this core event
-
-  * `acquisition` - Acquisition
-  * `activation` - Activation
-  * `monetization` - Monetization
-  * `expansion` - Expansion
-  * `referral` - Referral
-  * `retention` - Retention
-  * `churn` - Churn
-  * `reactivation` - Reactivation */
+     *
+     * * `acquisition` - Acquisition
+     * * `activation` - Activation
+     * * `monetization` - Monetization
+     * * `expansion` - Expansion
+     * * `referral` - Referral
+     * * `retention` - Retention
+     * * `churn` - Churn
+     * * `reactivation` - Reactivation */
     category?: CoreEventCategoryEnumApi
     /** Filter configuration - event, action, or data warehouse node */
     filter?: unknown

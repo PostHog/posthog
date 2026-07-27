@@ -3,8 +3,9 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs, inStorybookTestRunner, sampleOne, uuid } from 'lib/utils'
-import { deterministicRandom } from 'lib/utils/random'
+import { sampleOne } from 'lib/utils/arrays'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { inStorybookTestRunner, uuid } from 'lib/utils/dom'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -12,6 +13,22 @@ import { mswDecorator } from '~/mocks/browser'
 import { MockSignature } from '~/mocks/utils'
 import { LogMessage, LogSeverityLevel } from '~/queries/schema/schema-general'
 import { PropertyFilterType } from '~/types'
+
+function createSeededRandom(seed: number): () => number {
+    // LCG constants from Numerical Recipes
+    let m = 0x80000000 // 2^31
+    let a = 1103515245
+    let c = 12345
+
+    let state = seed ? seed : Math.floor(Math.random() * (m - 1))
+
+    return function () {
+        state = (a * state + c) % m
+        return state / m
+    }
+}
+
+const deterministicRandom = createSeededRandom(1234)
 
 const delayIfNotTestRunner = async (): Promise<void> => {
     await new Promise((resolve) => setTimeout(resolve, inStorybookTestRunner() ? 0 : 200 + Math.random() * 1000))
@@ -206,10 +223,10 @@ const getLogs = async (
     }
 }
 
-const queryMock: MockSignature = async (req, res, ctx) => {
+const queryMock: MockSignature = async ({ request }) => {
     await delayIfNotTestRunner()
 
-    const body = await req.json()
+    const body = (await request.json()) as Record<string, any>
     const { logs } = await getLogs(body)
 
     const limit = body.query?.limit ?? 100
@@ -217,12 +234,12 @@ const queryMock: MockSignature = async (req, res, ctx) => {
 
     const results = logs.slice(offset, offset + limit)
 
-    return res(ctx.json({ results: results, maxExportableLogs: 5000 }))
+    return [200, { results: results, maxExportableLogs: 5000 }]
 }
 
-const sparklineMock: MockSignature = async (req, res, ctx) => {
+const sparklineMock: MockSignature = async ({ request }) => {
     await delayIfNotTestRunner()
-    const body = await req.json()
+    const body = (await request.json()) as Record<string, any>
     const { startTime, endTime, logs } = await getLogs(body)
 
     // Interval selection
@@ -290,12 +307,12 @@ const sparklineMock: MockSignature = async (req, res, ctx) => {
             })
         )
 
-    return res(ctx.json(results))
+    return [200, results]
 }
 
-const attributesMock: MockSignature = async (req, res, ctx) => {
+const attributesMock: MockSignature = async ({ request }) => {
     await delayIfNotTestRunner()
-    const type = (req.url.searchParams.get('attribute_type') ?? 'log_attribute') as
+    const type = (new URL(request.url).searchParams.get('attribute_type') ?? 'log_attribute') as
         | PropertyFilterType.LogAttribute
         | PropertyFilterType.LogResourceAttribute
     const results = Object.keys(attributeExamples[type]).map((key) => ({
@@ -303,20 +320,21 @@ const attributesMock: MockSignature = async (req, res, ctx) => {
         name: key,
         type: type,
     }))
-    return res(ctx.json(results))
+    return [200, results]
 }
 
-const valuesMock: MockSignature = async (req, res, ctx) => {
+const valuesMock: MockSignature = async ({ request }) => {
     await delayIfNotTestRunner()
-    const key = req.url.searchParams.get('key') ?? ''
-    const type = (req.url.searchParams.get('attribute_type') ?? 'log_attribute') as
+    const url = new URL(request.url)
+    const key = url.searchParams.get('key') ?? ''
+    const type = (url.searchParams.get('attribute_type') ?? 'log_attribute') as
         | PropertyFilterType.LogAttribute
         | PropertyFilterType.LogResourceAttribute
     const results = (attributeExamples[type][key] ?? []).map((value) => ({
         id: value,
         name: value,
     }))
-    return res(ctx.json(results))
+    return [200, results]
 }
 
 export default {
@@ -327,7 +345,7 @@ export default {
             get: {
                 '/api/environments/:team_id/logs/attributes': attributesMock,
                 '/api/environments/:team_id/logs/values': valuesMock,
-                '/api/environments/:team_id/logs/has_logs': (_, res, ctx) => res(ctx.json({ hasLogs: true })),
+                '/api/environments/:team_id/logs/has_logs': () => [200, { hasLogs: true }],
             },
             post: {
                 '/api/environments/:team_id/logs/query': queryMock,

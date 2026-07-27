@@ -3,7 +3,10 @@ import structlog
 from posthog.schema import DateRange
 
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.sync import database_sync_to_async
+
+from products.ai_observability.backend.models.llm_traces_summaries import LLMTraceSummary
 
 from ee.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
 from ee.hogai.llm_traces_summaries.tools.find_similar_traces import LLMTracesSummarizerFinder
@@ -11,14 +14,14 @@ from ee.hogai.llm_traces_summaries.tools.generate_stringified_summaries import L
 from ee.hogai.llm_traces_summaries.tools.get_traces import LLMTracesSummarizerCollector
 from ee.hogai.llm_traces_summaries.tools.stringify_trace import LLMTracesSummarizerStringifier
 from ee.hogai.llm_traces_summaries.utils.load_from_csv import load_traces_from_csv_files
-from ee.models.llm_traces_summaries import LLMTraceSummary
 
 logger = structlog.get_logger(__name__)
 
 
 class LLMTracesSummarizer:
-    def __init__(self, team: Team):
+    def __init__(self, team: Team, user: User | None = None):
         self._team = team
+        self._user = user
 
     async def summarize_traces_for_date_range(self, date_range: DateRange) -> None:
         """Get, stringify, summarize, embed and store summaries for all traces in the date range."""
@@ -29,7 +32,7 @@ class LLMTracesSummarizer:
         return None
 
     async def _collect_and_stringify_traces_for_date_range(self, date_range: DateRange) -> dict[str, str]:
-        collector = LLMTracesSummarizerCollector(team=self._team)
+        collector = LLMTracesSummarizerCollector(team=self._team, user=self._user)
         # Collect and stringify traces in-memory
         stringifier = LLMTracesSummarizerStringifier(team=self._team)
         stringified_traces: dict[str, str] = {}  # trace_id -> stringified trace
@@ -90,7 +93,7 @@ class LLMTracesSummarizer:
         summary_type: LLMTraceSummary.LLMTraceSummaryType,
     ):
         """Search all summarized traces withi the date range for the query and return the top similar traces."""
-        finder = LLMTracesSummarizerFinder(team=self._team)
+        finder = LLMTracesSummarizerFinder(team=self._team, user=self._user)
         return finder.find_top_similar_traces_for_query(
             query=query,
             request_id=request_id,

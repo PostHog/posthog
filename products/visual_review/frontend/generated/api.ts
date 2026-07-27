@@ -12,11 +12,12 @@ import type {
     AddSnapshotsInputApi,
     AddSnapshotsResultApi,
     ApproveRunRequestInputApi,
-    AutoApproveResultApi,
     BaselineOverviewApi,
     CreateRepoInputApi,
     CreateRunInputApi,
     CreateRunResultApi,
+    FinalizeResultApi,
+    FinalizeRunRequestInputApi,
     MarkToleratedInputApi,
     PaginatedQuarantinedIdentifierEntryListApi,
     PaginatedRepoListApi,
@@ -47,7 +48,7 @@ export const getVisualReviewReposListUrl = (projectId: string, params?: VisualRe
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -158,7 +159,7 @@ export const getVisualReviewReposQuarantineListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -259,7 +260,7 @@ export const getVisualReviewReposRunsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -271,7 +272,7 @@ export const getVisualReviewReposRunsListUrl = (
 }
 
 /**
- * List runs in this repo, optionally filtered by review state.
+ * List runs in this repo, optionally filtered by review state and free-text search.
  */
 export const visualReviewReposRunsList = async (
     projectId: string,
@@ -314,7 +315,7 @@ export const getVisualReviewReposSnapshotsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -350,7 +351,7 @@ export const getVisualReviewRunsListUrl = (projectId: string, params?: VisualRev
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -362,7 +363,7 @@ export const getVisualReviewRunsListUrl = (projectId: string, params?: VisualRev
 }
 
 /**
- * List runs for the team, optionally filtered by review state, PR number, commit SHA, or branch.
+ * List runs for the team, optionally filtered by review state, PR number, commit SHA, branch, or free-text search.
  */
 export const visualReviewRunsList = async (
     projectId: string,
@@ -439,18 +440,18 @@ export const getVisualReviewRunsApproveCreateUrl = (projectId: string, id: strin
 }
 
 /**
- * Approve visual changes for snapshots in this run.
-
-With approve_all=true, approves all changed+new snapshots and returns
-signed baseline YAML. With specific snapshots, approves only those.
+ * Mark snapshots reviewed (DB only).
+ *
+ * Records the per-snapshot "Accept change" decision. Does not commit the baseline
+ * or change the GitHub gate — call finalize to ship the run.
  */
 export const visualReviewRunsApproveCreate = async (
     projectId: string,
     id: string,
-    approveRunRequestInputApi?: ApproveRunRequestInputApi,
+    approveRunRequestInputApi: ApproveRunRequestInputApi,
     options?: RequestInit
-): Promise<AutoApproveResultApi> => {
-    return apiMutator<AutoApproveResultApi>(getVisualReviewRunsApproveCreateUrl(projectId, id), {
+): Promise<RunApi> => {
+    return apiMutator<RunApi>(getVisualReviewRunsApproveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -473,6 +474,32 @@ export const visualReviewRunsCompleteCreate = async (
     return apiMutator<RunApi>(getVisualReviewRunsCompleteCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getVisualReviewRunsFinalizeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/finalize/`
+}
+
+/**
+ * Finalize a fully-reviewed run: commit the approved baseline and green the gate.
+ *
+ * Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
+ * and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
+ * any still-pending changed/new snapshot is approved first. With commit_to_github=false
+ * the server returns the signed baseline YAML instead of committing it.
+ */
+export const visualReviewRunsFinalizeCreate = async (
+    projectId: string,
+    id: string,
+    finalizeRunRequestInputApi?: FinalizeRunRequestInputApi,
+    options?: RequestInit
+): Promise<FinalizeResultApi> => {
+    return apiMutator<FinalizeResultApi>(getVisualReviewRunsFinalizeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(finalizeRunRequestInputApi),
     })
 }
 
@@ -503,7 +530,7 @@ export const getVisualReviewRunsSnapshotHistoryListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -541,7 +568,7 @@ export const getVisualReviewRunsSnapshotsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -553,7 +580,7 @@ export const getVisualReviewRunsSnapshotsListUrl = (
 }
 
 /**
- * Get all snapshots for a run with diff results.
+ * Get a run's snapshots with diff results, excluding quarantined ones by default.
  */
 export const visualReviewRunsSnapshotsList = async (
     projectId: string,
@@ -597,7 +624,7 @@ export const getVisualReviewRunsToleratedHashesListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

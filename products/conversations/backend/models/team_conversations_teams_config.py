@@ -17,6 +17,11 @@ class TeamConversationsTeamsConfig(models.Model):
     teams_graph_refresh_token = EncryptedTextField(max_length=4000, null=True, blank=True)
     teams_token_expires_at = models.DateTimeField(null=True, blank=True)
 
+    # Tenant's Bot Framework serviceUrl, captured from inbound webhook activities.
+    # The shared-channel poller has no inbound activity of its own, so it reuses
+    # this to post confirmation cards and route agent replies for polled tickets.
+    teams_service_url = models.CharField(max_length=512, null=True, blank=True)
+
     class Meta:
         app_label = "conversations"
         db_table = "posthog_conversations_teams_config"

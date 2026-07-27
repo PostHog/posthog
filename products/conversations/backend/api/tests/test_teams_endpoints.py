@@ -393,3 +393,323 @@ class TestTeamsOAuthEndpoints(APIBaseTest):
         self.client.logout()
         response = self.client.post("/api/conversations/v1/teams/disconnect")
         assert response.status_code in (401, 403)
+
+
+class TestTeamsSelectChannelMultiChannel(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {"teams_enabled": True}
+        self.team.save()
+        TeamConversationsTeamsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "teams_tenant_id": "tenant-abc",
+                "teams_graph_access_token": "graph-tok",
+                "teams_graph_refresh_token": "graph-ref",
+            },
+        )
+
+    def _mock_graph_responses(self, mock_get, teams_list, channels_list):
+        def side_effect(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            if "joinedTeams" in url:
+                resp.json.return_value = {"value": teams_list}
+            elif "channels" in url:
+                resp.json.return_value = {"value": channels_list}
+            return resp
+
+        mock_get.side_effect = side_effect
+
+    @patch("products.conversations.backend.api.teams_channels.requests.get")
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_add_channel_pair_success(self, _mock_refresh, mock_get):
+        team_uuid = "00000000-0000-0000-0000-000000000001"
+        self._mock_graph_responses(
+            mock_get,
+            [{"id": team_uuid, "displayName": "Engineering"}],
+            [{"id": "ch-1", "displayName": "General"}],
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/teams/select-channel",
+            data=json.dumps(
+                {
+                    "action": "add",
+                    "team_id": team_uuid,
+                    "channel_id": "ch-1",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is True
+        assert len(data["teams_channels"]) == 1
+        assert data["teams_channels"][0]["channel_id"] == "ch-1"
+        assert data["teams_channels"][0]["team_name"] == "Engineering"
+        assert data["teams_channels"][0]["channel_name"] == "General"
+
+        # Verify legacy scalars are also updated
+        self.team.refresh_from_db()
+        assert self.team.conversations_settings["teams_channel_id"] == "ch-1"
+        assert self.team.conversations_settings["teams_team_id"] == team_uuid
+
+    @patch("products.conversations.backend.api.teams_channels.requests.get")
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_add_multiple_channels_preserves_existing(self, _mock_refresh, mock_get):
+        team_uuid = "00000000-0000-0000-0000-000000000001"
+        self.team.conversations_settings = {
+            "teams_enabled": True,
+            "teams_channels": [
+                {"team_id": "t-existing", "team_name": "Existing", "channel_id": "ch-existing", "channel_name": "Old"}
+            ],
+        }
+        self.team.save()
+
+        self._mock_graph_responses(
+            mock_get,
+            [{"id": team_uuid, "displayName": "Engineering"}],
+            [{"id": "ch-new", "displayName": "New Channel"}],
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/teams/select-channel",
+            data=json.dumps(
+                {
+                    "action": "add",
+                    "team_id": team_uuid,
+                    "channel_id": "ch-new",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["teams_channels"]) == 2
+        channel_ids = {c["channel_id"] for c in data["teams_channels"]}
+        assert channel_ids == {"ch-existing", "ch-new"}
+
+    @patch("products.conversations.backend.api.teams_channels.requests.get")
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_add_channel_seeds_from_legacy(self, _mock_refresh, mock_get):
+        """First add should seed teams_channels from legacy scalar fields."""
+        team_uuid = "00000000-0000-0000-0000-000000000001"
+        self.team.conversations_settings = {
+            "teams_enabled": True,
+            "teams_team_id": "legacy-team",
+            "teams_team_name": "Legacy Team",
+            "teams_channel_id": "legacy-ch",
+            "teams_channel_name": "Legacy Channel",
+        }
+        self.team.save()
+
+        self._mock_graph_responses(
+            mock_get,
+            [{"id": team_uuid, "displayName": "New Team"}],
+            [{"id": "new-ch", "displayName": "New Channel"}],
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/teams/select-channel",
+            data=json.dumps(
+                {
+                    "action": "add",
+                    "team_id": team_uuid,
+                    "channel_id": "new-ch",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["teams_channels"]) == 2
+        channel_ids = {c["channel_id"] for c in data["teams_channels"]}
+        assert channel_ids == {"legacy-ch", "new-ch"}
+
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_remove_channel_pair_success(self, _mock_refresh):
+        self.team.conversations_settings = {
+            "teams_enabled": True,
+            "teams_channels": [
+                {"team_id": "t1", "team_name": "Team 1", "channel_id": "ch-1", "channel_name": "Ch 1"},
+                {"team_id": "t2", "team_name": "Team 2", "channel_id": "ch-2", "channel_name": "Ch 2"},
+            ],
+        }
+        self.team.save()
+
+        response = self.client.post(
+            "/api/conversations/v1/teams/select-channel",
+            data=json.dumps(
+                {
+                    "action": "remove",
+                    "channel_id": "ch-1",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is True
+        assert len(data["teams_channels"]) == 1
+        assert data["teams_channels"][0]["channel_id"] == "ch-2"
+
+        # Legacy scalars should now point to remaining channel
+        self.team.refresh_from_db()
+        assert self.team.conversations_settings["teams_channel_id"] == "ch-2"
+
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_remove_last_channel_clears_legacy(self, _mock_refresh):
+        self.team.conversations_settings = {
+            "teams_enabled": True,
+            "teams_channels": [
+                {"team_id": "t1", "team_name": "Team 1", "channel_id": "ch-1", "channel_name": "Ch 1"},
+            ],
+            "teams_channel_id": "ch-1",
+        }
+        self.team.save()
+
+        response = self.client.post(
+            "/api/conversations/v1/teams/select-channel",
+            data=json.dumps(
+                {
+                    "action": "remove",
+                    "channel_id": "ch-1",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["teams_channels"]) == 0
+
+        self.team.refresh_from_db()
+        assert self.team.conversations_settings.get("teams_channel_id") is None
+        assert self.team.conversations_settings.get("teams_team_id") is None
+
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_remove_nonexistent_channel_returns_404(self, _mock_refresh):
+        self.team.conversations_settings = {
+            "teams_enabled": True,
+            "teams_channels": [
+                {"team_id": "t1", "channel_id": "ch-1"},
+            ],
+        }
+        self.team.save()
+
+        response = self.client.post(
+            "/api/conversations/v1/teams/select-channel",
+            data=json.dumps(
+                {
+                    "action": "remove",
+                    "channel_id": "ch-nonexistent",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404
+
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_add_without_team_id_returns_400(self, _mock_refresh):
+        response = self.client.post(
+            "/api/conversations/v1/teams/select-channel",
+            data=json.dumps(
+                {
+                    "action": "add",
+                    "channel_id": "ch-1",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"] == "team_id_required"
+
+    @patch("products.conversations.backend.api.teams_channels.requests.get")
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_add_inaccessible_team_returns_400(self, _mock_refresh, mock_get):
+        team_uuid = "00000000-0000-0000-0000-000000000001"
+        self._mock_graph_responses(
+            mock_get,
+            [{"id": "other-team", "displayName": "Other"}],  # Different team
+            [],
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/teams/select-channel",
+            data=json.dumps(
+                {
+                    "action": "add",
+                    "team_id": team_uuid,
+                    "channel_id": "ch-1",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"] == "team_not_accessible"
+
+    @patch("products.conversations.backend.api.teams_channels.requests.get")
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_add_inaccessible_channel_returns_400(self, _mock_refresh, mock_get):
+        team_uuid = "00000000-0000-0000-0000-000000000001"
+        self._mock_graph_responses(
+            mock_get,
+            [{"id": team_uuid, "displayName": "Engineering"}],
+            [{"id": "other-ch", "displayName": "Other Channel"}],  # Different channel
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/teams/select-channel",
+            data=json.dumps(
+                {
+                    "action": "add",
+                    "team_id": team_uuid,
+                    "channel_id": "ch-1",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"] == "channel_not_accessible"
+
+    @patch("products.conversations.backend.api.teams_channels.requests.get")
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_legacy_request_format_still_works(self, _mock_refresh, mock_get):
+        """Legacy single team_id/channel_id format should still work."""
+        team_uuid = "00000000-0000-0000-0000-000000000001"
+        self._mock_graph_responses(
+            mock_get,
+            [{"id": team_uuid, "displayName": "Engineering"}],
+            [{"id": "ch-1", "displayName": "General"}],
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/teams/select-channel",
+            data=json.dumps(
+                {
+                    "teams_team_id": team_uuid,
+                    "teams_channel_id": "ch-1",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["teams_channel_id"] == "ch-1"
+        assert data["teams_team_name"] == "Engineering"
+
+        self.team.refresh_from_db()
+        assert len(self.team.conversations_settings.get("teams_channels", [])) == 1

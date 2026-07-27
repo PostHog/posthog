@@ -11,6 +11,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -26,8 +27,9 @@ export function ConfirmOrganization(): JSX.Element {
     const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
 
     return (
-        <BridgePage view="org-creation-confirmation" hedgehog>
+        <BridgePage view="org-creation-confirmation">
             <h2>Create a new organization</h2>
+            <OtherRegionHint />
             <div className="flex-1">
                 <p className="text-center">
                     <strong>

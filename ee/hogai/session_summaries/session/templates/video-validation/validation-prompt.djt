@@ -60,7 +60,7 @@ For events requiring updates based on Step 1:
 
 2.2. Revise event descriptions:
    - Focus on the actual user action observed
-   - If no errors occured and the current description is innacurate:
+   - If no errors occurred and the current description is inaccurate:
       - Remove error language
       - Keep descriptions concise (4-8 words)
    - If the current description is accurate:

@@ -14,12 +14,14 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.logs.backend.alert_signal_emitter import NotifiedAlert
 from products.logs.backend.temporal.activities import (
     CheckAlertsInput,
     CheckAlertsOutput,
     CohortManifest,
     DiscoverCohortsInput,
     DiscoverCohortsOutput,
+    EmitAlertSignalsInput,
     EvaluateCohortBatchInput,
     EvaluateCohortBatchOutput,
 )
@@ -125,3 +127,111 @@ async def test_workflow_isolates_per_batch_failure() -> None:
     # Failed batch: 2 cohorts × 2 alerts = 4 alerts counted as errored.
     assert result.alerts_checked == 4
     assert result.alerts_errored == 4
+
+
+def _single_manifest() -> list[CohortManifest]:
+    return [
+        CohortManifest(
+            team_id=1,
+            projection_eligible=True,
+            date_to_iso="2026-05-05T10:05:00+00:00",
+            alert_ids=["x"],
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_workflow_forwards_notified_alerts_to_emission_activity() -> None:
+    manifests = _single_manifest()
+
+    @activity.defn(name="discover_cohorts_activity")
+    async def fake_discover(_input: DiscoverCohortsInput) -> DiscoverCohortsOutput:
+        return DiscoverCohortsOutput(manifests=manifests, batch_size=20)
+
+    @activity.defn(name="evaluate_cohort_batch_activity")
+    async def fake_evaluate(input: EvaluateCohortBatchInput) -> EvaluateCohortBatchOutput:
+        return EvaluateCohortBatchOutput(
+            alerts_checked=1,
+            alerts_fired=1,
+            alerts_resolved=0,
+            alerts_errored=0,
+            notified=[
+                NotifiedAlert(
+                    alert_id="x",
+                    team_id=1,
+                    alert_name="A",
+                    action="firing",
+                    weight=1.0,
+                    threshold_count=1,
+                    threshold_operator="above",
+                    window_minutes=5,
+                    result_count=9,
+                    consecutive_failures=0,
+                    filters={},
+                )
+            ],
+        )
+
+    captured: dict = {}
+
+    @activity.defn(name="emit_alert_signals_activity")
+    async def fake_emit(input: EmitAlertSignalsInput) -> int:
+        captured["count"] = len(input.notified)
+        captured["action"] = input.notified[0].action
+        return len(input.notified)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=TASK_QUEUE,
+            workflows=[LogsAlertCheckWorkflow],
+            activities=[fake_discover, fake_evaluate, fake_emit],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                LogsAlertCheckWorkflow.run,
+                CheckAlertsInput(),
+                id=f"test-workflow-emit-signals-{uuid.uuid4()}",
+                task_queue=TASK_QUEUE,
+            )
+
+    assert captured["count"] == 1
+    assert captured["action"] == "firing"
+
+
+@pytest.mark.asyncio
+async def test_workflow_skips_emission_activity_when_no_alerts_notified() -> None:
+    manifests = _single_manifest()
+
+    @activity.defn(name="discover_cohorts_activity")
+    async def fake_discover(_input: DiscoverCohortsInput) -> DiscoverCohortsOutput:
+        return DiscoverCohortsOutput(manifests=manifests, batch_size=20)
+
+    @activity.defn(name="evaluate_cohort_batch_activity")
+    async def fake_evaluate(input: EvaluateCohortBatchInput) -> EvaluateCohortBatchOutput:
+        # No notified alerts this cycle.
+        return EvaluateCohortBatchOutput(alerts_checked=1, alerts_fired=0, alerts_resolved=0, alerts_errored=0)
+
+    emit_called = {"n": 0}
+
+    @activity.defn(name="emit_alert_signals_activity")
+    async def fake_emit(input: EmitAlertSignalsInput) -> int:
+        emit_called["n"] += 1
+        return 0
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=TASK_QUEUE,
+            workflows=[LogsAlertCheckWorkflow],
+            activities=[fake_discover, fake_evaluate, fake_emit],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                LogsAlertCheckWorkflow.run,
+                CheckAlertsInput(),
+                id=f"test-workflow-no-signals-{uuid.uuid4()}",
+                task_queue=TASK_QUEUE,
+            )
+
+    assert emit_called["n"] == 0

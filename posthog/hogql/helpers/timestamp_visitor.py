@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
 from posthog.hogql import ast
@@ -8,6 +8,24 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.errors import NotImplementedError
 from posthog.hogql.visitor import Visitor
+
+
+def parse_zoned_datetime_string(value: object) -> Optional[datetime]:
+    """Parse a datetime string that has an explicit timezone ('Z' or an offset); None if naive or invalid."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    try:
+        # Dates too close to datetime.min/max overflow when converted to another timezone.
+        parsed.astimezone(UTC)
+    except (OverflowError, ValueError):
+        return None
+    return parsed
 
 
 def is_simple_timestamp_field_expression(
@@ -93,6 +111,13 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
 
     def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
         return False
+
+    def visit_type_cast(self, node: ast.TypeCast) -> bool:
+        # a cast doesn't change whether the underlying expression is a timestamp field
+        return self.visit(node.expr)
+
+    def visit_try_cast(self, node: ast.TryCast) -> bool:
+        return self.visit(node.expr)
 
     def visit_and(self, node: ast.And) -> bool:
         return False
@@ -188,6 +213,13 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
     def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
         return False
 
+    def visit_type_cast(self, node: ast.TypeCast) -> bool:
+        # a cast of a constant is still a constant
+        return self.visit(node.expr)
+
+    def visit_try_cast(self, node: ast.TryCast) -> bool:
+        return self.visit(node.expr)
+
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         return self.visit(node.left) and self.visit(node.right)
 
@@ -275,6 +307,13 @@ class IsStartOfPeriodConstantVisitor(Visitor[bool], ABC):
 
     def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
         return False
+
+    def visit_type_cast(self, node: ast.TypeCast) -> bool:
+        # a cast doesn't change whether the underlying expression is a start-of-period constant
+        return self.visit(node.expr)
+
+    def visit_try_cast(self, node: ast.TryCast) -> bool:
+        return self.visit(node.expr)
 
     def visit_call(self, node: ast.Call) -> bool:
         # some functions just return a constant
@@ -419,6 +458,13 @@ class IsEndOfPeriodConstantVisitor(Visitor[bool], ABC):
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         return False
+
+    def visit_type_cast(self, node: ast.TypeCast) -> bool:
+        # a cast doesn't change whether the underlying expression is an end-of-period constant
+        return self.visit(node.expr)
+
+    def visit_try_cast(self, node: ast.TryCast) -> bool:
+        return self.visit(node.expr)
 
     def visit_call(self, node: ast.Call) -> bool:
         # there's no toEndOfDay function, so we're just checking the constant itself

@@ -222,7 +222,14 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     className
                 )}
                 aria-disabled={disabled || !!disabledReason}
-                onClick={() => focus()}
+                onClick={(event) => {
+                    // Native segmented inputs (notably `type="time"` in Safari) reset to their
+                    // first segment when focused again. The input already handles its own clicks;
+                    // only focus it when the surrounding input chrome was clicked.
+                    if (event.target !== internalInputRef.current) {
+                        focus()
+                    }
+                }}
                 ref={ref}
             >
                 {prefix}
@@ -230,7 +237,9 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     className="LemonInput__input"
                     ref={mergedInputRef}
                     type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
-                    value={value}
+                    // A cleared controlled number input holds NaN; pass '' so the input stays
+                    // controlled instead of feeding NaN to the DOM (undefined stays uncontrolled)
+                    value={type === 'number' && typeof value === 'number' && Number.isNaN(value) ? '' : value}
                     disabled={disabled || !!disabledReason}
                     onChange={(event) => {
                         if (stopPropagation) {

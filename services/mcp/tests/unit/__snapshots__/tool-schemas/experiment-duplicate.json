@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "feature_flag_key": {
+            "description": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A unique integer value identifying this experiment.",
+            "type": "number"
+        },
+        "name": {
+            "description": "Name of the experiment.",
+            "maxLength": 400,
+            "type": "string"
+        }
+    },
+    "required": ["id", "name", "feature_flag_key"],
+    "type": "object"
+}

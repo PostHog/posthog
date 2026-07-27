@@ -24,7 +24,7 @@ import {
     confirmArchiveExperiment,
     confirmDeleteExperiment,
 } from '~/scenes/experiments/experimentActions'
-import { FinishExperimentModal } from '~/scenes/experiments/ExperimentView/components'
+import { FinishExperimentModal } from '~/scenes/experiments/ExperimentView/ExperimentModals'
 import { modalsLogic } from '~/scenes/experiments/modalsLogic'
 import { AccessControlLevel, AccessControlResourceType, ExperimentStatus } from '~/types'
 
@@ -50,7 +50,8 @@ export function LegacyPageHeader(): JSX.Element {
     const canArchive = canEdit && canArchiveExperiment(experiment)
     const canDelete = canEdit
 
-    const handleArchive = (): void => confirmArchiveExperiment(() => archiveExperiment())
+    const handleArchive = (): void =>
+        confirmArchiveExperiment(experiment, (disableFlag) => archiveExperiment(disableFlag))
     const handleDelete = (): void =>
         confirmDeleteExperiment({
             projectId: currentProjectId,

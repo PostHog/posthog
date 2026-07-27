@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { isActorsQuery, isEventsQuery, isGroupsQuery, isSessionsQuery } from '~/queries/utils'

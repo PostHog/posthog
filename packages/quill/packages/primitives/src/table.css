@@ -1,0 +1,310 @@
+/* stylelint-disable selector-class-pattern -- descendant/attr selectors fall outside strict BEM */
+@layer components {
+    /* =========================================================================
+       Root — non-scrolling wrapper. Sizing (`className`: height, width, border,
+       radius) lands here; it clips the viewport and hosts the fixed edge-shadow
+       overlays (a pseudo inside the scroller would scroll away).
+       ========================================================================= */
+    .quill-table__root {
+        /* Edge-shadow colour. Black-on-near-black is invisible, so dark mode
+           needs a much stronger alpha. */
+        --tbl-edge-shadow: rgb(0 0 0 / 12%);
+
+        /* Generic viewport-edge shadows, toggled per edge below. */
+        --tbl-shadow-top: 0 0 0 0 transparent;
+        --tbl-shadow-right: 0 0 0 0 transparent;
+        --tbl-shadow-bottom: 0 0 0 0 transparent;
+        --tbl-shadow-left: 0 0 0 0 transparent;
+
+        position: relative;
+        width: 100%;
+
+        /* `clip` (not `hidden`) clips the rounded corners *without* establishing
+           a scroll container, so a `stickyHeader="page"` header can still escape
+           to the document scroll while corners stay clipped. */
+        overflow: clip;
+    }
+
+    .dark .quill-table__root {
+        --tbl-edge-shadow: rgb(0 0 0 / 55%);
+    }
+
+    /* Viewport — owns the scroll; fills the root. */
+    .quill-table__viewport {
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+    }
+
+    /* Page-sticky mode: the header sticks to document scroll, so the viewport must
+       not establish a scroll container. (Root stays `overflow: clip` — it clips
+       without becoming a scroll container, so it doesn't capture the sticky.) */
+    .quill-table__root[data-page-sticky] .quill-table__viewport {
+        overflow: visible;
+    }
+
+    /* Two pseudos stack inset shadows at the four edges; ::before = start edges
+       (top/left), ::after = end edges (right/bottom). Inset so they hug the
+       viewport edge; on the root (non-scrolling) they stay put while scrolling. */
+    .quill-table__root::before,
+    .quill-table__root::after {
+        position: absolute;
+        inset: 0;
+        z-index: 4;
+        pointer-events: none;
+        content: '';
+        border-radius: inherit;
+        transition: box-shadow 0.2s ease;
+    }
+
+    .quill-table__root::before {
+        box-shadow: var(--tbl-shadow-top), var(--tbl-shadow-left);
+    }
+
+    .quill-table__root::after {
+        box-shadow: var(--tbl-shadow-right), var(--tbl-shadow-bottom);
+    }
+
+    /* Right/bottom are always generic. Left/top defer to the frozen column/header
+       shadow when one exists (it sits beside the frozen edge, not over it). */
+    .quill-table__root[data-scroll-right]:not(
+            :has(.quill-table__cell[data-sticky='right'], .quill-table__head[data-sticky='right'])
+        ) {
+        --tbl-shadow-right: inset -16px 0 16px -16px var(--tbl-edge-shadow);
+    }
+
+    .quill-table__root[data-scroll-bottom] {
+        --tbl-shadow-bottom: inset 0 -16px 16px -16px var(--tbl-edge-shadow);
+    }
+
+    .quill-table__root[data-scroll-left]:not(
+            :has(.quill-table__cell[data-sticky='left'], .quill-table__head[data-sticky='left'])
+        ) {
+        --tbl-shadow-left: inset 16px 0 16px -16px var(--tbl-edge-shadow);
+    }
+
+    .quill-table__root[data-scroll-top]:not(:has(.quill-table[data-sticky-header])) {
+        --tbl-shadow-top: inset 0 16px 16px -16px var(--tbl-edge-shadow);
+    }
+
+    .quill-table {
+        /* max-content lets the table outgrow the viewport → horizontal scroll;
+           min-width 100% keeps it filling when content is narrow. */
+        width: max-content;
+        min-width: 100%;
+        font-size: var(--text-xs, 0.75rem);
+        line-height: var(--text-xs--line-height, 1rem);
+        color: var(--foreground);
+        text-align: left;
+        caption-side: bottom;
+        border-spacing: 0;
+        border-collapse: separate;
+    }
+
+    /* Full-width: fill the container exactly (no horizontal scroll). The auto
+       layout spreads any slack across columns unless one opts in via `expand`. */
+    .quill-table[data-full-width] {
+        width: 100%;
+    }
+
+    /* The expand column claims the leftover width; siblings collapse toward their
+       content. `min-width: 0` lets the consumer truncate long content inside it
+       (add `truncate` on the cell's child). */
+    .quill-table__head[data-expand],
+    .quill-table__cell[data-expand] {
+        width: 100%;
+        min-width: 0;
+    }
+
+    /* =========================================================================
+       Head / body / footer rows
+       ========================================================================= */
+
+    /* Uppercase "label" header treatment: the quill Label look (500 weight, muted)
+       plus small-caps tracking. Applied at the cell so every header — text,
+       right-aligned, or an interactive button — gets it consistently. */
+    .quill-table__head {
+        height: 2.05rem;
+        padding-inline: 1rem;
+        font-size: var(--text-xxs, 0.625rem);
+        font-weight: 500;
+        color: var(--muted-foreground);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        white-space: nowrap;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .quill-table__cell {
+        padding-block: 0.5rem;
+        padding-inline: 1rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .quill-table__body .quill-table__row:last-child .quill-table__cell {
+        border-bottom: none;
+    }
+
+    /* `size="sm"`: tighten head/cell inline padding so the edge columns align with
+       a `Card size="sm"` (0.75rem inline). Block padding and the header's negative
+       button margin are unchanged. */
+    .quill-table[data-size='sm'] .quill-table__head,
+    .quill-table[data-size='sm'] .quill-table__cell {
+        padding-inline: 0.75rem;
+    }
+
+    /* Full-span empty cell. height:100% claims the lone body row's height (which
+       fills a height-bounded Table), and the inner flex column resolves that
+       height so children — including Empty's own flex-1 — stretch and center.
+       With an auto-height table it collapses to its content instead. */
+    .quill-table__empty {
+        height: 100%;
+    }
+
+    /* Empty already sits inside the table's own border, so drop its dashed frame. */
+    .quill-table__empty [data-slot='empty'] {
+        border: none;
+    }
+
+    .quill-table__empty-inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+    }
+
+    .quill-table__row:hover .quill-table__cell {
+        background-color: color-mix(in oklab, var(--muted) 40%, var(--background));
+    }
+
+    .quill-table__row[data-state='selected'] .quill-table__cell {
+        background-color: color-mix(in oklab, var(--primary) 12%, var(--background));
+    }
+
+    .quill-table__footer .quill-table__cell {
+        font-weight: 500;
+        background-color: color-mix(in oklab, var(--muted) 30%, var(--background));
+        border-top: 1px solid var(--border);
+        border-bottom: none;
+    }
+
+    .quill-table__caption {
+        padding-top: 0.5rem;
+        color: var(--muted-foreground);
+    }
+
+    /* =========================================================================
+       Intra-cell alignment — `align` (horizontal) / `valign` (vertical) on
+       TableHead / TableCell. Default (no attr) is left / middle. `text-align`
+       also positions an inline-flex header Button, so right-aligned interactive
+       headers push their label to the cell's end.
+       ========================================================================= */
+    .quill-table__head[data-align='left'],
+    .quill-table__cell[data-align='left'] {
+        text-align: left;
+    }
+
+    .quill-table__head[data-align='center'],
+    .quill-table__cell[data-align='center'] {
+        text-align: center;
+    }
+
+    .quill-table__head[data-align='right'],
+    .quill-table__cell[data-align='right'] {
+        text-align: right;
+    }
+
+    .quill-table__head[data-valign='top'],
+    .quill-table__cell[data-valign='top'] {
+        vertical-align: top;
+    }
+
+    .quill-table__head[data-valign='middle'],
+    .quill-table__cell[data-valign='middle'] {
+        vertical-align: middle;
+    }
+
+    .quill-table__head[data-valign='bottom'],
+    .quill-table__cell[data-valign='bottom'] {
+        vertical-align: bottom;
+    }
+
+    /* Interactive header: the whole label is a button. It inherits the head's
+       label typography (uppercase, tracked, muted, xxs) so it matches plain
+       headers instead of rendering at the button's own font; utilities in JSX
+       still override (e.g. the selected-sort colour). The negative inline margin
+       aligns the label with plain headers and lets the hover background bleed
+       into the cell padding without shifting layout. */
+    .quill-table__head > [data-slot='button'] {
+        margin-inline: -0.5rem;
+        font-size: inherit;
+        font-weight: inherit;
+        color: inherit;
+        text-transform: inherit;
+        letter-spacing: inherit;
+    }
+
+    /* =========================================================================
+       Sticky header + columns. Frozen edges are delineated by borders only; the
+       generic viewport-edge shadows above still signal off-screen overflow.
+       ========================================================================= */
+
+    /* Sticky cells get an opaque background or scrolled-under content bleeds
+       through; plain cells stay transparent. The background is inherited, so set
+       `--quill-table-sticky-bg` on the Table (or any ancestor) to match a
+       non-default surface, e.g. `var(--card)` inside a Card; it falls back to the
+       app background. The fallback lives here (not as a re-declaration on
+       `.quill-table`) so an override on the outer container still inherits down. */
+
+    /* --- Sticky header --- */
+    .quill-table[data-sticky-header] .quill-table__head {
+        position: sticky;
+        top: var(--quill-table-sticky-top, 0);
+        z-index: 2;
+        background-color: var(--quill-table-sticky-bg, var(--background));
+    }
+
+    /* --- Sticky columns — sticky="left" | "right" on TableHead / TableCell.
+       Default offset 0; for a second sticky column set `left`/`right` via
+       inline style or className to clear the previous one's width. --- */
+    .quill-table__head[data-sticky],
+    .quill-table__cell[data-sticky] {
+        position: sticky;
+        z-index: 1;
+        background-color: var(--quill-table-sticky-bg, var(--background));
+    }
+
+    .quill-table__head[data-sticky='left'],
+    .quill-table__cell[data-sticky='left'] {
+        left: 0;
+        border-right: 1px solid var(--border);
+    }
+
+    .quill-table__head[data-sticky='right'],
+    .quill-table__cell[data-sticky='right'] {
+        right: 0;
+        border-left: 1px solid var(--border);
+    }
+
+    /* Divider on the inner side of a non-edge frozen column lives on the NEIGHBOUR
+       cell, not the frozen cell itself: when the column is stuck against the table
+       edge, the neighbour (and its border) scrolls under it instead of doubling up
+       with the container border. When the column is first/last there is no
+       neighbour, so nothing is drawn — the container edge is the boundary. */
+    .quill-table__cell:has(+ .quill-table__cell[data-sticky='left']),
+    .quill-table__head:has(+ .quill-table__head[data-sticky='left']) {
+        border-right: 1px solid var(--border);
+    }
+
+    .quill-table__cell[data-sticky='right'] + .quill-table__cell,
+    .quill-table__head[data-sticky='right'] + .quill-table__head {
+        border-left: 1px solid var(--border);
+    }
+
+    /* Sticky header cell that is also a sticky column must outrank both. */
+    .quill-table[data-sticky-header] .quill-table__head[data-sticky] {
+        z-index: 3;
+    }
+}

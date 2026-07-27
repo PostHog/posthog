@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO posthog_person (uuid, team_id, properties, created_at, version, is_identified)\n                SELECT u.uuid, $2, '{}'::jsonb, NOW(), $3, false\n                FROM unnest($1::uuid[]) AS u(uuid)\n                RETURNING id::bigint as \"id!\", uuid as \"uuid!\", created_at as \"created_at!\"\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "48780a58f81dbb31f71b263d4271cecf1fb67899ed62ee8e5cde7a81412a4d15"
+}

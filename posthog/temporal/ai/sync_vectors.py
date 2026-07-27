@@ -18,11 +18,12 @@ from openai import APIError as OpenAIAPIError
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Action
 from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
 from posthog.temporal.common.utils import get_scheduled_start_time
+
+from products.actions.backend.models.action import Action
 
 from ee.hogai.summarizers.chains import abatch_summarize_actions
 from ee.hogai.utils.embeddings import aembed_documents, get_async_azure_embeddings_client

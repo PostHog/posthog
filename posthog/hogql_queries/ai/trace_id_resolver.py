@@ -65,7 +65,7 @@ def resolve_trace_ids_for_generation_uuids(
         WHERE event = '$ai_generation'
             AND timestamp >= {ts_start}
             AND timestamp < {ts_end}
-            AND toString(uuid) IN {uuids}
+            AND uuid IN {uuids}
         """
     )
 
@@ -76,7 +76,7 @@ def resolve_trace_ids_for_generation_uuids(
             placeholders={
                 "ts_start": ast.Constant(value=ts_start),
                 "ts_end": ast.Constant(value=ts_end),
-                "uuids": ast.Array(exprs=[ast.Constant(value=u) for u in generation_uuids]),
+                "uuids": ast.Tuple(exprs=[ast.Constant(value=u) for u in generation_uuids]),
             },
             team=team,
         )

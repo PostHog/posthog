@@ -27,9 +27,6 @@ describe('featureFlagTemplatesSceneLogic', () => {
             { name: 'sets template to blank', template: 'blank' as const },
             { name: 'resets template to null', template: null },
         ])('$name', async ({ template }) => {
-            enabledFeaturesLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.FEATURE_FLAGS_V2]: true,
-            })
             logic = featureFlagTemplatesSceneLogic()
             logic.mount()
 
@@ -47,9 +44,7 @@ describe('featureFlagTemplatesSceneLogic', () => {
             { name: 'false when feature flag is off', flagValue: false, expected: false },
             { name: 'false when feature flag is absent', flagValue: undefined, expected: false },
         ])('$name', async ({ flagValue, expected }) => {
-            const flags: Record<string, boolean> = {
-                [FEATURE_FLAGS.FEATURE_FLAGS_V2]: true,
-            }
+            const flags: Record<string, boolean> = {}
             if (flagValue !== undefined) {
                 flags[FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS] = flagValue
             }
@@ -63,32 +58,39 @@ describe('featureFlagTemplatesSceneLogic', () => {
         })
     })
 
-    describe('afterMount redirect', () => {
-        it('redirects to new flag page when V2 is disabled', async () => {
-            enabledFeaturesLogic.actions.setFeatureFlags([], {})
+    describe('selectTemplate listener', () => {
+        function mountWithIntents(enabled: boolean): void {
+            enabledFeaturesLogic.actions.setFeatureFlags(
+                [],
+                enabled ? { [FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS]: true } : {}
+            )
             logic = featureFlagTemplatesSceneLogic()
             logic.mount()
+        }
 
-            await expectLogic(router).toMatchValues({
-                location: expect.objectContaining({
-                    pathname: expect.stringContaining('/feature_flags/new'),
-                }),
-            })
-        })
+        it.each([
+            { name: 'when intents are enabled', intentsEnabled: true },
+            { name: 'when intents are disabled', intentsEnabled: false },
+        ])(
+            'routes remote-config to the new flag via type, skipping the intent step $name',
+            async ({ intentsEnabled }) => {
+                mountWithIntents(intentsEnabled)
 
-        it('does not redirect when V2 is enabled', async () => {
-            enabledFeaturesLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.FEATURE_FLAGS_V2]: true,
-            })
-            const currentPath = router.values.location.pathname
-            logic = featureFlagTemplatesSceneLogic()
-            logic.mount()
+                logic.actions.selectTemplate('remote-config')
 
-            await expectLogic(router).toMatchValues({
-                location: expect.objectContaining({
-                    pathname: currentPath,
-                }),
-            })
+                await expectLogic(logic).toMatchValues({ selectedTemplate: null })
+                expect(router.values.location.pathname).toContain('/feature_flags/new')
+                expect(router.values.searchParams.type).toBe('remote_config')
+                expect(router.values.searchParams.template).toBeUndefined()
+            }
+        )
+
+        it('shows the intent step for a non-remote-config template when intents are enabled', async () => {
+            mountWithIntents(true)
+
+            logic.actions.selectTemplate('targeted')
+
+            await expectLogic(logic).toMatchValues({ selectedTemplate: 'targeted' })
         })
     })
 })

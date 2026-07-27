@@ -1,8 +1,10 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.column_configuration import ColumnConfigurationSerializer
 from posthog.models import ColumnConfiguration, User
 
 
@@ -128,7 +130,7 @@ class TestColumnConfigurationAPI(APIBaseTest):
     def test_user_can_only_edit_their_views(self):
         another_config = ColumnConfiguration.objects.create(
             team=self.team,
-            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            visibility=ColumnConfiguration.Visibility.SHARED,
             context_key="context-key",
             columns=["*", "person", "timestamp"],
             created_by=self.another_user,
@@ -144,7 +146,7 @@ class TestColumnConfigurationAPI(APIBaseTest):
     def test_user_can_only_delete_their_views(self):
         another_config = ColumnConfiguration.objects.create(
             team=self.team,
-            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            visibility=ColumnConfiguration.Visibility.SHARED,
             context_key="context-key",
             columns=["*", "person", "timestamp"],
             created_by=self.another_user,
@@ -156,6 +158,41 @@ class TestColumnConfigurationAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "You do not have permission to change this view"
+
+    def test_list_without_context_key_excludes_others_private_views(self):
+        ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*"],
+            created_by=self.another_user,
+        )
+        own = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*"],
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/column_configurations/")
+
+        assert response.status_code == status.HTTP_200_OK
+        ids = {row["id"] for row in response.json()["results"]}
+        assert ids == {str(own.id)}
+
+    def test_cannot_retrieve_another_users_private_view(self):
+        another_config = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*"],
+            created_by=self.another_user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/column_configurations/{str(another_config.id)}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_update_via_patch(self):
         create_response = self.client.post(
@@ -319,6 +356,132 @@ class TestColumnConfigurationAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["order_by"] == ["person.created_at ASC"]
+
+    def test_create_with_properties(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/column_configurations/",
+            {
+                "context_key": "customer_analytics_accounts_columns",
+                "columns": ["name"],
+                "properties": {"tiles": [{"id": "t1", "label": "Accounts", "metric": {"type": "count"}}]},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["properties"] == {
+            "tiles": [{"id": "t1", "label": "Accounts", "metric": {"type": "count"}}]
+        }
+
+    def test_properties_defaults_to_empty_dict(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/column_configurations/",
+            {"context_key": "survey:123", "columns": ["*"]},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["properties"] == {}
+
+    def test_update_properties(self):
+        config = ColumnConfiguration.objects.create(
+            team=self.team,
+            created_by=self.user,
+            context_key="customer_analytics_accounts_columns",
+            columns=["name"],
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/column_configurations/{config.id}/",
+            {"properties": {"tiles": [{"id": "t2", "label": "MRR", "metric": {"type": "count"}}]}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["properties"]["tiles"][0]["id"] == "t2"
+
+    def test_properties_must_be_an_object(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/column_configurations/",
+            {"context_key": "survey:123", "columns": ["*"], "properties": ["not", "a", "dict"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == "properties must be an object"
+
+    def test_update_properties_must_be_an_object(self):
+        config = ColumnConfiguration.objects.create(
+            team=self.team,
+            created_by=self.user,
+            context_key="customer_analytics_accounts_columns",
+            columns=["name"],
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/column_configurations/{config.id}/",
+            {"properties": ["not", "a", "dict"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "properties must be an object",
+            "attr": "properties",
+        }
+
+    def test_legacy_null_filters_serialize_as_empty_list(self):
+        # Rows predating the filters-as-list normalization can carry a SQL NULL in `filters`.
+        config = ColumnConfiguration.objects.create(
+            team=self.team, context_key="people-list", columns=["*"], filters=None
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/column_configurations/{config.id}/",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["filters"] == []
+
+    def test_unexpected_error_on_list_is_captured_with_context(self):
+        ColumnConfiguration.objects.create(
+            team=self.team, context_key="ck", columns=["*"], visibility=ColumnConfiguration.Visibility.SHARED
+        )
+
+        with patch("posthog.api.column_configuration.capture_exception") as mock_capture:
+            with patch.object(ColumnConfigurationSerializer, "to_representation", side_effect=ValueError("boom")):
+                # Depending on DEBUG the handler either renders a 500 or re-raises; either way
+                # capture runs first, so tolerate both to keep the test environment-independent.
+                try:
+                    self.client.get(f"/api/environments/{self.team.id}/column_configurations/", {"context_key": "ck"})
+                except ValueError:
+                    pass
+
+        mock_capture.assert_called_once()
+        properties = mock_capture.call_args.kwargs["additional_properties"]
+        assert properties["endpoint"] == "column_configurations"
+        assert properties["action"] == "list"
+        assert properties["team_id"] == self.team.id
+        assert properties["user_id"] == self.user.pk
+        assert properties["context_key"] == "ck"
+
+    def test_expected_api_errors_are_not_captured(self):
+        # A 404 for another user's private view must not be reported as a server fault,
+        # otherwise every permission/not-found response would flood error tracking.
+        another_config = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*"],
+            created_by=self.another_user,
+        )
+
+        with patch("posthog.api.column_configuration.capture_exception") as mock_capture:
+            response = self.client.get(f"/api/environments/{self.team.id}/column_configurations/{another_config.id}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_capture.assert_not_called()
 
     def test_team_isolation(self):
         other_team = self.organization.teams.create(name="Other Team")

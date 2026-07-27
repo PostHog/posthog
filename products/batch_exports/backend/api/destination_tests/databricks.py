@@ -50,7 +50,7 @@ class DatabricksTestStep(DestinationTestStep):
         self.table_name = table_name
 
     @contextlib.asynccontextmanager
-    async def connect(self) -> AsyncGenerator[DatabricksClient, None]:
+    async def connect(self) -> AsyncGenerator[DatabricksClient]:
         assert self.server_hostname is not None
         assert self.http_path is not None
         assert self.client_id is not None

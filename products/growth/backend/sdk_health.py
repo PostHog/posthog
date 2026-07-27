@@ -1,37 +1,30 @@
 """
-SDK Doctor health assessment.
+SDK Health health assessment.
 
-Ports the outdatedness detection logic from frontend/src/scenes/onboarding/sdks/sdkDoctorLogic.tsx
-so the backend can return a pre-digested health report for MCP / agent consumption.
+The single source of truth for SDK outdatedness detection. Consumed by:
+  - the `sdk_outdated` Temporal health check (alerts / HealthIssue rows),
+  - the SDK Health report endpoint (posthog/api/sdk_health.py), which the SDK Health UI and the
+    SDK Health MCP tool both read.
 
-Keep constants and thresholds in sync with the frontend's DEVICE_CONTEXT_CONFIG,
-SIGNIFICANT_TRAFFIC_THRESHOLD_*, GRACE_PERIOD_DAYS, SINGLE_VERSION_GRACE_PERIOD_DAYS,
-and SDK_FRESHNESS_GRACE_PERIOD_DAYS.
+The frontend renders these pre-computed values.
 """
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
-from json import (
-    dumps as json_dumps,
-    loads as json_loads,
-)
+from datetime import UTC, datetime
+from json import dumps as json_dumps
 from math import ceil
 from re import (
     Pattern,
     compile as re_compile,
 )
-from typing import Any, Literal, Optional
+from typing import Any, Literal, NamedTuple, Optional
 from urllib.parse import quote
 
 import humanize
-from redis.exceptions import RedisError
 
-from posthog.cache_utils import cache_for
-from posthog.redis import get_client
+from products.growth.backend.constants import LEGACY_JAVA_SDK, SdkVersionEntry
 
-from products.growth.backend.constants import SDK_TYPES, github_sdk_versions_key
-
-# --- SDK classification ----------------------------------------------------
+# --- SDK classification --------------------
 
 MOBILE_SDKS: frozenset[str] = frozenset(
     {
@@ -39,6 +32,7 @@ MOBILE_SDKS: frozenset[str] = frozenset(
         "posthog-android",
         "posthog-flutter",
         "posthog-react-native",
+        "posthog-kmp",
     }
 )
 
@@ -50,6 +44,7 @@ DESKTOP_SDKS: frozenset[str] = frozenset(
         "posthog-php",
         "posthog-ruby",
         "posthog-go",
+        "posthog-server",
         "posthog-dotnet",
         "posthog-elixir",
     }
@@ -65,13 +60,17 @@ SDK_READABLE_NAME: dict[str, str] = {
     "posthog-php": "PHP",
     "posthog-ruby": "Ruby",
     "posthog-go": "Go",
+    LEGACY_JAVA_SDK: "Java (legacy)",
+    "posthog-server": "Java",
     "posthog-flutter": "Flutter",
     "posthog-react-native": "React Native",
+    "posthog-kmp": "Kotlin Multiplatform",
     "posthog-dotnet": ".NET",
     "posthog-elixir": "Elixir",
 }
 
-# --- Thresholds (mirrored from sdkDoctorLogic.tsx) -------------------------
+
+# --- Thresholds ----------------------------
 
 # Age-based outdatedness thresholds in weeks (desktop=4mo, mobile=6mo)
 AGE_THRESHOLD_DESKTOP_WEEKS = 16
@@ -93,7 +92,7 @@ SIGNIFICANT_TRAFFIC_THRESHOLD_DEFAULT = 0.1
 MINOR_VERSIONS_BEHIND_THRESHOLD = 3
 MINOR_AGE_THRESHOLD_DAYS = 180
 
-# --- Types ------------------------------------------------------------------
+# --- Types ----------------------------------
 
 Severity = Literal["none", "warning", "danger"]
 OverallHealth = Literal["healthy", "needs_attention"]
@@ -170,6 +169,7 @@ class SdkAssessment:
     needs_updating: bool
     is_outdated: bool
     is_old: bool
+    migration_required: bool
     severity: Severity
     reason: str
     banners: list[str] = field(default_factory=list)
@@ -224,6 +224,46 @@ def try_parse_version(version: str) -> Optional[SemanticVersion]:
         return None
 
 
+class _SdkVersionSortKey(NamedTuple):
+    is_valid: bool
+    major: int
+    minor: int
+    patch: int
+    is_stable: bool
+    extra: str
+    event_count: int
+
+
+def _sdk_version_sort_key(entry: SdkVersionEntry) -> _SdkVersionSortKey:
+    raw_version = entry["lib_version"]
+    version = try_parse_version(raw_version) if raw_version else None
+    if version is None:
+        return _SdkVersionSortKey(
+            is_valid=False,
+            major=0,
+            minor=0,
+            patch=0,
+            is_stable=False,
+            extra="",
+            event_count=entry["count"],
+        )
+
+    return _SdkVersionSortKey(
+        is_valid=True,
+        major=version.major,
+        minor=version.minor or 0,
+        patch=version.patch or 0,
+        is_stable=version.extra is None,
+        extra=version.extra or "",
+        event_count=entry["count"],
+    )
+
+
+def sort_sdk_version_entries(entries: list[SdkVersionEntry]) -> list[SdkVersionEntry]:
+    """Order SDK usage consistently for scheduled and request-time scans."""
+    return sorted(entries, key=_sdk_version_sort_key, reverse=True)
+
+
 def diff_versions(a: SemanticVersion, b: SemanticVersion) -> Optional[SemanticVersionDiff]:
     """Return the first-differing component as a kind+diff, or None if equal."""
     if a.major != b.major:
@@ -243,7 +283,7 @@ def diff_versions(a: SemanticVersion, b: SemanticVersion) -> Optional[SemanticVe
     return None
 
 
-# --- Age / device helpers --------------------------------------------------
+# --- Age / device helpers ------------------
 
 
 def _calculate_version_age_days(release_date_iso: str, now: Optional[datetime] = None) -> int:
@@ -256,48 +296,6 @@ def _calculate_version_age_days(release_date_iso: str, now: Optional[datetime] =
         current = current.replace(tzinfo=UTC)
     seconds = (current - release).total_seconds()
     return int(seconds // 86400)
-
-
-def _decode_redis_json(raw: bytes | str) -> dict:
-    return json_loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
-
-
-def _load_github_sdk_data() -> dict[str, dict]:
-    """Load latest SDK versions from Redis for all known SDK types."""
-    redis_client = get_client()
-    keys = [github_sdk_versions_key(sdk_type) for sdk_type in SDK_TYPES]
-    values = redis_client.mget(keys)
-
-    data: dict[str, dict] = {}
-    for sdk_type, raw in zip(SDK_TYPES, values):
-        if not raw:
-            continue
-        parsed = _decode_redis_json(raw)
-        if "latestVersion" in parsed:
-            data[sdk_type] = parsed
-    return data
-
-
-SDK_FRESHNESS_GRACE_PERIOD_DAYS = 7
-
-
-@cache_for(timedelta(seconds=60))
-def sdks_within_freshness_grace_period() -> set[str]:
-    """Return SDK names whose latest published version is younger than the grace period."""
-    try:
-        github_data = _load_github_sdk_data()
-    except (RedisError, ValueError, TypeError):
-        return set()
-
-    fresh: set[str] = set()
-    for sdk_type, data in github_data.items():
-        try:
-            release_date = (data.get("releaseDates") or {}).get(data["latestVersion"])
-            if release_date and _calculate_version_age_days(release_date) < SDK_FRESHNESS_GRACE_PERIOD_DAYS:
-                fresh.add(sdk_type)
-        except (ValueError, TypeError, AttributeError):
-            continue
-    return fresh
 
 
 def _device_context(sdk_type: str) -> Literal["mobile", "desktop", "mixed"]:
@@ -330,26 +328,26 @@ def _released_ago(release_date_iso: Optional[str], now: Optional[datetime] = Non
     return humanize.naturaltime(current - release)
 
 
-# --- UI-parity string/URL builders -----------------------------------------
+# --- UI-facing string/URL builders ---------
 #
-# These mirror the copy and link construction in
-# frontend/src/scenes/onboarding/sdks/SdkDoctorComponents.tsx and
-# frontend/src/scenes/onboarding/sdks/SdkDoctorScene.tsx.
-# Keep these in sync when UI copy or the Activity/SQL URL shape changes.
+# The SDK Health UI (frontend/src/scenes/onboarding/sdks/) renders these strings/URLs verbatim
+# from the report endpoint, so this is the single place the copy and Activity/SQL links are built.
 
 
 def _build_status_reason(is_outdated: bool, is_current_or_newer: bool, released_ago: Optional[str]) -> str:
     """
-    Per-version tooltip text mirroring the three badge states in SdkDoctorComponents.tsx:149-196.
+    Per-version status text for the three badge states (Outdated / Current / Recent).
 
     - Outdated (danger): "Released {ago}. Upgrade recommended." or "Upgrade recommended"
-    - Current (success): "You have the latest available. Click 'Releases ↗' above to check for any since."
+    - Current (success): "You have the latest available."
     - Recent  (warning): "Released {ago}. Upgrading is a good idea, but it's not urgent yet." (or without prefix)
+
+    This value is persisted into HealthIssue payloads and forwarded to alert destinations / MCP.
     """
     if is_outdated:
         return f"Released {released_ago}. Upgrade recommended." if released_ago else "Upgrade recommended"
     if is_current_or_newer:
-        return "You have the latest available. Click 'Releases ↗' above to check for any since."
+        return "You have the latest available."
     if released_ago:
         return f"Released {released_ago}. Upgrading is a good idea, but it's not urgent yet."
     return "Upgrading is a good idea, but it's not urgent yet"
@@ -366,41 +364,53 @@ def _is_safe_for_interpolation(value: str) -> bool:
     return bool(value) and bool(_SAFE_INTERPOLATION_RE.match(value))
 
 
-def _build_sql_query(sdk_type: str, version: str) -> str:
+def _build_sql_query(sdk_type: str, version: Optional[str]) -> str:
     """
-    Matches queryForSdkVersion() in SdkDoctorComponents.tsx.
+    SQL drill-in for SDK usage, rendered as-is by the SDK Health UI and MCP tool.
 
-    Returns an empty string when either `sdk_type` or `version` fails validation —
-    the skill instructs agents to surface the unexpected empty value rather than retry
+    Returns an empty string when `sdk_type` or a supplied `version` fails validation.
+    The skill instructs agents to surface the unexpected empty value rather than retry
     or patch in their own values, which closes the injection path via execute-sql.
     """
-    if not _is_safe_for_interpolation(sdk_type) or not _is_safe_for_interpolation(version):
+    if not _is_safe_for_interpolation(sdk_type):
         return ""
+    if version is not None and not _is_safe_for_interpolation(version):
+        return ""
+
     # Plain string interpolation (NOT parameterized) is intentional: the allowlist above
     # is the single security boundary for this surface. A well-meaning "fix" to use
     # psycopg.sql.SQL or similar would produce the wrong string for ClickHouse/HogQL, and
     # `posthog:execute-sql` parameterizes on its end anyway. The MCP agent receives the
     # raw SQL as a string to display or pipe to execute-sql — not as a prepared statement.
+    version_filter = f" AND properties.$lib_version = '{version}'" if version is not None else ""
     return (
         "SELECT * FROM events WHERE timestamp >= NOW() - INTERVAL 7 DAY "
-        f"AND properties.$lib = '{sdk_type}' AND properties.$lib_version = '{version}' "
+        f"AND properties.$lib = '{sdk_type}'"
+        f"{version_filter} "
         "ORDER BY timestamp DESC LIMIT 50"
     )
 
 
-def _build_activity_page_url(project_id: Optional[int], sdk_type: str, version: str) -> str:
+def _build_activity_page_url(project_id: Optional[int], sdk_type: str, version: Optional[str]) -> str:
     """
-    Matches activityPageUrlForSdkVersion() in SdkDoctorComponents.tsx.
+    Activity > Explore drill-in URL for SDK usage, rendered as-is by the SDK Health UI and MCP tool.
 
     Returns a relative path (no host) including /project/<id>/ prefix so MCP agents
     can combine it with the user's known PostHog host (e.g. us.posthog.com).
 
-    Returns an empty string when either `sdk_type` or `version` fails validation —
-    consistent with _build_sql_query, keeps the pair either both-populated or
-    both-empty so the skill's "if empty, surface it" guidance applies uniformly.
+    Returns an empty string when `sdk_type` or a supplied `version` fails validation.
+    This is consistent with _build_sql_query and keeps the pair either both populated
+    or both empty so the skill's "if empty, surface it" guidance applies uniformly.
     """
-    if not _is_safe_for_interpolation(sdk_type) or not _is_safe_for_interpolation(version):
+    if not _is_safe_for_interpolation(sdk_type):
         return ""
+    if version is not None and not _is_safe_for_interpolation(version):
+        return ""
+
+    properties: list[dict[str, Any]] = [{"key": "$lib", "value": [sdk_type], "operator": "exact", "type": "event"}]
+    if version is not None:
+        properties.append({"key": "$lib_version", "value": [version], "operator": "exact", "type": "event"})
+
     query: dict[str, Any] = {
         "kind": "DataTableNode",
         "columns": [
@@ -426,10 +436,7 @@ def _build_activity_page_url(project_id: Optional[int], sdk_type: str, version: 
             ],
             "orderBy": ["timestamp DESC"],
             "after": "-7d",
-            "properties": [
-                {"key": "$lib", "value": [sdk_type], "operator": "exact", "type": "event"},
-                {"key": "$lib_version", "value": [version], "operator": "exact", "type": "event"},
-            ],
+            "properties": properties,
         },
         "context": {"type": "team_columns"},
         "allowSorting": True,
@@ -473,7 +480,7 @@ def _build_activity_page_url(project_id: Optional[int], sdk_type: str, version: 
 
 def _build_banner(sdk_type: str, alert: OutdatedTrafficAlert) -> str:
     """
-    Top-level alert text mirroring SdkDoctorScene.tsx's "Time for an update!" banner:
+    Top-level alert text mirroring SdkHealthScene.tsx's "Time for an update!" banner:
     "Version {ver} of the {Readable} SDK has captured more than {N}% of events in the last 7 days."
 
     Version is routed through `_safe_version_display` as defense in depth — the primary
@@ -493,7 +500,7 @@ def _build_banner(sdk_type: str, alert: OutdatedTrafficAlert) -> str:
     )
 
 
-# --- Core assessment -------------------------------------------------------
+# --- Core assessment -----------------------
 
 
 def assess_release(
@@ -639,12 +646,20 @@ def _build_reason(
     latest_version: str,
     outdated_traffic_alerts: list[OutdatedTrafficAlert],
 ) -> str:
-    """Short human-readable explanation for agents / UI."""
+    """Short human-readable explanation for agents / UI / alerts.
+
+    The single source of truth for "why is this flagged?": it always names the current
+    in-use version and, when older versions still taking significant traffic are what drove
+    the alert, the specific versions that triggered it. This keeps the string self-contained
+    for every consumer (SDK Health UI, MCP agents, alert destinations) — including the case
+    where the latest in-use version already matches latest but an older one is still served.
+    """
+    name = SDK_READABLE_NAME.get(sdk_type, sdk_type)
     current_version = _safe_version_display(current_release.version)
     latest = _safe_version_display(latest_version)
 
     if not current_release.needs_updating and not outdated_traffic_alerts:
-        return f"{sdk_type} is on {current_version} which matches or exceeds latest {latest}."
+        return f"{name} is on {current_version} which matches or exceeds latest {latest}."
 
     pieces: list[str] = []
     if current_release.is_outdated:
@@ -658,13 +673,61 @@ def _build_reason(
         pieces.append(
             f"In-use version {current_version} is old ({current_release.days_since_release} days since release)."
         )
+    else:
+        # The latest in-use version is fine; the alert is driven entirely by older versions
+        # still taking traffic. State it so the reason stands on its own rather than reading
+        # as "outdated" while current and latest are the same.
+        pieces.append(f"Latest in-use version {current_version} matches latest {latest}.")
 
     if outdated_traffic_alerts:
         versions = ", ".join(_safe_version_display(a.version) for a in outdated_traffic_alerts)
         threshold = outdated_traffic_alerts[0].threshold_percent
-        pieces.append(f"Outdated versions handling >= {threshold:.0f}% of traffic: {versions}.")
+        pieces.append(f"Outdated versions still handling >= {threshold:.0f}% of traffic: {versions}.")
 
-    return " ".join(pieces) if pieces else f"{sdk_type} may need attention."
+    return " ".join(pieces) if pieces else f"{name} may need attention."
+
+
+LEGACY_JAVA_VERSION_LABEL = "Not reported"
+LEGACY_JAVA_MIGRATION_REASON = (
+    "The com.posthog.java:posthog SDK has been archived. Migrate to com.posthog:posthog-server."
+)
+
+
+def _assess_legacy_java_sdk(
+    latest_version: str,
+    usage: list[dict[str, Any]],
+    project_id: Optional[int] = None,
+) -> SdkAssessment:
+    """Represent the archived Java SDK without inventing version metadata it never sent."""
+    release = ReleaseAssessment(
+        version=LEGACY_JAVA_VERSION_LABEL,
+        count=sum(int(entry.get("count", 0)) for entry in usage),
+        max_timestamp=max((str(entry.get("max_timestamp") or "") for entry in usage), default=""),
+        release_date=None,
+        days_since_release=None,
+        released_ago=None,
+        is_outdated=True,
+        is_old=False,
+        needs_updating=True,
+        is_current_or_newer=False,
+        status_reason=LEGACY_JAVA_MIGRATION_REASON,
+        sql_query=_build_sql_query(LEGACY_JAVA_SDK, None),
+        activity_page_url=_build_activity_page_url(project_id, LEGACY_JAVA_SDK, None),
+    )
+    return SdkAssessment(
+        lib=LEGACY_JAVA_SDK,
+        readable_name=SDK_READABLE_NAME[LEGACY_JAVA_SDK],
+        latest_version=latest_version,
+        needs_updating=True,
+        is_outdated=True,
+        is_old=False,
+        migration_required=True,
+        severity="warning",
+        reason=LEGACY_JAVA_MIGRATION_REASON,
+        banners=[],
+        releases=[release],
+        outdated_traffic_alerts=[],
+    )
 
 
 def assess_sdk(
@@ -723,6 +786,7 @@ def assess_sdk(
         needs_updating=needs_updating,
         is_outdated=is_outdated,
         is_old=is_old,
+        migration_required=False,
         severity=severity,
         reason=reason,
         banners=banners,
@@ -738,7 +802,7 @@ def compute_sdk_health(
 ) -> SdkHealthReport:
     """
     Top-level entry point. Takes the combined data structure returned by the existing
-    /api/sdk_doctor/ view:
+    /api/sdk_health/ view:
 
         {
           "web": {
@@ -761,18 +825,21 @@ def compute_sdk_health(
         if not latest_version_str or not usage_raw:
             continue
 
-        usage = [
-            UsageEntry(
-                lib_version=entry["lib_version"],
-                count=int(entry.get("count", 0)),
-                max_timestamp=entry.get("max_timestamp", ""),
-                release_date=entry.get("release_date"),
-                is_latest=bool(entry.get("is_latest", False)),
-            )
-            for entry in usage_raw
-        ]
-
-        assessment = assess_sdk(sdk_type, latest_version_str, usage, now=now, project_id=project_id)
+        assessment: Optional[SdkAssessment]
+        if sdk_type == LEGACY_JAVA_SDK:
+            assessment = _assess_legacy_java_sdk(latest_version_str, usage_raw, project_id=project_id)
+        else:
+            usage = [
+                UsageEntry(
+                    lib_version=entry["lib_version"],
+                    count=int(entry.get("count", 0)),
+                    max_timestamp=entry.get("max_timestamp", ""),
+                    release_date=entry.get("release_date"),
+                    is_latest=bool(entry.get("is_latest", False)),
+                )
+                for entry in usage_raw
+            ]
+            assessment = assess_sdk(sdk_type, latest_version_str, usage, now=now, project_id=project_id)
         if assessment is not None:
             assessments.append(assessment)
 

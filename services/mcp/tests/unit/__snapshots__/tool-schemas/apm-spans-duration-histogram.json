@@ -1,0 +1,99 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "query": {
+            "description": "The duration-histogram query to execute.",
+            "properties": {
+                "dateRange": {
+                    "description": "Date range for the query. Defaults to last hour.",
+                    "properties": {
+                        "date_from": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc."
+                        },
+                        "date_to": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "End of the date range. Same format as date_from. Omit or null for \"now\"."
+                        }
+                    },
+                    "type": "object"
+                },
+                "filterGroup": {
+                    "default": [],
+                    "description": "Property filters for the query.",
+                    "items": {
+                        "properties": {
+                            "key": {
+                                "description": "Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").",
+                                "type": "string"
+                            },
+                            "operator": {
+                                "description": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                                "enum": [
+                                    "exact",
+                                    "is_not",
+                                    "icontains",
+                                    "not_icontains",
+                                    "regex",
+                                    "not_regex",
+                                    "gt",
+                                    "lt",
+                                    "is_set",
+                                    "is_not_set"
+                                ],
+                                "type": "string"
+                            },
+                            "type": {
+                                "description": "\"span\" filters built-in span fields. \"span_attribute\" filters span-level attributes. \"span_resource_attribute\" filters resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute",
+                                "enum": ["span", "span_attribute", "span_resource_attribute"],
+                                "type": "string"
+                            },
+                            "value": {
+                                "description": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators."
+                            }
+                        },
+                        "required": ["key", "type", "operator"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "rootSpans": {
+                    "default": true,
+                    "description": "When true (default), bucket root-span durations only — a distribution of traces. When false, bucket every matching span — used with a span name filter for operation-scoped distributions.",
+                    "type": "boolean"
+                },
+                "serviceNames": {
+                    "description": "Filter by service names.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "statusCodes": {
+                    "description": "Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

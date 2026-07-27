@@ -10,8 +10,24 @@ export const humanizeBatchExportName = (service: BatchExportService['type']): st
             return 'PostHog HTTP'
         case 'AzureBlob':
             return 'Azure Blob Storage'
+        case 'AwsS3':
+            return 'AWS S3'
+        case 'S3Compatible':
+            return 'S3-compatible'
         default:
             return service
+    }
+}
+
+// TODO: move this to DestinationDefinition so all destination config is in a single place
+export const humanizeBatchExportDescription = (service: BatchExportService['type']): string => {
+    switch (service) {
+        case 'AwsS3':
+            return 'Batch export data to an AWS S3 bucket'
+        case 'S3Compatible':
+            return 'Batch export data to an S3-compatible destination'
+        default:
+            return `${humanizeBatchExportName(service)} batch export`
     }
 }
 

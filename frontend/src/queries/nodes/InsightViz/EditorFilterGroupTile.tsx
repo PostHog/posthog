@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { slugify } from 'lib/utils'
+import { slugify } from 'lib/utils/strings'
 
 import type { InsightEditorFilterGroup, InsightLogicProps } from '~/types'
 
