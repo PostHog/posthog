@@ -1342,6 +1342,16 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 run_id=self.context.run_id,
                 sandbox_id=sandbox_id,
             )
+        elif exit_reason == CredentialRefreshExitReason.TASK_GONE:
+            workflow.logger.warning(
+                "execute_sandbox_task_rows_gone_detected",
+                run_id=self.context.run_id,
+                sandbox_id=sandbox_id,
+            )
+            # Ends the main loop through the sandbox-gone event so the workflow winds down
+            # instead of waiting on signals that can never arrive. A background run's terminal
+            # status update then fails non-retryably, since its rows are gone too.
+            self._sandbox_gone = True
 
     def _mark_sandbox_gone(self) -> None:
         self._task_completed = True
