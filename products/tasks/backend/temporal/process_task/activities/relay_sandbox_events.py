@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 
 import httpx
 import httpx_sse
@@ -57,18 +57,10 @@ TERMINAL_NOTIFICATION_METHODS = frozenset(
     }
 )
 
-# Bounds TaskRun.output growth; long reports keep their head, where summaries lead.
 FINAL_MESSAGE_MAX_CHARS = 20_000
 
 
 class FinalMessageTracker:
-    """Accumulates streamed agent prose and snapshots the completed turn's text.
-
-    Persisting at every end of turn (rather than at relay shutdown) means the run's
-    last agent message survives even when the sandbox dies without a graceful close.
-    Loop notification emails deliver it as the run's report.
-    """
-
     def __init__(self) -> None:
         self._current_turn_parts: list[str] = []
 
@@ -445,7 +437,6 @@ async def _relay_loop(
                                     await _signal_safely(workflow_handle, "turn_completed")
                                 final_text = final_message_tracker.end_turn()
                                 if final_text is not None and task_run is not None:
-                                    # Awaited so a fast follow-up turn can't land its write first.
                                     await asyncio.to_thread(_persist_final_message, run_id, final_text)
                             elif not agent_active[0] and _is_active_agent_update(event_data):
                                 agent_active[0] = True
@@ -809,19 +800,15 @@ def _safe_dispatch_turn_completed(task_run: TaskRunModel) -> None:
 
 
 def _persist_final_message(run_id: str, text: str) -> None:
-    """Merge the completed turn's prose into ``TaskRun.output.final_message``.
-
-    Must be called via ``asyncio.to_thread`` (sync DB I/O). Read-modify-write matches
-    the facade's output merge; losing that race costs a stale final message at worst.
-    """
+    """Sync DB write; call via asyncio.to_thread."""
     try:
         if not settings.TEST:
             close_old_connections()
-        run = TaskRunModel.objects.get(id=run_id)
-        output = dict(run.output) if isinstance(run.output, dict) else {}
-        output["final_message"] = text
-        run.output = output
-        run.save(update_fields=["output", "updated_at"])
+        with transaction.atomic():
+            run = TaskRunModel.objects.select_for_update().get(id=run_id)
+            output = run.output if isinstance(run.output, dict) else {}
+            run.output = {**output, "final_message": text}
+            run.save(update_fields=["output", "updated_at"])
     except Exception:
         logger.warning("relay_final_message_persist_failed", run_id=run_id, exc_info=True)
 
