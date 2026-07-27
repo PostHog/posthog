@@ -117,8 +117,9 @@ import { filterVariablesReferencedInQuery } from '../insights/utils/queryUtils'
 import { teamLogic } from '../teamLogic'
 import {
     BreakdownColorConfig,
-    computeAutoBreakdownColors,
-    extractBreakdownValues,
+    applyAutoBreakdownColors,
+    buildSharedBreakdownValueLookup,
+    extractBreakdownValuesByTile,
     findBreakdownColorConfig,
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
@@ -245,6 +246,7 @@ export interface dashboardLogicValues {
         layoutSize?: 'sm' | 'xs' | undefined
     ) => string
     asDashboardTemplate: DashboardTemplateEditorType | undefined
+    autoBreakdownColorsEnabled: boolean
     autoRefresh: {
         enabled: boolean
         interval: number
@@ -1098,12 +1100,13 @@ export interface dashboardLogicMeta {
             dataColorThemeId: number | null,
             getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
         ) => DataColorTheme | null
+        autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         effectiveBreakdownColors: (
             temporaryBreakdownColors: BreakdownColorConfig[],
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
             insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[],
             itemsLoading: boolean,
-            featureFlags: FeatureFlagsSet,
+            autoBreakdownColorsEnabled: boolean,
             dataColorTheme: DataColorTheme | null
         ) => BreakdownColorConfig[]
         hasUnsavedColorChanges: (
@@ -2904,15 +2907,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
             ): DataColorTheme | null => getTheme(dataColorThemeId),
         ],
+        autoBreakdownColorsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS],
+        ],
         // Persisted colors with unsaved edits merged over them, plus auto-assigned colors for
-        // uncovered breakdown values. This is both what tiles render and what a save persists.
+        // breakdown values shared by multiple tiles. This is both what tiles render and what a
+        // save persists. Values unique to one tile keep position-based colors (see
+        // computeTileFallbackTokens), so they don't consume palette slots here.
         effectiveBreakdownColors: [
             (s) => [
                 s.temporaryBreakdownColors,
                 s.dashboard,
                 s.insightTiles,
                 s.itemsLoading,
-                s.featureFlags,
+                s.autoBreakdownColorsEnabled,
                 s.dataColorTheme,
             ],
             (
@@ -2920,7 +2930,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboard: DashboardType<QueryBasedInsightModel> | null,
                 insightTiles: DashboardTile<QueryBasedInsightModel>[] | null,
                 itemsLoading: boolean,
-                featureFlags: FeatureFlagsSet,
+                autoBreakdownColorsEnabled: boolean,
                 dataColorTheme: DataColorTheme | null
             ): BreakdownColorConfig[] => {
                 const merged = mergeBreakdownColorConfigs(
@@ -2928,29 +2938,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     dashboard?.breakdown_colors ?? []
                 ).filter((config) => !!config.colorToken)
 
-                if (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]) {
+                if (!autoBreakdownColorsEnabled) {
                     return merged
                 }
 
-                const visibleValues = extractBreakdownValues(insightTiles, null)
-                // Prune stale auto entries only once all tiles have loaded — a partial tile set
-                // would drop colors for values that are merely still loading.
+                const tileBreakdownValues = extractBreakdownValuesByTile(insightTiles)
+                // Prune stale or no-longer-shared auto entries only once all tiles have loaded —
+                // with a partial tile set a value that is merely still loading would lose its
+                // color, and a genuinely shared value can look single-tile.
+                const isShared = buildSharedBreakdownValueLookup(tileBreakdownValues)
                 const kept = itemsLoading
                     ? merged
-                    : merged.filter(
-                          (config) =>
-                              config.source !== 'auto' ||
-                              visibleValues.some(
-                                  (value) =>
-                                      value.breakdownValue === config.breakdownValue &&
-                                      value.breakdownType === config.breakdownType
-                              )
-                      )
+                    : merged.filter((config) => config.source !== 'auto' || isShared(config))
                 // Size assignment to the active theme — getColorFromToken wraps tokens past the
                 // theme's color count, so assuming the default 15 slots on a smaller theme would
                 // hand out visually duplicate colors while palette slots remain free.
                 const paletteSize = dataColorTheme ? Object.keys(dataColorTheme).length : undefined
-                return [...kept, ...computeAutoBreakdownColors(visibleValues, kept, paletteSize)]
+                return applyAutoBreakdownColors(tileBreakdownValues, kept, paletteSize)
             },
         ],
         hasUnsavedColorChanges: [
