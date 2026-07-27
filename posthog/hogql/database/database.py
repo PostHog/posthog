@@ -791,24 +791,16 @@ class Database(BaseModel):
         """
         Returns True if the user can't query this warehouse table.
         Userless context (no UserAccessControl) fails closed - every table is denied.
-        Table-level rules take precedence; a table without its own rules also requires viewer
-        access to its parent source, so restricting a source covers all its tables.
+        A rule on the table itself takes precedence; otherwise the more restrictive of the table's
+        and its parent source's access applies, so restricting a source covers all its tables while a
+        table-specific grant still overrides it.
         """
+        from posthog.rbac.user_access_control import access_level_satisfied_for_resource  # noqa: PLC0415
+
         uac = self.user_access_control
         if uac is not None:
-            if uac.is_organization_admin:
-                return False
-            table_allowed = uac.check_access_level_for_object(table, required_level="viewer")
-            source = table.external_data_source
-            # Only object rules on the source cascade to querying its tables; resource-level
-            # external_data_source rules keep governing the source APIs only.
-            source_allowed = (
-                source is None
-                or uac.has_object_rules("warehouse_table", str(table.pk))
-                or not uac.has_object_rules("external_data_source", str(source.pk))
-                or uac.check_access_level_for_object(source, required_level="viewer")
-            )
-            if table_allowed and source_allowed:
+            level = uac.warehouse_table_effective_level(table, table.external_data_source)
+            if level is not None and access_level_satisfied_for_resource("warehouse_table", level, "viewer"):
                 return False
 
         # Add table names to denied tables so the query raises "You don't have access" instead of "Unknown table"

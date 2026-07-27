@@ -614,10 +614,9 @@ class TestWarehouseTableAccessControl(BaseTest):
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
 class TestWarehouseSourceAccessControl(BaseTest):
-    """
-    Object rules on an external data source cascade to querying its tables.
-    Table-level rules take precedence; resource-level external_data_source rules stay out of querying.
-    """
+    """Querying a warehouse table follows most-specific-wins across the table and its source: a rule on
+    the table itself overrides the source, otherwise the more restrictive of the table's and the
+    source's access applies (each including object and resource-level rules)."""
 
     def setUp(self):
         super().setUp()
@@ -664,6 +663,16 @@ class TestWarehouseSourceAccessControl(BaseTest):
             columns={"id": "String"},
             external_data_source=self.source,
         )
+        # A second table under the same source, for cases that deny one table but keep the source.
+        self.sibling_source_table = DataWarehouseTable.objects.create(
+            name="sibling_source_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            url_pattern="s3://bucket/sibling/*",
+            columns={"id": "String"},
+            external_data_source=self.source,
+        )
         self.other_source_table = DataWarehouseTable.objects.create(
             name="other_source_table",
             format=DataWarehouseTable.TableFormat.Parquet,
@@ -688,7 +697,11 @@ class TestWarehouseSourceAccessControl(BaseTest):
     def _membership(self):
         return OrganizationMembership.objects.get(user=self.user, organization=self.organization)
 
+    def _denied(self):
+        return Database.create_for(team=self.team, user=self.user)._denied_tables
+
     def test_source_object_none_denies_only_its_tables(self):
+        # A source restricted (object none) covers its own tables, not other sources'.
         self._create_ac(
             resource="external_data_source",
             resource_id=str(self.source.id),
@@ -699,6 +712,7 @@ class TestWarehouseSourceAccessControl(BaseTest):
         database = Database.create_for(team=self.team, user=self.user)
 
         assert "locked_source_table" in database._denied_tables
+        assert "sibling_source_table" in database._denied_tables
         assert "other_source_table" not in database._denied_tables
         # Cache correctness: the source deny must partition the query cache key too.
         assert database.user_access_control is not None
@@ -714,11 +728,10 @@ class TestWarehouseSourceAccessControl(BaseTest):
             member=self._membership(),
         )
 
-        database = Database.create_for(team=self.team, user=self.user)
+        assert "locked_source_table" not in self._denied()
 
-        assert "locked_source_table" not in database._denied_tables
-
-    def test_table_rule_overrides_restricted_source(self):
+    def test_table_grant_overrides_restricted_source(self):
+        # Specific table allowed, its source denied -> table still queryable, its siblings are not.
         self._create_ac(
             resource="external_data_source",
             resource_id=str(self.source.id),
@@ -732,17 +745,66 @@ class TestWarehouseSourceAccessControl(BaseTest):
             member=self._membership(),
         )
 
-        database = Database.create_for(team=self.team, user=self.user)
+        denied = self._denied()
+        assert "locked_source_table" not in denied
+        assert "sibling_source_table" in denied
 
-        assert "locked_source_table" not in database._denied_tables
+    def test_table_deny_overrides_allowed_source(self):
+        # Specific table denied, its source allowed -> only that table is denied, siblings queryable.
+        self._create_ac(
+            resource="warehouse_table",
+            resource_id=str(self.locked_source_table.id),
+            access_level="none",
+            member=self._membership(),
+        )
 
-    def test_source_resource_level_rules_do_not_gate_querying(self):
-        self._create_ac(resource="external_data_source", access_level="none")
+        denied = self._denied()
+        assert "locked_source_table" in denied
+        assert "sibling_source_table" not in denied
 
-        database = Database.create_for(team=self.team, user=self.user)
+    def test_source_object_allowed_but_all_tables_resource_denied(self):
+        # Source allowed (object) but all tables denied (resource-level warehouse_objects) -> tables denied.
+        self._create_ac(
+            resource="external_data_source",
+            resource_id=str(self.source.id),
+            access_level="editor",
+            member=self._membership(),
+        )
+        self._create_ac(resource="warehouse_objects", access_level="none", member=self._membership())
 
-        assert "locked_source_table" not in database._denied_tables
-        assert "other_source_table" not in database._denied_tables
+        assert "locked_source_table" in self._denied()
+
+    def test_all_tables_resource_allowed_but_source_object_denied(self):
+        # All tables allowed (resource-level warehouse_objects) but a specific source denied (object) -> its tables denied.
+        self._create_ac(resource="warehouse_objects", access_level="editor", member=self._membership())
+        self._create_ac(
+            resource="external_data_source",
+            resource_id=str(self.source.id),
+            access_level="none",
+            member=self._membership(),
+        )
+
+        denied = self._denied()
+        assert "locked_source_table" in denied
+        assert "other_source_table" not in denied
+
+    def test_source_resource_level_none_denies_all_tables(self):
+        # A resource-level source deny (all sources) gates querying every source's tables.
+        self._create_ac(resource="external_data_source", access_level="none", member=self._membership())
+
+        denied = self._denied()
+        assert "locked_source_table" in denied
+        assert "other_source_table" in denied
+
+    def test_org_admin_bypasses_source_restriction(self):
+        membership = self._membership()
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+        self._create_ac(
+            resource="external_data_source", resource_id=str(self.source.id), access_level="none", member=membership
+        )
+
+        assert "locked_source_table" not in self._denied()
 
 
 class TestWarehouseTableAccessControlFlagOff(BaseTest):

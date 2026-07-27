@@ -796,13 +796,22 @@ class UserAccessControl:
         """Whether any access control rules on this specific object apply to this user."""
         return bool(self._get_access_controls(self._access_controls_filters_for_object(resource, resource_id)))
 
-    def warehouse_table_effective_level(self, table: Optional[Model], source: Model) -> Optional[AccessControlLevel]:
-        """Effective access level for a synced table: the table's own `warehouse_table` rules if any
-        apply to this user, otherwise the source's level. `table` is None before the first sync.
-        Used by both the schema serializer and WarehouseTableSyncPermission."""
+    def warehouse_table_effective_level(
+        self, table: Optional[Model], source: Optional[Model]
+    ) -> Optional[AccessControlLevel]:
+        """Effective access to a synced table, most-specific first. An object rule on the table itself
+        wins outright. Otherwise the more restrictive of the table's and the source's access applies,
+        each resolved from its own object and resource-level rules. `table` is None before the first
+        sync, `source` is None for self-managed tables. Used by the query gate,
+        WarehouseTableSyncPermission, and the schema serializer."""
+        table_level = None if table is None else self.get_user_access_level(table)
         if table is not None and self.has_object_rules("warehouse_table", str(table.pk)):
-            return self.get_user_access_level(table)
-        return self.get_user_access_level(source)
+            return table_level
+        source_level = self.get_user_access_level(source) if source is not None else None
+        if table_level is None or source_level is None:
+            return table_level if source_level is None else source_level
+        order = ACCESS_CONTROL_LEVELS_RESOURCE
+        return source_level if order.index(source_level) <= order.index(table_level) else table_level
 
     def check_can_modify_access_levels_for_object(self, obj: Model) -> bool:
         """
