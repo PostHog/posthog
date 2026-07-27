@@ -11,6 +11,8 @@ import boto3
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.hogql.database.database import Database
+
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
@@ -499,6 +501,29 @@ class TestTable(APIBaseTest):
         )
 
         assert SimpleTableSerializer().get_hogql_name(table) == "self_managed_table"
+
+    def test_get_columns_returns_empty_for_table_absent_from_database(self):
+        # A soft-deleted source leaves its table rows behind as orphans, which `queryable()` drops
+        # from the built HogQL database. Serializing such a table (stripe_charge has an expression
+        # field that resolves against the table scope) used to raise QueryError and crash the whole
+        # source listing; it must degrade to empty columns instead.
+        source = ExternalDataSource.objects.create(
+            team=self.team, team_id=self.team.pk, source_type="Stripe", deleted=True
+        )
+        table = DataWarehouseTable.objects.create(
+            name="stripe_charge",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+            external_data_source_id=source.pk,
+        )
+
+        database = Database.create_for(team_id=self.team.pk)
+        assert not database.has_table(table.name_chain)
+
+        serializer = SimpleTableSerializer(context={"database": database, "team_id": self.team.pk})
+        assert serializer.get_columns(table) == []
 
     def test_refresh_schema_direct_postgres_table_not_exposed_via_warehouse_tables_api(self):
         source = ExternalDataSource.objects.create(

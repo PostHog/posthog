@@ -295,6 +295,13 @@ class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelS
                 user=cast(User, request.user) if request else None,
             )
 
+        # A table row can be legitimately absent from the built database: `Database.create_for`
+        # drops soft-deleted tables and orphans of soft-deleted sources, and access control skips
+        # denied tables. Resolving an absent table's expression fields raises QueryError, so guard
+        # here to degrade to empty columns rather than crash the whole listing for one bad row.
+        if not database.has_table(table.name_chain):
+            return []
+
         fields = serialize_fields(
             table.hogql_definition().fields,
             HogQLContext(database=database, team_id=team_id),
