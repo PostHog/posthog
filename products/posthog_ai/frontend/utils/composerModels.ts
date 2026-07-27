@@ -39,6 +39,7 @@ const EFFORTS_BY_MODEL: Record<string, ReasoningEffortEnumApi[]> = {
         ReasoningEffortEnumApi.High,
         ReasoningEffortEnumApi.Xhigh,
         ReasoningEffortEnumApi.Max,
+        ReasoningEffortEnumApi.Ultracode,
     ],
     'claude-opus-5': [
         ReasoningEffortEnumApi.Low,
@@ -46,8 +47,16 @@ const EFFORTS_BY_MODEL: Record<string, ReasoningEffortEnumApi[]> = {
         ReasoningEffortEnumApi.High,
         ReasoningEffortEnumApi.Xhigh,
         ReasoningEffortEnumApi.Max,
+        ReasoningEffortEnumApi.Ultracode,
     ],
-    'claude-sonnet-5': [ReasoningEffortEnumApi.Low, ReasoningEffortEnumApi.Medium, ReasoningEffortEnumApi.High],
+    'claude-sonnet-5': [
+        ReasoningEffortEnumApi.Low,
+        ReasoningEffortEnumApi.Medium,
+        ReasoningEffortEnumApi.High,
+        ReasoningEffortEnumApi.Xhigh,
+        ReasoningEffortEnumApi.Max,
+        ReasoningEffortEnumApi.Ultracode,
+    ],
 }
 
 const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [
