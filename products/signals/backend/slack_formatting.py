@@ -11,6 +11,19 @@ SLACK_SECTION_TEXT_MAX_LEN = 2900
 # are escaped before conversion, so any literal angle bracket here was produced by the converter.
 _SLACK_ANGLE_TOKEN_RE = re.compile(r"<([^<>|]*)(\|[^<>]*)?>")
 
+# A report summary places a chart inline with a markdown link whose target is `chart:<chart_id>`.
+# Slack has no chart to render, and the two Slack paths degrade it differently badly: the mrkdwn
+# converter turns it into a `<chart:id|label>` token that `_defang_unsafe_slack_tokens` escapes into
+# visible `&lt;…&gt;`, while the excerpt path escapes it and leaves the raw `[label](chart:id)` syntax
+# on screen. Any target is matched, not just the id charset `ChartArtefact` enforces: a typo'd
+# reference is just as unrenderable here, and pinning the charset would leave it showing as markup.
+_CHART_REF_LINK_RE = re.compile(r"\[([^\]\n]*)\]\(chart:[^)\s]*\)")
+
+
+def strip_chart_references(text: str) -> str:
+    """Reduce a summary's `[label](chart:<id>)` links to their label, leaving the prose intact."""
+    return _CHART_REF_LINK_RE.sub(r"\1", text)
+
 
 def escape_slack_mrkdwn(text: str) -> str:
     """Neutralize Slack control syntax so untrusted text cannot inject mentions or links."""
