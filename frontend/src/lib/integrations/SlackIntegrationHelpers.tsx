@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     LemonBanner,
+    LemonBannerProps,
     LemonButton,
     LemonInputSelect,
     LemonInputSelectOption,
@@ -11,36 +12,50 @@ import {
 } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { IntegrationType, SlackChannelType } from '~/types'
 
 import { slackChannelId } from './slackChannel'
 import { slackIntegrationLogic } from './slackIntegrationLogic'
 
-export function SlackNotConfiguredBanner(): JSX.Element {
+export function SlackNotConfiguredBanner({
+    type = 'info',
+    className,
+}: Partial<Pick<LemonBannerProps, 'type' | 'className'>>): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     return (
-        <LemonBanner type="info">
-            <div className="flex justify-between gap-2 items-center">
-                <span>
-                    Slack is not yet configured for this project. Add PostHog to your Slack workspace to continue.
-                </span>
-                <Link
-                    to={api.integrations.authorizeUrl({
-                        kind: 'slack',
-                        next: window.location.pathname + '?target_type=slack',
-                    })}
-                    disableClientSideRouting
-                >
-                    <img
-                        alt="Add to Slack"
-                        height="40"
-                        width="139"
-                        src="https://platform.slack-edge.com/img/add_to_slack.png"
-                        srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
-                    />
-                </Link>
+        <LemonBanner type={type} className={className}>
+            <div className="flex flex-col gap-2">
+                <div className="flex justify-between gap-2 items-center">
+                    <span>
+                        Slack is not yet configured for this project. Add PostHog to your Slack workspace to continue.
+                    </span>
+                    <Link
+                        to={api.integrations.authorizeUrl({
+                            kind: 'slack',
+                            next: window.location.pathname + '?target_type=slack',
+                        })}
+                        disableClientSideRouting
+                    >
+                        <img
+                            alt="Add to Slack"
+                            height="40"
+                            width="139"
+                            src="https://platform.slack-edge.com/img/add_to_slack.png"
+                            srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
+                        />
+                    </Link>
+                </div>
+                {featureFlags[FEATURE_FLAGS.SLACK_APP_ASSISTANT] && (
+                    <span className="text-sm text-secondary">
+                        Adding PostHog creates a public #posthog-inbox channel in your Slack workspace, where PostHog
+                        posts what it finds.
+                    </span>
+                )}
             </div>
         </LemonBanner>
     )

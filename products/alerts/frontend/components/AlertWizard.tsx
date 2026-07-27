@@ -91,6 +91,9 @@ export function AlertWizard({
                     event.target instanceof HTMLInputElement
                 ) {
                     event.preventDefault()
+                    if (event.target.closest('[data-prevent-wizard-submit]')) {
+                        return
+                    }
                     goNext()
                 }
             }}
@@ -120,6 +123,7 @@ export function AlertWizard({
                                         }}
                                         className={cn(
                                             'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                                            canAccess && 'cursor-pointer',
                                             !canAccess && 'opacity-40 cursor-not-allowed',
                                             isCurrent
                                                 ? 'bg-accent text-white font-semibold'
@@ -174,7 +178,7 @@ export function AlertWizard({
                             Close
                         </LemonButton>
                     ) : (
-                        <LemonButton type="secondary" icon={<IconChevronLeft />} onClick={goPrev}>
+                        <LemonButton type="secondary" icon={<IconChevronLeft className="size-4" />} onClick={goPrev}>
                             Back
                         </LemonButton>
                     )}
