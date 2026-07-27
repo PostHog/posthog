@@ -33,8 +33,8 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import (
-    SurveyAPISerializer,
     get_survey_api_translations,
+    get_surveys_response,
     nh3_clean_with_allow_list,
 )
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
@@ -458,6 +458,8 @@ class TestSurvey(APIBaseTest):
         assert "base_language" in response.json() or "translation" in response.content.decode().lower()
 
     def test_sdk_payload_strips_non_runtime_question_fields(self) -> None:
+        self.team.survey_config = {"appearance": {"backgroundColor": "black"}}
+        self.team.save(update_fields=["survey_config"])
         survey = Survey.objects.create(
             team=self.team,
             name="Q-level legacy",
@@ -475,11 +477,22 @@ class TestSurvey(APIBaseTest):
                         "english": {"question": "Should be dropped"},
                         "EN-us": {"question": "Normalized to en-us"},
                     },
-                }
+                },
+                {
+                    "id": "q2",
+                    "type": "open",
+                    "question": "Anything else?",
+                    "translations": {
+                        "default": {"question": "Should be dropped"},
+                        "en": {"question": "Same as base, should be dropped"},
+                    },
+                },
             ],
         )
 
-        payload = SurveyAPISerializer(survey).data
+        response = get_surveys_response(self.team)
+        assert set(response) == {"surveys"}
+        payload = next(item for item in response["surveys"] if str(item["id"]) == str(survey.id))
         assert "base_language" not in payload
         assert "isNpsQuestion" not in payload["questions"][0]
         q_translations = payload["questions"][0]["translations"]
@@ -487,6 +500,7 @@ class TestSurvey(APIBaseTest):
         assert "en-us" in q_translations
         assert "default" not in q_translations
         assert "english" not in q_translations
+        assert "translations" not in payload["questions"][1]
 
     def test_sdk_payload_strips_invalid_translation_keys(self) -> None:
         result = get_survey_api_translations(
