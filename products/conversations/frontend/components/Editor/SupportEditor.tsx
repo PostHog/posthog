@@ -22,7 +22,7 @@ import { common, createLowlight } from 'lowlight'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconCode, IconCopy, IconImage, IconTerminal } from '@posthog/icons'
+import { IconCode, IconCopy, IconImage, IconShortcut, IconTerminal } from '@posthog/icons'
 
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
@@ -44,6 +44,12 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import type { QuickActionActionsApi } from '../../generated/api.schemas'
+import { applyQuickAction } from '../QuickActions/applyQuickAction'
+import { QuickActionPicker, QuickActionsKeepAlive } from '../QuickActions/QuickActionPicker'
+import { QuickActionsExtension } from '../QuickActions/QuickActionsExtension'
+import { TemplateVariableValues } from './templateVariables'
 
 const lowlight = createLowlight(common)
 lowlight.register('plaintext', () => ({ contains: [] }))
@@ -143,6 +149,12 @@ export type SupportEditorProps = {
     disabled?: boolean
     minRows?: number
     className?: string
+    /** Enables the `/` quick-action slash command and the quick-action toolbar button. */
+    enableQuickActions?: boolean
+    /** Values used to fill {{variable}} tokens when a response quick action is inserted. */
+    templateVariables?: TemplateVariableValues
+    /** Applies a response quick action's ticket actions (status/assignee/tags/priority). */
+    onApplyTicketActions?: (actions: QuickActionActionsApi) => void
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -388,6 +400,9 @@ export function SupportEditor({
     disabled = false,
     minRows,
     className,
+    enableQuickActions = false,
+    templateVariables,
+    onApplyTicketActions,
 }: SupportEditorProps): JSX.Element {
     const [isDragging, setIsDragging] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
@@ -395,6 +410,13 @@ export function SupportEditor({
     const [, setEditorState] = useState(0)
     const [linkPopoverOpen, setLinkPopoverOpen] = useState(false)
     const [linkUrl, setLinkUrl] = useState('')
+    const [quickActionPickerOpen, setQuickActionPickerOpen] = useState(false)
+
+    // Refs so the once-configured quick-action extension always reads the latest ticket context.
+    const templateVariablesRef = useRef<TemplateVariableValues>({})
+    templateVariablesRef.current = templateVariables ?? {}
+    const onApplyTicketActionsRef = useRef<((actions: QuickActionActionsApi) => void) | undefined>(undefined)
+    onApplyTicketActionsRef.current = onApplyTicketActions
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { emojiUsed } = useActions(emojiUsageLogic)
 
@@ -416,6 +438,11 @@ export function SupportEditor({
             Placeholder.configure({ placeholder }),
             CommandEnterExtension.configure({ onPressCmdEnter }),
             LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut }),
+            QuickActionsExtension.configure({
+                enabled: enableQuickActions,
+                getVariables: () => templateVariablesRef.current,
+                onApplyActions: (actions) => onApplyTicketActionsRef.current?.(actions),
+            }),
         ],
         disabled,
         initialContent: initialContent ?? DEFAULT_INITIAL_CONTENT,
@@ -523,6 +550,7 @@ export function SupportEditor({
             onDragOver={handleDragOver}
             onDrop={handleDrop}
         >
+            {enableQuickActions && <QuickActionsKeepAlive />}
             <EditorContent
                 editor={editor}
                 className="SupportEditor__content p-2"
@@ -671,6 +699,36 @@ export function SupportEditor({
                             }
                         }}
                     />
+                    {enableQuickActions && (
+                        <>
+                            <div className="w-px h-4 bg-border mx-1" />
+                            <Popover
+                                visible={quickActionPickerOpen}
+                                onClickOutside={() => setQuickActionPickerOpen(false)}
+                                overlay={
+                                    <QuickActionPicker
+                                        showSearchInput
+                                        onSelect={(quickAction) => {
+                                            if (ttEditor) {
+                                                applyQuickAction(ttEditor, quickAction, {
+                                                    variables: templateVariablesRef.current,
+                                                    onApplyActions: onApplyTicketActionsRef.current,
+                                                })
+                                            }
+                                            setQuickActionPickerOpen(false)
+                                        }}
+                                    />
+                                }
+                            >
+                                <LemonButton
+                                    size="small"
+                                    onClick={() => setQuickActionPickerOpen((open) => !open)}
+                                    icon={<IconShortcut />}
+                                    tooltip="Insert a quick action (or type / in the message)"
+                                />
+                            </Popover>
+                        </>
+                    )}
                 </div>
             </div>
         </div>

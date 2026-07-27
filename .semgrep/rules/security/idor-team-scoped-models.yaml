@@ -302,6 +302,7 @@ rules:
                               |Ticket
                               |TicketView
                               |TicketViewFavorite
+                              |QuickAction
                               |ZendeskImportJob
                               |ReviewQueue
                               |ReviewQueueItem
@@ -619,6 +620,7 @@ rules:
                         |Ticket
                         |TicketView
                         |TicketViewFavorite
+                        |QuickAction
                         |ZendeskImportJob
                         |ReviewQueue
                         |ReviewQueueItem

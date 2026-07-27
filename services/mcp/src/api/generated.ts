@@ -14898,10 +14898,10 @@ export namespace Schemas {
      * * `private` - Private (only visible to creator)
      * * `shared` - Shared with team
      */
-    export type ColumnConfigurationVisibilityEnum = typeof ColumnConfigurationVisibilityEnum[keyof typeof ColumnConfigurationVisibilityEnum];
+    export type VisibilityEnum = typeof VisibilityEnum[keyof typeof VisibilityEnum];
 
 
-    export const ColumnConfigurationVisibilityEnum = {
+    export const VisibilityEnum = {
       Private: 'private',
       Shared: 'shared',
     } as const;
@@ -14922,7 +14922,7 @@ export namespace Schemas {
       order_by?: string[] | null;
       /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
       properties?: unknown;
-      visibility?: ColumnConfigurationVisibilityEnum;
+      visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by: number | null;
       readonly created_at: string;
@@ -42397,6 +42397,115 @@ export namespace Schemas {
     }
 
     /**
+     * * `low` - Low
+     * * `medium` - Medium
+     * * `high` - High
+     * * `critical` - Critical
+     */
+    export type SupportPriorityEnum = typeof SupportPriorityEnum[keyof typeof SupportPriorityEnum];
+
+
+    export const SupportPriorityEnum = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
+    /**
+     * Who a quick action assigns the ticket to when applied.
+     */
+    export interface QuickActionAssignee {
+      /** Assignee kind: "user" or "role".
+       *
+       * * `user` - user
+       * * `role` - role */
+      type: AssigneeTypeEnum;
+      /**
+         * User id (for type=user) or role id (for type=role). Null clears the assignee.
+         * @nullable
+         */
+      id: string | null;
+    }
+
+    /**
+     * Optional ticket changes applied when a response quick action is used. Omit for text-only.
+     */
+    export interface QuickActionActions {
+      /** Set the ticket status when the quick action is applied.
+       *
+       * * `new` - New
+       * * `open` - Open
+       * * `pending` - Pending
+       * * `on_hold` - On hold
+       * * `resolved` - Resolved */
+      status?: TicketStatusEnum | null;
+      /** Set the ticket priority when the quick action is applied.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `critical` - Critical */
+      priority?: SupportPriorityEnum | null;
+      /** Replace the ticket's tags with this list when the quick action is applied. */
+      tags?: string[];
+      /** Assign the ticket to this user or role when the quick action is applied. */
+      assignee?: QuickActionAssignee | null;
+    }
+
+    /**
+     * * `team` - Team
+     * * `personal` - Personal
+     */
+    export type QuickActionVisibilityEnum = typeof QuickActionVisibilityEnum[keyof typeof QuickActionVisibilityEnum];
+
+
+    export const QuickActionVisibilityEnum = {
+      Team: 'team',
+      Personal: 'personal',
+    } as const;
+
+    export interface QuickAction {
+      readonly id: string;
+      readonly short_id: string;
+      /**
+         * Display name shown in the quick action picker.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * Optional short description of when to use this quick action.
+         * @maxLength 400
+         */
+      description?: string;
+      /**
+         * Reply body (plain-text/markdown). May contain {{variables}} filled in from the ticket.
+         * @maxLength 50000
+         */
+      content?: string;
+      /** TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved. */
+      rich_content?: unknown;
+      /** Ticket changes (status, priority, tags, assignee) applied when the quick action is used. */
+      actions?: QuickActionActions;
+      /** "team" shares with everyone on the team; "personal" keeps it private to you.
+       *
+       * * `team` - Team
+       * * `personal` - Personal */
+      visibility?: QuickActionVisibilityEnum;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+    }
+
+    export interface PaginatedQuickActionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: QuickAction[];
+    }
+
+    /**
      * * `manual-options` - manual-options
      * * `auto-discovery` - auto-discovery
      */
@@ -45206,22 +45315,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `low` - Low
-     * * `medium` - Medium
-     * * `high` - High
-     * * `critical` - Critical
-     */
-    export type TicketPriorityEnum = typeof TicketPriorityEnum[keyof typeof TicketPriorityEnum];
-
-
-    export const TicketPriorityEnum = {
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Critical: 'critical',
-    } as const;
-
-    /**
      * @nullable
      */
     export type TicketAssignmentUser = {[key: string]: string} | null;
@@ -45281,7 +45374,7 @@ export namespace Schemas {
        * * `medium` - Medium
        * * `high` - High
        * * `critical` - Critical */
-      priority?: TicketPriorityEnum | BlankEnum | null;
+      priority?: SupportPriorityEnum | BlankEnum | null;
       readonly assignee: TicketAssignment;
       /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
@@ -46966,7 +47059,7 @@ export namespace Schemas {
       order_by?: string[] | null;
       /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
       properties?: unknown;
-      visibility?: ColumnConfigurationVisibilityEnum;
+      visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by?: number | null;
       readonly created_at?: string;
@@ -51343,6 +51436,37 @@ export namespace Schemas {
       state?: unknown;
     }
 
+    export interface PatchedQuickAction {
+      readonly id?: string;
+      readonly short_id?: string;
+      /**
+         * Display name shown in the quick action picker.
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * Optional short description of when to use this quick action.
+         * @maxLength 400
+         */
+      description?: string;
+      /**
+         * Reply body (plain-text/markdown). May contain {{variables}} filled in from the ticket.
+         * @maxLength 50000
+         */
+      content?: string;
+      /** TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved. */
+      rich_content?: unknown;
+      /** Ticket changes (status, priority, tags, assignee) applied when the quick action is used. */
+      actions?: QuickActionActions;
+      /** "team" shares with everyone on the team; "personal" keeps it private to you.
+       *
+       * * `team` - Team
+       * * `personal` - Personal */
+      visibility?: QuickActionVisibilityEnum;
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+    }
+
     export interface PatchedQuickFilter {
       readonly id?: string;
       /** @maxLength 200 */
@@ -53297,7 +53421,7 @@ export namespace Schemas {
        * * `medium` - Medium
        * * `high` - High
        * * `critical` - Critical */
-      priority?: TicketPriorityEnum | BlankEnum | null;
+      priority?: SupportPriorityEnum | BlankEnum | null;
       readonly assignee?: TicketAssignment;
       /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
@@ -73511,6 +73635,17 @@ export namespace Schemas {
     } as const;
 
     export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ConversationsQuickActionsListParams = {
     /**
      * Number of results to return per page.
      */
