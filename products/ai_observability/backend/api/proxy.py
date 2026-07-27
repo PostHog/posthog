@@ -101,8 +101,10 @@ class PlaygroundAccessPermission(BasePermission):
     chain reads it, and it would imply personal API key support that `SessionAuthentication` doesn't allow.
     """
 
-    # Listing models is a read; running a completion spends money, so it's a write.
-    ACTION_REQUIRED_LEVELS: dict[str, AccessControlLevel] = {"models": "viewer", "completion": "editor"}
+    # The resource only offers "none" and "editor" — listing models and running a completion are the
+    # same question, "can this user use the playground at all", so both take the one level.
+    REQUIRED_LEVEL: AccessControlLevel = "editor"
+    GATED_ACTIONS = frozenset({"models", "completion"})
 
     def has_permission(self, request: Request, view) -> bool:
         user = request.user
@@ -110,8 +112,7 @@ class PlaygroundAccessPermission(BasePermission):
             return False
 
         # Fail closed so a new @action can't ship ungated
-        required_level = self.ACTION_REQUIRED_LEVELS.get(view.action or "")
-        if required_level is None:
+        if view.action not in self.GATED_ACTIONS:
             self.message = "This playground endpoint isn't available."
             return False
 
@@ -120,14 +121,12 @@ class PlaygroundAccessPermission(BasePermission):
             self.message = "Open a project before using the playground."
             return False
 
-        if UserAccessControl(user=user, team=team).check_access_level_for_resource("llm_playground", required_level):
+        if UserAccessControl(user=user, team=team).check_access_level_for_resource(
+            "llm_playground", self.REQUIRED_LEVEL
+        ):
             return True
 
-        self.message = (
-            "You need editor access to the playground to run prompts. Ask a project admin to update your access."
-            if required_level == "editor"
-            else "You don't have access to the playground. Ask a project admin to update your access."
-        )
+        self.message = "You don't have access to the playground. Ask a project admin to update your access."
         return False
 
 

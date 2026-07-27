@@ -100,10 +100,10 @@ describe('llmPlaygroundRunLogic', () => {
         streamSpy.mockRestore()
     })
 
-    it('does not run a completion without editor access to the playground', async () => {
+    it('does not run a completion without access to the playground', async () => {
         // Both message textareas submit on Cmd+Enter, bypassing the Run button's disabledReason,
         // so the gate has to hold in the logic itself.
-        setPlaygroundAccessLevel(AccessControlLevel.Viewer)
+        setPlaygroundAccessLevel(AccessControlLevel.None)
         const streamSpy = jest.spyOn(api, 'stream')
 
         const logic = llmPlaygroundRunLogic()

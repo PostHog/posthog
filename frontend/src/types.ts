@@ -5894,6 +5894,8 @@ export interface EffectiveAccessControlEntry {
     inherited_access_level_reason: InheritedAccessLevelReason | null
     minimum: AccessControlLevel
     maximum: AccessControlLevel
+    /** Levels this resource actually offers. Some omit levels from the middle of the ladder, which minimum/maximum can't express. */
+    available?: AccessControlLevel[]
 }
 
 export interface AccessControlDefaultsResponse {

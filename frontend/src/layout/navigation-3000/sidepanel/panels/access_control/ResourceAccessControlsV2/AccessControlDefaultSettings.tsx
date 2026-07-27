@@ -84,7 +84,7 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                             render: function RenderAccess(_, resource) {
                                 const entry = defaults?.resource_access_levels[resource.key]
                                 const value = entry?.access_level ?? null
-                                const options = getLevelOptionsForResource(resourceLevels, {
+                                const options = getLevelOptionsForResource(entry?.available ?? resourceLevels, {
                                     minimum: entry?.minimum ?? null,
                                     maximum: entry?.maximum ?? null,
                                     inheritedLevel: null,

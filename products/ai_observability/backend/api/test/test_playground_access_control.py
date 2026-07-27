@@ -67,16 +67,15 @@ class TestPlaygroundAccessControl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("none", status.HTTP_403_FORBIDDEN, status.HTTP_403_FORBIDDEN),
-            ("viewer", status.HTTP_200_OK, status.HTTP_403_FORBIDDEN),
-            ("editor", status.HTTP_200_OK, status.HTTP_200_OK),
+            ("none", status.HTTP_403_FORBIDDEN),
+            ("editor", status.HTTP_200_OK),
         ]
     )
-    def test_access_level_gates_each_action(self, access_level, models_status, completion_status):
+    def test_access_level_gates_both_actions(self, access_level, expected_status):
         self._login_with_playground_level(access_level)
 
-        assert self.client.get("/api/llm_proxy/models/").status_code == models_status
-        assert self._post_completion().status_code == completion_status
+        assert self.client.get("/api/llm_proxy/models/").status_code == expected_status
+        assert self._post_completion().status_code == expected_status
 
     def test_denied_without_a_current_team(self):
         user = self._login_with_playground_level("editor")
