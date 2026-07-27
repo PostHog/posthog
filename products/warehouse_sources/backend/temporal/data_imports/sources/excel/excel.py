@@ -28,10 +28,18 @@ ROW_CHUNK = 1000
 # declare a far larger decompressed payload (a zip bomb), and openpyxl eagerly loads the shared-string
 # table even in read_only mode — while sheet discovery runs in a web request. The archive's central
 # directory declares every member's uncompressed size without decompressing anything, so the budget is
-# enforced before openpyxl touches the file. ~20x the upload cap: comfortably above what real
-# workbooks decompress to, far below what a bomb targets. Rows are deliberately NOT capped — full
-# imports stream in bounded chunks on workers, which exist for exactly that work.
-MAX_DECLARED_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024
+# enforced before openpyxl touches the file. ~10x the upload cap: comfortably above what real workbooks
+# decompress to, far below what a bomb targets, and small enough to open inside a web request. Rows are
+# deliberately NOT capped — full imports stream in bounded chunks on workers, which exist for that work.
+MAX_DECLARED_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
+
+# A second bomb shape hides inside the 50 MB cap: hundreds of thousands of tiny members. Each one costs
+# a ZipInfo object that zipfile (and openpyxl) build in memory just to open the archive — before any
+# size check on the summed payload can run. A real workbook has a handful of parts per sheet plus the
+# shared-string/style/relationship files, so it stays in the low thousands even with many sheets. The
+# count is read from the archive's end-of-central-directory record (see _zip_member_count) so it gates
+# the explosion before the ZipInfo table is ever materialized.
+MAX_ZIP_MEMBERS = 10_000
 
 # One warehouse table per sheet: thousands of columns break the schema UI and ClickHouse long before
 # they're useful, and a bomb can declare them for free.
@@ -56,7 +64,31 @@ def _uploaded_workbook_bytes(team_id: int, upload_id: str, filename: str) -> byt
         ) from error
 
 
+def _zip_member_count(data: bytes) -> int | None:
+    """Number of members declared in the ZIP's end-of-central-directory (EOCD) record, read without
+    building a ZipInfo object per member — that per-member table is exactly what a member-count bomb
+    inflates, so the count has to come from somewhere cheaper. Returns ``None`` when the EOCD can't be
+    located, leaving the malformed-archive path to report it.
+    """
+    signature = b"PK\x05\x06"
+    # The EOCD is 22 bytes plus an optional comment of up to 65,535 bytes, so it lives in the final
+    # ~64 KiB — scan that tail rather than the whole file.
+    tail = data[-(22 + 65535) :]
+    offset = tail.rfind(signature)
+    if offset == -1 or len(tail) - offset < 12:
+        return None
+    # "Total number of central directory records" is a 2-byte little-endian field at offset 10. ZIP64
+    # archives store 0xFFFF here as a sentinel, which is far past the cap either way.
+    return int.from_bytes(tail[offset + 10 : offset + 12], "little")
+
+
 def _open_workbook(data: bytes):
+    member_count = _zip_member_count(data)
+    if member_count is not None and member_count > MAX_ZIP_MEMBERS:
+        raise ExcelReadError(
+            "The workbook has too many internal parts to be a normal spreadsheet. Export the data to "
+            "CSV or Parquet and connect it as a self-managed source instead."
+        )
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             declared_bytes = sum(info.file_size for info in archive.infolist())

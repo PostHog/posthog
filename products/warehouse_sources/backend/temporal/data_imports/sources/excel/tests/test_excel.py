@@ -151,6 +151,17 @@ class TestWorkbookBudgets(SimpleTestCase):
                     list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
         assert "too large once decompressed" in str(ctx.exception)
 
+    def test_rejects_an_archive_with_too_many_members(self) -> None:
+        # A workbook can hide hundreds of thousands of tiny ZIP members under the 50MB cap, each
+        # costing a ZipInfo object built just to open the archive. The count is read from the EOCD
+        # record, so the cap fires before that per-member table is materialized — and before openpyxl.
+        data = _workbook_bytes({"S1": [["a"], [1]]})
+        with patch(f"{MODULE}.MAX_ZIP_MEMBERS", 1):
+            with patch(f"{MODULE}.get_s3_client", return_value=_FakeS3(data)):
+                with self.assertRaises(ExcelReadError) as ctx:
+                    list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
+        assert "too many internal parts" in str(ctx.exception)
+
     def test_rejects_a_sheet_with_too_many_columns(self) -> None:
         data = _workbook_bytes({"Wide": [["a", "b", "c"], [1, 2, 3]]})
         with patch(f"{MODULE}.MAX_COLUMNS_PER_SHEET", 2):
