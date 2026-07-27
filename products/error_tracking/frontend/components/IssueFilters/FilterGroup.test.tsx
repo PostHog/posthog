@@ -76,4 +76,31 @@ describe('FilterGroup', () => {
 
         logic.unmount()
     })
+
+    it('renders active filters below the filter picker', () => {
+        const logic = issueFiltersLogic({ logicKey: LOGIC_KEY })
+        logic.mount()
+        logic.actions.setFilterGroup({
+            type: FilterLogicalOperator.And,
+            values: [{ type: FilterLogicalOperator.And, values: [firefoxFilter] }],
+        })
+
+        render(
+            <Provider>
+                <BindLogic logic={issueFiltersLogic} props={{ logicKey: LOGIC_KEY }}>
+                    <FilterGroup />
+                </BindLogic>
+            </Provider>
+        )
+
+        const filterPickerButton = screen.getByRole('button', { name: 'Add filter' })
+        const activeFilters = screen.getByTestId('error-tracking-active-filters')
+
+        expect(filterPickerButton).not.toContainElement(activeFilters)
+        expect(
+            filterPickerButton.compareDocumentPosition(activeFilters) & Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+
+        logic.unmount()
+    })
 })
