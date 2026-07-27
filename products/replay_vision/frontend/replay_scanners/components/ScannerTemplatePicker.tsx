@@ -3,7 +3,6 @@ import { combineUrl, router } from 'kea-router'
 
 import { IconCheckCircle, IconNotebook, IconPlus, IconTarget, IconThumbsDown, IconWarning } from '@posthog/icons'
 
-import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { urls } from 'scenes/urls'
 
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
@@ -52,15 +51,17 @@ function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JS
                             ? 'Build a fully custom scanner with your own prompt and configuration.'
                             : template.description}
                     </p>
-                    {/* Type chip + its output, stacked and pinned to the card's bottom edge (mt-auto) so this
-                        footer lines up across the grid regardless of how many lines each description takes. */}
+                    {/* Type chip carries its output inline (e.g. "Monitor · yes or no"), pinned to the card's
+                        bottom edge (mt-auto) so it lines up across the grid regardless of description length. */}
                     {!isBlank && (
-                        <div className="mt-auto pt-4 flex flex-col items-center gap-1.5">
-                            <ScannerTypeBadge scannerType={template.scanner_type} size="medium" />
-                            <LemonSnack type="regular">
-                                <span className="text-muted">Output:</span>{' '}
-                                {scannerTypeOutputHint(template.scanner_type)}
-                            </LemonSnack>
+                        <div className="mt-auto pt-4 flex justify-center">
+                            <ScannerTypeBadge
+                                scannerType={template.scanner_type}
+                                size="medium"
+                                suffix={
+                                    <span className="opacity-75">· {scannerTypeOutputHint(template.scanner_type)}</span>
+                                }
+                            />
                         </div>
                     )}
                 </div>
