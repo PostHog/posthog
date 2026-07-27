@@ -145,9 +145,10 @@ BLOCKED_LIVE_BATCH_CONDITION = f"""(
                             )
                         )"""
 
+
 # Shared CTE prelude for eligibility queries (note the trailing comma — callers
-# append their own CTEs/SELECT). Expects a %(team_ids)s bigint[] parameter
-# (NULL = no team filter).
+# append their own CTEs/SELECT). Callers pass scoped=True when team_ids is a
+# concrete list; see _team_scope.
 #
 # - cand_runs: runs with pending duckgres work — a delta-succeeded batch that is
 #   not yet duckgres-succeeded. This is the driving set: every run the gate or
@@ -161,23 +162,41 @@ BLOCKED_LIVE_BATCH_CONDITION = f"""(
 #   Duckgres-failed (including superseded).
 # - incomplete_runs: non-failed runs that still owe unapplied data batches;
 #   these block newer runs of the same schema (cross-run head-of-line).
-ELIGIBILITY_CTES = f"""cand_runs AS MATERIALIZED (
+def _team_scope(alias: str, *, scoped: bool) -> str:
+    """Sargable per-team filter for the eligibility scans.
+
+    In prod ``team_ids`` is always the concrete enabled-team list, so emit a
+    plain ``= ANY(%(team_ids)s)``: the planner prunes to those teams via the
+    ``(team_id, ...)`` index and never reads a non-enabled team's rows. The old
+    ``%(team_ids)s IS NULL OR ...`` form existed only to also serve the
+    dev/ungated case (team_ids IS NULL), but with a bound parameter Postgres
+    builds a generic plan that cannot fold the NULL check — so it cannot use the
+    index and seq-scans the whole shared partition window. A single non-enabled
+    team with a high-volume (e.g. failing) source then dominates that scan and
+    can push the eligibility/supersede queries past their statement timeout,
+    even though none of those rows is ever sinked. Unscoped (dev) = match all.
+    """
+    return f"AND {alias}.team_id = ANY(%(team_ids)s)" if scoped else ""
+
+
+def _eligibility_ctes(scoped: bool) -> str:
+    return f"""cand_runs AS MATERIALIZED (
                     -- Runs with pending duckgres work: a delta-succeeded batch that is not yet
                     -- duckgres-succeeded. Superset of every run the gate/supersede compares;
                     -- run_starts/failed_runs scope to it so the work is bounded by the backlog.
                     SELECT DISTINCT cb.run_uuid
                     FROM {BATCH_TABLE} cb
-                    JOIN {_latest_status_lateral(STATUS_TABLE, "cb")} cds ON cds.job_state = 'succeeded'
                     LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "cb")} cdgs ON true
                     WHERE cb.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (%(team_ids)s::bigint[] IS NULL OR cb.team_id = ANY(%(team_ids)s))
+                        AND cb.latest_state = 'succeeded'
+                        {_team_scope("cb", scoped=scoped)}
                         AND (cdgs.job_state IS NULL OR cdgs.job_state <> 'succeeded')
                 ),
                 run_starts AS MATERIALIZED (
                     SELECT b_rs.run_uuid, min(b_rs.created_at) AS started_at
                     FROM {BATCH_TABLE} b_rs
                     WHERE b_rs.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (%(team_ids)s::bigint[] IS NULL OR b_rs.team_id = ANY(%(team_ids)s))
+                        {_team_scope("b_rs", scoped=scoped)}
                         AND b_rs.run_uuid IN (SELECT run_uuid FROM cand_runs)
                     GROUP BY b_rs.run_uuid
                 ),
@@ -185,18 +204,17 @@ ELIGIBILITY_CTES = f"""cand_runs AS MATERIALIZED (
                     SELECT cr.run_uuid FROM cand_runs cr
                     WHERE EXISTS (
                         SELECT 1 FROM {BATCH_TABLE} fb
-                        JOIN {_latest_status_lateral(STATUS_TABLE, "fb")} fds ON true
                         WHERE fb.run_uuid = cr.run_uuid
                             AND fb.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                            AND (%(team_ids)s::bigint[] IS NULL OR fb.team_id = ANY(%(team_ids)s))
-                            AND fds.job_state = 'failed'
+                            {_team_scope("fb", scoped=scoped)}
+                            AND fb.latest_state = 'failed'
                     )
                     OR EXISTS (
                         SELECT 1 FROM {BATCH_TABLE} fb
                         JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "fb")} fdgs ON true
                         WHERE fb.run_uuid = cr.run_uuid
                             AND fb.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                            AND (%(team_ids)s::bigint[] IS NULL OR fb.team_id = ANY(%(team_ids)s))
+                            {_team_scope("fb", scoped=scoped)}
                             AND fdgs.job_state = 'failed'
                     )
                 ),
@@ -204,7 +222,6 @@ ELIGIBILITY_CTES = f"""cand_runs AS MATERIALIZED (
                     SELECT old.team_id, old.schema_id, old.run_uuid, rs_ir.started_at,
                            bool_or((old.metadata->>'duckgres_backfill') IS NOT NULL) AS is_backfill_run
                     FROM {BATCH_TABLE} old
-                    JOIN {_latest_status_lateral(STATUS_TABLE, "old")} ods ON ods.job_state = 'succeeded'
                     JOIN run_starts rs_ir ON rs_ir.run_uuid = old.run_uuid
                     LEFT JOIN {DUCKGRES_APPLY_TABLE} oa
                         ON oa.team_id = old.team_id
@@ -212,7 +229,8 @@ ELIGIBILITY_CTES = f"""cand_runs AS MATERIALIZED (
                         AND oa.run_uuid = old.run_uuid
                         AND oa.batch_index = old.batch_index
                     WHERE old.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (%(team_ids)s::bigint[] IS NULL OR old.team_id = ANY(%(team_ids)s))
+                        AND old.latest_state = 'succeeded'
+                        {_team_scope("old", scoped=scoped)}
                         AND old.is_final_batch = false
                         AND oa.id IS NULL
                         AND old.run_uuid NOT IN (SELECT run_uuid FROM failed_runs)
@@ -303,10 +321,11 @@ class DuckgresBatchQueue:
         Liveness: older runs either complete, fail (max attempts), or are
         superseded by ``supersede_replaced_runs`` — all three unblock the gate.
         """
+        scoped = team_ids is not None
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                WITH {ELIGIBILITY_CTES}
+                WITH {_eligibility_ctes(scoped)}
                 team_org AS (
                     -- Enabled-team -> (org, budget) mapping, passed in because the
                     -- queue DB has no teams table. Empty when no caps apply.
@@ -331,12 +350,11 @@ class DuckgresBatchQueue:
                     SELECT
                         {pending_batch_select_columns("dgs")}
                     FROM {BATCH_TABLE} b
-                    JOIN {_latest_status_lateral(STATUS_TABLE, "b")} ds ON true
                     JOIN run_starts rs_b ON rs_b.run_uuid = b.run_uuid
                     LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "b")} dgs ON true
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (%(team_ids)s::bigint[] IS NULL OR b.team_id = ANY(%(team_ids)s))
+                        {_team_scope("b", scoped=scoped)}
                         AND (%(eligible_schema_ids)s::varchar[] IS NULL OR b.schema_id = ANY(%(eligible_schema_ids)s))
                         -- In-flight groups: re-claiming them burns the LIMIT and
                         -- max_groups budget on work this pod can't start.
@@ -371,7 +389,7 @@ class DuckgresBatchQueue:
                                 AND u.live >= m.budget
                         )
                         AND NOT {BLOCKED_LIVE_BATCH_CONDITION}
-                        AND ds.job_state = 'succeeded'
+                        AND b.latest_state = 'succeeded'
                         AND (
                             dgs.batch_id IS NULL
                             OR (
@@ -595,14 +613,14 @@ class DuckgresBatchQueue:
         Skips batches currently 'executing' (their attempt resolves on its own)
         and anything already terminal. Returns the number of batches superseded.
         """
+        scoped = team_ids is not None
         async with _statement_timeout(conn, ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS), conn.cursor() as cur:
             await cur.execute(
                 f"""
-                WITH {ELIGIBILITY_CTES}
+                WITH {_eligibility_ctes(scoped)}
                 replace_heads AS MATERIALIZED (
                     SELECT nb.team_id, nb.schema_id, nb.run_uuid, rs.started_at
                     FROM {BATCH_TABLE} nb
-                    JOIN {_latest_status_lateral(STATUS_TABLE, "nb")} nds ON true
                     JOIN run_starts rs ON rs.run_uuid = nb.run_uuid
                     LEFT JOIN {DUCKGRES_APPLY_TABLE} na
                         ON na.team_id = nb.team_id
@@ -610,8 +628,8 @@ class DuckgresBatchQueue:
                         AND na.run_uuid = nb.run_uuid
                         AND na.batch_index = nb.batch_index
                     WHERE nb.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (%(team_ids)s::bigint[] IS NULL OR nb.team_id = ANY(%(team_ids)s))
-                        AND nds.job_state = 'succeeded'
+                        {_team_scope("nb", scoped=scoped)}
+                        AND nb.latest_state = 'succeeded'
                         AND nb.batch_index = 0
                         AND nb.is_final_batch = false
                         AND nb.is_resume = false
@@ -628,7 +646,6 @@ class DuckgresBatchQueue:
                     JOIN replace_heads rh
                         ON rh.team_id = old.team_id AND rh.schema_id = old.schema_id
                     JOIN run_starts ors ON ors.run_uuid = old.run_uuid
-                    JOIN {_latest_status_lateral(STATUS_TABLE, "old")} ods ON true
                     LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "old")} odgs ON true
                     LEFT JOIN {DUCKGRES_APPLY_TABLE} oa
                         ON oa.team_id = old.team_id
@@ -638,7 +655,7 @@ class DuckgresBatchQueue:
                     WHERE old.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND old.run_uuid <> rh.run_uuid
                         AND (ors.started_at, old.run_uuid) < (rh.started_at, rh.run_uuid)
-                        AND ods.job_state = 'succeeded'
+                        AND old.latest_state = 'succeeded'
                         AND old.run_uuid NOT IN (SELECT run_uuid FROM failed_runs)
                         AND (old.is_final_batch = true OR oa.id IS NULL)
                         AND (odgs.batch_id IS NULL OR odgs.job_state = 'waiting_retry')
@@ -678,10 +695,11 @@ class DuckgresBatchQueue:
         the page. Durable per-schema failure tracking lives on
         DuckgresSinkSchemaState (this count ages out with queue retention).
         """
+        scoped = team_ids is not None
         async with _statement_timeout(conn, ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS), conn.cursor() as cur:
             await cur.execute(
                 f"""
-                WITH {ELIGIBILITY_CTES}
+                WITH {_eligibility_ctes(scoped)}
                 backlog AS (
                     SELECT
                         b.created_at,
@@ -691,16 +709,15 @@ class DuckgresBatchQueue:
                             AND b.schema_id = ANY(%(failing_schema_ids)s)
                         ) AS is_failing
                     FROM {BATCH_TABLE} b
-                    JOIN {_latest_status_lateral(STATUS_TABLE, "b")} ds ON true
                     LEFT JOIN {DUCKGRES_APPLY_TABLE} a
                         ON a.team_id = b.team_id
                         AND a.schema_id = b.schema_id
                         AND a.run_uuid = b.run_uuid
                         AND a.batch_index = b.batch_index
                     WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (%(team_ids)s::bigint[] IS NULL OR b.team_id = ANY(%(team_ids)s))
+                        {_team_scope("b", scoped=scoped)}
                         AND (%(eligible_schema_ids)s::varchar[] IS NULL OR b.schema_id = ANY(%(eligible_schema_ids)s))
-                        AND ds.job_state = 'succeeded'
+                        AND b.latest_state = 'succeeded'
                         AND b.is_final_batch = false
                         AND a.id IS NULL
                         AND b.run_uuid NOT IN (SELECT run_uuid FROM failed_runs)

@@ -34,7 +34,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
-import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
+import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -79,12 +79,6 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import type {
-    LLMPromptApi,
-    LLMPromptListApi,
-    LLMPromptResolveResponseApi,
-    LLMPromptVersionSummaryApi,
-} from 'products/ai_observability/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -897,6 +891,8 @@ export interface TeamType extends TeamBasicType {
 
 export interface WorkflowsConfig {
     capture_workflows_engagement_events: boolean
+    // Optional so cached team objects from before this field shipped still typecheck.
+    email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
 }
 
 export interface ProductIntentType {
@@ -6131,6 +6127,8 @@ export interface DataWarehouseSavedQuery {
     columns: DatabaseSchemaField[]
     last_run_at?: string
     sync_frequency?: string
+    /** True when the DAG's single schedule owns the cadence, so `sync_frequency` is not editable per view */
+    sync_frequency_managed_by_dag?: boolean
     status?: string
     managed_viewset_kind: DataWarehouseManagedViewsetKind | null
     folder_id?: string | null
@@ -7807,57 +7805,6 @@ export interface DatasetItem {
     updated_at: string
     created_at: string
     deleted: boolean
-}
-
-export interface LLMPrompt {
-    id: string
-    name: string
-    prompt: string
-    version: number
-    version_description?: string | null
-    created_by: UserBasicType
-    created_at: string
-    updated_at: string
-    deleted: boolean
-    is_latest: boolean
-    latest_version: number
-    version_count: number
-    first_version_created_at: string
-    /** Key for this prompt's rows in the activity log (History tab). */
-    activity_item_id: LLMPromptApi['activity_item_id']
-    /** All labels on the prompt with the version each points to. Only present on list responses. */
-    all_labels?: LLMPromptListApi['all_labels']
-}
-
-export interface LLMPromptPublic {
-    id: string
-    name: string
-    prompt: string
-    version: number
-    created_at: string
-    updated_at: string
-    deleted: boolean
-    is_latest: boolean
-    latest_version: number
-    version_count: number
-    first_version_created_at: string
-}
-
-export interface LLMPromptVersionSummary {
-    id: string
-    version: number
-    version_description?: string | null
-    created_by: UserBasicType
-    created_at: string
-    is_latest: boolean
-    labels?: LLMPromptVersionSummaryApi['labels']
-}
-
-export interface LLMPromptResolveResponse {
-    prompt: LLMPrompt
-    versions: LLMPromptVersionSummary[]
-    has_more: boolean
-    labels: LLMPromptResolveResponseApi['labels']
 }
 
 // Managed viewset
