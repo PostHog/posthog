@@ -7,7 +7,6 @@ import { TagSelect } from 'lib/components/TagSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/insightTypesMetadata'
@@ -176,10 +175,11 @@ const FeatureFlagInsightsToggle = ({
             <LemonButton
                 icon={<IconFlag />}
                 onClick={() => onToggle(!hideFeatureFlagInsights)}
-                type="tertiary"
+                type="secondary"
+                active={hideFeatureFlagInsights || false}
                 size="small"
             >
-                Hide feature flag insights: <LemonSwitch checked={hideFeatureFlagInsights || false} className="ml-1" />
+                Hide flag insights
             </LemonButton>
         </Tooltip>
     )

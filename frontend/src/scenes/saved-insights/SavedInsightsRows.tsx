@@ -130,7 +130,7 @@ export function SavedInsightsRows({ quickFilters }: { quickFilters?: QuickFilter
             title: (
                 <div className="flex items-center justify-between flex-wrap gap-2 w-full font-medium">
                     <span className="text-secondary">
-                        {count} {count === 1 ? 'insight' : 'insights'}
+                        {insightsLoading && count === 0 ? '' : `${count} ${count === 1 ? 'insight' : 'insights'}`}
                     </span>
                     <SavedInsightsFilters
                         filters={filters}
