@@ -31,8 +31,22 @@ describe('resolveChartPlacements', () => {
         ['inside a table cell', '| Metric | Chart |\n| --- | --- |\n| Signups | [chart](chart:signups-drop) |'],
         ['inside a heading', '## [Daily signups](chart:signups-drop)'],
         ['for a chart the report does not have', '[Gone](chart:deleted-chart)'],
+        // A chart is block-level and `LemonMarkdown` only unwraps the `<p>` around a paragraph whose
+        // own children are references, so placing one the author formatted would put the chart inside
+        // the `<strong>`/`<em>` and leave the paragraph around it.
+        ['wrapped in bold', '**[Daily signups](chart:signups-drop)**'],
+        ['wrapped in italics', '*[Daily signups](chart:signups-drop)*'],
     ])('leaves a reference %s to render after the prose', (_label, summary) => {
         expect(placedIn(summary)).toEqual([])
+    })
+
+    it.each([
+        ['in a blockquote', '> [Daily signups](chart:signups-drop)'],
+        ['in a list item', '- [Daily signups](chart:signups-drop)'],
+    ])('still places a reference %s', (_label, summary) => {
+        // The paragraph a chart reference sits in doesn't have to be top-level — the renderer unwraps
+        // it just the same, and the surrounding block can hold the chart.
+        expect(placedIn(summary)).toEqual(['signups-drop'])
     })
 
     it('places only the first reference to an id', () => {

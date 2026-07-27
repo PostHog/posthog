@@ -17,11 +17,6 @@ import { CHART_REF_PREFIX } from 'lib/lemon-ui/LemonMarkdown'
 // Matched against the id charset the backend enforces on `chart_id` (see `ChartArtefact`).
 const CHART_REF_TARGET = new RegExp(`^${CHART_REF_PREFIX}([a-z0-9][a-z0-9_-]*)$`)
 
-// Nodes whose contents have no room for a chart. A table cell is a few dozen pixels wide; a heading
-// is a line of text. A reference in one still reads as its label, and its chart falls to the end of
-// the report rather than being dropped.
-const NO_CHART_CONTAINERS = new Set(['heading', 'tableCell'])
-
 export interface ChartPlacements {
     /** Source offset of each reference that draws a chart there → the chart id it draws. */
     inlineByOffset: Map<number, string>
@@ -29,7 +24,14 @@ export interface ChartPlacements {
     inlineIds: Set<string>
 }
 
-/** Only the table extension: it's the one GFM construct that changes where a chart reference lands. */
+/**
+ * Only the table extension: it's the one GFM construct that changes where a chart reference lands.
+ *
+ * The renderer runs all of `remark-gfm`, so the two parses differ on the constructs left out here.
+ * Strikethrough is the one that matters: `~~[x](chart:a)~~` reads below as a link in a paragraph,
+ * while the renderer nests it under a `<del>` the chart can't sit in. Closing that means pulling in
+ * `micromark-extension-gfm` so this parse is the renderer's parse.
+ */
 function parseSummary(summary: string): { children?: unknown[] } | null {
     try {
         return fromMarkdown(summary, {
@@ -63,9 +65,14 @@ export function resolveChartPlacements(
         return { inlineByOffset, inlineIds }
     }
 
-    const visit = (node: any, hasRoom: boolean): void => {
-        const roomHere = hasRoom && !NO_CHART_CONTAINERS.has(node?.type)
-        if (roomHere && node?.type === 'link') {
+    // Only a reference sitting directly in a paragraph draws its chart there, because that is exactly
+    // what the renderer can do with one: `LemonMarkdown` drops the `<p>` around a paragraph whose own
+    // children are chart references, and a chart is block-level, so anywhere else it would land inside
+    // an element that can't hold it — under `<strong>`/`<em>`/`<del>` for a reference the author
+    // formatted, in a heading's line of text, or in a table cell a few dozen pixels wide. Those still
+    // read as their label, and their charts fall to the end of the report rather than being dropped.
+    const visit = (node: any, inParagraph: boolean): void => {
+        if (inParagraph && node?.type === 'link') {
             const chartId = CHART_REF_TARGET.exec(typeof node.url === 'string' ? node.url : '')?.[1]
             const offset = node.position?.start?.offset
             if (chartId && available.has(chartId) && !inlineIds.has(chartId) && typeof offset === 'number') {
@@ -74,10 +81,10 @@ export function resolveChartPlacements(
             }
         }
         for (const child of node?.children ?? []) {
-            visit(child, roomHere)
+            visit(child, node?.type === 'paragraph')
         }
     }
-    visit(tree, true)
+    visit(tree, false)
 
     return { inlineByOffset, inlineIds }
 }
