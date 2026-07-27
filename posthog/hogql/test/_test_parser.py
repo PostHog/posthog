@@ -2911,9 +2911,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertIn("synthetic post_init failure", str(caught.exception))
 
         def test_deeply_nested_input_does_not_stack_overflow(self):
-            # Deeply-nested input must surface a clean `SyntaxError`, not a host stack overflow (an uncatchable SIGSEGV) in the recursive-descent loop. One shared counter caps all three recursion dimensions — expression nesting, subquery / set nesting, and Hog statement / block nesting — at `MAX_RECURSION_DEPTH = 1000`, mirroring ClickHouse's `max_parser_depth`. cpp has its own stack characteristics so the assertion is rust-specific. Which guard fires (and so the exact message) depends on how the input routes through the descent, hence the loose substring check.
-            if backend not in ("rust-json", "rust-py"):
-                self.skipTest("rust-specific recursion cap")
+            # Deeply-nested input must surface a clean `SyntaxError`, not a host stack overflow (an uncatchable SIGSEGV) in the recursive-descent loop. Every backend caps recursion across all three dimensions — expression nesting, subquery / set nesting, and Hog statement / block nesting: rust at `MAX_RECURSION_DEPTH = 1000`, cpp via a `ParseTreeListener` at `MAX_PARSER_DEPTH`, both mirroring ClickHouse's `max_parser_depth`. Which guard fires (and so the exact message) depends on how the input routes through the descent, hence the loose substring check.
             parse_fns = {"expr": parse_expr, "select": parse_select, "program": parse_program}
             cases = (
                 ("expr", "(" * 1500 + "1" + ")" * 1500),

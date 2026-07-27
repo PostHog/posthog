@@ -100,6 +100,7 @@ struct ParserContext {
   unique_ptr<HogQLLexer> lexer;
   unique_ptr<antlr4::CommonTokenStream> stream;
   unique_ptr<HogQLErrorListener> error_listener;
+  unique_ptr<RecursionDepthGuard> depth_guard;
   unique_ptr<HogQLParser> parser;
 
   explicit ParserContext(const string& input) {
@@ -110,6 +111,8 @@ struct ParserContext {
     parser->removeErrorListeners();
     error_listener = std::make_unique<HogQLErrorListener>(input);
     parser->addErrorListener(error_listener.get());
+    depth_guard = std::make_unique<RecursionDepthGuard>();
+    parser->addParseListener(depth_guard.get());
   }
 
   // Prevent copying (would cause double-free)

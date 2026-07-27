@@ -26,6 +26,40 @@
 
 using namespace std;
 
+// RECURSION DEPTH GUARD
+
+// HogQL's grammar recurses on nested parentheses (`(((…)))`), subqueries, arrays/dicts,
+// and Hog blocks (`{{…}}`). ANTLR's generated recursive-descent parser mirrors that
+// nesting on the native call stack with no built-in cap, so deeply nested input can
+// exhaust the stack and crash the worker with an uncatchable SIGSEGV before any parse
+// error can fire. A cap surfaces a clean SyntaxError instead, matching the Rust backend's
+// `MAX_RECURSION_DEPTH` and ClickHouse's `max_parser_depth`. The count is over live rule
+// frames, which sit a small constant factor above syntactic nesting depth, so this trips
+// well below the native overflow point while leaving ample headroom for any real query.
+static constexpr size_t MAX_PARSER_DEPTH = 1000;
+
+// A ParseTreeListener sees every rule entry/exit — including left-recursive contexts,
+// which `enterRecursionRule` drives and which a Parser subclass can't intercept (those
+// runtime hooks aren't virtual). Counting live depth here bounds total descent regardless
+// of how the nesting is composed. Throwing from `enterEveryRule` unwinds cleanly into the
+// `SyntaxError` catch around the parse call.
+class RecursionDepthGuard : public antlr4::tree::ParseTreeListener {
+ public:
+  void enterEveryRule(antlr4::ParserRuleContext* /* ctx */) override {
+    if (++depth_ > MAX_PARSER_DEPTH) {
+      throw SyntaxError("input too deeply nested", 0, 0);
+    }
+  }
+  void exitEveryRule(antlr4::ParserRuleContext* /* ctx */) override {
+    if (depth_ > 0) --depth_;
+  }
+  void visitTerminal(antlr4::tree::TerminalNode* /* node */) override {}
+  void visitErrorNode(antlr4::tree::ErrorNode* /* node */) override {}
+
+ private:
+  size_t depth_ = 0;
+};
+
 // JSON UTILS
 
 // Helper: Add position information to Json object from ParserRuleContext

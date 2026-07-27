@@ -27,6 +27,8 @@
     parser->removeErrorListeners();                                                                          \
     auto error_listener = new HogQLErrorListener(string(str, (size_t)str_len));                              \
     parser->addErrorListener(error_listener);                                                                \
+    RecursionDepthGuard depth_guard;                                                                         \
+    parser->addParseListener(&depth_guard);                                                                  \
     HogQLParser::PASCAL_CASE##Context* parse_tree;                                                           \
     try {                                                                                                    \
       parse_tree = parser->CAMEL_CASE();                                                                     \
