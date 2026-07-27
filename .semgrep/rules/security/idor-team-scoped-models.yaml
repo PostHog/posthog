@@ -80,6 +80,7 @@ rules:
                               |BatchExportBackfill
                               |BatchExportFileDownload
                               |BatchExportOnDemand
+                              |BatchExportSource
                               |BatchImport
                               |BriefConfig
                               |ButtonTile
@@ -401,6 +402,7 @@ rules:
                         |BatchExportBackfill
                         |BatchExportFileDownload
                         |BatchExportOnDemand
+                        |BatchExportSource
                         |BatchImport
                         |BriefConfig
                         |ButtonTile
