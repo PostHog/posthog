@@ -33,7 +33,22 @@ logger = structlog.get_logger(__name__)
 CLEANED = "cleaned"
 SKIPPED_DEPENDENTS = "skipped_has_live_dependents"
 SKIPPED_MANAGED = "skipped_managed_viewset"
+SKIPPED_SHARED_TABLE = "skipped_table_shared_with_live_query"
 SKIPPED_ERROR = "skipped_error"
+
+
+def table_shared_with_live_query(saved_query: DataWarehouseSavedQuery) -> bool:
+    """Whether a live saved query points at this query's backing table. Checked at batch selection
+    AND again inside the cascade: a live query can acquire the table in between, and reverting it
+    then would soft-delete a table something uses.
+    """
+    if saved_query.table_id is None:
+        return False
+    return (
+        DataWarehouseSavedQuery.objects.exclude(deleted=True)
+        .filter(team_id=saved_query.team_id, table_id=saved_query.table_id)
+        .exists()
+    )
 
 
 def has_live_dependents(saved_query: DataWarehouseSavedQuery) -> bool:
@@ -109,6 +124,8 @@ def cascade_delete(saved_query: DataWarehouseSavedQuery) -> str:
     # view it believes it owns already gone.
     if saved_query.managed_viewset is not None:
         return SKIPPED_MANAGED
+    if table_shared_with_live_query(saved_query):
+        return SKIPPED_SHARED_TABLE
     if has_live_dependents(saved_query):
         return SKIPPED_DEPENDENTS
 

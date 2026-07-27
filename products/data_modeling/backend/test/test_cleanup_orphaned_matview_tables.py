@@ -5,6 +5,7 @@ from products.data_modeling.backend.management.commands.cleanup_orphaned_matview
     CLEANED,
     SKIPPED_DEPENDENTS,
     SKIPPED_MANAGED,
+    SKIPPED_SHARED_TABLE,
     cascade_delete,
     find_half_deleted_matviews,
 )
@@ -47,12 +48,21 @@ class TestFindHalfDeletedMatviews(BaseTest):
         assert self._found() == {sq.id}
 
     def test_table_shared_with_a_live_query_is_excluded(self):
-        # Safety guard: a live query still points at the table — never cascade (would delete a live table).
+        # Safety guard: a live query still points at the table — never cascade (would delete a live
+        # table). The guard must also hold inside cascade_delete itself: a live query can acquire
+        # the table between batch selection and the cascade reaching this row.
         table = self._table("shared_view")
         dead = self._saved_query("old_view", table, deleted=True)
         self._node(dead)
         self._saved_query("shared_view", table, deleted=False)
         assert self._found() == set()
+
+        assert cascade_delete(dead) == SKIPPED_SHARED_TABLE
+        table.refresh_from_db()
+        dead.refresh_from_db()
+        assert not table.deleted
+        assert dead.table_id == table.id
+        assert Node.objects.filter(saved_query=dead).exists()
 
     def test_partially_cleaned_row_stays_selected_until_soft_delete_completes(self):
         # The state a cascade crash leaves behind: node gone, table soft-deleted, but joins live
