@@ -79,7 +79,7 @@ export function MetricsTab(): JSX.Element {
                 productName="Data catalog"
                 productKey={ProductKey.DATA_CATALOG}
                 thingName="metric"
-                description="Metrics give your team one canonical definition for a number, with drift tracking against the insight it came from."
+                description="Metrics give your team one canonical definition for a number. Define one from SQL, an insight, or written instructions."
                 isEmpty
                 action={openNewMetricModal}
             />

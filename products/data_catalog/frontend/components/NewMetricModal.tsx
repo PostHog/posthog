@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
@@ -13,12 +14,13 @@ import { metricsLogic, NewMetricDefinitionType } from '../metricsLogic'
 
 const DEFINITION_TYPE_OPTIONS: { value: NewMetricDefinitionType; label: string }[] = [
     { value: 'none', label: 'No definition' },
-    { value: 'sql', label: 'SQL' },
     { value: 'markdown', label: 'Markdown' },
+    { value: 'insight', label: 'Insight' },
 ]
 
 export function NewMetricModal(): JSX.Element {
-    const { newMetricModalOpen, newMetricForm, isCreatingMetric } = useValues(metricsLogic)
+    const { newMetricModalOpen, newMetricForm, isCreatingMetric, savedInsights, savedInsightsLoading } =
+        useValues(metricsLogic)
     const { setNewMetricForm, createMetric, closeNewMetricModal } = useActions(metricsLogic)
 
     const nameError = validateMetricName(newMetricForm.name.trim())
@@ -26,7 +28,9 @@ export function NewMetricModal(): JSX.Element {
         ? nameError
         : !newMetricForm.description.trim()
           ? 'Add a description'
-          : undefined
+          : newMetricForm.definitionType === 'insight' && !newMetricForm.sourceInsightShortId
+            ? 'Choose an insight'
+            : undefined
 
     return (
         <LemonModal isOpen={newMetricModalOpen} onClose={closeNewMetricModal} width={640} title="New metric">
@@ -70,7 +74,10 @@ export function NewMetricModal(): JSX.Element {
                         />
                     </LemonField.Pure>
 
-                    <LemonField.Pure label="Definition">
+                    <LemonField.Pure
+                        label="Definition"
+                        info="For a SQL definition, use Save as metric in the SQL editor."
+                    >
                         <LemonSegmentedButton
                             value={newMetricForm.definitionType}
                             onChange={(definitionType) => setNewMetricForm({ definitionType })}
@@ -78,24 +85,32 @@ export function NewMetricModal(): JSX.Element {
                         />
                     </LemonField.Pure>
 
-                    {newMetricForm.definitionType === 'sql' && (
-                        <LemonField.Pure label="SQL">
-                            <LemonTextArea
-                                value={newMetricForm.sql}
-                                onChange={(sql) => setNewMetricForm({ sql })}
-                                placeholder="SELECT count() FROM events"
-                                className="font-mono"
-                                minRows={4}
-                            />
-                        </LemonField.Pure>
-                    )}
-
                     {newMetricForm.definitionType === 'markdown' && (
                         <LemonField.Pure label="Markdown">
                             <LemonTextAreaMarkdown
                                 value={newMetricForm.markdown}
                                 onChange={(markdown) => setNewMetricForm({ markdown })}
                                 placeholder="Numbered steps describing how to calculate this metric"
+                            />
+                        </LemonField.Pure>
+                    )}
+
+                    {newMetricForm.definitionType === 'insight' && (
+                        <LemonField.Pure
+                            label="Insight"
+                            info="The metric snapshots the insight's query and tracks drift against it."
+                        >
+                            <LemonInputSelect
+                                mode="single"
+                                value={newMetricForm.sourceInsightShortId ? [newMetricForm.sourceInsightShortId] : []}
+                                onChange={(values) => setNewMetricForm({ sourceInsightShortId: values[0] || '' })}
+                                options={savedInsights.map((insight) => ({
+                                    key: insight.short_id,
+                                    label: insight.label,
+                                }))}
+                                loading={savedInsightsLoading}
+                                placeholder="Search insights"
+                                data-attr="data-catalog-new-metric-insight"
                             />
                         </LemonField.Pure>
                     )}

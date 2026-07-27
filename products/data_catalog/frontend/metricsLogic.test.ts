@@ -25,7 +25,7 @@ jest.mock('lib/api', () => {
     }
     return {
         __esModule: true,
-        default: {},
+        default: { insights: { list: jest.fn().mockResolvedValue({ results: [] }) } },
         ApiConfig: { getCurrentTeamId: jest.fn(() => 1) },
         ApiError,
     }
