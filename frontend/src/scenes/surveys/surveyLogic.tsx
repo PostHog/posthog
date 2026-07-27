@@ -2250,7 +2250,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.setFlagPropertyErrors(null)
             },
             submitSurveyFailure: async () => {
-                // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
+                // When errors occur, open the section that renders the offending field and scroll to
+                // it, but wait for errors to be set in the DOM first. Every validated key must route
+                // to a section where its field is actually rendered, otherwise the save silently blocks.
+                const appearanceErrors = values.surveyErrors?.appearance
                 if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
                     actions.setSelectedSection(SurveyEditSection.DisplayConditions)
                 } else if (
@@ -2262,11 +2265,18 @@ export const surveyLogic = kea<surveyLogicType>([
                     if (page >= 0) {
                         actions.setSelectedPageIndex(page)
                     }
-                } else if (hasFormErrors(values.surveyErrors?.appearance)) {
+                } else if (appearanceErrors?.widgetSelector) {
+                    // The widget CSS selector input lives in the Presentation section, not Customization.
+                    actions.setSelectedSection(SurveyEditSection.Presentation)
+                } else if (hasFormErrors(appearanceErrors)) {
                     actions.setSelectedSection(SurveyEditSection.Customization)
                 } else {
                     actions.setSelectedSection(SurveyEditSection.Steps)
                 }
+                // Always surface a visible error. If the offending field can't be scrolled to (its
+                // section is collapsed, or the field isn't in the DOM), the save would otherwise look
+                // like it did nothing.
+                lemonToast.error("Couldn't save the survey. Fix the highlighted errors and try again.")
                 setTimeout(
                     () =>
                         document

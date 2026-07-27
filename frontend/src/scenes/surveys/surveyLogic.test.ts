@@ -3,10 +3,12 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import {
     mergeResponsesByQuestion,
     processOpenEndedResults,
     processResultsForSurveyQuestions,
+    SurveyEditSection,
     surveyLogic,
 } from 'scenes/surveys/surveyLogic'
 import { OpenEndedColumnMap } from 'scenes/surveys/utils'
@@ -34,6 +36,7 @@ import {
     SurveySchedule,
     SurveyStats,
     SurveyType,
+    SurveyWidgetType,
 } from '~/types'
 
 import { surveysGenerateTranslationsCreate } from 'products/surveys/frontend/generated/api'
@@ -331,6 +334,46 @@ describe('translation validation', () => {
             buttonText: 'Enviar',
         })
         expect(logic.values.aiGeneratedTranslationFields).toEqual(['translations.es.thankYouMessageHeader'])
+    })
+})
+
+describe('submit failure feedback', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeAll(() => {
+        // validateSurveyAppearance calls CSS.supports; keep it permissive so the widget selector is the only error.
+        global.CSS = { supports: () => true } as unknown as typeof CSS
+    })
+
+    beforeEach(() => {
+        initKeaTests()
+        jest.clearAllMocks()
+        logic = surveyLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    it('routes an empty widget CSS selector to its section and surfaces a toast', async () => {
+        const errorSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+        const survey: Survey = {
+            ...createPersistedSurvey(),
+            type: SurveyType.Widget,
+            appearance: {
+                ...createPersistedSurvey().appearance,
+                widgetType: SurveyWidgetType.Selector,
+                widgetSelector: '',
+            },
+        }
+
+        logic.actions.loadSurveySuccess(survey)
+
+        await expectLogic(logic, () => {
+            logic.actions.submitSurvey()
+        }).toDispatchActions(['submitSurveyFailure'])
+
+        // The widget selector input lives in the Presentation section, not Customization,
+        // so routing it anywhere else would leave the offending field unreachable.
+        expect(logic.values.selectedSection).toBe(SurveyEditSection.Presentation)
+        expect(errorSpy).toHaveBeenCalled()
     })
 })
 
