@@ -564,6 +564,25 @@ export interface NotebookCellStateApi {
 }
 
 export interface NotebookSQLV2StateResponseApi {
+    /** The notebook's short id. */
+    notebook_id: string
+    /**
+     * The notebook's title.
+     * @nullable
+     */
+    title: string | null
+    /**
+     * Document version, the optimistic-concurrency baseline for edits.
+     * @nullable
+     */
+    version: number | null
+    /**
+     * The full markdown source — prose and cell tags. Null for legacy rich-text notebooks, which carry their document in `content` instead.
+     * @nullable
+     */
+    markdown: string | null
+    /** Legacy rich-text notebooks only: the raw ProseMirror document. Omitted for markdown notebooks — their document is the `markdown` field. */
+    content?: unknown
     /** The notebook's kernel runtime state and compute config. */
     kernel: NotebookKernelStateApi
     /** Every cell in document order, with its dependency edges and derived run state. */

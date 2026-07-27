@@ -6868,12 +6868,12 @@
             "readOnlyHint": false
         }
     },
-    "notebooks-get-state": {
-        "description": "The notebook's dependency-graph view: every cell with its code, dataframe name, depends_on/dependents edges, and derived status — 'stale' means re-running the cell now would execute different code than its last completed run (the cell or an upstream changed), so its displayed result is outdated. Use this to orient in an existing notebook, find which cells need re-running after edits, and decide re-run order (walk stale cells in dependency order with notebooks-update-cell, omitting code).",
+    "notebooks-get": {
+        "description": "The full notebook view: title, markdown source, and every cell with its code, dataframe name, depends_on/dependents edges, and derived status — 'stale' means re-running the cell now would execute different code than its last completed run (the cell or an upstream changed), so its displayed result is outdated. Use this to read or orient in a notebook, find which cells need re-running after edits, and decide re-run order (walk stale cells in dependency order with notebooks-update-cell, omitting code). Legacy rich-text notebooks return their raw document in content instead of markdown.",
         "category": "Notebooks",
         "feature": "notebooks",
-        "summary": "Get notebook cell state",
-        "title": "Get notebook cell state",
+        "summary": "Get notebook",
+        "title": "Get notebook",
         "required_scopes": ["notebook:read", "query:read"],
         "annotations": {
             "destructiveHint": false,
@@ -6940,7 +6940,9 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "revamped-py-notebooks",
+        "feature_flag_behavior": "disable"
     },
     "notebooks-run-cell-interrupt": {
         "description": "Stop a running cell. Idempotent — interrupting an already-finished run returns its outcome unchanged. The stdout/stderr captured before the stop still arrive through notebooks-run-cell-result.",

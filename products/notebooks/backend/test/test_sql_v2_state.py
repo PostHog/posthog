@@ -147,6 +147,9 @@ class TestNotebookCellState(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sql_v2/state/")
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
+        assert data["notebook_id"] == notebook.short_id
+        assert '<SQLV2 nodeId="s"' in data["markdown"]
+        assert data["content"] is None
         assert data["kernel"]["status"] == "stopped"
         by_node = {cell["node_id"]: cell for cell in data["cells"]}
         assert by_node["s"]["status"] == "done"

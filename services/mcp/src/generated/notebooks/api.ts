@@ -196,7 +196,7 @@ export const NotebooksSqlV2RunsInterruptCreateParams = /* @__PURE__ */ zod.objec
 })
 
 /**
- * The notebook's cell-level state: every cell with its dependency edges, derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
+ * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
  */
 export const NotebooksSqlV2StateRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod

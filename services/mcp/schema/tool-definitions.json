@@ -330,6 +330,7 @@
         "title": "Edit notebook",
         "required_scopes": ["notebook:write"],
         "feature_flag": "notebooks-collaboration",
+        "hidden_when_flag_on": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,

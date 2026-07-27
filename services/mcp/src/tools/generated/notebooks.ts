@@ -98,18 +98,18 @@ const notebooksDestroy = (): ToolBase<typeof NotebooksDestroySchema, Schemas.Not
     },
 })
 
-const NotebooksGetStateSchema = NotebooksSqlV2StateRetrieveParams.omit({ project_id: true })
+const NotebooksGetSchema = NotebooksSqlV2StateRetrieveParams.omit({ project_id: true })
 
-const notebooksGetState = (): ToolBase<typeof NotebooksGetStateSchema, Schemas.NotebookSQLV2StateResponse> => ({
-    name: 'notebooks-get-state',
-    schema: NotebooksGetStateSchema,
-    handler: async (context: Context, params: z.infer<typeof NotebooksGetStateSchema>) => {
+const notebooksGet = (): ToolBase<typeof NotebooksGetSchema, WithPostHogUrl<Schemas.NotebookSQLV2StateResponse>> => ({
+    name: 'notebooks-get',
+    schema: NotebooksGetSchema,
+    handler: async (context: Context, params: z.infer<typeof NotebooksGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.NotebookSQLV2StateResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/sql_v2/state/`,
         })
-        return result
+        return await withPostHogUrl(context, result, `/notebooks/${result.notebook_id}`)
     },
 })
 
@@ -252,7 +252,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-configure-compute': notebooksConfigureCompute,
     'notebooks-create': notebooksCreate,
     'notebooks-destroy': notebooksDestroy,
-    'notebooks-get-state': notebooksGetState,
+    'notebooks-get': notebooksGet,
     'notebooks-list': notebooksList,
     'notebooks-list-frames': notebooksListFrames,
     'notebooks-partial-update': notebooksPartialUpdate,

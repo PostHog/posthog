@@ -1044,7 +1044,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     @extend_schema(
         responses={200: NotebookSQLV2StateResponseSerializer},
         description=(
-            "The notebook's cell-level state: every cell with its dependency edges, derived run status "
+            "The full notebook view for agents: title, document source (markdown, or raw content for "
+            "legacy rich-text notebooks), every cell with its dependency edges and derived run status "
             "(including staleness), and the kernel's runtime state and compute config. "
             "Flag-gated (revamped-py-notebooks)."
         ),
@@ -1070,7 +1071,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             .first()
         )
         sandbox_config = build_notebook_sandbox_config(notebook)
+        markdown = markdown_collab.get_markdown_notebook_markdown(notebook.content)
         payload = {
+            "notebook_id": notebook.short_id,
+            "title": notebook.title,
+            "version": notebook.version,
+            "markdown": markdown,
+            # The document rides exactly one field: markdown notebooks would duplicate
+            # their whole source if content were included too.
+            "content": notebook.content if markdown is None else None,
             "kernel": {
                 "status": runtime.status if runtime else KernelRuntime.Status.STOPPED,
                 "cpu_cores": sandbox_config.cpu_cores,

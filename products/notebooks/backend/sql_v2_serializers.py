@@ -329,6 +329,26 @@ class NotebookKernelStateSerializer(serializers.Serializer):
 
 
 class NotebookSQLV2StateResponseSerializer(serializers.Serializer):
+    notebook_id = serializers.CharField(help_text="The notebook's short id.")
+    title = serializers.CharField(allow_null=True, help_text="The notebook's title.")
+    version = serializers.IntegerField(
+        allow_null=True, help_text="Document version, the optimistic-concurrency baseline for edits."
+    )
+    markdown = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The full markdown source — prose and cell tags. Null for legacy rich-text notebooks, "
+            "which carry their document in `content` instead."
+        ),
+    )
+    content = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Legacy rich-text notebooks only: the raw ProseMirror document. Omitted for markdown "
+            "notebooks — their document is the `markdown` field."
+        ),
+    )
     kernel = NotebookKernelStateSerializer(help_text="The notebook's kernel runtime state and compute config.")
     cells = NotebookCellStateSerializer(
         many=True,
