@@ -375,7 +375,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         read_only=True,
         allow_null=True,
         help_text=(
-            "ID of the Code task opened to remove the experiment's feature-flag code, when one was "
+            "ID of the Desktop task opened to remove the experiment's feature-flag code, when one was "
             "requested via open_cleanup_pr on end/ship_variant. Read its status via the "
             "flag_cleanup_task action."
         ),
@@ -534,11 +534,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             raise serializers.ValidationError("Repository must be in the format organization/repository")
         value = value.lower()
         # The field steers where the cleanup PR is opened, so pointing it somewhere new
-        # needs the same PostHog Code access as opening one (mirrors open_cleanup_pr).
+        # needs the same PostHog Desktop access as opening one (mirrors open_cleanup_pr).
         if self.instance is None or value != self.instance.repository:
             request = self.context.get("request")
             if request is None or not has_tasks_access(request.user):
-                raise PermissionDenied("Setting a cleanup repository requires access to PostHog Code.")
+                raise PermissionDenied("Setting a cleanup repository requires access to PostHog Desktop.")
         return value
 
     def validate(self, data):
@@ -1050,14 +1050,14 @@ class EndExperimentSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "When true, open a draft pull request that removes the experiment's feature-flag code "
-            "from the linked repository. Requires the requesting user to have access to PostHog Code "
+            "from the linked repository. Requires the requesting user to have access to PostHog Desktop "
             "(403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
     )
 
 
 class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
-    task_id = serializers.UUIDField(help_text="ID of the flag-cleanup Code task.")
+    task_id = serializers.UUIDField(help_text="ID of the flag-cleanup Desktop task.")
     run_status = serializers.ChoiceField(
         choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         help_text="Status of the task's latest run.",
@@ -1071,7 +1071,7 @@ class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
     )
     can_view_task = serializers.BooleanField(
         help_text=(
-            "Whether the requesting user can open the task in PostHog Code. Cleanup tasks are "
+            "Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are "
             "visible to their creator only, so other viewers should not be shown a task link."
         ),
     )

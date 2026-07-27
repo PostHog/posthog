@@ -139,7 +139,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         blank=True,
     )
 
-    # Latest flag-cleanup Code task opened when this experiment ended. A bare UUID, not a FK —
+    # Latest flag-cleanup Desktop task opened when this experiment ended. A bare UUID, not a FK —
     # tasks is an isolated product, so details are read through its facade.
     flag_cleanup_task_id = models.UUIDField(null=True, blank=True)
 

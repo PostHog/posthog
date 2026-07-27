@@ -309,7 +309,7 @@
         }
     },
     "evaluation-test-hog": {
-        "description": "Test Hog evaluation code against recent $ai_generation events without persisting results. Compiles the provided Hog source code and runs it against a sample of recent events (up to 10 from the last 7 days). Returns per-event results with input/output previews, pass/fail verdicts, and any errors. Use this to validate Hog evaluation logic before enabling it.",
+        "description": "Test Hog evaluation code against recent data without persisting results. Compiles the provided Hog source code and runs it against a sample from the last 7 days — set target to 'generation' to sample individual $ai_generation events or 'trace' to sample whole traces and run against trace-level globals. Returns per-sample results with input/output previews, pass/fail verdicts, and any errors. Use this to validate Hog evaluation logic before enabling it.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Dry-run Hog evaluation code against sample events.",

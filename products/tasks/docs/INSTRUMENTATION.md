@@ -185,7 +185,7 @@ Source: `products/tasks/backend/api.py`
 
 ### `code_invite_redeemed`
 
-Tracked when a user redeems a Code invite. Includes `organization` group analytics. No additional properties.
+Tracked when a user redeems a Desktop invite. Includes `organization` group analytics. No additional properties.
 
 ## Activity Observability Events
 

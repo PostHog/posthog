@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import { IconDocument } from '@posthog/icons'
@@ -46,13 +45,8 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
         if (pendingTicketSubmission && lastSubmittedTicketId && lastSubmittedTicketId !== ticketIdBeforeSubmission) {
             captureFeedback(conversationId, traceId, 'bad', currentTriggerType, ticketMessageText || undefined)
 
-            posthog.capture('posthog_ai_support_ticket_created', {
-                $ai_conversation_id: conversationId,
-                $ai_session_id: conversationId,
-                $ai_trace_id: traceId,
-                $ai_support_ticket_id: lastSubmittedTicketId,
-                $ai_feedback_rating: 'bad',
-            })
+            // The posthog_ai_support_ticket_created event (with $ai_feedback_rating) is captured in
+            // supportLogic once the ticket id resolves, so it fires on every submit path.
             setIsSupportModalOpen(false)
             setPendingTicketSubmission(false)
             completeDetailedFeedback()
@@ -100,6 +94,9 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
             target_area: 'posthog-ai',
             severity_level: 'low',
             message: feedbackText,
+            ai_conversation_id: conversationId,
+            ai_trace_id: traceId,
+            ai_feedback_rating: 'bad',
         })
 
         setIsSupportModalOpen(true)

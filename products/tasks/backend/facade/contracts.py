@@ -479,7 +479,7 @@ class CreatedTaskDTO:
 
 @dataclass(frozen=True)
 class CodeInviteRedeemResult:
-    """Outcome of attempting to redeem a PostHog Code invite.
+    """Outcome of attempting to redeem a PostHog Desktop invite.
 
     ``outcome`` is one of ``redeemed`` (or ``already_redeemed``), ``invalid_code``, or
     ``not_redeemable``. The presentation layer maps it to the success/error HTTP response;

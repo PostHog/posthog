@@ -57,6 +57,7 @@ members = [
   "kafka-deduplicator",
   "personhog-common",
   "personhog-coordination",
+  "personhog-identity",
   "personhog-leader",
   "personhog-writer",
   "personhog-proto",
