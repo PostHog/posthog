@@ -416,6 +416,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self.columns = columns
         self.column_order = list(columns.keys())
 
+    def _introspection_format(self) -> str:
+        # DeltaS3Wrapper tables are read for querying via a raw s3() glob over the copied __query
+        # parquet files, which requires every file to share an identical physical schema. When a
+        # source's optional fields drift between sync batches (e.g. a field present on some pages
+        # but not others), that glob throws ClickHouse code 48 ("Reading from files with different
+        # schema is not possible"). Introspection reads through deltaLake() instead, which unions
+        # the columns across schema generations.
+        return "Delta" if self.format == "DeltaS3Wrapper" else self.format
+
     def get_columns(
         self,
         safe_expose_ch_error: bool = True,
@@ -425,9 +434,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         s3_table_func = build_function_call(
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
-            format="Delta"  # Use deltaLake() to get table schema for evolved tables
-            if self.format == "DeltaS3Wrapper"
-            else self.format,
+            format=self._introspection_format(),
             access_key=self.credential.access_key if self.credential else None,
             access_secret=self.credential.access_secret if self.credential else None,
             context=placeholder_context,
@@ -513,7 +520,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             s3_table_func = build_function_call(
                 url=self.url_pattern,
                 queryable_folder=self.queryable_folder,
-                format=self.format,
+                format=self._introspection_format(),
                 access_key=self.credential.access_key if self.credential else None,
                 access_secret=self.credential.access_secret if self.credential else None,
                 context=placeholder_context,
@@ -551,7 +558,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         s3_table_func = build_function_call(
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
-            format=self.format,
+            format=self._introspection_format(),
             access_key=self.credential.access_key if self.credential else None,
             access_secret=self.credential.access_secret if self.credential else None,
             context=placeholder_context,
@@ -601,7 +608,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             s3_table_func = build_function_call(
                 url=self.url_pattern,
                 queryable_folder=self.queryable_folder,
-                format=self.format,
+                format=self._introspection_format(),
                 access_key=self.credential.access_key if self.credential else None,
                 access_secret=self.credential.access_secret if self.credential else None,
                 context=placeholder_context,

@@ -271,15 +271,21 @@ async def validate_schema_and_update_table(
 
         except ServerException as err:
             if err.code == 636:
+                # CANNOT_EXTRACT_TABLE_STRUCTURE: the schema has no readable data yet (e.g. before
+                # the first successful sync). This is an expected, benign state, so we swallow it.
                 logger.exception(
                     f"Data Warehouse: No data for schema {_schema_name} for external data job {job.pk}",
                     exc_info=err,
                 )
             else:
+                # Any other ClickHouse error (e.g. code 48 when the queryable parquet files disagree
+                # on schema) means introspection genuinely failed. Re-raise so the job is marked
+                # FAILED with a real error instead of silently finalizing as COMPLETED with no error.
                 logger.exception(
                     f"Data Warehouse: Unknown ServerException {job.pk}",
                     exc_info=err,
                 )
+                raise
         except Exception as e:
             # TODO: handle other exceptions here
             logger.exception(

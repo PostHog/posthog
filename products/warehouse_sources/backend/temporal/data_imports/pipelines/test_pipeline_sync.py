@@ -1,10 +1,13 @@
 import uuid
 
-from posthog.test.base import BaseTest
+import pytest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.db import transaction
 
+from asgiref.sync import async_to_sync
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -16,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     build_table_name,
     resolve_table_and_folder_names,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import merge_columns
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+    merge_columns,
+    validate_schema_and_update_table,
+)
 
 
 class TestResolveTableAndFolderNames:
@@ -271,3 +277,61 @@ class TestRegisterCDCCompanionTable(BaseTest):
             deleted=False,
         )
         assert companions.count() == 0
+
+
+class TestValidateSchemaServerExceptionHandling(NonAtomicBaseTest):
+    # validate_schema_and_update_table runs its DB work on a non-thread-sensitive pool, so the
+    # created rows must be committed (TransactionTestCase) for that worker thread to see them.
+    def _create_source_and_job(self) -> tuple[ExternalDataSource, ExternalDataJob, ExternalDataSchema]:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        schema = ExternalDataSchema.objects.create(name="orders", team_id=self.team.pk, source=source)
+        job = ExternalDataJob.objects.create(
+            team_id=self.team.pk,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=0,
+        )
+        return source, job, schema
+
+    @parameterized.expand(
+        [
+            # Code 636 (CANNOT_EXTRACT_TABLE_STRUCTURE) is the benign "no data yet" state and stays swallowed.
+            ("code_636_no_data_is_swallowed", 636, False),
+            # Code 48 (schema mismatch on the raw glob) must surface so the job is marked FAILED instead of
+            # silently finalizing as COMPLETED with no error, which masked dropped records in production.
+            ("code_48_schema_mismatch_is_reraised", 48, True),
+        ]
+    )
+    @patch.object(DataWarehouseTable, "get_columns")
+    def test_server_exception_from_introspection(
+        self, _name: str, code: int, expect_raise: bool, mock_get_columns
+    ) -> None:
+        mock_get_columns.side_effect = ServerException("boom", code=code)
+        _, job, schema = self._create_source_and_job()
+
+        def _run() -> None:
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=self.team.pk,
+                schema_id=schema.id,
+                row_count=100,
+                table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                queryable_folder="orders__query_12345",
+                table_schema_dict={"id": "Int64"},
+            )
+
+        if expect_raise:
+            with pytest.raises(ServerException) as exc_info:
+                _run()
+            assert exc_info.value.code == 48
+        else:
+            _run()
