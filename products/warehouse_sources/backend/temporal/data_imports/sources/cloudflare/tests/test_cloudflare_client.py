@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
@@ -13,8 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.settings import (
+    ACCOUNTS_PARENT,
     CLOUDFLARE_ENDPOINTS,
     ENDPOINTS,
+    SINGLE_PAGE,
+    ZONES_PARENT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
@@ -42,6 +46,13 @@ def _response(
     resp._content = json.dumps(body).encode()
     if headers:
         resp.headers.update(headers)
+    return resp
+
+
+def _raw_response(body: dict[str, Any]) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
     return resp
 
 
@@ -257,7 +268,214 @@ class TestCloudflareSourceResponse:
         response = cloudflare_source("token", endpoint, team_id=1, job_id="j")
 
         assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
+        assert response.primary_keys == list(config.primary_keys)
         assert response.sort_mode == "asc"
         assert response.partition_mode is None
         assert response.partition_keys is None
+
+
+class TestEndpointConfigConsistency:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_path_placeholder_matches_declared_parent(self, endpoint) -> None:
+        # A path templated on one parent but fanned out from the other raises KeyError
+        # mid-sync, which only shows up once a customer syncs that table.
+        config = CLOUDFLARE_ENDPOINTS[endpoint]
+        assert ("{zone_id}" in config.path) is (config.parent == ZONES_PARENT)
+        assert ("{account_id}" in config.path) is (config.parent == ACCOUNTS_PARENT)
+        if config.parent is not None:
+            assert config.parent_key is not None
+
+
+class TestAccountFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_account_scoped_endpoint_fans_out_over_accounts(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "a1"}, {"id": "a2"}], total_pages=1),
+                _response([{"id": "n1"}], total_pages=1),
+                _response([{"id": "n2"}], total_pages=1),
+            ],
+        )
+
+        rows = _rows(cloudflare_source("token", "kv_namespaces", team_id=1, job_id="j"))
+
+        assert [(r["id"], r["_account_id"]) for r in rows] == [("n1", "a1"), ("n2", "a2")]
+        assert snapshots[0]["url"] == "https://api.cloudflare.com/client/v4/accounts"
+        assert snapshots[1]["url"] == "https://api.cloudflare.com/client/v4/accounts/a1/storage/kv/namespaces"
+        assert snapshots[2]["url"] == "https://api.cloudflare.com/client/v4/accounts/a2/storage/kv/namespaces"
+
+    @pytest.mark.parametrize("status_code", [403, 404])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_skips_account_the_token_cannot_read(self, MockSession, status_code) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "a1"}, {"id": "a2"}], total_pages=1),
+                _error_response(status_code),
+                _response([{"id": "n2"}], total_pages=1),
+            ],
+        )
+
+        rows = _rows(cloudflare_source("token", "kv_namespaces", team_id=1, job_id="j"))
+
+        assert [(r["id"], r["_account_id"]) for r in rows] == [("n2", "a2")]
+
+
+class TestSinglePageEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint",
+        [name for name, config in CLOUDFLARE_ENDPOINTS.items() if config.pagination == SINGLE_PAGE],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_never_requests_a_second_page(self, MockSession, endpoint) -> None:
+        # These endpoints document no page params, so Cloudflare ignores `page` and would
+        # return the same rows forever if the page-number paginator were used.
+        session = MockSession.return_value
+        full_page = [{"id": str(i)} for i in range(PAGE_SIZE)]
+        snapshots = _wire(session, [_response([{"id": "z1"}], total_pages=1), _response(full_page)])
+
+        _rows(cloudflare_source("token", endpoint, team_id=1, job_id="j"))
+
+        assert session.send.call_count == 2
+        assert "page" not in snapshots[1]["params"]
+        assert "per_page" not in snapshots[1]["params"]
+
+
+class TestCursorPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rulesets_follow_the_after_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "z1"}], total_pages=1),
+                _raw_response(
+                    {"success": True, "result": [{"id": "r1"}], "result_info": {"cursors": {"after": "next-page"}}}
+                ),
+                _raw_response({"success": True, "result": [{"id": "r2"}], "result_info": {"cursors": {}}}),
+            ],
+        )
+
+        rows = _rows(cloudflare_source("token", "rulesets", team_id=1, job_id="j"))
+
+        assert [r["id"] for r in rows] == ["r1", "r2"]
+        assert "cursor" not in snapshots[1]["params"]
+        assert snapshots[2]["params"]["cursor"] == "next-page"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_r2_buckets_read_rows_from_the_nested_buckets_key(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "a1"}], total_pages=1),
+                _raw_response(
+                    {"success": True, "result": {"buckets": [{"name": "b1"}]}, "result_info": {"cursor": "c1"}}
+                ),
+                _raw_response({"success": True, "result": {"buckets": [{"name": "b2"}]}, "result_info": {}}),
+            ],
+        )
+
+        rows = _rows(cloudflare_source("token", "r2_buckets", team_id=1, job_id="j"))
+
+        assert [(r["name"], r["_account_id"]) for r in rows] == [("b1", "a1"), ("b2", "a1")]
+
+
+class TestSecurityCenterInsights:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_reads_rows_from_the_nested_issues_key(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "a1"}], total_pages=1),
+                _raw_response({"success": True, "result": {"issues": [{"id": "i1"}], "count": 1}}),
+            ],
+        )
+
+        rows = _rows(cloudflare_source("token", "security_center_insights", team_id=1, job_id="j"))
+
+        assert [(r["id"], r["_account_id"]) for r in rows] == [("i1", "a1")]
+
+
+class TestDnsAnalyticsReport:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_positional_report_arrays_become_named_columns(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "z1"}], total_pages=1),
+                _raw_response(
+                    {
+                        "success": True,
+                        "result": {
+                            "rows": 1,
+                            "data": [{"dimensions": ["A", "NOERROR"], "metrics": [10, 4]}],
+                        },
+                    }
+                ),
+            ],
+        )
+
+        rows = _rows(cloudflare_source("token", "dns_analytics_report", team_id=1, job_id="j"))
+
+        assert rows == [
+            {
+                "queryType": "A",
+                "responseCode": "NOERROR",
+                "queryCount": 10,
+                "uncachedCount": 4,
+                "_zone_id": "z1",
+            }
+        ]
+        assert snapshots[1]["params"]["metrics"] == "queryCount,uncachedCount"
+        assert snapshots[1]["params"]["dimensions"] == "queryType,responseCode"
+
+
+class TestAuditLogsIncremental:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_sends_ascending_direction_and_no_since_on_a_full_refresh(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [_response([{"id": "a1"}], total_pages=1), _response([{"id": "l1"}], total_pages=1)],
+        )
+
+        _rows(cloudflare_source("token", "audit_logs", team_id=1, job_id="j"))
+
+        assert snapshots[1]["params"]["direction"] == "asc"
+        assert "since" not in snapshots[1]["params"]
+
+    @pytest.mark.parametrize(
+        "last_value, expected_since",
+        [
+            (datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), "2024-01-02T03:04:05Z"),
+            (datetime(2024, 1, 2, 3, 4, 5), "2024-01-02T03:04:05Z"),
+            (date(2024, 1, 2), "2024-01-02T00:00:00Z"),
+            ("2024-01-02T03:04:05Z", "2024-01-02T03:04:05Z"),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_filters_server_side_from_the_watermark(self, MockSession, last_value, expected_since) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [_response([{"id": "a1"}], total_pages=1), _response([{"id": "l1"}], total_pages=1)],
+        )
+
+        _rows(
+            cloudflare_source(
+                "token",
+                "audit_logs",
+                team_id=1,
+                job_id="j",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=last_value,
+            )
+        )
+
+        assert snapshots[1]["params"]["since"] == expected_since

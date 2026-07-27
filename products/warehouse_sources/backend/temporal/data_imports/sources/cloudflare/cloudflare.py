@@ -1,10 +1,18 @@
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.settings import (
+    ACCOUNTS_PARENT,
     CLOUDFLARE_ENDPOINTS,
+    CURSOR_PAGINATION,
+    DNS_ANALYTICS_DIMENSIONS,
+    DNS_ANALYTICS_METRICS,
+    PAGE_PAGINATION,
+    SINGLE_PAGE,
+    ZONES_PARENT,
     CloudflareEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -17,21 +25,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     find_values,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    JSONResponseCursorPaginator,
     PageNumberPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
+    Endpoint,
     EndpointResource,
 )
 
 CLOUDFLARE_BASE_URL = "https://api.cloudflare.com/client/v4"
 # Cloudflare list pages cap at 50 by default; most endpoints allow more.
 PAGE_SIZE = 50
-# A token can list zones (account-level Zone:Read) without holding DNS:Read on
-# every one of them. Per-zone 403/404s mean "this zone is inaccessible/gone" —
-# skip it and keep syncing the rest rather than failing the whole stream.
-ZONE_SKIP_STATUS_CODES = (403, 404)
+# A token can list zones or accounts (account-level Zone:Read) without holding read
+# access on every one of them. Per-parent 403/404s mean "this zone/account is
+# inaccessible/gone" — skip it and keep syncing the rest rather than failing the
+# whole stream.
+FANOUT_SKIP_STATUS_CODES = (403, 404)
+
+# Top-level list each fan-out parent is paginated from, and the path placeholder the
+# parent's id is resolved into.
+_PARENT_PATHS = {ZONES_PARENT: "/zones", ACCOUNTS_PARENT: "/accounts"}
+_PARENT_RESOLVE_PARAMS = {ZONES_PARENT: "zone_id", ACCOUNTS_PARENT: "account_id"}
 
 
 class CloudflarePaginator(PageNumberPaginator):
@@ -56,12 +74,72 @@ class CloudflarePaginator(PageNumberPaginator):
             self._has_next_page = False
 
 
+def _to_rfc3339(value: Any) -> Optional[str]:
+    """Coerce an incremental watermark to the RFC 3339 date-time Cloudflare's `since`
+    filter documents. Watermarks arrive as datetimes, dates, or already-formatted
+    strings depending on how the pipeline stored them."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        moment = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+        return moment.isoformat().replace("+00:00", "Z")
+    if isinstance(value, date):
+        return f"{value.isoformat()}T00:00:00Z"
+    return str(value)
+
+
+def _flatten_dns_analytics_row(row: dict[str, Any]) -> dict[str, Any]:
+    """The DNS analytics report returns positional `dimensions`/`metrics` arrays that
+    line up with the names we requested, so name them into their own columns."""
+    flattened = {key: value for key, value in row.items() if key not in ("dimensions", "metrics")}
+    flattened.update(zip(DNS_ANALYTICS_DIMENSIONS, row.get("dimensions") or []))
+    flattened.update(zip(DNS_ANALYTICS_METRICS, row.get("metrics") or []))
+    return flattened
+
+
+_DATA_MAPS = {"dns_analytics_report": _flatten_dns_analytics_row}
+
+
 def _client_config(api_token: str) -> ClientConfig:
     return {
         "base_url": CLOUDFLARE_BASE_URL,
         "auth": {"type": "bearer", "token": api_token},
         "paginator": CloudflarePaginator(),
     }
+
+
+def _paginator(config: CloudflareEndpointConfig) -> BasePaginator:
+    if config.pagination == SINGLE_PAGE:
+        return SinglePagePaginator()
+    if config.pagination == CURSOR_PAGINATION:
+        assert config.cursor_path is not None, (
+            f"Cursor-paginated endpoint '{config.name}' must define cursor_path in CLOUDFLARE_ENDPOINTS"
+        )
+        return JSONResponseCursorPaginator(cursor_path=config.cursor_path, cursor_param="cursor")
+    return CloudflarePaginator()
+
+
+def _params(config: CloudflareEndpointConfig) -> dict[str, Any]:
+    params: dict[str, Any] = dict(config.params)
+    if config.pagination in (PAGE_PAGINATION, CURSOR_PAGINATION):
+        params["per_page"] = PAGE_SIZE
+    return params
+
+
+def _endpoint(
+    config: CloudflareEndpointConfig,
+    params: dict[str, Any],
+    should_use_incremental_field: bool,
+) -> Endpoint:
+    endpoint: Endpoint = {
+        "path": config.path,
+        "params": params,
+        "data_selector": config.data_selector,
+        "paginator": _paginator(config),
+    }
+    if should_use_incremental_field and config.incremental_param is not None:
+        endpoint["incremental"] = {"start_param": config.incremental_param, "convert": _to_rfc3339}
+    return endpoint
 
 
 def _list_resource(name: str, path: str) -> EndpointResource:
@@ -75,50 +153,66 @@ def _list_resource(name: str, path: str) -> EndpointResource:
     }
 
 
+def _resource(endpoint: str, endpoint_config: Endpoint) -> EndpointResource:
+    resource: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
+    data_map = _DATA_MAPS.get(endpoint)
+    if data_map is not None:
+        resource["data_map"] = data_map
+    return resource
+
+
 def _flat_resource(
     api_token: str, endpoint: str, config: CloudflareEndpointConfig, team_id: int, job_id: str
 ) -> Resource:
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_token),
         "resource_defaults": {},
-        "resources": [_list_resource(endpoint, config.path)],
+        "resources": [_resource(endpoint, _endpoint(config, _params(config), False))],
     }
     return rest_api_resource(rest_config, team_id, job_id, None)
 
 
-def _zone_fanout_resource(
-    api_token: str, endpoint: str, config: CloudflareEndpointConfig, team_id: int, job_id: str
+def _fanout_resource(
+    api_token: str,
+    endpoint: str,
+    config: CloudflareEndpointConfig,
+    team_id: int,
+    job_id: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
 ) -> Resource:
-    assert config.parent_key is not None, (
-        f"Zone-scoped endpoint '{endpoint}' must define parent_key in CLOUDFLARE_ENDPOINTS"
+    assert config.parent is not None and config.parent_key is not None, (
+        f"Fan-out endpoint '{endpoint}' must define parent and parent_key in CLOUDFLARE_ENDPOINTS"
     )
+    parent = config.parent
     parent_key = config.parent_key
+    resolve_param = _PARENT_RESOLVE_PARAMS[parent]
 
-    child: EndpointResource = {
-        "name": endpoint,
-        "endpoint": {
-            "path": config.path,
-            "params": {
-                "per_page": PAGE_SIZE,
-                "zone_id": {"type": "resolve", "resource": "zones", "field": "id"},
-            },
-            "data_selector": "result",
-            "response_actions": [{"status_code": status, "action": "ignore"} for status in ZONE_SKIP_STATUS_CODES],
-        },
-        "include_from_parent": ["id"],
-    }
+    params = _params(config)
+    params[resolve_param] = {"type": "resolve", "resource": parent, "field": "id"}
+
+    child_endpoint = _endpoint(config, params, should_use_incremental_field)
+    child_endpoint["response_actions"] = [
+        {"status_code": status, "action": "ignore"} for status in FANOUT_SKIP_STATUS_CODES
+    ]
+
+    child = _resource(endpoint, child_endpoint)
+    child["include_from_parent"] = ["id"]
+
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_token),
         "resource_defaults": {},
-        "resources": [_list_resource("zones", "/zones"), child],
+        "resources": [_list_resource(parent, _PARENT_PATHS[parent]), child],
     }
-    resources = {r.name: r for r in rest_api_resources(rest_config, team_id, job_id, None)}
-    # A zone row without an id can't be fanned out — skip it rather than failing the stream.
-    resources["zones"].add_filter(lambda zone: bool(zone.get("id")))
+    resources = {r.name: r for r in rest_api_resources(rest_config, team_id, job_id, db_incremental_field_last_value)}
+    # A parent row without an id can't be fanned out — skip it rather than failing the stream.
+    resources[parent].add_filter(lambda row: bool(row.get("id")))
+
+    injected_key = f"_{parent}_id"
 
     def _rename_parent_key(row: dict[str, Any]) -> dict[str, Any]:
-        if "_zones_id" in row:
-            row[parent_key] = row.pop("_zones_id")
+        if injected_key in row:
+            row[parent_key] = row.pop(injected_key)
         return row
 
     return resources[endpoint].add_map(_rename_parent_key)
@@ -142,18 +236,28 @@ def cloudflare_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = CLOUDFLARE_ENDPOINTS[endpoint]
 
-    if config.zone_scoped:
-        resource = _zone_fanout_resource(api_token, endpoint, config, team_id, job_id)
+    if config.parent is not None:
+        resource = _fanout_resource(
+            api_token,
+            endpoint,
+            config,
+            team_id,
+            job_id,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
     else:
         resource = _flat_resource(api_token, endpoint, config, team_id, job_id)
 
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[config.primary_key],
+        primary_keys=list(config.primary_keys),
         partition_count=1,
         partition_size=1,
         sort_mode="asc",
