@@ -6,8 +6,10 @@
 
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::time::Duration;
 
+use axum_client_ip::SecureClientIpSource;
 use common_types::TeamId;
 use envconfig::Envconfig;
 use serde::Deserialize;
@@ -114,6 +116,42 @@ pub struct Config {
     /// Comma-separated team ids admitted to `kind=remote_eval`.
     #[envconfig(default = "")]
     pub mode2_team_allowlist: String,
+
+    /// Pretty (human) tracing when true, JSON when false — mirrors Django's
+    /// `DEBUG` split. Off in production so logs ship as structured JSON.
+    #[envconfig(default = "false")]
+    pub debug: bool,
+
+    /// Mount the Prometheus `/metrics` route and install the global recorder.
+    /// Default true; tests set it false so they don't clobber the process-global
+    /// recorder (feature-flags router.rs precedent).
+    #[envconfig(default = "true")]
+    pub enable_metrics: bool,
+
+    /// Where the client IP is read from, parsed into an [`SecureClientIpSource`]
+    /// (e.g. `ConnectInfo`, `RightmostXForwardedFor`). Default `ConnectInfo` suits
+    /// a direct connection; Phase 2 verifies the correct X-Forwarded-For depth
+    /// behind the ALB → Envoy path before switching this. Only the `definitions`
+    /// per-IP connect-rate limit reads it (plan §2.5).
+    #[envconfig(default = "ConnectInfo")]
+    pub client_ip_source: String,
+
+    /// S3 region for the HyperCache readers. The gateway builds an S3 client at
+    /// startup (HyperCacheReader requires one) but NEVER reads S3 — every trigger
+    /// and auth read is Redis-only (plan §2.7, §2.8). These exist only to satisfy
+    /// the constructor.
+    #[envconfig(default = "us-east-1")]
+    pub object_storage_region: String,
+
+    /// S3 bucket for the HyperCache readers (constructed, never read — see
+    /// `object_storage_region`).
+    #[envconfig(default = "posthog")]
+    pub object_storage_bucket: String,
+
+    /// Optional S3 endpoint override for the HyperCache readers (constructed,
+    /// never read — see `object_storage_region`).
+    #[envconfig(default = "")]
+    pub object_storage_endpoint: String,
 }
 
 /// A startup validation failure.
@@ -133,6 +171,8 @@ pub enum ConfigError {
     InvalidTeamOverrides(String),
     #[error("invalid MODE2_TEAM_ALLOWLIST: {0}")]
     InvalidAllowlist(String),
+    #[error("invalid CLIENT_IP_SOURCE: {0}")]
+    InvalidClientIpSource(String),
 }
 
 impl Config {
@@ -157,6 +197,8 @@ impl Config {
         let min = self.min_stagger_window_secs;
         let team_overrides = parse_team_overrides(&self.team_stream_overrides, min)?;
         let mode2_allowlist = parse_allowlist(&self.mode2_team_allowlist)?;
+        let client_ip_source = SecureClientIpSource::from_str(self.client_ip_source.trim())
+            .map_err(|e| ConfigError::InvalidClientIpSource(e.to_string()))?;
 
         Ok(RuntimeConfig {
             address: self.address,
@@ -182,6 +224,12 @@ impl Config {
             ),
             team_overrides,
             mode2_allowlist,
+            debug: self.debug,
+            enable_metrics: self.enable_metrics,
+            client_ip_source,
+            object_storage_region: self.object_storage_region.clone(),
+            object_storage_bucket: self.object_storage_bucket.clone(),
+            object_storage_endpoint: non_empty(&self.object_storage_endpoint),
         })
     }
 
@@ -205,6 +253,12 @@ impl Config {
             min_stagger_window_secs: 5,
             team_stream_overrides: "{}".to_string(),
             mode2_team_allowlist: String::new(),
+            debug: false,
+            enable_metrics: true,
+            client_ip_source: "ConnectInfo".to_string(),
+            object_storage_region: "us-east-1".to_string(),
+            object_storage_bucket: "posthog".to_string(),
+            object_storage_endpoint: String::new(),
         }
     }
 }
@@ -230,6 +284,14 @@ pub struct RuntimeConfig {
     remote_eval_default_stagger: StaggerWindowSecs,
     team_overrides: HashMap<TeamId, StaggerWindowSecs>,
     mode2_allowlist: HashSet<TeamId>,
+    pub debug: bool,
+    pub enable_metrics: bool,
+    pub client_ip_source: SecureClientIpSource,
+    pub object_storage_region: String,
+    pub object_storage_bucket: String,
+    /// `None` when unset (the S3 client uses AWS defaults). Never actually read
+    /// by the gateway — see the raw [`Config`] field docs.
+    pub object_storage_endpoint: Option<String>,
 }
 
 impl RuntimeConfig {
@@ -461,5 +523,24 @@ mod tests {
         cfg.team_stream_overrides = r#"{" 7 ": {"stagger_s": 45}}"#.to_string();
         let rc = cfg.validate().expect("valid");
         assert_eq!(rc.stagger_for(7, CacheKind::Definitions).get(), 45);
+    }
+
+    #[test]
+    fn default_client_ip_source_is_connect_info() {
+        let rc = Config::default_test_config().validate().expect("valid");
+        assert!(matches!(
+            rc.client_ip_source,
+            SecureClientIpSource::ConnectInfo
+        ));
+    }
+
+    #[test]
+    fn malformed_client_ip_source_rejected() {
+        let mut cfg = Config::default_test_config();
+        cfg.client_ip_source = "NotARealSource".to_string();
+        assert!(matches!(
+            cfg.validate().unwrap_err(),
+            ConfigError::InvalidClientIpSource(_)
+        ));
     }
 }

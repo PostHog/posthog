@@ -7,21 +7,47 @@ publish = false
 [lints]
 workspace = true
 
-# Milestone 3 is the lib-only core: domain, fanout registry, wire protocol, and
-# config. The binary, Redis/HyperCache wiring, auth, SSE handler, and trigger
-# tasks arrive in Milestone 4, which adds common-redis, common-hypercache,
-# lifecycle, common-metrics, and common-alloc. Keep this dependency set minimal
-# so the core stays small and dependency-light (plan §2.3).
+# Milestone 4 turns the M3 lib-only core (domain, registry, protocol, config)
+# into the running service: the binary, Redis/HyperCache wiring, auth, the SSE
+# handler, and the trigger tasks. The dependency set stays close to feature-flags
+# so the two services drift as little as possible (plan §2.1).
 [dependencies]
 axum = { workspace = true }
+async-stream = { workspace = true }
+axum-client-ip = { workspace = true }
+# aws-config + aws-sdk-s3 + common-s3 exist only to build the single shared S3
+# client the HyperCacheReader constructor requires; the gateway never reads S3.
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+chrono = { workspace = true }
+common-alloc = { path = "../common/alloc" }
+common-hypercache = { path = "../common/hypercache" }
+common-metrics = { path = "../common/metrics" }
+common-redis = { path = "../common/redis" }
+common-s3 = { path = "../common/s3" }
 common-types = { path = "../common/types" }
 dashmap = { workspace = true }
 envconfig = { workspace = true }
+futures = { workspace = true }
+governor = { workspace = true }
+lifecycle = { path = "../common/lifecycle" }
+metrics = { workspace = true }
+rand = { workspace = true }
+# The raw `redis` crate is needed ONLY for the hints pub/sub subscriber
+# connection; every other Redis access goes through common-redis (plan §2.7).
+redis = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
+tower-http = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
+async-trait = { workspace = true }
+bytes = { workspace = true }
+reqwest = { workspace = true }
 rstest = "0.26"
+serde-pickle = "1.2.0"

@@ -68,6 +68,15 @@ impl TopicRegistry {
         }
     }
 
+    /// Whether a topic currently has at least one receiver — a cheap map get.
+    /// The hints path uses this to skip confirm-reads for topics nobody on this
+    /// pod watches (the K teams × P pods confirm-GET multiplier, plan §7).
+    pub fn has_receivers(&self, topic: Topic) -> bool {
+        self.topics
+            .get(&topic)
+            .is_some_and(|sender| sender.receiver_count() > 0)
+    }
+
     /// Topics that currently have at least one receiver — the sweep's input, so
     /// trigger load scales with subscribed teams, not all teams.
     pub fn subscribed_topics(&self) -> Vec<Topic> {
@@ -354,6 +363,19 @@ mod tests {
 
         assert!(rx2.has_changed().expect("sender alive"));
         assert_eq!(*rx2.borrow(), VersionState::Known(etag("fedcba9876543210")));
+    }
+
+    #[test]
+    fn has_receivers_tracks_live_receivers() {
+        let reg = TopicRegistry::new();
+        let t = topic(1, CacheKind::Definitions);
+        assert!(!reg.has_receivers(t), "never-subscribed topic");
+
+        let rx = reg.subscribe(t);
+        assert!(reg.has_receivers(t));
+
+        drop(rx);
+        assert!(!reg.has_receivers(t), "receiver-less even before gc");
     }
 
     #[test]

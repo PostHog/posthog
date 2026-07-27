@@ -738,6 +738,49 @@ impl HyperCacheReader {
         Ok(data)
     }
 
+    /// Redis-only variant of [`get_typed`]: reads the primary Redis tier and
+    /// **never** falls through to S3.
+    ///
+    /// The flags-stream-gateway auth path uses this to resolve a project token to
+    /// its team from the proactively-populated team-metadata cache (plan §2.8): a
+    /// cold-cache reconnect storm must not turn a token probe into an S3/Postgres
+    /// fan-out, and the gateway holds no Postgres pool at all — it stays stateless
+    /// and cannot contribute to shared-pool exhaustion. Reading Redis only is safe
+    /// because Django proactively populates that cache (team `post_save` → Celery
+    /// task, 7-day TTL, hourly refresh), so misses are the brief post-team-creation
+    /// window, not steady-state.
+    ///
+    /// Semantics mirror the Redis leg of [`get_typed_with_source`] exactly, honoring
+    /// `redis_timeout`:
+    /// - a readable value deserializes into `Ok(Some(T))`;
+    /// - the `__missing__` sentinel maps to `Ok(None)` — an authenticated "no data"
+    ///   answer (the gateway treats it as an unknown token → 401);
+    /// - a genuine key-absent (`CacheMiss`), decode failure, or infrastructure error
+    ///   surfaces as `Err` so the caller can fail closed without a database (the
+    ///   gateway maps these to 503 and keeps SDKs polling).
+    ///
+    /// Because it reads only Redis, an unknown token that was never cached is
+    /// indistinguishable from the post-creation gap: both surface as `Err(CacheMiss)`
+    /// and both fail closed to 503. Distinguishing a truly-invalid token would require
+    /// the S3/Postgres fallback this method deliberately forgoes.
+    pub async fn get_typed_redis_only<T: DeserializeOwned>(
+        &self,
+        key: &KeyType,
+    ) -> Result<Option<T>, HyperCacheError> {
+        let redis_cache_key = self.config.get_redis_cache_key(key);
+        match timeout(
+            self.config.redis_timeout,
+            self.try_get_typed_from_redis::<T>(&redis_cache_key),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(HyperCacheError::Timeout(
+                "redis-only read timeout".to_string(),
+            )),
+        }
+    }
+
     /// Read the companion ETag string for `key` from Redis, if present.
     ///
     /// The ETag is written atomically alongside the payload by `HyperCacheWriter::set_with_etag`
@@ -1142,6 +1185,88 @@ mod tests {
         let (result, source) = reader.get_with_source(&team_key).await.unwrap();
         assert_eq!(source, CacheSource::Redis);
         assert_eq!(result, Value::Null);
+    }
+
+    #[tokio::test]
+    async fn test_get_typed_redis_only_returns_present_value() {
+        // A readable, pickle-framed JSON payload deserializes into `Some(T)` from
+        // Redis alone — the gateway's team-token → team resolution.
+        let team_key = KeyType::string("123");
+        let config = create_test_config();
+        let cache_key = config.get_redis_cache_key(&team_key);
+
+        let json_string = r#"{"id":42}"#.to_string();
+        let pickled = serde_pickle::to_vec(&json_string, Default::default()).unwrap();
+        let mock = MockRedisClient::new().get_raw_bytes_ret(&cache_key, Ok(pickled));
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_dummy_s3_client(),
+            config,
+        };
+
+        let result: Option<Value> = reader.get_typed_redis_only(&team_key).await.unwrap();
+        assert_eq!(result, Some(json!({"id": 42})));
+    }
+
+    #[tokio::test]
+    async fn test_get_typed_redis_only_sentinel_maps_to_none() {
+        // The `__missing__` sentinel is an authenticated "no data" answer, distinct
+        // from an infra error: it maps to `Ok(None)` so the gateway can return 401
+        // rather than 503.
+        let team_key = KeyType::string("123");
+        let config = create_test_config();
+        let cache_key = config.get_redis_cache_key(&team_key);
+
+        let pickled =
+            serde_pickle::to_vec(&HYPER_CACHE_EMPTY_VALUE.to_string(), Default::default()).unwrap();
+        let mock = MockRedisClient::new().get_raw_bytes_ret(&cache_key, Ok(pickled));
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_dummy_s3_client(),
+            config,
+        };
+
+        let result: Option<Value> = reader.get_typed_redis_only(&team_key).await.unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn test_get_typed_redis_only_absent_key_is_err_cache_miss() {
+        // A genuinely absent key must be Err (fail closed, no S3 fallback), not
+        // the sentinel's Ok(None).
+        let team_key = KeyType::string("123");
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(MockRedisClient::new()) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_dummy_s3_client(),
+            config: create_test_config(),
+        };
+
+        let result = reader.get_typed_redis_only::<Value>(&team_key).await;
+        assert!(matches!(result, Err(HyperCacheError::CacheMiss)));
+    }
+
+    #[tokio::test]
+    async fn test_get_typed_redis_only_decode_error_is_err() {
+        // Corrupt (non-pickle) bytes surface as Err, never as Ok(None) — a
+        // decode failure must not masquerade as an unknown token.
+        let team_key = KeyType::string("123");
+        let config = create_test_config();
+        let cache_key = config.get_redis_cache_key(&team_key);
+
+        let mock =
+            MockRedisClient::new().get_raw_bytes_ret(&cache_key, Ok(vec![0xff, 0x00, 0x13, 0x37]));
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_dummy_s3_client(),
+            config,
+        };
+
+        let result = reader.get_typed_redis_only::<Value>(&team_key).await;
+        assert!(matches!(result, Err(HyperCacheError::Pickle(_))));
     }
 
     #[test]
