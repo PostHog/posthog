@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use common_types::CapturedEvent;
-use limiters::redis::QuotaResource;
 use serde_json::json;
 use tracing::error;
 use uuid::Uuid;
@@ -30,13 +29,9 @@ pub async fn check_quota(
     let count = span_events.len();
 
     if gateway_verified {
-        if limiter
-            .is_quota_limited_v1(token, &QuotaResource::Events)
-            .await
-        {
-            report_dropped_events("otel_quota_drop", count as u64);
-            return Err(QuotaOutcome::Dropped);
-        }
+        // Direct AI events remain accepted at the global event limit because
+        // the scoped AI limiter retains them. Verified relays must not be
+        // stricter than the equivalent direct-ingestion path.
         return Ok(());
     }
 
