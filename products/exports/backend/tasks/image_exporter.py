@@ -22,7 +22,6 @@ from posthog.schema import ChartDisplayType, FunnelLayout, NodeKind
 
 from posthog.hogql.errors import TableAccessDeniedError
 
-from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -41,6 +40,7 @@ from products.exports.backend.tasks.failure_handler import (
     classify_failure_type,
 )
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
+from products.product_analytics.backend.calculate_results import calculate_for_query_based_insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 logger = structlog.get_logger(__name__)

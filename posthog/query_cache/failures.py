@@ -7,7 +7,7 @@ from django.core.cache import caches
 import structlog
 from prometheus_client import Counter
 
-from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
+from posthog.query_cache.backend import QUERY_CACHE_ALIAS
 
 logger = structlog.get_logger(__name__)
 

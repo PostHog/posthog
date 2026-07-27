@@ -15,7 +15,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.api.services.query import process_query_dict
-from posthog.caching.utils import largest_teams
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
@@ -23,6 +23,7 @@ from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.ph_client import ph_scoped_capture
 from posthog.query_cache.freshness_index import clean_up_stale_insights, get_stale_insights
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
@@ -53,6 +54,22 @@ SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
 # ClickHouse capacity/concurrency errors that should retry with backoff rather than fail the task.
 # ClickHouseAtCapacity is included via CH_TRANSIENT_ERRORS (it's what codes 202/439 surface as).
 RETRIABLE_WARMING_ERRORS = (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded)
+
+
+def largest_teams(limit: int) -> set[int]:
+    # nosemgrep: clickhouse-fstring-param-audit - events table comes from the internal schema gate
+    teams_by_event_count = sync_execute(
+        f"""
+            SELECT team_id, COUNT(*) AS event_count
+            FROM {events_read_table(use_new_events_schema(None))}
+            WHERE timestamp > subtractDays(now(), 7)
+            GROUP BY team_id
+            ORDER BY event_count DESC
+            LIMIT %(limit)s
+        """,
+        {"limit": limit},
+    )
+    return {int(team_id) for team_id, _ in teams_by_event_count}
 
 
 def teams_enabled_for_cache_warming() -> list[int]:

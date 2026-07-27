@@ -6,7 +6,6 @@ import numpy as np
 from posthog.schema import TrendsAlertConfig, TrendsQuery
 
 from posthog.api.services.query import ExecutionMode
-from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -39,6 +38,7 @@ from products.alerts.backend.evaluation.contract import (
     execution_mode_for_alert,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.product_analytics.backend.calculate_results import calculate_for_query_based_insight
 from products.product_analytics.backend.models.insight import Insight
 
 

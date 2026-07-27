@@ -11,7 +11,7 @@ from prometheus_client import Counter, Histogram
 from redis import Redis, RedisCluster
 
 from posthog.cache_utils import cache_for
-from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
+from posthog.query_cache.backend import QUERY_CACHE_ALIAS
 
 logger = structlog.get_logger(__name__)
 

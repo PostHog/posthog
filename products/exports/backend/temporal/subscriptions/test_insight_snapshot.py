@@ -4,12 +4,11 @@ from decimal import Decimal
 
 import pytest
 
-from posthog.caching.insight_result import InsightResult
-
 from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     _has_comparison_enabled,
     _serialize_insight_result,
 )
+from products.product_analytics.backend.insight_result import InsightResult
 
 
 def _build_insight_result(**overrides) -> InsightResult:

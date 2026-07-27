@@ -98,7 +98,6 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
-from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
@@ -123,6 +122,7 @@ from posthog.hogql_queries.query_failure_handling import (
     classify_failure,
 )
 from posthog.hogql_queries.query_metadata import extract_query_metadata
+from posthog.hogql_queries.staleness import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
 from posthog.hogql_queries.validation.validation import (
     QueryValidationContext,

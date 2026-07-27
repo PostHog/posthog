@@ -7,7 +7,6 @@ from posthog.schema import AlertCondition, AlertConditionType, HogQLAlertConfig,
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 
 from posthog.api.services.query import ExecutionMode
-from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 
@@ -21,6 +20,7 @@ from products.alerts.backend.evaluation.contract import (
     zero_sentinel_series,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.product_analytics.backend.calculate_results import calculate_for_query_based_insight
 from products.product_analytics.backend.models.insight import Insight
 
 _HOGQL_SUBJECT = "The SQL insight value"

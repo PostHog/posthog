@@ -64,7 +64,6 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
-from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
@@ -156,6 +155,7 @@ from products.product_analytics.backend.api.insight_metadata import (
 )
 from products.product_analytics.backend.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
+from products.product_analytics.backend.insight_result import InsightResult
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -1282,7 +1282,7 @@ class InsightSerializer(InsightBasicSerializer):
 
     @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer
     def insight_result(self, insight: Insight) -> InsightResult:
-        from posthog.caching.calculate_results import calculate_for_query_based_insight
+        from products.product_analytics.backend.calculate_results import calculate_for_query_based_insight
 
         dashboard: Dashboard | None = self.context.get("dashboard")
 

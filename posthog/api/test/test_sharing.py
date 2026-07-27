@@ -1450,7 +1450,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
             enabled=True,
         )
 
-    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("products.product_analytics.backend.calculate_results.calculate_for_query_based_insight")
     @patch("products.product_analytics.backend.api.insight.QueryCache")
     @mock_exporter_template
     def test_cache_keys_parameter_triggers_direct_cache_lookup(self, mock_query_cache_cls, mock_calculate):
@@ -1476,12 +1476,12 @@ class TestExportCacheKeyFlow(APIBaseTest):
         )
         mock_calculate.assert_not_called()
 
-    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("products.product_analytics.backend.calculate_results.calculate_for_query_based_insight")
     @patch("products.product_analytics.backend.api.insight.QueryCache")
     @mock_exporter_template
     def test_cache_miss_falls_back_to_normal_calculation(self, mock_query_cache_cls, mock_calculate):
         """Test that cache miss on expected key falls back to normal calculation."""
-        from posthog.caching.insight_result import InsightResult
+        from products.product_analytics.backend.insight_result import InsightResult
 
         mock_query_cache_cls.return_value.lookup.return_value.entry = None  # Cache miss
         mock_calculate.return_value = InsightResult(
@@ -1501,12 +1501,12 @@ class TestExportCacheKeyFlow(APIBaseTest):
         mock_query_cache_cls.assert_called_once_with(team_id=self.insight.team_id, cache_key="missing_cache_key")
         mock_calculate.assert_called_once()
 
-    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("products.product_analytics.backend.calculate_results.calculate_for_query_based_insight")
     @patch("products.product_analytics.backend.api.insight.QueryCache")
     @mock_exporter_template
     def test_invalid_cache_keys_param_continues_without_it(self, mock_query_cache_cls, mock_calculate):
         """Test that invalid cache_keys parameter is ignored and normal flow continues."""
-        from posthog.caching.insight_result import InsightResult
+        from products.product_analytics.backend.insight_result import InsightResult
 
         mock_calculate.return_value = InsightResult(
             result=[{"count": 25}],

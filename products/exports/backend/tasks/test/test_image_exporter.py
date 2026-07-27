@@ -19,7 +19,6 @@ from prometheus_client import REGISTRY
 
 from posthog.hogql.errors import QueryError
 
-from posthog.caching.insight_result import InsightResult
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -36,6 +35,7 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks import image_exporter
 from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, InvalidExportContext
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
+from products.product_analytics.backend.insight_result import InsightResult
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 

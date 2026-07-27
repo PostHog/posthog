@@ -7,7 +7,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
+from posthog.query_cache.backend import QUERY_CACHE_ALIAS
 from posthog.query_cache.failures import (
     BASE_BACKOFF,
     BUDGET_EXTENDED,

@@ -4,7 +4,7 @@ from django.core.cache import caches
 
 import structlog
 
-from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
+from posthog.query_cache.backend import QUERY_CACHE_ALIAS
 from posthog.query_cache.serialization import CachedEntry, split_cached_response_bytes
 
 logger = structlog.get_logger(__name__)

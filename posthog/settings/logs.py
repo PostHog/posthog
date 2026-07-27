@@ -146,7 +146,7 @@ LOGGING: dict[str, Any] = {
             "handlers": ["null"],
         },  # blackhole Django autoreload logs (this is only needed in DEV)
         "kafka.conn": {"level": "WARN"},  # kafka-python logs are noisy
-        "posthog.caching.warming": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "products.product_analytics.backend.warming": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.tasks.alerts": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.tasks.split_person": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.tasks.email": {"level": "INFO", "handlers": ["console"], "propagate": False},

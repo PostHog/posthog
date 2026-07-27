@@ -7,7 +7,6 @@ from celery import Celery
 from celery.canvas import Signature
 from celery.schedules import crontab
 
-from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
@@ -94,6 +93,7 @@ from products.feature_flags.backend.tasks import (
     sync_cross_region_flags_task,
 )
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
+from products.product_analytics.backend.warming import schedule_warming_for_teams_task
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import refresh_signal_repository_activity, sync_pending_signals_refund_credits

@@ -12,8 +12,6 @@ from posthog.schema import (
 )
 
 from posthog.api.services.query import ExecutionMode
-from posthog.caching.calculate_results import calculate_for_query_based_insight
-from posthog.caching.insight_result import InsightResult
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.insights.utils.breakdowns import humanize_breakdown_label
 
@@ -35,6 +33,8 @@ from products.alerts.backend.evaluation.contract import (
 )
 from products.alerts.backend.evaluation.formatting import make_trends_value_formatter
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.product_analytics.backend.calculate_results import calculate_for_query_based_insight
+from products.product_analytics.backend.insight_result import InsightResult
 from products.product_analytics.backend.models.insight import Insight
 
 

@@ -21,8 +21,9 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.models.insight import Insight, generate_insight_filters_hash
 
 if TYPE_CHECKING:
-    from posthog.caching.insight_result import InsightResult
     from posthog.rbac.user_access_control import UserAccessControl
+
+    from products.product_analytics.backend.insight_result import InsightResult
 
 
 logger = structlog.get_logger(__name__)
@@ -91,7 +92,7 @@ def calculate_for_query_based_insight(
     analytics_props: Optional[AnalyticsProps] = None,
     allow_raw_results: bool = False,
 ) -> "InsightResult":
-    from posthog.caching.insight_result import InsightResult, NothingInCacheResult
+    from products.product_analytics.backend.insight_result import InsightResult, NothingInCacheResult
 
     tag_queries(**get_team_query_tags(team), insight_id=insight.pk)
     if dashboard:

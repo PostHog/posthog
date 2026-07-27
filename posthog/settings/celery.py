@@ -17,7 +17,7 @@ CELERY_DEFAULT_QUEUE = "celery"
 # (worker + tests), independent of what else got imported.
 CELERY_IMPORTS: list[str] = [
     "posthog.api.oauth.cimd",
-    "posthog.caching.warming",
+    "products.product_analytics.backend.warming",
     "posthog.email",
     "posthog.models.product_intent.product_intent",
     "posthog.models.scoping",

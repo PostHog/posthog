@@ -48,11 +48,6 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
-from posthog.caching.insights_api import (
-    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-    REAL_TIME_INSIGHT_REFRESH_INTERVAL,
-    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-)
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
@@ -91,6 +86,11 @@ from posthog.utils import multisort
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.product_analytics.backend.insights_api import (
+    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+    REAL_TIME_INSIGHT_REFRESH_INTERVAL,
+    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+)
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
 

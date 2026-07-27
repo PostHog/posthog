@@ -5,8 +5,8 @@ from posthog.test.base import BaseTest
 from django.core.cache import caches
 
 from posthog.cache_utils import OrjsonJsonSerializer
-from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
 from posthog.query_cache import QueryCache, get_stale_insights
+from posthog.query_cache.backend import QUERY_CACHE_ALIAS
 
 
 class TestQueryCacheFacade(BaseTest):

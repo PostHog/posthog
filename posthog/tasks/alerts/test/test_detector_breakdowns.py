@@ -19,7 +19,6 @@ from posthog.schema import (
 )
 
 from posthog.api.services.query import ExecutionMode
-from posthog.caching.insight_result import InsightResult
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 
 from products.alerts.backend.evaluation.detector import (
@@ -29,6 +28,7 @@ from products.alerts.backend.evaluation.detector import (
 )
 from products.alerts.backend.evaluation.dispatcher import check_detector_alert
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.product_analytics.backend.insight_result import InsightResult
 from products.product_analytics.backend.models.insight import Insight
 
 

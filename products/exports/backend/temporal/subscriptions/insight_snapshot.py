@@ -21,14 +21,14 @@ import structlog
 from pydantic_core import to_jsonable_python
 
 from posthog.api.services.query import ExecutionMode
-from posthog.caching.calculate_results import calculate_cache_key, calculate_for_query_based_insight
-from posthog.caching.insight_result import InsightResult, NothingInCacheResult
 from posthog.models import Team, User
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.delivery_common import strip_null_bytes
+from products.product_analytics.backend.calculate_results import calculate_cache_key, calculate_for_query_based_insight
+from products.product_analytics.backend.insight_result import InsightResult, NothingInCacheResult
 from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)

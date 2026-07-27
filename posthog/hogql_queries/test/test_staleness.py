@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from freezegun import freeze_time
 
-from posthog.caching.utils import is_stale
+from posthog.hogql_queries.staleness import is_stale
 
 
 class Team:

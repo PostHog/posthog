@@ -47,7 +47,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
@@ -60,6 +59,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.product_analytics.backend.insight_result import InsightResult
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -504,7 +504,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
     )
     @patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome")
-    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("products.product_analytics.backend.calculate_results.calculate_for_query_based_insight")
     def test_dashboard_insight_records_cache_outcome(
         self,
         _name: str,
@@ -559,7 +559,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         with (
             patch(
-                "posthog.caching.calculate_results.calculate_for_query_based_insight"
+                "products.product_analytics.backend.calculate_results.calculate_for_query_based_insight"
             ) as calculate_for_query_based_insight,
             patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome") as record_outcome,
         ):
@@ -581,7 +581,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             record_outcome.assert_not_called()
 
         with patch(
-            "posthog.caching.calculate_results.calculate_for_query_based_insight"
+            "products.product_analytics.backend.calculate_results.calculate_for_query_based_insight"
         ) as calculate_for_query_based_insight:
             self.client.get(valid_url, data={"refresh": True})
             calculate_for_query_based_insight.assert_called_once_with(
@@ -638,7 +638,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}"
 
         with patch(
-            "posthog.caching.calculate_results.calculate_for_query_based_insight"
+            "products.product_analytics.backend.calculate_results.calculate_for_query_based_insight"
         ) as calculate_for_query_based_insight:
             self.client.get(
                 valid_url,
@@ -5080,7 +5080,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             ("HogVMException", "common.hogvm.python.utils.HogVMException", "Global variable not found: variables"),
         ]
     )
-    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("products.product_analytics.backend.calculate_results.calculate_for_query_based_insight")
     def test_retrieve_returns_400_for_exposed_errors(
         self, _name: str, error_class_path: str, error_message: str, mock_calculate: mock.MagicMock
     ) -> None:

@@ -20,11 +20,11 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.caching.utils import (
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.staleness import (
     ThresholdMode,
     cache_target_age as _cache_target_age,
 )
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import PropertyDefinition
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.queries.property_values import (

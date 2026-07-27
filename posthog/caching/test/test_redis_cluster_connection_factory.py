@@ -11,11 +11,11 @@ from django.test import TestCase
 from parameterized import parameterized
 
 from posthog.caching.redis_cluster_connection_factory import (
-    QUERY_CACHE_ALIAS,
     RedisClusterConnectionFactory,
     prewarm_query_cache_cluster,
     prewarm_query_cache_cluster_in_background,
 )
+from posthog.query_cache.backend import QUERY_CACHE_ALIAS
 
 
 class TestRedisClusterConnectionFactory(TestCase):

@@ -24,10 +24,10 @@ from posthog.hogql.user_query_validator import validate_user_query
 from posthog.hogql.variables import replace_variables
 
 from posthog import settings as app_settings
-from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.staleness import ThresholdMode, staleness_threshold_map
 
 from products.warehouse_sources.backend.facade.models import get_direct_external_data_source_for_connection
 

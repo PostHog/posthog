@@ -10,12 +10,13 @@ from django_redis.pool import ConnectionFactory
 from opentelemetry import trace
 from redis.cluster import RedisCluster
 
+from posthog.query_cache.backend import QUERY_CACHE_ALIAS
+
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 # The alias constant lives here because this module is loaded from settings (via the
 # CONNECTION_FACTORY string) and must not import app code.
-QUERY_CACHE_ALIAS = "query_cache"
 
 
 class RedisClusterConnectionFactory(ConnectionFactory):

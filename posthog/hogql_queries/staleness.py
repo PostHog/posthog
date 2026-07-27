@@ -4,26 +4,8 @@ from typing import Optional
 
 from dateutil.parser import isoparse
 
-from posthog.clickhouse.client import sync_execute
 from posthog.interval_specs import INTERVAL_SPECS
-from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.team.team import Team
-
-
-def largest_teams(limit: int) -> set[int]:
-    # nosemgrep: clickhouse-fstring-param-audit - events table comes from the internal schema gate
-    teams_by_event_count = sync_execute(
-        f"""
-            SELECT team_id, COUNT(*) AS event_count
-            FROM {events_read_table(use_new_events_schema(None))}
-            WHERE timestamp > subtractDays(now(), 7)
-            GROUP BY team_id
-            ORDER BY event_count DESC
-            LIMIT %(limit)s
-        """,
-        {"limit": limit},
-    )
-    return {int(team_id) for team_id, _ in teams_by_event_count}
 
 
 def last_refresh_from_cached_result(cached_result: dict | object) -> Optional[datetime]:

@@ -31,7 +31,6 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
-from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql_queries.insights.funnels import FunnelTrendsUDF, FunnelUDF
@@ -67,6 +66,10 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.product_analytics.backend.insights_api import (
+    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+)
 
 logger = structlog.get_logger(__name__)
 

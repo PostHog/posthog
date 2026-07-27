@@ -3,7 +3,6 @@ from typing import Any
 from posthog.schema import InsightThreshold, MetricsAlertConfig, MetricsQuery
 
 from posthog.api.services.query import ExecutionMode
-from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
 
 from products.alerts.backend.evaluation.contract import (
@@ -13,6 +12,7 @@ from products.alerts.backend.evaluation.contract import (
     zero_sentinel_series,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.product_analytics.backend.calculate_results import calculate_for_query_based_insight
 from products.product_analytics.backend.models.insight import Insight
 
 _SUBJECT = "The metric value"

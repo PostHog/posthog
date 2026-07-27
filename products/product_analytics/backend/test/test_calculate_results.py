@@ -16,8 +16,8 @@ from posthog.schema import (
 )
 
 from posthog.api.services.query import ExecutionMode, RawCachedQueryResponse
-from posthog.caching.calculate_results import calculate_for_query_based_insight
 
+from products.product_analytics.backend.calculate_results import calculate_for_query_based_insight
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -27,7 +27,7 @@ class TestCalculateForQueryBasedInsight(BaseTest):
             team=self.team,
             query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}},
         )
-        with patch("posthog.caching.calculate_results.process_query_dict", return_value=response):
+        with patch("products.product_analytics.backend.calculate_results.process_query_dict", return_value=response):
             return calculate_for_query_based_insight(
                 insight,
                 team=self.team,

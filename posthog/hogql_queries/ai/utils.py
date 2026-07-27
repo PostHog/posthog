@@ -4,12 +4,11 @@ from typing import Any, Optional
 
 import orjson
 
-from posthog.caching.utils import ThresholdMode, is_stale
-
 # Mapping from ai_events dedicated columns to their original property names.
 # These are stripped from the properties JSON by the MV and stored in dedicated columns.
 # Derived from AI_PROPERTY_TO_COLUMN to avoid drift between the two mappings.
 from posthog.hogql_queries.ai.ai_property_rewriter import AI_PROPERTY_TO_COLUMN
+from posthog.hogql_queries.staleness import ThresholdMode, is_stale
 from posthog.models.team.team import Team
 
 HEAVY_PROPERTY_NAMES: frozenset[str] = frozenset(

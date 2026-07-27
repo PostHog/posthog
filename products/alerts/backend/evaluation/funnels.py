@@ -3,13 +3,13 @@ from typing import Any
 from posthog.schema import AlertCondition, AlertConditionType, FunnelsAlertConfig, FunnelsQuery, IntervalType
 
 from posthog.api.services.query import ExecutionMode
-from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
 from posthog.tasks.alerts.trends import query_excludes_incomplete_periods
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError, ExtractionResult, lookback_intervals_for
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.product_analytics.backend.calculate_results import calculate_for_query_based_insight
 from products.product_analytics.backend.models.insight import Insight
 
 

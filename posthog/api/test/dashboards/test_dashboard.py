@@ -17,7 +17,6 @@ from rest_framework import status
 from posthog.schema import DateRange, EventPropertyFilter, EventsNode, PropertyOperator, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import Filter, Team, User
@@ -50,6 +49,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.product_analytics.backend.api.insight import InsightSerializer
+from products.product_analytics.backend.insight_result import InsightResult
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -566,7 +566,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(dashboard.name, "dashboard new name")
 
     @patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome")
-    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("products.product_analytics.backend.calculate_results.calculate_for_query_based_insight")
     def test_update_dashboard_does_not_record_cache_outcomes(
         self,
         mock_calculate: mock.MagicMock,

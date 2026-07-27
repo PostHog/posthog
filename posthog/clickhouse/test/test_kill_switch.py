@@ -213,19 +213,19 @@ class TestKillSwitchCacheWarming:
             ("full", KillSwitchLevel.FULL),
         ]
     )
-    @patch("posthog.caching.warming.logger")
+    @patch("products.product_analytics.backend.warming.logger")
     def test_cache_warming_skipped(self, _name: str, level: KillSwitchLevel, mock_logger: MagicMock):
         with patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=level):
-            from posthog.caching.warming import schedule_warming_for_teams_task
+            from products.product_analytics.backend.warming import schedule_warming_for_teams_task
 
             schedule_warming_for_teams_task()
 
             mock_logger.info.assert_called_with("kill_switch_on_skipping_cache_warming", level=level)
 
     @patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=KillSwitchLevel.OFF)
-    @patch("posthog.caching.warming.largest_teams", return_value=[])
+    @patch("products.product_analytics.backend.warming.largest_teams", return_value=[])
     def test_cache_warming_proceeds_when_off(self, mock_largest: MagicMock, _mock_ks: MagicMock):
-        from posthog.caching.warming import schedule_warming_for_teams_task
+        from products.product_analytics.backend.warming import schedule_warming_for_teams_task
 
         try:
             schedule_warming_for_teams_task()
