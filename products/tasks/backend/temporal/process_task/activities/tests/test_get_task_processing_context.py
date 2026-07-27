@@ -361,7 +361,9 @@ class TestGetTaskProcessingContextActivity:
         assert sandbox_args[0] == SANDBOX_EVENT_INGEST_FEATURE_FLAG
 
     @pytest.mark.django_db(transaction=True)
-    def test_pi_runtime_enables_persistent_event_streaming_without_rollout_flags(self, activity_environment, test_task):
+    def test_pi_runtime_enables_event_ingest_without_bypassing_persistent_upload_rollout(
+        self, activity_environment, test_task
+    ):
         test_task.runtime = Task.Runtime.PI
         test_task.save(update_fields=["runtime"])
         task_run = test_task.create_run()
@@ -374,7 +376,7 @@ class TestGetTaskProcessingContextActivity:
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert result.sandbox_event_ingest_enabled is True
-        assert result.agent_proxy_keep_stream_open is True
+        assert result.agent_proxy_keep_stream_open is False
 
     @pytest.mark.django_db(transaction=True)
     def test_pi_runtime_respects_persistent_event_streaming_kill_switches(self, activity_environment, test_task):

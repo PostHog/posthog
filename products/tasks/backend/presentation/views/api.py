@@ -1627,7 +1627,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Send command to task run",
         description="Queue user_message JSON-RPC commands through the task workflow and forward sandbox control "
         "commands to the agent server. Supports user_message, cancel, close, permission_response, "
-        "set_config_option, mcp_response, and native Pi RPC commands.",
+        "set_config_option, mcp_response, native Pi RPC commands, and Pi queue operations.",
         strict_request_validation=True,
     )
     @action(
@@ -1645,7 +1645,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": "Pi commands require a Pi task."}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if task_runtime == tasks_facade.TaskRuntime.PI and method not in {"user_message", "cancel", "pi/rpc"}:
+        if task_runtime == tasks_facade.TaskRuntime.PI and method not in {
+            "user_message",
+            "cancel",
+            "pi/rpc",
+            "queue_get",
+            "queue_clear",
+        }:
             return Response(
                 TaskRunErrorResponseSerializer({"error": f"{method} is not supported for Pi tasks."}).data,
                 status=status.HTTP_400_BAD_REQUEST,

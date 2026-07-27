@@ -874,16 +874,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"use_modal_directory_resume_snapshots: {use_modal_directory_resume_snapshots} for this task run",
     )
-    keep_stream_open_override = state.get("agent_proxy_keep_stream_open")
-    if pi_persistent_streaming and not isinstance(keep_stream_open_override, bool):
-        agent_proxy_keep_stream_open = True
-    else:
-        agent_proxy_keep_stream_open = _is_agent_proxy_keep_stream_open_enabled(
-            distinct_id=distinct_id,
-            organization_id=organization_id,
-            run_id=run_id,
-            state=state,
-        )
+    agent_proxy_keep_stream_open = _is_agent_proxy_keep_stream_open_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
     emit_agent_log(
         run_id,
         "debug",

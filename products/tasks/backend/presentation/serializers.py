@@ -2292,6 +2292,8 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "set_config_option",
         "mcp_response",
         "pi/rpc",
+        "queue_get",
+        "queue_clear",
     ]
 
     # Cap on the serialized mcp_response params (docs/cloud-mcp-relay.md): the relayed JSON-RPC
