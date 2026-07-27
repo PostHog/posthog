@@ -94,7 +94,7 @@ function ActionOverview({
             />
             {!isAlert && (
                 <LemonCard hoverEffect={false} className="p-4">
-                    <div className="text-xs font-semibold uppercase text-secondary mb-1">Summary guidance</div>
+                    <div className="text-xs font-semibold uppercase text-secondary mb-1">Digest guidance</div>
                     {guidance ? (
                         <p className="m-0 whitespace-pre-wrap">{guidance}</p>
                     ) : (

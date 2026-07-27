@@ -7,7 +7,13 @@ import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
-import { RunSourceEnumApi, TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    ClaudeRuntimeAdapterEnumApi,
+    ClaudeTaskRunCreateSchemaApi,
+    ReasoningEffortEnumApi,
+    RunSourceEnumApi,
+    TaskExecutionModeEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
@@ -25,6 +31,18 @@ import {
 // written early in a research run, so a generous limit keeps it on the fetched page even for
 // reports with many findings.
 const REPO_SELECTION_ARTEFACT_FETCH_LIMIT = 1000
+
+// The run endpoint rejects a model without its runtime adapter, so the two are always sent together.
+type ClaudeRuntimeSelection = Pick<ClaudeTaskRunCreateSchemaApi, 'runtime_adapter' | 'model' | 'reasoning_effort'>
+
+// Discuss is a short question-and-answer about a report rather than a long implementation run, so it
+// pins the stronger model instead of taking the server-side default of Sonnet: the answer quality is
+// what the user is here for, and the extra cost is bounded by the length of the conversation.
+const DISCUSS_RUNTIME: ClaudeRuntimeSelection = {
+    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
+    model: 'claude-opus-5',
+    reasoning_effort: ReasoningEffortEnumApi.High,
+}
 
 function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): string {
     const base = `Act on PostHog Inbox report "${report.title ?? report.id}" (id ${report.id}). Investigate the root cause using the report's contributing findings, implement the fix, and open a PR.${
@@ -48,7 +66,8 @@ async function createReportTask(
     relationship: SignalReportTaskRelationship,
     prompt: string,
     fallbackTitle: string,
-    requireRepository = false
+    requireRepository = false,
+    runtimeSelection?: ClaudeRuntimeSelection
 ): Promise<void> {
     // Use the repository the signals pipeline already selected for this report (its
     // `repo_selection` artefact), matching the desktop app and the auto-start flow. Never fall
@@ -90,14 +109,15 @@ async function createReportTask(
     // Kick off a cloud run so the task actually executes — creating it alone lands the user on a
     // "This task hasn't been run yet" screen. `run_source` ties the run to the report and makes any
     // PR bot-authored server-side, mirroring the auto-start pipeline's `create_and_run_task`.
-    await api.tasks.run(task.id, {
+    const runOptions = {
         run_source: RunSourceEnumApi.SignalReport,
         signal_report_id: report.id,
         // Interactive, not the default background: the user lands on the run page right away, and the
         // agent-server only relays AskUserQuestion (and other approval prompts) to the client on
         // non-background runs — a background run's questions are parked and never rendered as a form.
         mode: TaskExecutionModeEnumApi.Interactive,
-    })
+    }
+    await api.tasks.run(task.id, runtimeSelection ? { ...runOptions, ...runtimeSelection } : runOptions)
 
     router.actions.push(urls.taskDetail(task.id))
 }
@@ -176,7 +196,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     report,
                     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
                     buildDiscussReportPrompt(reportUrl, question),
-                    'Discuss report'
+                    'Discuss report',
+                    false,
+                    DISCUSS_RUNTIME
                 )
                 actions.discussReportSuccess()
             } catch (error: any) {
