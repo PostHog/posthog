@@ -650,8 +650,14 @@ def _report_event_uuid(*parts: object) -> str:
     same authored report (or an identical re-applied edit) collapses to one event at ingestion instead of
     double-firing a destination — `emit_report`/`edit_report` are non-idempotent, so the same logical action
     can reach this path more than once. Distinct actions (a different report, a different edit) differ in
-    the parts and stay separate events."""
-    key = "|".join("" if part is None else str(part) for part in parts)
+    the parts and stay separate events.
+
+    Encoded as JSON rather than joined on a separator, for the reason `_chart_event_key` gives one
+    level down: the parts are scout-authored free text, so any separator can appear inside one of them
+    and two different actions would key the same — a note of `x|<the chart key>` on a chartless edit
+    against a note of `x` on an edit appending that chart. Ingestion would collapse the second, and
+    the team would never hear about it."""
+    key = json.dumps(["" if part is None else str(part) for part in parts], separators=(",", ":"))
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"signals_scout_report:{key}"))
 
 

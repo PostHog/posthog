@@ -48,6 +48,8 @@ from products.signals.backend.scout_harness.tools.report import (
     InvalidScoutReportError,
     ReportChart,
     _build_charts,
+    _chart_event_key,
+    _report_event_uuid,
 )
 from products.signals.backend.scout_harness.tools.runs import MAX_FAILURE_REASON_LENGTH, MAX_RUN_SEARCH_LIMIT
 from products.signals.backend.scout_harness.tools.scratchpad import (
@@ -1284,3 +1286,19 @@ class TestChartSafetyJudgeInput:
     def test_no_charts_adds_nothing_to_the_judge_input(self) -> None:
         # A chartless report's judge prompt must stay exactly what it was before charts existed.
         assert _chart_signal([]) is None
+
+
+class TestReportEventUuid:
+    """The ingestion dedupe key for an emit/edit — pure hashing, no DB."""
+
+    def test_same_parts_hash_to_one_event(self) -> None:
+        assert _report_event_uuid("edit", 1, "note") == _report_event_uuid("edit", 1, "note")
+
+    def test_a_part_containing_the_encoding_separator_stays_distinct(self) -> None:
+        # The parts are scout-authored free text, so a note can contain whatever joins them. Joined on
+        # a delimiter, a note of `x|<the chart key>` on a chartless edit keys the same as a note of `x`
+        # on an edit that appends that chart — ingestion collapses the second and the chart never
+        # reaches a destination.
+        chart_key = _chart_event_key(ReportChart(chart_id="c", title="Signups", query={"kind": "InsightVizNode"}))
+
+        assert _report_event_uuid("edit", f"x|{chart_key}") != _report_event_uuid("edit", "x", chart_key)
