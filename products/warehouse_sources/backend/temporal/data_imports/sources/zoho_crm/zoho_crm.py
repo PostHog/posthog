@@ -95,7 +95,11 @@ class ZohoCRMClient:
         self._client_id = client_id
         self._client_secret = client_secret
         self._refresh_token = refresh_token
-        self._session = make_tracked_session(redact_values=(client_secret, refresh_token))
+        # capture=False keeps requests metered and logged but excludes them from HTTP sample
+        # capture: Zoho responses carry raw CRM records (contacts, notes, emails, phone numbers,
+        # free-text) and the token exchange returns the access token in a bare `access_token`
+        # field — content the name-based scrubbers can't reliably redact.
+        self._session = make_tracked_session(redact_values=(client_secret, refresh_token), capture=False)
         self._access_token: Optional[str] = None
 
     @property

@@ -197,6 +197,16 @@ class TestZohoCRMClient:
 
         assert _client().get("/crm/v8/Leads").status_code == 204
 
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_session_disables_sample_capture_and_redacts_credentials(self, make_session: mock.MagicMock) -> None:
+        # Reverting capture=False would upload raw CRM records (contacts, notes, emails) and the
+        # minted access token to the shared HTTP sample-capture prefix.
+        make_session.return_value = _session([])
+
+        ZohoCRMClient("us", "cid", "secret-value", "refresh-value")
+
+        assert make_session.call_args.kwargs == {"redact_values": ("secret-value", "refresh-value"), "capture": False}
+
 
 class TestReadableFieldNames:
     @mock.patch(f"{_MODULE}.make_tracked_session")
