@@ -17,6 +17,7 @@ class TestStripChartReferences(SimpleTestCase):
             ),
             ("several_in_one_summary", "[a](chart:x) then [b](chart:y_2-z)", "a then b"),
             ("target_outside_the_id_charset", "[Bad](chart:Uppercase)", "Bad"),
+            ("reference_carrying_a_link_title", '[Daily](chart:daily "Daily signups")', "Daily"),
             ("http_link_is_left_alone", "[Docs](https://posthog.com)", "[Docs](https://posthog.com)"),
             ("prose_without_a_reference", "Signups fell 60%.", "Signups fell 60%."),
         ]
@@ -34,11 +35,17 @@ class TestStripChartReferences(SimpleTestCase):
         assert "&lt;" not in rendered
         assert "Daily signups" in rendered
 
-    def test_a_summary_of_open_brackets_stays_cheap(self) -> None:
-        # A label class that admits `[` makes every start position rescan the remaining suffix, so a
-        # summary of nothing but `[` costs seconds per Slack delivery. Bound it well under the
-        # quadratic cost while staying loose enough not to flake on a slow runner.
+    @parameterized.expand(
+        [
+            ("bare_open_brackets", "[" * 20_000),
+            ("unclosed_references", "[a](chart:" * 2_000),
+        ]
+    )
+    def test_a_summary_that_never_closes_a_reference_stays_cheap(self, _name: str, summary: str) -> None:
+        # A character class that admits `[` makes every start position rescan the remaining suffix, so
+        # a summary built from either half of the pattern costs seconds per Slack delivery. Bound both
+        # well under the quadratic cost while staying loose enough not to flake on a slow runner.
         started = time.perf_counter()
-        strip_chart_references("[" * 20_000)
+        strip_chart_references(summary)
 
         assert time.perf_counter() - started < 0.5
