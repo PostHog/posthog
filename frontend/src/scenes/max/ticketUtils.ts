@@ -13,8 +13,9 @@ export function isTicketCommand(content: string): boolean {
 }
 
 /**
- * Mirrors the support side panel's plan gate (`canEmail` in SidePanelSupport.tsx, minus its
- * billing-topic bypass): /ticket must not create tickets for orgs the panel would turn away.
+ * Mirrors the support side panel's plan gate (`canCreateTicket` in sidepanelTicketsLogic.ts, minus
+ * the billing-topic bypass added by `canEmail`): /ticket must not create tickets for orgs the
+ * panel would turn away.
  */
 export function canCreateSupportTicket(billing: BillingType | null, isCurrentOrganizationNew: boolean): boolean {
     const hasActiveTrial =
