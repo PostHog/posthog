@@ -1,16 +1,17 @@
 // AUTO-GENERATED from services/mcp/definitions/data_management.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
 import { IngestionWarningsV2ListQueryParams } from '@/generated/data_management/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const IngestionWarningsListSchema = IngestionWarningsV2ListQueryParams
 
-const ingestionWarningsList = (): ToolBase<typeof IngestionWarningsListSchema, WithPostHogUrl<Schemas.IngestionWarningsV2Summary[]>> => ({
+const ingestionWarningsList = (): ToolBase<
+    typeof IngestionWarningsListSchema,
+    WithPostHogUrl<Schemas.IngestionWarningsV2Summary[]>
+> => ({
     name: 'ingestion-warnings-list',
     schema: IngestionWarningsListSchema,
     handler: async (context: Context, params: z.infer<typeof IngestionWarningsListSchema>) => {

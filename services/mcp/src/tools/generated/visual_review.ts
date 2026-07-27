@@ -1,17 +1,35 @@
 // AUTO-GENERATED from products/visual_review/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
+import {
+    VisualReviewReposListQueryParams,
+    VisualReviewReposRetrieveParams,
+    VisualReviewRunsApproveCreateBody,
+    VisualReviewRunsApproveCreateParams,
+    VisualReviewRunsFinalizeCreateBody,
+    VisualReviewRunsFinalizeCreateParams,
+    VisualReviewRunsListQueryParams,
+    VisualReviewRunsRetrieveParams,
+    VisualReviewRunsSnapshotHistoryListParams,
+    VisualReviewRunsSnapshotHistoryListQueryParams,
+    VisualReviewRunsSnapshotsListParams,
+    VisualReviewRunsSnapshotsListQueryParams,
+    VisualReviewRunsTolerateCreateBody,
+    VisualReviewRunsTolerateCreateParams,
+    VisualReviewRunsToleratedHashesListParams,
+    VisualReviewRunsToleratedHashesListQueryParams,
+} from '@/generated/visual_review/api'
 import { withUiApp } from '@/resources/ui-apps'
-
-import { VisualReviewReposListQueryParams, VisualReviewReposRetrieveParams, VisualReviewRunsApproveCreateBody, VisualReviewRunsApproveCreateParams, VisualReviewRunsFinalizeCreateBody, VisualReviewRunsFinalizeCreateParams, VisualReviewRunsListQueryParams, VisualReviewRunsRetrieveParams, VisualReviewRunsSnapshotHistoryListParams, VisualReviewRunsSnapshotHistoryListQueryParams, VisualReviewRunsSnapshotsListParams, VisualReviewRunsSnapshotsListQueryParams, VisualReviewRunsTolerateCreateBody, VisualReviewRunsTolerateCreateParams, VisualReviewRunsToleratedHashesListParams, VisualReviewRunsToleratedHashesListQueryParams } from '@/generated/visual_review/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const VisualReviewReposListSchema = VisualReviewReposListQueryParams
 
-const visualReviewReposList = (): ToolBase<typeof VisualReviewReposListSchema, WithPostHogUrl<Schemas.PaginatedRepoList>> => ({
+const visualReviewReposList = (): ToolBase<
+    typeof VisualReviewReposListSchema,
+    WithPostHogUrl<Schemas.PaginatedRepoList>
+> => ({
     name: 'visual-review-repos-list',
     schema: VisualReviewReposListSchema,
     handler: async (context: Context, params: z.infer<typeof VisualReviewReposListSchema>) => {
@@ -43,7 +61,9 @@ const visualReviewReposRetrieve = (): ToolBase<typeof VisualReviewReposRetrieveS
     },
 })
 
-const VisualReviewRunsApproveCreateSchema = VisualReviewRunsApproveCreateParams.omit({ project_id: true }).extend(VisualReviewRunsApproveCreateBody.shape)
+const VisualReviewRunsApproveCreateSchema = VisualReviewRunsApproveCreateParams.omit({ project_id: true }).extend(
+    VisualReviewRunsApproveCreateBody.shape
+)
 
 const visualReviewRunsApproveCreate = (): ToolBase<typeof VisualReviewRunsApproveCreateSchema, Schemas.Run> => ({
     name: 'visual-review-runs-approve-create',
@@ -51,7 +71,9 @@ const visualReviewRunsApproveCreate = (): ToolBase<typeof VisualReviewRunsApprov
     handler: async (context: Context, params: z.infer<typeof VisualReviewRunsApproveCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.snapshots !== undefined) body["snapshots"] = params.snapshots
+        if (params.snapshots !== undefined) {
+            body['snapshots'] = params.snapshots
+        }
         const result = await context.api.request<Schemas.Run>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/approve/`,
@@ -63,11 +85,14 @@ const visualReviewRunsApproveCreate = (): ToolBase<typeof VisualReviewRunsApprov
 
 const VisualReviewRunsCountsRetrieveSchema = z.object({})
 
-const visualReviewRunsCountsRetrieve = (): ToolBase<typeof VisualReviewRunsCountsRetrieveSchema, Schemas.ReviewStateCounts> => ({
+const visualReviewRunsCountsRetrieve = (): ToolBase<
+    typeof VisualReviewRunsCountsRetrieveSchema,
+    Schemas.ReviewStateCounts
+> => ({
     name: 'visual-review-runs-counts-retrieve',
     schema: VisualReviewRunsCountsRetrieveSchema,
     // eslint-disable-next-line no-unused-vars
-handler: async (context: Context, params: z.infer<typeof VisualReviewRunsCountsRetrieveSchema>) => {
+    handler: async (context: Context, params: z.infer<typeof VisualReviewRunsCountsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ReviewStateCounts>({
             method: 'GET',
@@ -77,17 +102,28 @@ handler: async (context: Context, params: z.infer<typeof VisualReviewRunsCountsR
     },
 })
 
-const VisualReviewRunsFinalizeCreateSchema = VisualReviewRunsFinalizeCreateParams.omit({ project_id: true }).extend(VisualReviewRunsFinalizeCreateBody.shape)
+const VisualReviewRunsFinalizeCreateSchema = VisualReviewRunsFinalizeCreateParams.omit({ project_id: true }).extend(
+    VisualReviewRunsFinalizeCreateBody.shape
+)
 
-const visualReviewRunsFinalizeCreate = (): ToolBase<typeof VisualReviewRunsFinalizeCreateSchema, Schemas.FinalizeResult> => ({
+const visualReviewRunsFinalizeCreate = (): ToolBase<
+    typeof VisualReviewRunsFinalizeCreateSchema,
+    Schemas.FinalizeResult
+> => ({
     name: 'visual-review-runs-finalize-create',
     schema: VisualReviewRunsFinalizeCreateSchema,
     handler: async (context: Context, params: z.infer<typeof VisualReviewRunsFinalizeCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.approve_all !== undefined) body["approve_all"] = params.approve_all
-        if (params.commit_to_github !== undefined) body["commit_to_github"] = params.commit_to_github
-        if (params.add_images_to_comment_on_pr !== undefined) body["add_images_to_comment_on_pr"] = params.add_images_to_comment_on_pr
+        if (params.approve_all !== undefined) {
+            body['approve_all'] = params.approve_all
+        }
+        if (params.commit_to_github !== undefined) {
+            body['commit_to_github'] = params.commit_to_github
+        }
+        if (params.add_images_to_comment_on_pr !== undefined) {
+            body['add_images_to_comment_on_pr'] = params.add_images_to_comment_on_pr
+        }
         const result = await context.api.request<Schemas.FinalizeResult>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/finalize/`,
@@ -99,7 +135,10 @@ const visualReviewRunsFinalizeCreate = (): ToolBase<typeof VisualReviewRunsFinal
 
 const VisualReviewRunsListSchema = VisualReviewRunsListQueryParams
 
-const visualReviewRunsList = (): ToolBase<typeof VisualReviewRunsListSchema, WithPostHogUrl<Schemas.PaginatedRunList>> => ({
+const visualReviewRunsList = (): ToolBase<
+    typeof VisualReviewRunsListSchema,
+    WithPostHogUrl<Schemas.PaginatedRunList>
+> => ({
     name: 'visual-review-runs-list',
     schema: VisualReviewRunsListSchema,
     handler: async (context: Context, params: z.infer<typeof VisualReviewRunsListSchema>) => {
@@ -117,10 +156,18 @@ const visualReviewRunsList = (): ToolBase<typeof VisualReviewRunsListSchema, Wit
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, {
-            ...result,
-            results: await Promise.all((result.results ?? []).map((item) => withPostHogUrl(context, item, `/visual_review/runs/${item.id}`))),
-        }, '/visual_review')
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/visual_review/runs/${item.id}`)
+                    )
+                ),
+            },
+            '/visual_review'
+        )
     },
 })
 
@@ -139,9 +186,14 @@ const visualReviewRunsRetrieve = (): ToolBase<typeof VisualReviewRunsRetrieveSch
     },
 })
 
-const VisualReviewRunsSnapshotHistoryListSchema = VisualReviewRunsSnapshotHistoryListParams.omit({ project_id: true }).extend(VisualReviewRunsSnapshotHistoryListQueryParams.shape)
+const VisualReviewRunsSnapshotHistoryListSchema = VisualReviewRunsSnapshotHistoryListParams.omit({
+    project_id: true,
+}).extend(VisualReviewRunsSnapshotHistoryListQueryParams.shape)
 
-const visualReviewRunsSnapshotHistoryList = (): ToolBase<typeof VisualReviewRunsSnapshotHistoryListSchema, Schemas.PaginatedSnapshotHistoryEntryList> => ({
+const visualReviewRunsSnapshotHistoryList = (): ToolBase<
+    typeof VisualReviewRunsSnapshotHistoryListSchema,
+    Schemas.PaginatedSnapshotHistoryEntryList
+> => ({
     name: 'visual-review-runs-snapshot-history-list',
     schema: VisualReviewRunsSnapshotHistoryListSchema,
     handler: async (context: Context, params: z.infer<typeof VisualReviewRunsSnapshotHistoryListSchema>) => {
@@ -159,27 +211,35 @@ const visualReviewRunsSnapshotHistoryList = (): ToolBase<typeof VisualReviewRuns
     },
 })
 
-const VisualReviewRunsSnapshotsListSchema = VisualReviewRunsSnapshotsListParams.omit({ project_id: true }).extend(VisualReviewRunsSnapshotsListQueryParams.shape)
+const VisualReviewRunsSnapshotsListSchema = VisualReviewRunsSnapshotsListParams.omit({ project_id: true }).extend(
+    VisualReviewRunsSnapshotsListQueryParams.shape
+)
 
-const visualReviewRunsSnapshotsList = (): ToolBase<typeof VisualReviewRunsSnapshotsListSchema, WithPostHogUrl<Schemas.PaginatedSnapshotList>> => withUiApp('visual-review-snapshots', {
-    name: 'visual-review-runs-snapshots-list',
-    schema: VisualReviewRunsSnapshotsListSchema,
-    handler: async (context: Context, params: z.infer<typeof VisualReviewRunsSnapshotsListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSnapshotList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/snapshots/`,
-            query: {
-                include_quarantined: params.include_quarantined,
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        return await withPostHogUrl(context, result, '/visual_review')
-    },
-})
+const visualReviewRunsSnapshotsList = (): ToolBase<
+    typeof VisualReviewRunsSnapshotsListSchema,
+    WithPostHogUrl<Schemas.PaginatedSnapshotList>
+> =>
+    withUiApp('visual-review-snapshots', {
+        name: 'visual-review-runs-snapshots-list',
+        schema: VisualReviewRunsSnapshotsListSchema,
+        handler: async (context: Context, params: z.infer<typeof VisualReviewRunsSnapshotsListSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.PaginatedSnapshotList>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/snapshots/`,
+                query: {
+                    include_quarantined: params.include_quarantined,
+                    limit: params.limit,
+                    offset: params.offset,
+                },
+            })
+            return await withPostHogUrl(context, result, '/visual_review')
+        },
+    })
 
-const VisualReviewRunsTolerateCreateSchema = VisualReviewRunsTolerateCreateParams.omit({ project_id: true }).extend(VisualReviewRunsTolerateCreateBody.shape)
+const VisualReviewRunsTolerateCreateSchema = VisualReviewRunsTolerateCreateParams.omit({ project_id: true }).extend(
+    VisualReviewRunsTolerateCreateBody.shape
+)
 
 const visualReviewRunsTolerateCreate = (): ToolBase<typeof VisualReviewRunsTolerateCreateSchema, Schemas.Snapshot> => ({
     name: 'visual-review-runs-tolerate-create',
@@ -187,7 +247,9 @@ const visualReviewRunsTolerateCreate = (): ToolBase<typeof VisualReviewRunsToler
     handler: async (context: Context, params: z.infer<typeof VisualReviewRunsTolerateCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.snapshot_id !== undefined) body["snapshot_id"] = params.snapshot_id
+        if (params.snapshot_id !== undefined) {
+            body['snapshot_id'] = params.snapshot_id
+        }
         const result = await context.api.request<Schemas.Snapshot>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/tolerate/`,
@@ -197,9 +259,14 @@ const visualReviewRunsTolerateCreate = (): ToolBase<typeof VisualReviewRunsToler
     },
 })
 
-const VisualReviewRunsToleratedHashesListSchema = VisualReviewRunsToleratedHashesListParams.omit({ project_id: true }).extend(VisualReviewRunsToleratedHashesListQueryParams.shape)
+const VisualReviewRunsToleratedHashesListSchema = VisualReviewRunsToleratedHashesListParams.omit({
+    project_id: true,
+}).extend(VisualReviewRunsToleratedHashesListQueryParams.shape)
 
-const visualReviewRunsToleratedHashesList = (): ToolBase<typeof VisualReviewRunsToleratedHashesListSchema, Schemas.PaginatedToleratedHashEntryList> => ({
+const visualReviewRunsToleratedHashesList = (): ToolBase<
+    typeof VisualReviewRunsToleratedHashesListSchema,
+    Schemas.PaginatedToleratedHashEntryList
+> => ({
     name: 'visual-review-runs-tolerated-hashes-list',
     schema: VisualReviewRunsToleratedHashesListSchema,
     handler: async (context: Context, params: z.infer<typeof VisualReviewRunsToleratedHashesListSchema>) => {
