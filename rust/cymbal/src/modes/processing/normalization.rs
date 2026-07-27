@@ -124,8 +124,8 @@ fn lib_rules() -> &'static [LibRule] {
         rules.push(LibRule {
             lib: "posthog-python",
             fix: WireOrderFix::EXCEPTION_LIST,
-            // posthog-python ships the flip in 7.30.0 (PostHog/posthog-python#728).
-            canonical_since: Some(Version::new(7, 30, 0)),
+            // posthog-python ships the flip in 7.31.0 (PostHog/posthog-python#728).
+            canonical_since: Some(Version::new(7, 31, 0)),
         });
 
         rules
@@ -344,7 +344,7 @@ mod test {
             .into()
         };
 
-        for version in [Some("7.29.0"), Some("6.0.0"), Some("garbage"), None] {
+        for version in [Some("7.30.1"), Some("7.30.0"), Some("garbage"), None] {
             let mut list = make_list();
             let legacy = normalize_wire_order(&mut list, Some("posthog-python"), version);
             assert!(legacy.is_some(), "{version:?} should normalize");
@@ -356,7 +356,7 @@ mod test {
             );
         }
 
-        for version in ["7.30.0", "7.30.1", "7.31.0", "8.0.0"] {
+        for version in ["7.31.0", "7.31.1", "7.32.0", "8.0.0"] {
             let mut list = make_list();
             let legacy = normalize_wire_order(&mut list, Some("posthog-python"), Some(version));
             assert!(legacy.is_none(), "{version} should pass through");
