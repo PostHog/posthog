@@ -1,9 +1,6 @@
 from typing import TYPE_CHECKING
 
-from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models, transaction
-from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Upper
 
 from posthog.models.utils import UUIDTModel
 
@@ -160,21 +157,6 @@ class Ticket(UUIDTModel):
                 fields=["organization_id", "slack_channel_id"],
                 name="posthog_org_slack_ch_idx",
                 condition=models.Q(channel_source="slack"),
-            ),
-            # Trigram indexes for the dashboard free-text search. On UPPER(...) because
-            # the ORM compiles icontains to UPPER(col) LIKE UPPER(pattern) on Postgres —
-            # a plain column trigram index would never match.
-            GinIndex(
-                OpClass(Upper("email_subject"), name="gin_trgm_ops"),
-                name="conv_ticket_subject_trgm",
-            ),
-            GinIndex(
-                OpClass(Upper(KeyTextTransform("name", "anonymous_traits")), name="gin_trgm_ops"),
-                name="conv_ticket_anon_name_trgm",
-            ),
-            GinIndex(
-                OpClass(Upper(KeyTextTransform("email", "anonymous_traits")), name="gin_trgm_ops"),
-                name="conv_ticket_anon_email_trgm",
             ),
         ]
         constraints = [
