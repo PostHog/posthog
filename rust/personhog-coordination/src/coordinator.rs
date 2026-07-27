@@ -58,6 +58,16 @@ pub struct CoordinatorConfig {
     /// Generous by design: healthy handoffs complete in a few seconds,
     /// so this sits orders of magnitude above them. Too tight a bound
     /// would cancel the handoffs that are merely slow.
+    ///
+    /// Ages are wall-clock differences that may span machines: a
+    /// handoff created by one coordinator can be evaluated by its
+    /// successor after a failover, so clock skew between nodes shifts
+    /// the effective deadline by its magnitude. That is tolerated
+    /// rather than engineered away — skew is NTP-bounded at
+    /// milliseconds against a deadline of minutes, and a mistimed
+    /// cancellation is safe in either direction: early, the re-plan
+    /// recreates the handoff stamped and judged by one clock; late, a
+    /// wedge lives that much longer before cancellation.
     pub handoff_deadline: Duration,
 }
 
