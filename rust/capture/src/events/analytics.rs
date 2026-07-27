@@ -258,7 +258,9 @@ pub async fn process_events(
     // `/batch` and the v1 endpoint.
     if context.capture_mode.requires_historical_migration() && !context.historical_migration {
         let dropped = events.len() as u64;
-        report_dropped_events("import_non_historical", dropped);
+        // Same label value as the v1 path's capture_v1_events_dropped{reason=...}
+        // so one alert expression covers both metric names.
+        report_dropped_events("non_historical_import", dropped);
         warn!(
             token = context.token,
             dropped_events = dropped,
@@ -395,6 +397,20 @@ pub async fn process_events(
     // hot distinct_ids and reroute AnalyticsMain events to overflow. Import mode
     // opts out entirely — historical backfills must never be throttled — so the
     // limiter is skipped even if one were wired.
+    //
+    // DIVERGENCE from v1 (`v1::analytics::process`), intentional and out of scope
+    // to reconcile here — a future routing refactor must not assume parity:
+    //   1. Ordering: legacy runs this GRL step BEFORE burst overflow stamping
+    //      (`stamp_overflow_reason` below); v1 runs the GRL AFTER its overflow
+    //      stamping. Both set overflow_reason on AnalyticsMain only, so the
+    //      end state matches, but the pass order differs.
+    //   2. Legacy does NOT skip events that already carry a person-processing
+    //      opt-out; v1 skips events with `force_disable_person_processing`
+    //      already set before consulting the limiter.
+    //   3. Lane assignment is a single `DataType::from_event_name` match in
+    //      legacy versus assign-then-reroute in v1.
+    // Import is unaffected by all three: the GRL never runs (guard below) and no
+    // overflowable lane is reachable, so behavior is identical across paths.
     if context.capture_mode.applies_global_rate_limit() {
         if let Some(ref limiter) = global_rate_limiter {
             let mut limited_distinct_ids: HashSet<&str> = HashSet::new();

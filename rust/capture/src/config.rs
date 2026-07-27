@@ -12,10 +12,12 @@ pub enum CaptureMode {
     Recordings,
     Ai,
     /// Analytics ingestion dedicated to historical backfills (the
-    /// batch-import-worker). Behaves exactly like `Events` except that it
-    /// never applies the global rate limiter and drops any batch not flagged
-    /// `historical_migration: true`. See `applies_global_rate_limit` and
-    /// `requires_historical_migration`.
+    /// batch-import-worker). Like `Events` for the batch/event paths, but with
+    /// three differences: it never applies the global rate limiter, it drops any
+    /// batch not flagged `historical_migration: true`, and it does not register
+    /// the AI or OTEL routes (those handlers hardcode `historical_migration:
+    /// false` and would bypass both gates). See `applies_global_rate_limit`,
+    /// `requires_historical_migration`, and the router's per-mode arm.
     Import,
 }
 
@@ -32,6 +34,11 @@ impl CaptureMode {
     /// Whether this mode subjects incoming events to the per-(token,
     /// distinct_id) global rate limiter. `Import` opts out: historical
     /// backfills are internal traffic that must not be throttled.
+    ///
+    /// Note this is necessary but not sufficient: only the analytics processing
+    /// paths (legacy `events::analytics` and `v1::analytics`) actually consult
+    /// the limiter, so `Recordings` never rate-limits despite returning `true`
+    /// here. The predicate gates the two analytics paths; other paths ignore it.
     pub fn applies_global_rate_limit(&self) -> bool {
         !matches!(self, CaptureMode::Import)
     }

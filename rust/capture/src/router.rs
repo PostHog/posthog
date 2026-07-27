@@ -395,12 +395,22 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
     let mut router = match capture_mode {
-        CaptureMode::Events | CaptureMode::Ai | CaptureMode::Import => Router::new()
+        CaptureMode::Events | CaptureMode::Ai => Router::new()
             .merge(batch_router)
             .merge(event_router)
             .merge(test_router)
             .merge(ai_router)
             .merge(otel_router),
+        // Import must not register ai_router/otel_router: those handlers build
+        // their own ProcessingContext with historical_migration: false, so they
+        // sidestep both Import gates (historical-only drop and GRL bypass) and
+        // would return a false 200 for events this deployment silently discards.
+        // The /i/v0/ai/batch path stays reachable via batch_router, which
+        // dispatches to the gated v0_endpoint::event handler.
+        CaptureMode::Import => Router::new()
+            .merge(batch_router)
+            .merge(event_router)
+            .merge(test_router),
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
 

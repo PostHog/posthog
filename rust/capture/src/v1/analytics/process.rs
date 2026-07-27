@@ -145,6 +145,20 @@ pub async fn process_batch(
 
     // Import mode opts out of the global rate limiter entirely — historical
     // backfills must never be throttled — so it's skipped even if one were wired.
+    //
+    // DIVERGENCE from legacy (`events::analytics`), intentional and out of scope
+    // to reconcile here — a future routing refactor must not assume parity:
+    //   1. Ordering: v1 runs this GRL step AFTER burst overflow stamping (above);
+    //      legacy runs its GRL BEFORE overflow stamping. Both set overflow on
+    //      AnalyticsMain/Destination::Overflow only, so the end state matches,
+    //      but the pass order differs.
+    //   2. v1 skips events with `force_disable_person_processing` already set
+    //      before consulting the limiter (see apply_token_distinct_id_limits);
+    //      legacy does not skip.
+    //   3. Lane assignment is assign-then-reroute in v1 versus a single
+    //      `DataType::from_event_name` match in legacy.
+    // Import is unaffected by all three: the GRL never runs (guard below) and no
+    // overflowable lane is reachable, so behavior is identical across paths.
     if state.capture_mode.applies_global_rate_limit() {
         if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
             apply_token_distinct_id_limits(limiter, context, &mut events).await;
@@ -3663,6 +3677,79 @@ mod tests {
             entry.details, None,
             "GRL must be skipped in Import mode — no person_processing_disabled flag"
         );
+    }
+
+    #[tokio::test]
+    async fn import_mode_historical_batch_never_overflows() {
+        // Import's no-overflow guarantee on the v1 path. With AI routing off (the
+        // deployment config), every event in a historical batch is rerouted to
+        // AnalyticsHistorical before overflow stamping, which only touches
+        // AnalyticsMain/AiEvents. Even with the burst overflow limiter armed at
+        // burst=1 and all three events sharing one token:distinct_id — which would
+        // overflow the 2nd and 3rd in Events mode — nothing lands on
+        // events_overflow or the AI lanes.
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(crate::config::CaptureMode::Import)
+            .with_overflow_limiter(1, 1)
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = historical_batch(vec![
+            Event {
+                event: "$ai_generation".to_string(),
+                ..valid_event()
+            },
+            Event {
+                event: "$ai_generation".to_string(),
+                ..valid_event()
+            },
+            valid_event(),
+        ]);
+
+        process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        ts.mock_producer.with_records(|records| {
+            assert_eq!(records.len(), 3, "all three historical events must publish");
+            for r in records {
+                assert_eq!(
+                    r.topic, "events_hist",
+                    "Import must route every event to the historical topic, got {}",
+                    r.topic,
+                );
+            }
+        });
+    }
+
+    #[rstest::rstest]
+    #[case::ai_routing_off(crate::config::AiRouting::Primary, "events_hist")]
+    #[case::ai_routing_on(crate::config::AiRouting::Secondary, "ai_events")]
+    #[tokio::test]
+    async fn import_mode_ai_precedence_follows_routing(
+        #[case] ai_routing: crate::config::AiRouting,
+        #[case] expected_topic: &str,
+    ) {
+        // Pins the AI-vs-historical precedence the no-overflow guarantee rests on:
+        // a historical batch's $ai_* event stays on the historical lane only while
+        // AI routing is off. Arming it (Secondary) diverts the event to the AI
+        // lane even in a historical batch, because v1 assigns AiEvents up front and
+        // apply_historical_rerouting only reroutes AnalyticsMain. This is exactly
+        // why capture-import must keep AI routing off — armed, the AI lane becomes
+        // reachable and overflowable again.
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(crate::config::CaptureMode::Import)
+            .with_ai_routing(ai_routing)
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = historical_batch(vec![Event {
+            event: "$ai_generation".to_string(),
+            ..valid_event()
+        }]);
+
+        process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        ts.mock_producer.with_records(|records| {
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].topic, expected_topic);
+        });
     }
 
     #[tokio::test]
