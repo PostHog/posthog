@@ -197,6 +197,16 @@ class TestEtsyTransport:
         with pytest.raises(EtsyAPIError, match="no shop"):
             _collect(session, "shop_sections", shop_id=None)
 
+    @parameterized.expand([("../users/me",), ("42/receipts",), ("abc",), ("0",), ("-1",)])
+    def test_non_numeric_shop_id_is_rejected_before_any_request(self, shop_id: str) -> None:
+        # A configured shop ID is concatenated into /shops/{shop_id}, so a traversal or non-numeric
+        # value must be rejected rather than sent as an authenticated request to another resource.
+        session = _FakeSession([_page(_rows(1), 1)])
+        with pytest.raises(EtsyAPIError, match="positive number"):
+            _collect(session, "shop_sections", shop_id=shop_id)
+
+        assert session.get_calls == []
+
     def test_single_object_endpoint_yields_the_body_as_one_row(self) -> None:
         session = _FakeSession([_response({"shop_id": 1, "shop_name": "Testy"})])
         rows, manager = _collect(session, "shop")
@@ -435,6 +445,14 @@ class TestEtsyValidateCredentials:
     def test_transport_failure_does_not_raise(self) -> None:
         with patch(_SESSION_PATCH, side_effect=OSError("boom")):
             assert validate_credentials(_API_KEY, _REFRESH_TOKEN, None)[0] is False
+
+    def test_invalid_shop_id_fails_validation_without_probing(self) -> None:
+        # A malformed shop ID is caught up front, so no request is issued to authenticate.
+        with patch(_SESSION_PATCH, side_effect=AssertionError("must not connect")):
+            ok, error = validate_credentials(_API_KEY, _REFRESH_TOKEN, "../users/me")
+
+        assert ok is False
+        assert error is not None and "positive number" in error
 
 
 class TestEtsySourceResponse:

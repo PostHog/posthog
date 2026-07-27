@@ -45,6 +45,12 @@ class EtsySource(ResumableSource[EtsySourceConfig, EtsyResumeConfig]):
         return ExternalDataSourceType.ETSY
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # shop_id steers where the stored token is sent (/shops/{shop_id}), so retargeting it must
+        # force the editor to re-enter the credentials rather than reuse the preserved ones.
+        return ["shop_id"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ETSY,

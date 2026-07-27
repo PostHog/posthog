@@ -54,6 +54,10 @@ class TestEtsySourceClass:
         assert field.secret is expected_secret
         assert field.required is expected_required
 
+    def test_shop_id_is_a_connection_host_field(self) -> None:
+        # shop_id steers where the stored token is sent, so changing it must force credential re-entry.
+        assert EtsySource().connection_host_fields == ["shop_id"]
+
     def test_api_version_metadata(self) -> None:
         assert EtsySource.supported_versions == ("v3",)
         assert EtsySource.default_version == "v3"

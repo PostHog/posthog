@@ -35,10 +35,18 @@ REQUEST_TIMEOUT_SECONDS = 60
 NO_SHOP_ERROR = (
     "This Etsy account has no shop. Enter the shop ID you want to sync, or connect an account that owns a shop."
 )
+INVALID_SHOP_ID_ERROR = "The Etsy shop ID must be a positive number. Leave it blank to use the token's own shop."
 
 
 class EtsyAPIError(Exception):
     """An Etsy request failed in a way the caller cannot recover from."""
+
+
+def _validate_shop_id(shop_id: str) -> str:
+    """Etsy shop IDs are positive integers. Reject anything else before it reaches the URL."""
+    if not shop_id.isdigit() or int(shop_id) <= 0:
+        raise EtsyAPIError(INVALID_SHOP_ID_ERROR)
+    return shop_id
 
 
 @dataclasses.dataclass
@@ -121,7 +129,9 @@ class EtsyClient:
 
     def resolve_shop_id(self, configured_shop_id: Optional[str]) -> str:
         if configured_shop_id and configured_shop_id.strip():
-            return configured_shop_id.strip()
+            # Etsy shop IDs are positive integers. Reject anything else so a configured value can't
+            # smuggle path segments into `/shops/{shop_id}` and retarget the authenticated request.
+            return _validate_shop_id(configured_shop_id.strip())
 
         shop_id = self.request("/users/me").get("shop_id")
         if shop_id is None:
@@ -135,6 +145,12 @@ def validate_credentials(api_key: str, refresh_token: str, shop_id: Optional[str
     Always hits `/users/me`, even with a shop ID configured — otherwise a bogus keystring or refresh
     token would sail through source creation. Never raises: a probe must not block create.
     """
+    if shop_id and shop_id.strip():
+        try:
+            _validate_shop_id(shop_id.strip())
+        except EtsyAPIError as error:
+            return False, str(error)
+
     try:
         # No job logger exists on the create-time probe path, so use the module logger.
         client = EtsyClient(api_key, refresh_token, structlog.get_logger(__name__))
