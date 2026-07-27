@@ -18,6 +18,8 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.emission.registry import SignalEmitter, SignalEmitterOutput, SignalSourceTableConfig
 from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.temporal import metrics
+from products.signals.backend.temporal.drop_telemetry import summarize_drop_error
 
 logger = structlog.get_logger(__name__)
 
@@ -30,6 +32,9 @@ LLM_CONCURRENCY_LIMIT = 20
 EMIT_CONCURRENCY_LIMIT = 50
 # Temporal gRPC payload size limit (2 MB)
 TEMPORAL_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024
+# Shares the drop-stage namespace with drop_telemetry's grouping_* stages, so the
+# signals_dropped_total counter can be summed across the whole pipeline.
+EMIT_DROP_STAGE = "emission"
 # Maximum number of attempts for LLM calls (summarization & actionability)
 LLM_MAX_ATTEMPTS = 3
 # Per-call timeout for LLM requests (seconds)
@@ -84,6 +89,7 @@ def _capture_pipeline_stage(
     team: Team,
     organization: Organization,
     output: SignalEmitterOutput,
+    properties: dict[str, Any] | None = None,
 ) -> None:
     try:
         posthoganalytics.capture(
@@ -93,6 +99,7 @@ def _capture_pipeline_stage(
                 "source_product": output.source_product,
                 "source_type": output.source_type,
                 "source_id": output.source_id,
+                **(properties or {}),
             },
             groups=groups(organization, team),
         )
@@ -379,6 +386,7 @@ def _estimate_output_payload_bytes(output: SignalEmitterOutput) -> int:
 
 async def _emit_signals(
     team: Team,
+    organization: Organization,
     outputs: list[SignalEmitterOutput],
     extra: dict[str, Any],
 ) -> int:
@@ -420,7 +428,20 @@ async def _emit_signals(
                 )
                 return True
             except Exception as e:
-                logger.exception(f"Error emitting signal for record: {e}", **extra)
+                # Fetchers record emission optimistically, so a record lost here is lost for good.
+                # Close the funnel (entered - summarized - filtered - emit_failed = emitted) and
+                # count the drop, or the loss is invisible outside logs.
+                error_type, _ = summarize_drop_error(e)
+                logger.exception(
+                    f"Error emitting signal for record: {e}",
+                    signal_source_type=output.source_type,
+                    signal_source_id=output.source_id,
+                    **extra,
+                )
+                _capture_pipeline_stage(
+                    "signal_data_source_emit_failed", team, organization, output, {"error_type": error_type}
+                )
+                metrics.increment_dropped(stage=EMIT_DROP_STAGE, reason=error_type)
                 return False
             finally:
                 completed_count += 1
@@ -501,6 +522,7 @@ async def run_signal_pipeline(
 
     signals_emitted = await _emit_signals(
         team=team,
+        organization=organization,
         outputs=outputs,
         extra=extra,
     )
