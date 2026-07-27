@@ -37,7 +37,13 @@ def matches_action(node: ast.Expr, args: list[ast.Expr], context: HogQLContext, 
     from products.actions.backend.models.action import Action
 
     if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
-        actions = Action.objects.filter(id=int(arg.value), team__project_id=context.project_id).all()
+        # select_related("created_by"): the access check below compares the action's creator to the
+        # querying user, so without it resolving that FK costs a second query.
+        actions = (
+            Action.objects.filter(id=int(arg.value), team__project_id=context.project_id)
+            .select_related("created_by")
+            .all()
+        )
         if len(actions) == 1:
             _assert_can_read_action(actions[0], context, arg)
             context.add_notice(
@@ -50,7 +56,11 @@ def matches_action(node: ast.Expr, args: list[ast.Expr], context: HogQLContext, 
         raise QueryError(f"Could not find an action with ID {arg.value}", node=arg)
 
     if isinstance(arg.value, str):
-        actions = Action.objects.filter(name=arg.value, team__project_id=context.project_id).all()
+        actions = (
+            Action.objects.filter(name=arg.value, team__project_id=context.project_id)
+            .select_related("created_by")
+            .all()
+        )
         if len(actions) == 1:
             _assert_can_read_action(actions[0], context, arg)
             context.add_notice(
