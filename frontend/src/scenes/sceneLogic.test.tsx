@@ -187,6 +187,43 @@ describe('sceneLogic', () => {
             expect(redirectedPathname).toEqual(urls.dashboard(42))
         })
 
+        // A homepage saved against a since-removed scene must be dropped, not followed. Following it
+        // sends every `/` visit to a dead route, and once that route has a compatibility redirect
+        // pointing back home the two bounce off each other forever.
+        it('ignores a bootstrapped homepage whose scene no longer ships', async () => {
+            logic.unmount()
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            let hadBootstrappedHomepage = true
+            let redirectedPathname = ''
+            try {
+                initKeaTests()
+                window.POSTHOG_APP_CONTEXT = {
+                    ...window.POSTHOG_APP_CONTEXT,
+                    homepage: {
+                        ...dashboardHomepage,
+                        id: 'homepage-removed-scene',
+                        pathname: '/removed-scene',
+                        sceneId: 'RemovedScene',
+                    },
+                } as unknown as AppContext
+                ;(api.get as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+                ;(api.update as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+                await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+                featureFlagLogic.mount()
+                router.actions.push(urls.eventDefinitions())
+                const bootstrappedLogic = sceneLogic.build({ scenes: testScenes })
+                bootstrappedLogic.mount()
+                hadBootstrappedHomepage = bootstrappedLogic.values.homepage !== null
+                router.actions.push(urls.projectHomepage())
+                await expectLogic(bootstrappedLogic).delay(1)
+                redirectedPathname = removeProjectIdIfPresent(router.values.location.pathname)
+            } finally {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
+            }
+            expect(hadBootstrappedHomepage).toBe(false)
+            expect(redirectedPathname).toEqual(urls.projectHomepage())
+        })
+
         it('forwards allow-listed query params onto the homepage redirect and drops the rest', async () => {
             logic.actions.setHomepage(dashboardHomepage)
             router.actions.push(urls.projectHomepage(), { modal: 'feature', other: 'dropped' })

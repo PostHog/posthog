@@ -725,6 +725,8 @@ export const redirects: Record<
     '/pipeline/transformations': urls.transformations(),
     '/pipeline/data-import': urls.sources(),
     '/project/settings': urls.settings('project'),
+    // The quickstart landing page is gone; keep old bookmarks and pinned tabs out of a 404
+    '/quickstart': urls.default(),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings/settings': () => urls.replaySettings(),
