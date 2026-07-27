@@ -29,6 +29,13 @@ const MCP_EFFECTIVE_TOOL_EXPR =
 // a breakage that is still happening reappears in the channel.
 const MCP_ALERT_MASKING_TTL_SECONDS = 30 * 60
 
+// The masking key, which must never evaluate to an empty value: HogMaskerService skips masking
+// outright when the hash expression is falsy, so an event carrying neither tool-name property (the
+// filters only require $mcp_is_error, so anyone with the project token can send one) would
+// otherwise escape deduplication entirely. Nameless events all collapse into one bucket instead.
+const MCP_ALERT_MASKING_HASH =
+    `{concat(${MCP_EFFECTIVE_TOOL_EXPR}) != '' ` + `? concat(${MCP_EFFECTIVE_TOOL_EXPR}) : 'unknown-tool'}`
+
 // Every MCP failure notification triggers on an errored $mcp_tool_call. SDK versions stamp
 // $mcp_is_error as a boolean, the string 'true', or 1, so all three encodings are matched (CDP
 // compiles a multi-value Exact to IN, which the realtime bytecode rewrites to type-coercing
@@ -91,7 +98,7 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         // agents retry in loops, so an undeduped alert would post a message per event — enough to
         // bury a channel, and amplifiable by anyone holding the (public) project token. One message
         // per tool per interval still surfaces each distinct breakage.
-        masking: { hash: `{${MCP_EFFECTIVE_TOOL_EXPR}}`, ttl: MCP_ALERT_MASKING_TTL_SECONDS, threshold: null },
+        masking: { hash: MCP_ALERT_MASKING_HASH, ttl: MCP_ALERT_MASKING_TTL_SECONDS, threshold: null },
     },
     'activity-log': {
         sub_template_id: 'activity-log',
