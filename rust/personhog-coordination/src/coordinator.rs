@@ -809,11 +809,11 @@ impl Coordinator {
     /// next plan is free to try again, with a fresh handoff id and a
     /// fresh quorum snapshot.
     ///
-    /// Deliberately not backed off: with the quorum snapshotted at
-    /// creation the known cause of unsatisfiable quorums is gone, so
-    /// repeated cancellation of the same partition means something new,
-    /// and `handoffs_cancelled_total{reason="phase_deadline"}` is meant
-    /// to make that visible rather than absorbed.
+    /// Deliberately not backed off: the snapshot rule keeps freeze
+    /// quorums satisfiable, so repeated cancellation of one partition
+    /// means a new cause, and
+    /// `handoffs_cancelled_total{reason="phase_deadline"}` exists to
+    /// make that visible rather than absorbed.
     ///
     /// Returns whether anything was cancelled, so the caller can wake
     /// the planning loop — a deletion fires no pod event, and without

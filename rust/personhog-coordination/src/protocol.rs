@@ -149,9 +149,7 @@ pub fn freeze_quorum_met(
 /// monotonic — it can only shrink. A router that dies drops out (it is no
 /// longer routing, so it cannot reach the old owner), and one that joins
 /// later is never added (safe to exclude — see
-/// [`HandoffState::freeze_quorum`] for why). Without that, the
-/// requirement grows mid-flight and a handoff can become permanently
-/// unsatisfiable.
+/// [`HandoffState::freeze_quorum`] for why).
 pub fn required_freeze_ackers<'a>(
     routers: &'a [RegisteredRouter],
     handoff: &'a HandoffState,

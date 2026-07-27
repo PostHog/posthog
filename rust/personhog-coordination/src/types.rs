@@ -122,43 +122,25 @@ pub struct HandoffState {
     /// past a drain or warm that never happened.
     #[serde(default)]
     pub handoff_id: String,
-    /// The routers that must ack this handoff's freeze, snapshotted when
-    /// the coordinator created it.
+    /// The routers whose freeze acks this handoff requires: those
+    /// registered when the coordinator created it, intersected with the
+    /// live registry at evaluation (`required_freeze_ackers`), so the
+    /// requirement only ever shrinks. Fixing membership at creation
+    /// keeps the quorum satisfiable — every member's watch coverage
+    /// spans this handoff's Freezing event, and a router that registers
+    /// later is never required to ack an event it may not observe.
     ///
-    /// Evaluating the quorum against the *live* router set instead lets
-    /// the requirement grow: a router registering mid-freeze becomes a
-    /// required acker for a handoff whose `Freezing` event it can never
-    /// receive, since its watch is anchored at its own bootstrap
-    /// revision. Its only path to acking is the bootstrap catch-up, and
-    /// if that misses, the quorum is unsatisfiable for as long as that
-    /// router lives — and nothing removes the handoff, because cleanup
-    /// only deletes handoffs whose *new owner* is gone. A rolling deploy
-    /// makes this likely rather than exotic: it introduces routers
-    /// precisely while handoffs are in flight.
-    ///
-    /// Excluding a late joiner is safe because the freeze quorum is an
-    /// availability mechanism, not the safety boundary. A late joiner
-    /// that bootstraps correctly opens the stashes for in-flight
-    /// handoffs before its routing table loads, so it never forwards to
-    /// the old owner at all. And even one that missed the handoff
-    /// entirely cannot lose an acked write: anything it forwards before
-    /// the new owner's warm fences the old owner's producer lands in
-    /// the changelog ahead of the warm HWM and is included in the warm,
-    /// and anything after the fence is rejected by the broker and never
-    /// acked. The exposure of that failure mode is bounded failed
-    /// writes from one router until its live watch delivers the
-    /// assignment update — an availability cost, which is exactly the
-    /// currency this quorum trades in.
+    /// Exempting late joiners is safe because the freeze quorum is an
+    /// availability gate, not the safety boundary: a joining router
+    /// opens stashes for in-flight handoffs before its routing table
+    /// can forward anywhere, and the drain fence plus the broker's
+    /// producer epoch reject anything that slips through before it is
+    /// ever acked.
     ///
     /// `None` means the record predates this field; the quorum then
-    /// falls back to every live router — the only safe reading of a
-    /// record whose requirement was never captured. `Some` is the
-    /// captured requirement, and `Some([])` is meaningful rather than a
-    /// missing value: zero routers were registered at creation, so
-    /// nobody was routing and nobody must ack. Conflating the two (an
-    /// empty list doing double duty as "legacy") would hand the
-    /// zero-router case back to the live-set rule and with it the
-    /// growth bug this field exists to fix.
+    /// falls back to requiring every live router. `Some([])` is a real
+    /// snapshot — zero routers were registered at creation — and
+    /// requires nobody.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub freeze_quorum: Option<Vec<String>>,
 }
