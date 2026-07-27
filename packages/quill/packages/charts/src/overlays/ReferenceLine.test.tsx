@@ -1,4 +1,4 @@
-import { cleanup, type RenderResult } from '@testing-library/react'
+import { cleanup, fireEvent, type RenderResult } from '@testing-library/react'
 import React from 'react'
 
 import type { BaseChartContext } from '../core/chart-context'
@@ -63,6 +63,15 @@ describe('ReferenceLine', () => {
 
         it('renders the label text when provided', () => {
             const { getByText } = renderInChart(<ReferenceLine value={50} label="Target" />)
+            expect(getByText('Target')).toBeTruthy()
+        })
+
+        it('appends the formatted value to the label on hover and restores it on leave', () => {
+            const { getByText } = renderInChart(<ReferenceLine value={1234} label="Target" />)
+            const label = getByText('Target') as HTMLDivElement
+            fireEvent.mouseEnter(label)
+            expect(getByText('Target: 1,234')).toBeTruthy()
+            fireEvent.mouseLeave(label)
             expect(getByText('Target')).toBeTruthy()
         })
 
