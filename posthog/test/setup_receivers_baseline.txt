@@ -50,6 +50,7 @@ post_delete:posthog.models.global_rate_limit_threshold_config.update_redis_thres
 post_delete:posthog.models.integration.cleanup_ses_identity_on_integration_delete
 post_delete:posthog.models.oauth._block_cimd_url_on_application_delete
 post_delete:posthog.models.organization.clean_up_alert_subscriptions_on_membership_removal
+post_delete:posthog.models.organization.clean_up_event_streams_on_membership_removal
 post_delete:posthog.models.organization.pause_loops_on_membership_removal
 post_delete:posthog.models.organization.sync_billing_on_membership_removal
 post_delete:posthog.models.product_intent.product_intent._invalidate_product_intents_on_delete
@@ -186,6 +187,7 @@ post_save:products.signals.backend.receivers.close_pr_when_report_dismissed
 post_save:products.slack_app.backend.signals.invalidate_repo_list_on_user_github_change
 post_save:products.slack_app.backend.signals.onboard_slack_inbox_on_install
 post_save:products.surveys.backend.models.survey_changed
+post_save:products.tasks.backend.models.project_task_created_activity
 post_save:products.tasks.backend.models.track_task_run_completion
 post_save:products.workflows.backend.models.hog_flow.hog_flow.action_saved_for_hog_flows
 post_save:products.workflows.backend.models.hog_flow.hog_flow.hog_flow_saved

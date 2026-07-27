@@ -1,12 +1,7 @@
 // AUTO-GENERATED from products/warehouse_sources/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
-
 import {
     ExternalDataSchemasCancelCreateParams,
     ExternalDataSchemasDeleteDataDestroyParams,
@@ -43,6 +38,9 @@ import {
     ExternalDataSourcesWebhookInfoRetrieveParams,
     ExternalDataSourcesWizardRetrieveQueryParams,
 } from '@/generated/warehouse_sources/api'
+import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DataWarehouseSourceConnectLinkSchema = ExternalDataSourcesConnectLinkRetrieveQueryParams.extend({
     source_type: ExternalDataSourceTypeSchema,

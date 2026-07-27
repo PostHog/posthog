@@ -315,6 +315,9 @@ jobs:
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
                         - 'services/mcp/schema/tool-definitions-all.json'
+                        # Exec command reference templates - feed generate-exec-docs.ts
+                        - 'services/mcp/src/templates/sections/**/*'
+                        - 'services/mcp/schema/exec-command-reference.md'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -953,8 +956,9 @@ jobs:
                       [ -f "$f" ] || continue
                       cp "$f" "junit-staging/junit-product-$(basename "$(dirname "$f")").xml"
                   done
-            # Separate prefix from junit-results-backend-* on purpose: those are consumed by
-            # test-selection-verdict (snob shadow) and report-test-timings, not product tests.
+            # Separate artifact prefix from junit-results-backend-* so consumers can select
+            # product JUnit by download pattern; the product name rides in each inner filename
+            # (junit-product-<name>.xml). The failure rollup and timing reporter consume both.
             - name: Upload product test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
@@ -2064,7 +2068,7 @@ jobs:
                   commit_message: 'chore: update OpenAPI generated types'
                   repo: ${{ github.repository }}
                   branch: ${{ github.event.pull_request.head.ref }}
-                  file_pattern: 'frontend/src/generated/** frontend/src/lib/agentScopes.generated.ts products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/**'
+                  file_pattern: 'frontend/src/generated/** frontend/src/lib/agentScopes.generated.ts products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/schema/exec-command-reference.md services/mcp/src/tools/generated/**'
               env:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 
@@ -3607,7 +3611,7 @@ jobs:
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
               with:
                   path: ./junit-artifacts
-                  pattern: junit-results-*
+                  pattern: '{junit-results-backend,product-junit-results}-*'
             - name: Emit per-test traces
               if: steps.timing-reporter.outputs.available == 'true'
               continue-on-error: true

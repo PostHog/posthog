@@ -1,12 +1,7 @@
 // AUTO-GENERATED from products/product_analytics/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
-
 import {
     ElementsStatsRetrieveQueryParams,
     InsightsActivityRetrieveParams,
@@ -21,6 +16,9 @@ import {
     InsightsRetrieveQueryParams,
     InsightsTrendingRetrieveQueryParams,
 } from '@/generated/product_analytics/api'
+import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
+import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AssistantInsightVizNode = z.object({
     kind: z.literal('InsightVizNode').default('InsightVizNode'),

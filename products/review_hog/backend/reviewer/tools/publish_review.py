@@ -15,6 +15,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
     github_api_get_paginated,
     github_api_request,
+    is_app_bot_author,
 )
 
 logger = logging.getLogger(__name__)
@@ -329,11 +330,14 @@ def _review_already_posted(
     """True if a review carrying this run's `marker` is already on the PR (we posted, then crashed).
 
     Best-effort idempotency backstop: if the readback fails we proceed to post rather than silently
-    drop the review — the `published_head_sha` watermark still guards the common retry path.
+    drop the review — the `published_head_sha` watermark still guards the common retry path. Only
+    our own app-bot's reviews count (`is_app_bot_author`, shared with the status comment's marker
+    scan): on a public repo anyone can paste the marker, and a spoofed match would silently
+    suppress the publish.
     """
     try:
         return any(
-            marker in (review.get("body") or "")
+            is_app_bot_author(review.get("user")) and marker in (review.get("body") or "")
             for review in github_api_get_paginated(
                 f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews",
                 token=token,

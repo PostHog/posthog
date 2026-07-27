@@ -26,6 +26,18 @@ class NonRetryableException(Exception):
         return self.__cause__
 
 
+class PostHogInternalDatabaseError(Exception):
+    """Raised when shared pipeline code fails to reach PostHog's own database.
+
+    A transient connectivity blip reaching our database (e.g. a DNS hiccup resolving our
+    host) stringifies with the same wording (e.g. "Name or service not known") a customer's
+    misconfigured source host would produce. Sources' `get_non_retryable_errors` match on
+    that wording to stop syncs against a permanently broken customer host, so this error's
+    message intentionally avoids those substrings to keep it retryable instead of being
+    misclassified as a permanent failure of the source being synced.
+    """
+
+
 # 10 mins buffer to avoid deleting files Clickhouse may be reading
 S3_DELETE_TIME_BUFFER = 600
 

@@ -26,6 +26,7 @@ class EvaluationReportQuerySet(models.QuerySet):
         return self.reportable().filter(
             enabled=True,
             deleted=False,
+            evaluation__enabled=True,
             evaluation__deleted=False,
         )
 
