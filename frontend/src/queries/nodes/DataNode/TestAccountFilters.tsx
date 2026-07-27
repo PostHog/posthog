@@ -71,6 +71,8 @@ export function TestAccountFilters({ query, setQuery }: TestAccountFiltersProps)
                 onChange?.(checked)
                 setLocalDefault(checked)
             }}
+            // The persons list is a person-level query: only person and cohort test filters apply.
+            applicableFilterTypes={isSourcelessActorsQuery ? ['person', 'cohort'] : undefined}
         />
     )
 }

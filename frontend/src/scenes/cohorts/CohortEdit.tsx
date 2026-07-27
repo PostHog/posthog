@@ -714,6 +714,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                     <TestAccountFilterSwitch
                                                         checked={!!cohort.filters.filterTestAccounts}
                                                         onChange={setFilterTestAccounts}
+                                                        applicableFilterTypes={['person']}
                                                     />
                                                 </div>
                                             </Tooltip>
