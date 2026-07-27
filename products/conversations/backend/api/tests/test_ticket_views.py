@@ -1,12 +1,17 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
 
 from posthog.models.team.team import Team
 
+from products.conversations.backend.api.ticket_filters import TicketViewFiltersSerializer
+from products.conversations.backend.api.ticket_views import TicketViewFiltersField
 from products.conversations.backend.models import TicketView, TicketViewFavorite
 
 
@@ -155,6 +160,23 @@ class TestTicketViewAPI(APIBaseTest):
         response = self.client.post(self.base_url, payload, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_create_rejects_invalid_filter_values(self):
+        # Wiring guard: the endpoint must run TicketViewFiltersSerializer, so a filter
+        # value the canonical shape rejects never reaches the database.
+        response = self.client.post(
+            self.base_url,
+            {"name": "Bad view", "filters": {"status": ["bogus"]}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not TicketView.objects.filter(team=self.team).exists()
+
+    def test_unknown_filter_keys_survive_round_trip(self):
+        # Filters are stored raw, so keys a newer frontend adds must not be dropped
+        # by an older backend's stricter validation.
+        data = self._create_via_api(filters={"status": ["open"], "futureKey": True})
+        assert data["filters"] == {"status": ["open"], "futureKey": True}
+
     # --- Read-only fields ---
 
     def test_short_id_ignored_on_create(self):
@@ -266,3 +288,76 @@ class TestTicketViewAPI(APIBaseTest):
         client = APIClient()
         response = client.get(self.base_url)
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+class TestTicketViewFiltersValidation(SimpleTestCase):
+    # No DB: TicketViewFiltersSerializer validation runs entirely in memory. The wiring
+    # guard in TestTicketViewAPI proves the endpoint invokes it.
+
+    @parameterized.expand(
+        [
+            ("empty", {}),
+            (
+                "frontend_defaults",
+                {
+                    "status": [],
+                    "priority": [],
+                    "channel": "all",
+                    "sla": "all",
+                    "aiTriageResult": [],
+                    "assignee": "all",
+                    "tags": [],
+                    "tagsMatch": "any",
+                    "tagsExclude": [],
+                    "sorting": {"columnKey": "updated_at", "order": -1},
+                    "search": "",
+                },
+            ),
+            (
+                "fully_populated",
+                {
+                    "status": ["open", "pending"],
+                    "priority": ["high", "critical"],
+                    "channel": "email",
+                    "sla": "at-risk",
+                    "aiTriageResult": ["escalated_no_reply", "in_progress"],
+                    "assignee": ["me", "unassigned", {"type": "user", "id": 1}, {"type": "role", "id": "abc"}],
+                    "tags": ["billing"],
+                    "tagsMatch": "all",
+                    "tagsExclude": ["spam"],
+                    "dateFrom": "-30d",
+                    "dateTo": None,
+                    "sorting": {"columnKey": "created_at", "order": 1},
+                    "search": "refund",
+                },
+            ),
+            ("legacy_single_assignee", {"assignee": {"type": "user", "id": 5}}),
+            ("null_sorting", {"sorting": None}),
+            ("unknown_keys_ignored", {"futureKey": True}),
+        ]
+    )
+    def test_accepts_saved_view_shapes(self, _label, filters):
+        serializer = TicketViewFiltersSerializer(data=filters)
+        assert serializer.is_valid(), serializer.errors
+
+    @parameterized.expand(
+        [
+            ("bad_status", {"status": ["bogus"]}),
+            ("bad_channel", {"channel": "phone"}),
+            ("bad_sla", {"sla": "late"}),
+            ("bad_tags_match", {"tagsMatch": "some"}),
+            ("bad_triage_result", {"aiTriageResult": ["nope"]}),
+            ("sorting_missing_order", {"sorting": {"columnKey": "updated_at"}}),
+            ("search_too_long", {"search": "x" * 201}),
+        ]
+    )
+    def test_rejects_invalid_filter_values(self, _label, filters):
+        serializer = TicketViewFiltersSerializer(data=filters)
+        assert not serializer.is_valid()
+
+    def test_field_rejects_oversized_payload(self):
+        field = TicketViewFiltersField()
+        oversized = {"tags": ["x" * 100] * 150}
+        with self.assertRaises(ValidationError) as ctx:
+            field.run_validation(oversized)
+        assert "too large" in str(ctx.exception)

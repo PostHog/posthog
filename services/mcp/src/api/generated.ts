@@ -8190,6 +8190,28 @@ export namespace Schemas {
       feedback_text?: string;
     }
 
+    /**
+     * * `persisted` - persisted
+     * * `escalated_with_best` - escalated_with_best
+     * * `escalated_no_reply` - escalated_no_reply
+     * * `skipped_unactionable` - skipped_unactionable
+     * * `blocked_unsafe` - blocked_unsafe
+     * * `blocked_unsafe_reply` - blocked_unsafe_reply
+     * * `in_progress` - in_progress
+     */
+    export type AiTriageResultEnum = typeof AiTriageResultEnum[keyof typeof AiTriageResultEnum];
+
+
+    export const AiTriageResultEnum = {
+      Persisted: 'persisted',
+      EscalatedWithBest: 'escalated_with_best',
+      EscalatedNoReply: 'escalated_no_reply',
+      SkippedUnactionable: 'skipped_unactionable',
+      BlockedUnsafe: 'blocked_unsafe',
+      BlockedUnsafeReply: 'blocked_unsafe_reply',
+      InProgress: 'in_progress',
+    } as const;
+
     export interface InsightsThresholdBounds {
       /** Alert fires when the value drops below this number. */
       lower?: number | null;
@@ -13556,6 +13578,26 @@ export namespace Schemas {
       WidgetEmbedded: 'widget_embedded',
       WidgetApi: 'widget_api',
       GithubIssue: 'github_issue',
+    } as const;
+
+    /**
+     * * `widget` - widget
+     * * `email` - email
+     * * `slack` - slack
+     * * `teams` - teams
+     * * `github` - github
+     * * `all` - all
+     */
+    export type ChannelEnum = typeof ChannelEnum[keyof typeof ChannelEnum];
+
+
+    export const ChannelEnum = {
+      Widget: 'widget',
+      Email: 'email',
+      Slack: 'slack',
+      Teams: 'teams',
+      Github: 'github',
+      All: 'all',
     } as const;
 
     export type ChannelFeedMessageDTOPayload = { [key: string]: unknown };
@@ -42643,6 +42685,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `1` - 1
+     * * `-1` - -1
+     */
+    export type OrderEnum = typeof OrderEnum[keyof typeof OrderEnum];
+
+
+    export const OrderEnum = {
+      Number1: 1,
+      NumberMinus1: -1,
+    } as const;
+
+    /**
      * * `log_count` - log_count
      * * `error_count` - error_count
      * * `last_seen` - last_seen
@@ -47923,16 +47977,111 @@ export namespace Schemas {
     }
 
     /**
-     * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
+     * * `breached` - breached
+     * * `at-risk` - at-risk
+     * * `on-track` - on-track
+     * * `all` - all
      */
-    export type TicketViewFilters = { [key: string]: unknown };
+    export type SlaEnum = typeof SlaEnum[keyof typeof SlaEnum];
+
+
+    export const SlaEnum = {
+      Breached: 'breached',
+      AtRisk: 'at-risk',
+      OnTrack: 'on-track',
+      All: 'all',
+    } as const;
+
+    /**
+     * * `any` - any
+     * * `all` - all
+     */
+    export type TagsMatchEnum = typeof TagsMatchEnum[keyof typeof TagsMatchEnum];
+
+
+    export const TagsMatchEnum = {
+      Any: 'any',
+      All: 'all',
+    } as const;
+
+    export interface TicketViewSorting {
+      /** Ticket column to sort by (updated_at, sla_due_at, snoozed_until, created_at, ticket_number). Unknown columns fall back to updated_at. */
+      columnKey: string;
+      /** 1 for ascending, -1 for descending.
+       *
+       * * `1` - 1
+       * * `-1` - -1 */
+      order: OrderEnum;
+    }
+
+    export type TicketViewFiltersAssigneeItem = 'me' | 'unassigned' | {
+      type: 'user' | 'role';
+      id: string | number;
+    };
+
+    /**
+     * Canonical shape of a saved ticket view's filters. Every field is optional; an omitted
+     * field (or an 'all' sentinel) leaves that dimension unfiltered.
+     */
+    export interface TicketViewFilters {
+      /** Ticket statuses to include. Empty or omitted means all statuses. */
+      status?: TicketStatusEnum[];
+      /** Ticket priorities to include. Empty or omitted means all priorities. */
+      priority?: TicketPriorityEnum[];
+      /** Channel the ticket originated from. 'all' disables the filter.
+       *
+       * * `widget` - widget
+       * * `email` - email
+       * * `slack` - slack
+       * * `teams` - teams
+       * * `github` - github
+       * * `all` - all */
+      channel?: ChannelEnum;
+      /** SLA state: 'breached' is past due, 'at-risk' is due within the next hour, 'on-track' has more than an hour remaining. 'all' disables the filter.
+       *
+       * * `breached` - breached
+       * * `at-risk` - at-risk
+       * * `on-track` - on-track
+       * * `all` - all */
+      sla?: SlaEnum;
+      /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. */
+      aiTriageResult?: AiTriageResultEnum[];
+      /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list. */
+      assignee?: TicketViewFiltersAssigneeItem[];
+      /** Tag names to match, combined according to tagsMatch. */
+      tags?: string[];
+      /** 'any' returns tickets with at least one of tags (OR); 'all' requires every tag (AND).
+       *
+       * * `any` - any
+       * * `all` - all */
+      tagsMatch?: TagsMatchEnum;
+      /** Tickets carrying any of these tags are excluded. */
+      tagsExclude?: string[];
+      /**
+         * Only include tickets updated on or after this date. Accepts absolute dates (2026-01-01) or relative ones (-7d). 'all' or null disables the bound.
+         * @nullable
+         */
+      dateFrom?: string | null;
+      /**
+         * Only include tickets updated on or before this date. Same format as dateFrom.
+         * @nullable
+         */
+      dateTo?: string | null;
+      /** Sort order for the ticket list. */
+      sorting?: TicketViewSorting | null;
+      /**
+         * Free-text search. A numeric value matches a ticket number exactly; otherwise matches the customer's name or email, the email subject, or message content.
+         * @maxLength 200
+         */
+      search?: string;
+    }
 
     export interface TicketView {
       readonly id: string;
       readonly short_id: string;
       /** @maxLength 400 */
       name: string;
-      /** Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys. */
+      /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
       filters?: TicketViewFilters;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -56041,18 +56190,13 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
-    /**
-     * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
-     */
-    export type PatchedTicketViewFilters = { [key: string]: unknown };
-
     export interface PatchedTicketView {
       readonly id?: string;
       readonly short_id?: string;
       /** @maxLength 400 */
       name?: string;
-      /** Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys. */
-      filters?: PatchedTicketViewFilters;
+      /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
+      filters?: TicketViewFilters;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
@@ -76592,6 +76736,10 @@ export namespace Schemas {
 
     export type ConversationsTicketsListParams = {
     /**
+     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `in_progress`.
+     */
+    ai_triage_result?: string;
+    /**
      * Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `me` (the requesting user), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.
      */
     assignee?: string;
@@ -76644,6 +76792,10 @@ export namespace Schemas {
      */
     sla?: ConversationsTicketsListSla;
     /**
+     * Filter by snooze state: `true` returns only snoozed tickets, `false` only non-snoozed.
+     */
+    snoozed?: boolean;
+    /**
      * Filter by status. Accepts a single value or a comma-separated list (e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `resolved`.
      */
     status?: string;
@@ -76659,6 +76811,10 @@ export namespace Schemas {
      * JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `["escalated"]`.
      */
     tags_exclude?: string;
+    /**
+     * Apply a saved ticket view's filters by its `short_id` (list views via the `conversations/views` endpoint). Any filter param passed explicitly overrides the view's saved value for that dimension. Returns 400 if no view matches.
+     */
+    view?: string;
     };
 
     export type ConversationsTicketsListChannelDetail = typeof ConversationsTicketsListChannelDetail[keyof typeof ConversationsTicketsListChannelDetail];
