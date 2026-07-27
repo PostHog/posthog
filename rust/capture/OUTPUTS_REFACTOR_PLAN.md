@@ -428,6 +428,25 @@ so fallback/split/dynamic policies apply uniformly. Plan:
    (overflow/person-processing decoupling) must be preserved in the
    mapping, not silently erased.
 
+Scouting findings for the implementation:
+
+- v1's `IngestionEvent` is a zero-copy mirror of `CapturedEvent`'s wire
+  shape (same fields, same serde contract), and `CapturedEvent::key()`
+  already implements v1's cookieless partition policy (`token:ip`). The
+  boundary mapping therefore builds a real `CapturedEvent` from the
+  spliced-properties path (`build_spliced_properties` → `IngestionData`
+  json as `data`, ip/now/sent_at/token from `RequestContext`,
+  `adjusted_timestamp` as timestamp) and shared prep should reproduce v1's
+  payload bytes byte-for-byte. The splice path stays v1 processing code.
+- The hazard is `pipeline::resolve`'s overflow arm: `ForceLimited` couples
+  the overflow lane to `ForceDisablePersonProcessing` (and a null key) —
+  the exact v0 behavior v1 deliberately decoupled. The
+  `Destination::Overflow` → metadata mapping must select
+  `overflow_reason`/flags that keep v1's semantics (event-keyed overflow;
+  person-processing disable only when the operator set it), or resolve
+  learns a v1-shaped overflow intent. Verify against v1's kafka sink key
+  handling per destination before choosing.
+
 ## Repartitioning coordinator (design note)
 
 Not built in this PR; this note records where it plugs in so nothing landed
