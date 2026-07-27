@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.test import TestCase
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
@@ -18,6 +19,10 @@ from posthog.models.user import User
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
+from products.tasks.backend.facade.tasks import (
+    CANCEL_WIZARD_RUN_RETRY_DELAY_SECONDS,
+    cancel_wizard_run_on_pr_close_task,
+)
 from products.tasks.backend.models import Task, TaskRun, TaskThreadMessage
 from products.tasks.backend.webhooks import _account_type, find_task_run
 
@@ -337,24 +342,20 @@ class TestGitHubPRWebhook(TestCase):
             output={"pr_url": pr_url},
         )
 
-        with patch("products.tasks.backend.webhooks.cancel_task_run") as mock_cancel:
+        with patch("products.tasks.backend.webhooks.cancel_wizard_run_on_pr_close_task") as mock_cancel_task:
             with self.captureOnCommitCallbacks(execute=True):
                 response = self._make_webhook_request(self._closed_pr_payload(pr_url))
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(mock_cancel.call_count, expected_cancels)
+        self.assertEqual(mock_cancel_task.apply_async.call_count, expected_cancels)
         if expected_cancels:
-            mock_cancel.assert_called_once_with(
-                run.id,
-                run.task_id,
-                run.team_id,
-                reason="Setup pull request was closed",
-                source="pr_closed",
+            mock_cancel_task.apply_async.assert_called_once_with(
+                args=[str(run.id), str(run.task_id), run.team_id, "Setup pull request was closed"],
             )
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_pr_closed_cancel_failure_keeps_webhook_successful(self, _mock_capture, mock_get_secret):
+    def test_pr_closed_cancel_enqueue_failure_keeps_webhook_successful(self, _mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         pr_url = "https://github.com/posthog/posthog/pull/781"
         TaskRun.objects.create(
@@ -365,14 +366,57 @@ class TestGitHubPRWebhook(TestCase):
             output={"pr_url": pr_url},
         )
 
-        with patch(
-            "products.tasks.backend.webhooks.cancel_task_run",
-            side_effect=RuntimeError("temporal unreachable"),
+        with (
+            patch(
+                "products.tasks.backend.webhooks.cancel_wizard_run_on_pr_close_task.apply_async",
+                side_effect=RuntimeError("broker unreachable"),
+            ),
+            patch("products.tasks.backend.webhooks.observe_cancel_enqueue_failed") as mock_observe,
         ):
             with self.captureOnCommitCallbacks(execute=True):
                 response = self._make_webhook_request(self._closed_pr_payload(pr_url))
 
+        # GitHub does not redeliver a 2xx delivery, so a raise here would not recover the
+        # cancellation either. The loss is counted instead of being silent.
         self.assertEqual(response.status_code, 200)
+        mock_observe.assert_called_once_with(kind="pr_closed")
+
+    @parameterized.expand([("unavailable",), ("not_found",), ("accepted",)])
+    def test_cancel_task_retries_only_an_undeliverable_cancellation(self, outcome):
+        # cancel_task_run reports an undeliverable cancellation as an outcome rather than
+        # raising, so the retry has to be driven off the return value.
+        run_id, task_id = str(self.task_run.id), str(self.task.id)
+
+        with (
+            patch(
+                "products.tasks.backend.facade.cancellation.cancel_task_run",
+                return_value=(outcome, None),
+            ),
+            patch.object(cancel_wizard_run_on_pr_close_task, "retry", side_effect=Retry()) as mock_retry,
+        ):
+            if outcome == "unavailable":
+                with self.assertRaises(Retry):
+                    cancel_wizard_run_on_pr_close_task(run_id, task_id, self.team.id, "Setup pull request was closed")
+            else:
+                cancel_wizard_run_on_pr_close_task(run_id, task_id, self.team.id, "Setup pull request was closed")
+
+        self.assertEqual(mock_retry.call_count, 1 if outcome == "unavailable" else 0)
+
+    def test_cancel_task_retries_when_the_cancel_raises(self):
+        run_id, task_id = str(self.task_run.id), str(self.task.id)
+
+        with (
+            patch(
+                "products.tasks.backend.facade.cancellation.cancel_task_run",
+                side_effect=RuntimeError("temporal unreachable"),
+            ),
+            patch.object(cancel_wizard_run_on_pr_close_task, "retry", side_effect=Retry()) as mock_retry,
+        ):
+            with self.assertRaises(Retry):
+                cancel_wizard_run_on_pr_close_task(run_id, task_id, self.team.id, "Setup pull request was closed")
+
+        self.assertEqual(mock_retry.call_count, 1)
+        self.assertEqual(mock_retry.call_args.kwargs["countdown"], CANCEL_WIZARD_RUN_RETRY_DELAY_SECONDS)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")

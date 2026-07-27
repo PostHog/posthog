@@ -16,7 +16,8 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
-from products.tasks.backend.facade.cancellation import cancel_task_run
+from products.tasks.backend.facade.tasks import cancel_wizard_run_on_pr_close_task
+from products.tasks.backend.metrics import observe_cancel_enqueue_failed
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
 
@@ -25,6 +26,8 @@ logger = structlog.get_logger(__name__)
 TASK_RUN_SELECT_RELATED = ("task", "task__created_by", "team")
 
 _TERMINAL_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+
+PR_CLOSED_CANCEL_REASON = "Setup pull request was closed"
 
 
 def find_task_run(
@@ -290,8 +293,11 @@ def _cancel_wizard_run_on_close(task_run: TaskRun) -> None:
     Closing the setup PR is the user's clearest "I don't want this" signal, yet without this
     hook the workflow keeps the sandbox running until its TTL expires and the onboarding UI
     reports the run as in flight for hours. Scoped to wizard runs: closing a regular task
-    run's PR is a normal review action owned by the CI follow-up loop. Best-effort: the
-    webhook must stay 2xx even if Temporal is unreachable or the run just finished.
+    run's PR is a normal review action owned by the CI follow-up loop.
+
+    The cancel itself runs in a celery task with bounded retries: the handler has to answer
+    2xx (GitHub will not redeliver otherwise), and doing the Temporal round-trip inline meant
+    swallowing its failures, which dropped the cancellation permanently.
     """
     state = task_run.state if isinstance(task_run.state, dict) else {}
     if "wizard_config" not in state:
@@ -301,21 +307,21 @@ def _cancel_wizard_run_on_close(task_run: TaskRun) -> None:
     if task_run.status in _TERMINAL_RUN_STATUSES:
         return
 
-    def _cancel() -> None:
+    def _enqueue_cancel() -> None:
         try:
-            cancel_task_run(
-                task_run.id,
-                task_run.task_id,
-                task_run.team_id,
-                reason="Setup pull request was closed",
-                source="pr_closed",
+            cancel_wizard_run_on_pr_close_task.apply_async(
+                args=[str(task_run.id), str(task_run.task_id), task_run.team_id, PR_CLOSED_CANCEL_REASON],
             )
         except Exception:
-            logger.warning("github_pr_webhook_wizard_cancel_failed", run_id=str(task_run.id), exc_info=True)
+            # The handler has already answered 2xx by now and GitHub will not redeliver, so
+            # raising would change nothing about the lost cancellation. Count it instead: this
+            # enqueue is the only remaining single point of loss on the PR-close path.
+            observe_cancel_enqueue_failed(kind="pr_closed")
+            logger.warning("github_pr_webhook_wizard_cancel_enqueue_failed", run_id=str(task_run.id), exc_info=True)
 
-    # cancel_task_run does a synchronous Temporal round-trip; on_commit keeps it out of any
-    # open transaction and after the webhook's own writes have committed.
-    transaction.on_commit(_cancel)
+    # on_commit keeps the enqueue out of any open transaction and after the webhook's own
+    # writes have committed, so the task never reads a run state that was rolled back.
+    transaction.on_commit(_enqueue_cancel)
 
 
 def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, failure_log_event: str) -> bool:

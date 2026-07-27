@@ -11,6 +11,40 @@ from products.tasks.backend.loop_retention import sweep_loop_task_retention_task
 
 __all__ = ["reconcile_loop_trigger_schedules_task", "sweep_loop_task_retention_task"]
 
+# Retry budget for a PR-close cancellation: doubling from 30s, so the last attempt lands
+# roughly 15 minutes out, which covers a transient Temporal or DB blip without a run
+# whose PR is already closed sitting non-terminal for much longer than that.
+CANCEL_WIZARD_RUN_MAX_RETRIES = 5
+CANCEL_WIZARD_RUN_RETRY_DELAY_SECONDS = 30
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=CANCEL_WIZARD_RUN_MAX_RETRIES)
+def cancel_wizard_run_on_pr_close_task(self, run_id: str, task_id: str, team_id: int, reason: str) -> None:
+    """Cancel a wizard cloud run whose setup PR was closed without merging.
+
+    The closing webhook is the only trigger: GitHub does not redeliver a delivery we answered
+    2xx, and nothing else watches for a closed setup PR, so a transient failure has to be
+    retried here or the cancellation is dropped for good. ``cancel_task_run`` is idempotent
+    on an already-terminal run, so a retry or a redelivery is harmless.
+    """
+    from products.tasks.backend.facade.cancellation import (  # noqa: PLC0415 - keep temporalio off the celery import path
+        cancel_task_run,
+    )
+
+    countdown = CANCEL_WIZARD_RUN_RETRY_DELAY_SECONDS * (2**self.request.retries)
+    try:
+        outcome, _ = cancel_task_run(run_id, task_id, team_id, reason=reason, source="pr_closed")
+    except Exception as error:
+        raise self.retry(exc=error, countdown=countdown)
+
+    # cancel_task_run reports an undeliverable cancellation as an outcome instead of raising,
+    # so the retry has to be driven off the return value as well as off exceptions.
+    if outcome == "unavailable":
+        raise self.retry(
+            exc=RuntimeError(f"Cancellation for task run {run_id} could not be delivered"),
+            countdown=countdown,
+        )
+
 
 # Retry budget for the verification deadline: doubling from 60s, so the last attempt lands
 # roughly 8 minutes out. Covers a Temporal blip long enough that the run does not sit
