@@ -43,6 +43,15 @@ export const GET_HELP_BUTTON: ToastButton = {
     },
 }
 
+// Fallback for when submitting a support ticket in-app fails: let the user reach us
+// directly by email instead of being sent back to the form that just failed.
+export const EMAIL_SUPPORT_BUTTON: ToastButton = {
+    label: 'Email us directly',
+    action: () => {
+        window.location.href = 'mailto:supportreply@posthog.com?subject=PostHog support request'
+    },
+}
+
 export interface ToastContentProps {
     type: 'info' | 'success' | 'warning' | 'error'
     message: string | JSX.Element

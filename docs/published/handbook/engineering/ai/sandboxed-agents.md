@@ -243,7 +243,7 @@ Direct `git commit` and `git push` commands are blocked in the sandbox to ensure
 If an agent attempts to run `git commit` or `git push`, it will see:
 
 ```text
-git commit is disabled in PostHog Code: commits must be signed.
+git commit is disabled in PostHog Desktop: commits must be signed.
 To commit: stage changes with 'git add', then call the git_signed_commit tool.
 To force-push after a rebase/conflict fix: call the git_signed_rewrite tool.
 ```
@@ -328,7 +328,7 @@ Domain restrictions are enforced at the syscall level by `agentsh` via ptrace �
 the agent cannot bypass them through proxy settings or DNS tricks.
 
 Environments can also be managed via the REST API (`SandboxEnvironmentViewSet`)
-or the PostHog Code settings UI.
+or the PostHog Desktop settings UI.
 
 ### Custom base images
 
@@ -337,12 +337,12 @@ and select it as a cloud environment's base via `SandboxEnvironment.custom_image
 Custom images always layer on top of the published VM sandbox base —
 agent tooling, git guard, and the VM runtime are always present —
 and the whole mechanism is gated on the Modal VM runtime being available:
-the `sandbox_custom_images` API returns 403 (and the PostHog Code UI hides the feature)
+the `sandbox_custom_images` API returns 403 (and the PostHog Desktop UI hides the feature)
 unless the `tasks-modal-vm-sandbox` flag is enabled for the org
 with `user_created` in its `origin_products` payload allowlist,
 since custom-image sandboxes cannot run under gVisor.
 
-The flow, driven from the PostHog Code Environments → Cloud tab:
+The flow, driven from the PostHog Desktop Environments → Cloud tab:
 
 1. Creating an image spawns an interactive **image-builder agent task**
    (`custom_image_builder_id` in the run state, VM runtime forced)

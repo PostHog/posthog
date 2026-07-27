@@ -1,7 +1,7 @@
 # Enforces the invariant that ALL writes to an alert configuration's `state` and
 # `consecutive_failures` go through the product's alert state machine module.
 #
-# The decision logic is shared across products in common/alerting/state_machine.py;
+# The decision logic is shared across products in products/alerts/backend/state_machine.py;
 # each product owns one module that is the single legal mutator of its alert model:
 #   - products/logs/backend/alert_state_machine.py (apply_outcome)
 #
@@ -9,7 +9,7 @@
 # (apply_user_reset, apply_enable, apply_disable, apply_snooze, apply_unsnooze,
 # apply_threshold_change), and the check-driven path goes through evaluate_alert_check.
 #
-# If you need a new transition, add a helper in common/alerting/state_machine.py (or
+# If you need a new transition, add a helper in products/alerts/backend/state_machine.py (or
 # the product's state machine module) rather than bypassing this rule — the point is
 # to keep the legal-transitions table readable in one place.
 #
@@ -37,7 +37,7 @@ rules:
               alert.save(update_fields=update_fields)
 
           If you need a new transition type, add a helper in
-          common/alerting/state_machine.py (e.g. apply_<your_action>) and a
+          products/alerts/backend/state_machine.py (e.g. apply_<your_action>) and a
           ControlPlaneOutcome return — do not mutate these fields directly.
       languages: [python]
       severity: ERROR

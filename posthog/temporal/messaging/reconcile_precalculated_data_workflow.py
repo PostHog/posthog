@@ -19,7 +19,6 @@ from posthog.kafka_client.topics import (
 )
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.backfill_precalculated_events_workflow import flush_kafka_batch_async
@@ -27,6 +26,7 @@ from posthog.temporal.messaging.backfill_precalculated_person_properties_workflo
     evaluate_combined_filters_with_fallback_sync,
     parse_person_properties,
 )
+from posthog.temporal.messaging.clickhouse_concurrency import get_messaging_client
 from posthog.temporal.messaging.filter_storage import combine_filter_bytecodes, extract_person_property_filters
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
@@ -55,6 +55,15 @@ def _positive_int_env(name: str, default: int, logger: structlog.BoundLogger) ->
     return value
 
 
+# Default overrides lookback window, env-overridable via
+# RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS. 6h is a conservative interim value sized
+# for steady-state run duration, not a hard bound: nothing caps how long a run takes, so a run
+# longer than the window can still strand a merge until the next full_scan (the planned per-run
+# watermark is the real guarantee). Lower it once per-run duration is reliably small. See the
+# block comment below for how the window relates to the schedule and squash cadence.
+DEFAULT_OVERRIDES_LOOKBACK_HOURS = 6
+
+
 # precalculated_events stores the person_id that was resolved for a distinct_id when the row
 # was written. When a later identify/merge re-points the distinct_id to another person, the
 # row silently goes stale: cohort_membership keeps a person the distinct_id no longer belongs
@@ -69,10 +78,11 @@ def _positive_int_env(name: str, default: int, logger: structlog.BoundLogger) ->
 #
 # The override row written at merge time is the invalidation signal: each scheduled run
 # picks up distinct_ids whose override landed within the lookback window
-# (RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS) and repairs just their rows, so the schedule
-# can run at the realtime calculation cadence and a merge is reconciled by the next
-# calculation run instead of hours later. A `full_scan` input ignores the window — use it
-# for first-deploy remediation or after the workflow was down longer than the lookback.
+# (RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS, default DEFAULT_OVERRIDES_LOOKBACK_HOURS)
+# and repairs just their rows, so the schedule can run at the realtime calculation cadence and a
+# merge is reconciled by the next calculation run instead of hours later. A `full_scan` input
+# ignores the window — use it for first-deploy remediation or after the workflow was down longer
+# than the lookback.
 #
 # Timing constraints: the lookback must comfortably exceed the schedule interval (so no
 # merge falls between runs), and both must stay well inside the person-overrides squash
@@ -259,7 +269,9 @@ class ReconciliationRunConfig:
 async def get_reconciliation_run_config_activity() -> ReconciliationRunConfig:
     """Compute the run-wide lookback boundary and concurrency once, before any team runs."""
     logger = LOGGER.bind()
-    overrides_lookback_hours = _positive_int_env("RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS", 48, logger)
+    overrides_lookback_hours = _positive_int_env(
+        "RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS", DEFAULT_OVERRIDES_LOOKBACK_HOURS, logger
+    )
     team_concurrency = _positive_int_env("RECONCILE_PRECALCULATED_DATA_TEAM_CONCURRENCY", 5, logger)
     return ReconciliationRunConfig(
         since=dt.datetime.now(dt.UTC) - dt.timedelta(hours=overrides_lookback_hours),
@@ -331,7 +343,9 @@ async def reconcile_team_precalculated_person_properties_activity(
 
     distinct_id_batch_size = _positive_int_env("RECONCILE_PRECALCULATED_DATA_DISTINCT_ID_BATCH_SIZE", 1000, logger)
     kafka_flush_batch_size = _positive_int_env("RECONCILE_PRECALCULATED_DATA_KAFKA_FLUSH_BATCH_SIZE", 1000, logger)
-    overrides_lookback_hours = _positive_int_env("RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS", 48, logger)
+    overrides_lookback_hours = _positive_int_env(
+        "RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS", DEFAULT_OVERRIDES_LOOKBACK_HOURS, logger
+    )
 
     if inputs.full_scan:
         overrides_query = OVERRIDES_QUERY
@@ -348,7 +362,10 @@ async def reconcile_team_precalculated_person_properties_activity(
             product=Product.MESSAGING,
             query_type="precalculated_person_properties_reconciliation",
         ):
-            async with get_client(team_id=inputs.team_id) as client:
+            # Hold a messaging-wide query slot for the whole streaming context (several batched
+            # queries with Kafka produce / eval between them). Coarse, but only team_concurrency
+            # (default 5) of these run at once, and waiting on the slot is backpressure, not a 202.
+            async with get_messaging_client(team_id=inputs.team_id) as client:
                 kafka_producer = get_producer(topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES)
                 kafka_results: list = []
                 verdicts_checked = 0
@@ -501,7 +518,9 @@ async def reconcile_team_precalculated_events_activity(inputs: ReconcileTeamInpu
 
     distinct_id_batch_size = _positive_int_env("RECONCILE_PRECALCULATED_DATA_DISTINCT_ID_BATCH_SIZE", 1000, logger)
     kafka_flush_batch_size = _positive_int_env("RECONCILE_PRECALCULATED_DATA_KAFKA_FLUSH_BATCH_SIZE", 1000, logger)
-    overrides_lookback_hours = _positive_int_env("RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS", 48, logger)
+    overrides_lookback_hours = _positive_int_env(
+        "RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS", DEFAULT_OVERRIDES_LOOKBACK_HOURS, logger
+    )
 
     if inputs.full_scan:
         overrides_query = OVERRIDES_QUERY
@@ -521,7 +540,8 @@ async def reconcile_team_precalculated_events_activity(inputs: ReconcileTeamInpu
             product=Product.MESSAGING,
             query_type="precalculated_events_reconciliation",
         ):
-            async with get_client(team_id=inputs.team_id) as client:
+            # See the person-properties activity above: one slot held for the streaming context.
+            async with get_messaging_client(team_id=inputs.team_id) as client:
                 kafka_producer = get_producer(topic=KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS)
                 kafka_results: list = []
                 rows_checked = 0

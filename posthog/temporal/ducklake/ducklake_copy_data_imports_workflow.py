@@ -6,6 +6,7 @@ import dataclasses
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.db import close_old_connections
 
 import duckdb
 import deltalake
@@ -212,7 +213,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
     # Per-source mutual exclusion with the Duckgres v3 batch sink. The sink owns a
     # registered team's v3 sources (it mirrors them live + backfills history), so
     # drop those here; non-v3 sources stay on the copy workflow because the sink never
-    # touches them. A flagged team without a DuckgresServerTeam membership remains
+    # touches them. A flagged team without a duckgres control-plane team row remains
     # on this copy path until it completes the enable flow.
     # is_pipeline_v3_enabled is the same gate the v3 router uses, so "copy" and
     # "sink" never disagree on who owns a source (and both fail to "copy owns it").
@@ -292,6 +293,11 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
     """Copy a single data imports schema's Delta snapshot into DuckLake."""
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(model_label=inputs.model.model_label, job_id=inputs.job_id)
+    # This activity runs in a long-lived worker thread that never goes through Django's
+    # request/response cycle, so a connection killed by the DB/proxy (e.g. after
+    # CONN_MAX_AGE) is never detected and closed before reuse.
+    if not settings.TEST:
+        close_old_connections()
 
     heartbeater = HeartbeaterSync(details=("ducklake_copy", inputs.model.model_label), logger=logger)
     with heartbeater:
@@ -378,6 +384,9 @@ class DuckLakeDataImportsStagingCleanupInputs:
 def cleanup_data_imports_staging_activity(inputs: DuckLakeDataImportsStagingCleanupInputs) -> None:
     """Clean up staged Delta files after successful verification."""
     bind_contextvars(team_id=inputs.team_id)
+    # Same long-lived worker thread caveat as copy_data_imports_to_ducklake_activity.
+    if not settings.TEST:
+        close_old_connections()
     server = get_duckgres_server_by_team_org(inputs.team_id)
     if server is None:
         return
@@ -454,6 +463,9 @@ def verify_data_imports_ducklake_copy_activity(
     """Run configured verification queries to ensure the copy matches the source."""
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(model_label=inputs.model.model_label, job_id=inputs.job_id)
+    # Same long-lived worker thread caveat as copy_data_imports_to_ducklake_activity.
+    if not settings.TEST:
+        close_old_connections()
 
     if not inputs.model.verification_queries:
         logger.info("No DuckLake verification queries configured - skipping")

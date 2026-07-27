@@ -7,6 +7,10 @@ SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
+AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
+# Run-state key the telemetry flag decision is stamped under at dispatch (temporal/client.py).
+# Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
+AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 
 
 def vm_sandbox_allowed_origin_products(payload: object) -> set[str]:
@@ -365,6 +369,9 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "GH_TOKEN",
         "LLM_GATEWAY_URL",
         "POSTHOG_RESUME_RUN_ID",
+        "POSTHOG_AGENT_OTEL_LOGS_URL",
+        "POSTHOG_AGENT_OTEL_LOGS_TOKEN",
+        "POSTHOG_AGENT_OTEL_TRACES_URL",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
         "DISABLE_TELEMETRY",
         "DISABLE_ERROR_REPORTING",
@@ -384,6 +391,14 @@ BLOCKED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# Stripped from the agent-server's process environment at launch (env -u).
+# Two categories:
+#   - code-injection vectors a resume snapshot could smuggle in (NODE_*, LD_*, DYLD_*);
+#   - the GitHub token, so the agent-server holds no frozen copy of the acting user's
+#     credentials. The token is delivered per command via the live /tmp/agent-env file
+#     (re-sourced by BASH_ENV, seeded before this unset), so git/gh still authenticate;
+#     removing the static process-env copy is what lets a mid-session logout or rebind
+#     actually take effect instead of being resurrected from os.environ.
 SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS: tuple[str, ...] = (
     "NODE_OPTIONS",
     "NODE_REPL_EXTERNAL_MODULE",
@@ -392,6 +407,8 @@ SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS: tuple[str, ...] = (
     "LD_AUDIT",
     "DYLD_INSERT_LIBRARIES",
     "DYLD_LIBRARY_PATH",
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
 )
 
 

@@ -9,10 +9,14 @@ import type { DataColorToken } from 'lib/colors'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { percentage } from 'lib/utils/numbers'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { urls } from 'scenes/urls'
 
@@ -29,7 +33,12 @@ import type {
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
-import { ACCOUNTS_NAME_COLUMN, LEGACY_ROLE_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import {
+    ACCOUNTS_NAME_COLUMN,
+    AccountColumnDisplayConfig,
+    LEGACY_ROLE_COLUMNS,
+    accountsColumnConfigLogic,
+} from './accountsColumnConfigLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, savingRoleKey } from './accountsLogic'
 import { AccountsEvents } from './constants'
@@ -204,17 +213,127 @@ function RelationshipCell({
     )
 }
 
+// History cells arrive as [unix timestamp, value] pairs sorted ascending from the
+// `accounts.custom_properties_history.values` lazy join.
+function parseHistoryPoints(raw: unknown): [number, number][] {
+    if (!Array.isArray(raw)) {
+        return []
+    }
+    const points: [number, number][] = []
+    for (const entry of raw) {
+        if (!Array.isArray(entry) || entry.length < 2) {
+            continue
+        }
+        const timestamp = Number(entry[0])
+        const value = Number(entry[1])
+        if (Number.isFinite(timestamp) && Number.isFinite(value)) {
+            points.push([timestamp, value])
+        }
+    }
+    return points
+}
+
+export interface HistoryDisplay {
+    latest: [number, number] | null
+    /** The value in effect at the window start: the last write before the cutoff,
+     * carried forward, so sparsely-written properties still chart at any window. */
+    baseline: [number, number] | null
+    chartPoints: [number, number][]
+}
+
+export function buildHistoryDisplay(allPoints: [number, number][], windowDays: number, nowMs: number): HistoryDisplay {
+    const cutoff = Math.floor(nowMs / 1000) - windowDays * 24 * 60 * 60
+    const inWindow = allPoints.filter(([timestamp]) => timestamp >= cutoff)
+    const lastBefore = allPoints.filter(([timestamp]) => timestamp < cutoff).at(-1) ?? null
+    const carriedForward: [number, number] | null = lastBefore ? [cutoff, lastBefore[1]] : null
+    const latest = inWindow.at(-1) ?? lastBefore
+    return {
+        latest,
+        baseline: carriedForward ?? inWindow[0] ?? null,
+        chartPoints: carriedForward ? [carriedForward, ...inWindow] : inWindow,
+    }
+}
+
+function CustomPropertyHistoryCell({
+    raw,
+    definition,
+    display,
+}: {
+    raw: unknown
+    definition: CustomPropertyDefinitionApi
+    display: AccountColumnDisplayConfig
+}): JSX.Element {
+    const { latest, baseline, chartPoints } = buildHistoryDisplay(
+        parseHistoryPoints(raw),
+        display.window_days,
+        dayjs().valueOf()
+    )
+
+    if (!latest) {
+        return <span className="text-muted">—</span>
+    }
+    const formatValue = (value: number): string => formatCustomPropertyValue(String(value), definition)
+    if (chartPoints.length < 2) {
+        return (
+            <Tooltip title="Not enough history to chart yet — showing the current value.">
+                <span>{formatValue(latest[1])}</span>
+            </Tooltip>
+        )
+    }
+
+    if (display.mode === 'sparkline') {
+        return (
+            <div className="w-32">
+                <Sparkline
+                    type="line"
+                    className="h-8"
+                    data={chartPoints.map(([, value]) => value)}
+                    labels={chartPoints.map(([timestamp]) => dayjs.unix(timestamp).format('MMM D, YYYY HH:mm'))}
+                    renderTooltipValue={formatValue}
+                    maximumIndicator={false}
+                />
+            </div>
+        )
+    }
+
+    const delta = latest[1] - baseline![1]
+    const deltaClass = delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : 'text-muted'
+    // Percentage change against the window-start value; a zero baseline has no
+    // meaningful ratio, so fall back to the absolute delta.
+    const deltaText =
+        delta === 0
+            ? 'No change'
+            : baseline![1] === 0
+              ? `${delta > 0 ? '+' : '-'}${formatValue(Math.abs(delta))}`
+              : `${delta > 0 ? '+' : '-'}${percentage(Math.abs(delta / baseline![1]), 1)}`
+    return (
+        <Tooltip
+            title={`${formatValue(latest[1])} now, compared to ${formatValue(baseline![1])} ${display.window_days} days ago`}
+        >
+            <span className="inline-flex items-baseline gap-1.5">
+                <span>{formatValue(latest[1])}</span>
+                <span className={`text-xs ${deltaClass}`}>{deltaText}</span>
+            </span>
+        </Tooltip>
+    )
+}
+
 function CustomPropertyCell({
     record,
     column,
     definition,
+    display,
 }: {
     record: unknown
     column: string
     definition: CustomPropertyDefinitionApi
+    display?: AccountColumnDisplayConfig
 }): JSX.Element {
     const getCell = useGetCell()
     const raw = getCell(record, column)
+    if (display) {
+        return <CustomPropertyHistoryCell raw={raw} definition={definition} display={display} />
+    }
     const value = raw === null || raw === undefined ? '' : String(raw)
 
     if (!value) {
@@ -292,16 +411,19 @@ const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
 }
 
 function useContextColumns(): Record<string, QueryContextColumn> {
-    const { visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition } =
+    const { visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, displayByAlias } =
         useValues(accountsColumnConfigLogic)
     return useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {}
         for (const key of visibleColumnNames) {
             const definition = aliasToDefinition[key]
             if (definition) {
+                const display = displayByAlias[key]
                 columns[key] = {
                     renderTitle: () => <SortableColumnHeader column={key} label={definition.name} />,
-                    render: ({ record }) => <CustomPropertyCell record={record} column={key} definition={definition} />,
+                    render: ({ record }) => (
+                        <CustomPropertyCell record={record} column={key} definition={definition} display={display} />
+                    ),
                 }
                 continue
             }
@@ -325,7 +447,7 @@ function useContextColumns(): Record<string, QueryContextColumn> {
             }
         }
         return columns
-    }, [visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition])
+    }, [visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, displayByAlias])
 }
 
 function useExpandable(): QueryContext<DataTableNode>['expandable'] {
