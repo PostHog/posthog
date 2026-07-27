@@ -30,9 +30,11 @@ import {
     IconInsightUserPaths,
     IconTableChart,
 } from 'lib/lemon-ui/icons'
+import { isNonEmptyObject } from 'lib/utils/guards'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { InsightType } from '~/types'
+import { isNodeWithSource } from '~/queries/utils'
+import { InsightType, QueryBasedInsightModel } from '~/types'
 
 export interface InsightTypeMetadata {
     name: string
@@ -655,6 +657,15 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         icon: IconLineGraph,
         inMenu: false,
     },
+}
+
+/** Metadata for whatever query an insight holds, or null when the query kind isn't a known one. */
+export function insightTypeMetadata(insight: Pick<QueryBasedInsightModel, 'query'>): InsightTypeMetadata | null {
+    if (!isNonEmptyObject(insight.query)) {
+        return null
+    }
+    const kind = isNodeWithSource(insight.query) ? insight.query.source.kind : insight.query.kind
+    return QUERY_TYPES_METADATA[kind] ?? null
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [

@@ -20,6 +20,19 @@
     }
 }
 
+.SavedInsightsRows {
+    // The filter bar sits where column titles normally go, so undo the header's title styling
+    .LemonTable__content > table > thead > tr > th {
+        padding: 0.25rem 0.5rem;
+        font-weight: 400;
+        background: var(--color-bg-surface-secondary);
+
+        .LemonButton {
+            margin: 0;
+        }
+    }
+}
+
 .new-insight-overlay {
     width: 21rem;
 }

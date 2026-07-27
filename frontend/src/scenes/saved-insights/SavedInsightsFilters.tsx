@@ -1,47 +1,62 @@
 import posthog from 'posthog-js'
 
-import { IconFlag, IconHeart, IconHeartFilled } from '@posthog/icons'
+import { IconFlag, IconHeart, IconHeartFilled, IconSort } from '@posthog/icons'
 
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
 import { TagSelect } from 'lib/components/TagSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
-import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
+import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/insightTypesMetadata'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
-export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags'
+export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags' | 'sort'
 const ALL_QUICK_FILTERS: QuickFilterKind[] = ['insightType', 'tags', 'createdBy', 'favorites', 'featureFlags']
+
+/** Values map straight onto the API's `order` param. */
+export const INSIGHT_SORT_OPTIONS: LemonSelectOptions<string> = [
+    { value: '-last_modified_at', label: 'Last modified' },
+    { value: '-created_at', label: 'Newest' },
+    { value: 'created_at', label: 'Oldest' },
+    { value: '-last_viewed_at', label: 'Recently viewed' },
+    { value: 'name', label: 'Name A-Z' },
+    { value: '-name', label: 'Name Z-A' },
+]
 
 export function SavedInsightsFilters({
     filters,
     setFilters,
     quickFilters = ALL_QUICK_FILTERS,
     borderless = false,
+    showSearch = true,
 }: {
     filters: SavedInsightFilters
     setFilters: (filters: Partial<SavedInsightFilters>) => void
     quickFilters?: QuickFilterKind[]
     /** When true, inactive filters appear borderless. */
     borderless?: boolean
+    /** Turn off when the search box lives somewhere else on the page. */
+    showSearch?: boolean
 }): JSX.Element {
-    const { search, hideFeatureFlagInsights, favorited, tags, insightType, createdBy } = filters
+    const { search, hideFeatureFlagInsights, favorited, tags, insightType, createdBy, order } = filters
     const quickFilterSet = new Set(quickFilters)
     const hasInsightTypeSelection = !!insightType && insightType !== 'All types'
 
     return (
         <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
-            <LemonInput
-                type="search"
-                placeholder="Search for insights"
-                onChange={(value) => setFilters({ search: value })}
-                value={search || ''}
-                autoFocus
-                data-attr="insight-dashboard-modal-search"
-            />
+            {showSearch && (
+                <LemonInput
+                    type="search"
+                    placeholder="Search for insights"
+                    onChange={(value) => setFilters({ search: value })}
+                    value={search || ''}
+                    autoFocus
+                    data-attr="insight-dashboard-modal-search"
+                />
+            )}
             {quickFilters.length > 0 && (
                 <div className="flex gap-2 items-center flex-wrap ml-auto">
                     {quickFilterSet.has('insightType') && (
@@ -114,6 +129,20 @@ export function SavedInsightsFilters({
                         <FeatureFlagInsightsToggle
                             hideFeatureFlagInsights={hideFeatureFlagInsights ?? undefined}
                             onToggle={(checked) => setFilters({ hideFeatureFlagInsights: checked })}
+                        />
+                    )}
+                    {quickFilterSet.has('sort') && (
+                        <LemonSelect
+                            dropdownMatchSelectWidth={false}
+                            size="small"
+                            icon={<IconSort />}
+                            options={INSIGHT_SORT_OPTIONS}
+                            value={order}
+                            onChange={(value) => {
+                                setFilters({ order: value })
+                                posthog.capture('saved insights filtered', { filter_type: 'order', value })
+                            }}
+                            renderButtonContent={(option) => <>Sort: {option?.label ?? 'Custom'}</>}
                         />
                     )}
                 </div>
