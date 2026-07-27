@@ -447,7 +447,10 @@ class DeltaBatchConsumerAdapter:
                 capture_exception(e)
                 reconciled = False
 
-            RUNS_TERMINALIZED_STALE_TOTAL.inc()
+            # Count only fully terminalized runs: on a failed job write the failed-run
+            # reconcile finishes the job next cycle and counts it in RUNS_RECONCILED_TOTAL.
+            if reconciled:
+                RUNS_TERMINALIZED_STALE_TOTAL.inc()
             logger.warning(
                 "stranded_run_terminalized",
                 job_id=ref.job_id,
