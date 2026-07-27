@@ -11,6 +11,7 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import (
     PAGE_SIZE,
     _redact_access_app,
+    _redact_custom_hostname,
     _redact_healthcheck,
     _redact_logpush_destination,
     cloudflare_source,
@@ -575,6 +576,38 @@ class TestHealthcheckRedaction:
         rows = _rows(cloudflare_source("token", "healthchecks", team_id=1, job_id="j"))
 
         assert rows[0]["http_config"]["header"] == {"Authorization": ["REDACTED"]}
+
+
+class TestCustomHostnameRedaction:
+    def test_drops_ssl_custom_key_keeping_other_metadata(self) -> None:
+        row = {
+            "id": "h1",
+            "ssl": {"status": "active", "custom_certificate": "-----CERT-----", "custom_key": "-----PRIVATE KEY-----"},
+        }
+
+        result = _redact_custom_hostname(row)
+
+        assert result["ssl"] == {"status": "active", "custom_certificate": "-----CERT-----"}
+
+    def test_leaves_rows_without_a_custom_key_untouched(self) -> None:
+        row = {"id": "h1", "ssl": {"status": "active"}}
+        assert _redact_custom_hostname(row) == row
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_private_key_is_dropped_when_synced(self, MockSession) -> None:
+        # Guards that the redaction data_map is actually wired to the custom_hostnames resource.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "z1"}], total_pages=1),
+                _response([{"id": "h1", "ssl": {"status": "active", "custom_key": "SUPERSECRET"}}], total_pages=1),
+            ],
+        )
+
+        rows = _rows(cloudflare_source("token", "custom_hostnames", team_id=1, job_id="j"))
+
+        assert "custom_key" not in rows[0]["ssl"]
 
 
 class TestAuditLogsIncremental:

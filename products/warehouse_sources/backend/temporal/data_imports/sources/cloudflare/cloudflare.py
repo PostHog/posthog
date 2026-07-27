@@ -174,11 +174,22 @@ def _redact_healthcheck(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _redact_custom_hostname(row: dict[str, Any]) -> dict[str, Any]:
+    """A custom hostname's `ssl` object echoes back the private key uploaded for a
+    custom certificate under `custom_key`. Drop it so a warehouse reader can't lift
+    the key and impersonate the hostname; the rest of the SSL metadata is safe."""
+    ssl = row.get("ssl")
+    if isinstance(ssl, dict) and "custom_key" in ssl:
+        row["ssl"] = {key: value for key, value in ssl.items() if key != "custom_key"}
+    return row
+
+
 _DATA_MAPS = {
     "dns_analytics_report": _flatten_dns_analytics_row,
     "logpush_jobs": _redact_logpush_destination,
     "access_apps": _redact_access_app,
     "healthchecks": _redact_healthcheck,
+    "custom_hostnames": _redact_custom_hostname,
 }
 
 
