@@ -11,7 +11,7 @@ import {
     IconThumbsDownFilled,
     IconThumbsUpFilled,
 } from '@posthog/icons'
-import { LemonCard, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonCard, LemonCollapse, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { UniversalFilterButton } from 'lib/components/UniversalFilters/UniversalFilterButton'
@@ -382,9 +382,25 @@ function ConfigVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
                             ) : (
                                 <div className="text-xs text-muted">Oldest version with scans.</div>
                             )}
-                            <VersionFields
-                                config={config}
-                                changed={new Set((changes?.changes ?? []).map((change) => change.field))}
+                            {/* Collapsed by default: the summary above already names what changed, so the
+                                full config is only needed when someone wants the rest of it. */}
+                            <LemonCollapse
+                                embedded
+                                size="xsmall"
+                                panels={[
+                                    {
+                                        key: 'config',
+                                        header: 'Full config',
+                                        content: (
+                                            <VersionFields
+                                                config={config}
+                                                changed={
+                                                    new Set((changes?.changes ?? []).map((change) => change.field))
+                                                }
+                                            />
+                                        ),
+                                    },
+                                ]}
                             />
                         </div>
                     )
