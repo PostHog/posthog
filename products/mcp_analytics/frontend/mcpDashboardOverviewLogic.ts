@@ -214,7 +214,7 @@ export interface SessionRow {
     last_seen: string
 }
 
-export type NotableRule = 'worst_error_rate' | 'all_fail' | 'most_exploratory' | 'exemplar' | 'high_activity'
+export type NotableRule = 'worst_error_rate' | 'all_fail' | 'most_exploratory' | 'exemplar' | 'high_activity' | 'recent'
 
 // Fill the table out to this many rows: the rule-based picks first, then the busiest remaining sessions.
 const NOTABLE_SESSION_TARGET = 8
@@ -1012,6 +1012,7 @@ export function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
 
     const medianCalls = median(rows.map((r) => r.tool_calls))
     const medianDuration = median(rows.map((r) => r.duration_seconds))
+    const busyThreshold = Math.max(medianCalls, 3)
     const used = new Set<string>()
     const picked: NotableSession[] = []
 
@@ -1024,7 +1025,7 @@ export function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
     }
 
     // 1. Worst error rate at high volume — top err% among above-median-volume sessions
-    const highVolume = rows.filter((r) => r.tool_calls >= Math.max(medianCalls, 3) && r.error_rate_pct > 0)
+    const highVolume = rows.filter((r) => r.tool_calls >= busyThreshold && r.error_rate_pct > 0)
     take(
         'worst_error_rate',
         'Worst error rate at high volume',
@@ -1035,7 +1036,7 @@ export function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
     const allFail = rows.filter((r) => r.error_rate_pct >= 100 && r.tool_calls >= 3)
     take(
         'all_fail',
-        'Every call failed — likely auth scope',
+        'Every call failed, likely an auth scope issue',
         [...allFail].sort((a, b) => b.tool_calls - a.tool_calls)[0]
     )
 
@@ -1048,19 +1049,28 @@ export function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
 
     // 4. Exemplar — zero errors, above-median calls, faster than median duration
     const exemplars = rows.filter(
-        (r) =>
-            r.error_rate_pct === 0 && r.tool_calls >= Math.max(medianCalls, 3) && r.duration_seconds <= medianDuration
+        (r) => r.error_rate_pct === 0 && r.tool_calls >= busyThreshold && r.duration_seconds <= medianDuration
     )
-    take('exemplar', 'Exemplar — concise success', [...exemplars].sort((a, b) => b.tool_calls - a.tool_calls)[0])
+    take('exemplar', 'Concise success', [...exemplars].sort((a, b) => b.tool_calls - a.tool_calls)[0])
 
-    // Top up to the target with the busiest sessions not already chosen, so the table reads as a
-    // fuller list rather than a sparse handful.
+    // Top up to the target so the table reads as a fuller list rather than a sparse handful. Only
+    // sessions that clear the same volume bar rules 1 and 4 use may claim high activity; anything
+    // below it is filled in as recent context, because on a small account the busiest remaining
+    // session can be a single tool call and labelling that "High activity" is wrong.
     const byVolume = [...rows].sort((a, b) => b.tool_calls - a.tool_calls)
     for (const candidate of byVolume) {
-        if (picked.length >= NOTABLE_SESSION_TARGET) {
+        if (picked.length >= NOTABLE_SESSION_TARGET || candidate.tool_calls < busyThreshold) {
             break
         }
         take('high_activity', 'High activity', candidate)
+    }
+
+    const byRecency = [...rows].sort((a, b) => b.last_seen.localeCompare(a.last_seen))
+    for (const candidate of byRecency) {
+        if (picked.length >= NOTABLE_SESSION_TARGET) {
+            break
+        }
+        take('recent', 'Recent session', candidate)
     }
 
     return picked

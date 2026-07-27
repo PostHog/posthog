@@ -381,6 +381,19 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(picked).toHaveLength(5)
             expect(new Set(picked.map((p) => p.session.session_id)).size).toBe(5)
         })
+
+        it('fills below-threshold top-ups by recency instead of calling them high activity', () => {
+            const rows: SessionRow[] = [
+                session({ session_id: 'busy', tool_calls: 12, distinct_tools: 4, last_seen: '2024-01-01' }),
+                session({ session_id: 'old-single', tool_calls: 1, distinct_tools: 1, last_seen: '2024-01-02' }),
+                session({ session_id: 'new-single', tool_calls: 1, distinct_tools: 1, last_seen: '2024-01-03' }),
+            ]
+            expect(pickNotableSessions(rows).map((p) => ({ id: p.session.session_id, rule: p.rule }))).toEqual([
+                { id: 'busy', rule: 'most_exploratory' },
+                { id: 'new-single', rule: 'recent' },
+                { id: 'old-single', rule: 'recent' },
+            ])
+        })
     })
 
     describe('filter wiring', () => {
