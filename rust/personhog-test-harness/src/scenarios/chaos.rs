@@ -189,6 +189,10 @@ pub async fn run(cfg: ChaosConfig, shutdown: Arc<AtomicBool>) {
             tracing::error!(error = %e, "chaos disabled: cannot build kube client");
             counter!("personhog_traffic_chaos_skipped_total", "reason" => "kube_client")
                 .increment(1);
+            // The gauge tracks whether chaos is *running*, not whether it
+            // was asked for: a loop that cannot start must not keep
+            // reporting itself as enabled while doing nothing.
+            gauge!("personhog_traffic_chaos_enabled").set(0.0);
             return;
         }
     };
@@ -197,7 +201,12 @@ pub async fn run(cfg: ChaosConfig, shutdown: Arc<AtomicBool>) {
         Some((endpoints, prefix)) => match connect_store(endpoints, prefix).await {
             Ok(store) => Some(store),
             Err(e) => {
+                // Counted, not just logged: coordinator scenarios quietly
+                // dropping out of the mix is otherwise indistinguishable
+                // from the draw not having reached them yet.
                 tracing::error!(error = %e, "coordinator scenarios disabled: etcd unreachable");
+                counter!("personhog_traffic_chaos_skipped_total", "reason" => "etcd_unreachable")
+                    .increment(1);
                 None
             }
         },
@@ -348,7 +357,28 @@ async fn kill_coordinator(
         return None;
     };
     let router = cfg.targets.iter().find(|t| t.kind == TargetKind::Router)?;
-    let ready = list_ready(client, router).await.unwrap_or_default();
+    // Distinguishing a failed list from a genuinely thin class matters
+    // most at rollout: without the RBAC grant this call 403s, and
+    // folding that into the min-alive count would report "not enough
+    // pods" for what is really a missing permission.
+    let ready = match list_ready(client, router).await {
+        Ok(ready) => ready,
+        Err(e) => {
+            tracing::warn!(error = %e, namespace = %router.namespace, "listing pods failed");
+            counter!("personhog_traffic_chaos_skipped_total", "reason" => "list_failed")
+                .increment(1);
+            return None;
+        }
+    };
+    if ready.is_empty() {
+        // etcd named a live coordinator, so a class with no pods means
+        // the selector or namespace is wrong, not that the routers are
+        // gone. Kept separate from min_alive: they send an operator to
+        // different knobs.
+        tracing::warn!(namespace = %router.namespace, "no pods matched the router selector");
+        counter!("personhog_traffic_chaos_skipped_total", "reason" => "no_targets").increment(1);
+        return None;
+    }
     let alive = ready.iter().filter(|n| !killed.contains(*n)).count();
     if alive < 2 {
         tracing::info!(alive, "min-alive guard: skipping coordinator kill");
@@ -394,6 +424,19 @@ async fn kill_one(
             return;
         }
     };
+    if ready.is_empty() {
+        // A class with no ready pods at all is a wrong selector or
+        // namespace far more often than a class that is genuinely
+        // all-down, and either way it is not the min-alive guard
+        // declining to take the last one.
+        tracing::warn!(
+            target = target.kind.label(),
+            namespace = %target.namespace,
+            "no pods matched the selector"
+        );
+        counter!("personhog_traffic_chaos_skipped_total", "reason" => "no_targets").increment(1);
+        return;
+    }
     let Some(victim) = choose_victim(rng, &ready, killed) else {
         tracing::info!(
             target = target.kind.label(),
