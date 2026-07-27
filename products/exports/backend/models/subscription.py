@@ -131,6 +131,12 @@ class Subscription(ModelActivityMixin, models.Model):
         LAST_N_DAYS = "last_n_days", "Last N days"
         DAYS_AGO_RANGE = "days_ago_range", "Between X and Y days ago"
 
+    class AIWindowEnd(models.TextChoices):
+        NOW = "now", "Now"
+        LAST_COMPLETE_DAY = "last_complete_day", "Last complete day"
+        LAST_COMPLETE_WEEK = "last_complete_week", "Last complete week"
+        LAST_COMPLETE_MONTH = "last_complete_month", "Last complete month"
+
     RRULE_FIELDS = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
 
     _FREQ_MAP: dict[str, int] = {
@@ -358,6 +364,8 @@ class Subscription(ModelActivityMixin, models.Model):
         raw = window if isinstance(window, dict) else {}
         raw_mode = raw.get("mode")
         mode = raw_mode if raw_mode in cls.AIWindowMode.values else cls.AIWindowMode.SINCE_LAST_SENT
+        raw_end_at = raw.get("end_at")
+        end_at = raw_end_at if raw_end_at in cls.AIWindowEnd.values else cls.AIWindowEnd.NOW
         start = day_bound(raw.get("start_days_ago"), 1)
         end = day_bound(raw.get("end_days_ago"), 0)
         # Mirror AIWindowConfigSerializer's per-mode normalisation, so a garbage value in a field
@@ -370,6 +378,7 @@ class Subscription(ModelActivityMixin, models.Model):
             start, end = None, None
         return {
             "mode": mode,
+            "end_at": end_at,
             "start_days_ago": start,
             "end_days_ago": end,
         }
@@ -382,6 +391,10 @@ class Subscription(ModelActivityMixin, models.Model):
     @property
     def ai_window_mode(self) -> str:
         return self._ai_window_config["mode"]
+
+    @property
+    def ai_window_end_at(self) -> str:
+        return self._ai_window_config["end_at"]
 
     @property
     def ai_window_start_days_ago(self) -> Optional[int]:

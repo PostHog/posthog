@@ -141,6 +141,14 @@ class AIWindowConfigSerializer(serializers.Serializer):
             "* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago"
         ),
     )
+    end_at = serializers.ChoiceField(
+        choices=Subscription.AIWindowEnd.choices,
+        default=Subscription.AIWindowEnd.NOW,
+        help_text=(
+            "Where the analysis window ends in the project's timezone. Use a complete-period option "
+            "to prevent partial days, weeks, or months from skewing comparisons."
+        ),
+    )
     start_days_ago = serializers.IntegerField(
         required=False,
         allow_null=True,

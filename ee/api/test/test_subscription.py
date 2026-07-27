@@ -2988,6 +2988,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             ),
             ("start_out_of_bounds", {"mode": "last_n_days", "start_days_ago": 400}, "start_days_ago"),
             ("unknown_mode", {"mode": "calendar_week"}, "mode"),
+            ("unknown_end_at", {"mode": "since_last_sent", "end_at": "end_of_time"}, "end_at"),
         ]
     )
     def test_invalid_ai_window_config_is_rejected(
@@ -3009,20 +3010,30 @@ class TestAISubscriptionAPI(APILicensedTest):
         self._mock_temporal(mock_sync)
         create_resp = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(ai_prompt_config={"window": {"mode": "last_n_days", "start_days_ago": 14}}),
+            self._make_ai_payload(
+                ai_prompt_config={
+                    "window": {
+                        "mode": "last_n_days",
+                        "end_at": "last_complete_week",
+                        "start_days_ago": 14,
+                    }
+                }
+            ),
         )
         assert create_resp.status_code == status.HTTP_201_CREATED, create_resp.json()
         created = create_resp.json()
         assert created["ai_prompt_config"]["window"]["mode"] == "last_n_days"
+        assert created["ai_prompt_config"]["window"]["end_at"] == "last_complete_week"
         assert created["ai_prompt_config"]["window"]["start_days_ago"] == 14
 
         patch_resp = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{created['id']}",
-            {"ai_prompt_config": {"window": {"mode": "since_last_sent"}}},
+            {"ai_prompt_config": {"window": {"mode": "since_last_sent", "end_at": "last_complete_week"}}},
         )
         assert patch_resp.status_code == status.HTTP_200_OK, patch_resp.json()
         window = patch_resp.json()["ai_prompt_config"]["window"]
         assert window["mode"] == "since_last_sent"
+        assert window["end_at"] == "last_complete_week"
         assert window["start_days_ago"] is None
 
     def test_garbage_ai_prompt_config_still_serializes_on_read(self, mock_is_cloud, mock_flag, mock_sync):
@@ -3042,6 +3053,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["ai_prompt_config"]["window"] == {
             "mode": "since_last_sent",
+            "end_at": "now",
             "start_days_ago": None,
             "end_days_ago": None,
         }

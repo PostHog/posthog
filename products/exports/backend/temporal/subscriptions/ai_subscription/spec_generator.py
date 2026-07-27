@@ -164,6 +164,17 @@ def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
     return (dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)).astimezone(tz)
 
 
+def _align_window_end(run_now: datetime, end_at: str) -> datetime:
+    if end_at == Subscription.AIWindowEnd.LAST_COMPLETE_DAY:
+        return run_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if end_at == Subscription.AIWindowEnd.LAST_COMPLETE_WEEK:
+        start_of_day = run_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return start_of_day - timedelta(days=start_of_day.weekday())
+    if end_at == Subscription.AIWindowEnd.LAST_COMPLETE_MONTH:
+        return run_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return run_now
+
+
 def compute_report_window(
     team: Team,
     last_scheduled_cutoff: Optional[datetime],
@@ -172,6 +183,7 @@ def compute_report_window(
     mode: str = Subscription.AIWindowMode.SINCE_LAST_SENT,
     start_days_ago: Optional[int] = None,
     end_days_ago: Optional[int] = None,
+    end_at: str = Subscription.AIWindowEnd.NOW,
 ) -> ReportWindow:
     """Compute the `[start, end)` analysis window for a run. Pure — callers resolve the cutoff
     and `now` and pass them in.
@@ -183,7 +195,7 @@ def compute_report_window(
     fallback, with a warning so the ignored config is diagnosable.
     """
     tz = team.timezone_info
-    run_now = _in_tz(now, tz)
+    run_now = _align_window_end(_in_tz(now, tz), end_at)
 
     if mode == Subscription.AIWindowMode.LAST_N_DAYS and start_days_ago:
         return ReportWindow(start=run_now - timedelta(days=start_days_ago), end=run_now)

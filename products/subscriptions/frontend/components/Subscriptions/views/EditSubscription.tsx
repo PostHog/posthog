@@ -198,6 +198,13 @@ const AI_WINDOW_MODE_OPTIONS = [
     },
 ]
 
+const AI_WINDOW_END_OPTIONS = [
+    { value: 'now' as const, label: 'Now' },
+    { value: 'last_complete_day' as const, label: 'Last complete day' },
+    { value: 'last_complete_week' as const, label: 'Last complete week' },
+    { value: 'last_complete_month' as const, label: 'Last complete month' },
+]
+
 function AiPromptFields({
     prompt,
     windowMode,
@@ -256,6 +263,13 @@ function AiPromptFields({
                 help="The exact time range is computed in your project's timezone each time the report runs."
             >
                 <LemonSelect options={AI_WINDOW_MODE_OPTIONS} />
+            </LemonField>
+            <LemonField
+                name={['ai_prompt_config', 'window', 'end_at']}
+                label="End window at"
+                help="Use a complete period to prevent partial data from skewing comparisons."
+            >
+                <LemonSelect options={AI_WINDOW_END_OPTIONS} />
             </LemonField>
             {windowMode === 'last_n_days' && (
                 <LemonField name={['ai_prompt_config', 'window', 'start_days_ago']} label="Number of days to analyze">

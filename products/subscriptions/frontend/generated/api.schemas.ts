@@ -33,6 +33,21 @@ export const AIWindowConfigModeEnumApi = {
     DaysAgoRange: 'days_ago_range',
 } as const
 
+/**
+ * * `now` - Now
+ * * `last_complete_day` - Last complete day
+ * * `last_complete_week` - Last complete week
+ * * `last_complete_month` - Last complete month
+ */
+export type EndAtEnumApi = (typeof EndAtEnumApi)[keyof typeof EndAtEnumApi]
+
+export const EndAtEnumApi = {
+    Now: 'now',
+    LastCompleteDay: 'last_complete_day',
+    LastCompleteWeek: 'last_complete_week',
+    LastCompleteMonth: 'last_complete_month',
+} as const
+
 export interface AIWindowConfigApi {
     /** What the report analyzes each run:
      * * `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)
@@ -43,6 +58,13 @@ export interface AIWindowConfigApi {
      * * `last_n_days` - Last N days
      * * `days_ago_range` - Between X and Y days ago */
     mode?: AIWindowConfigModeEnumApi
+    /** Where the analysis window ends in the project's timezone. Use a complete-period option to prevent partial days, weeks, or months from skewing comparisons.
+     *
+     * * `now` - Now
+     * * `last_complete_day` - Last complete day
+     * * `last_complete_week` - Last complete week
+     * * `last_complete_month` - Last complete month */
+    end_at?: EndAtEnumApi
     /**
      * Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365.
      * @minimum 1

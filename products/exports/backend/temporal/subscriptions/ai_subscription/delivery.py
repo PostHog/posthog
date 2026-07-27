@@ -161,6 +161,7 @@ def _resolve_subscription_context(
         mode=subscription.ai_window_mode,
         start_days_ago=subscription.ai_window_start_days_ago,
         end_days_ago=subscription.ai_window_end_days_ago,
+        end_at=subscription.ai_window_end_at,
     )
     return team, subscription.created_by, window, subscription.ai_query_plan
 

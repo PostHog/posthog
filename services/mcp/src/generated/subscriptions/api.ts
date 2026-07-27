@@ -45,6 +45,7 @@ export const SubscriptionsCreateParams = /* @__PURE__ */ zod.object({
 })
 
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneModeDefault = `since_last_sent`
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndAtDefault = `now`
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 365
 
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
@@ -96,6 +97,15 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                             .default(subscriptionsCreateBodyAiPromptConfigOneWindowOneModeDefault)
                             .describe(
                                 "What the report analyzes each run:\n\* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test\/manual sends don't move the anchor)\n\* `last_n_days` — a fixed trailing window of start_days_ago days\n\* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
+                            ),
+                        end_at: zod
+                            .enum(['now', 'last_complete_day', 'last_complete_week', 'last_complete_month'])
+                            .describe(
+                                '\* `now` - Now\n\* `last_complete_day` - Last complete day\n\* `last_complete_week` - Last complete week\n\* `last_complete_month` - Last complete month'
+                            )
+                            .default(subscriptionsCreateBodyAiPromptConfigOneWindowOneEndAtDefault)
+                            .describe(
+                                "Where the analysis window ends in the project's timezone. Use a complete-period option to prevent partial days, weeks, or months from skewing comparisons.\n\n\* `now` - Now\n\* `last_complete_day` - Last complete day\n\* `last_complete_week` - Last complete week\n\* `last_complete_month` - Last complete month"
                             ),
                         start_days_ago: zod
                             .number()
@@ -228,6 +238,7 @@ export const SubscriptionsPartialUpdateParams = /* @__PURE__ */ zod.object({
 })
 
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneModeDefault = `since_last_sent`
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndAtDefault = `now`
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 365
 
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
@@ -279,6 +290,15 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                             .default(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneModeDefault)
                             .describe(
                                 "What the report analyzes each run:\n\* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test\/manual sends don't move the anchor)\n\* `last_n_days` — a fixed trailing window of start_days_ago days\n\* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
+                            ),
+                        end_at: zod
+                            .enum(['now', 'last_complete_day', 'last_complete_week', 'last_complete_month'])
+                            .describe(
+                                '\* `now` - Now\n\* `last_complete_day` - Last complete day\n\* `last_complete_week` - Last complete week\n\* `last_complete_month` - Last complete month'
+                            )
+                            .default(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndAtDefault)
+                            .describe(
+                                "Where the analysis window ends in the project's timezone. Use a complete-period option to prevent partial days, weeks, or months from skewing comparisons.\n\n\* `now` - Now\n\* `last_complete_day` - Last complete day\n\* `last_complete_week` - Last complete week\n\* `last_complete_month` - Last complete month"
                             ),
                         start_days_ago: zod
                             .number()

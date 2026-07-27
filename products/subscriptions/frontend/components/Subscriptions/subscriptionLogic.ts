@@ -126,7 +126,7 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     enabled: true,
     summary_enabled: false,
     summary_prompt_guide: '',
-    ai_prompt_config: { window: { mode: 'since_last_sent' } },
+    ai_prompt_config: { window: { mode: 'since_last_sent', end_at: 'now' } },
     send_test_now: true,
 }
 
@@ -403,6 +403,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                             window: {
                                 ...subscription.ai_prompt_config?.window,
                                 mode: subscription.ai_prompt_config?.window?.mode ?? 'since_last_sent',
+                                end_at: subscription.ai_prompt_config?.window?.end_at ?? 'now',
                             },
                         },
                     }

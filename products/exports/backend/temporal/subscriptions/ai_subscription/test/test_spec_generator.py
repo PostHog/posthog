@@ -393,13 +393,24 @@ class TestAIWindowConfigProperties:
         sub = self._sub(config)
 
         assert sub.ai_window_mode == expected_mode
+        assert sub.ai_window_end_at == Subscription.AIWindowEnd.NOW
         assert sub.ai_window_start_days_ago is None
         assert sub.ai_window_end_days_ago is None
 
     def test_valid_config_is_read_through(self) -> None:
-        sub = self._sub({"window": {"mode": "days_ago_range", "start_days_ago": 10, "end_days_ago": 3}})
+        sub = self._sub(
+            {
+                "window": {
+                    "mode": "days_ago_range",
+                    "end_at": "last_complete_week",
+                    "start_days_ago": 10,
+                    "end_days_ago": 3,
+                }
+            }
+        )
 
         assert sub.ai_window_mode == Subscription.AIWindowMode.DAYS_AGO_RANGE
+        assert sub.ai_window_end_at == Subscription.AIWindowEnd.LAST_COMPLETE_WEEK
         assert sub.ai_window_start_days_ago == 10
         assert sub.ai_window_end_days_ago == 3
 
@@ -510,6 +521,41 @@ class TestComputeReportWindow:
 
         assert window.start == now - timedelta(days=3)
         assert window.end == now
+
+    @parameterized.expand(
+        [
+            (
+                "day",
+                Subscription.AIWindowEnd.LAST_COMPLETE_DAY,
+                datetime(2026, 7, 15, 0, 0, tzinfo=ZoneInfo("America/Los_Angeles")),
+            ),
+            (
+                "week",
+                Subscription.AIWindowEnd.LAST_COMPLETE_WEEK,
+                datetime(2026, 7, 13, 0, 0, tzinfo=ZoneInfo("America/Los_Angeles")),
+            ),
+            (
+                "month",
+                Subscription.AIWindowEnd.LAST_COMPLETE_MONTH,
+                datetime(2026, 7, 1, 0, 0, tzinfo=ZoneInfo("America/Los_Angeles")),
+            ),
+        ]
+    )
+    def test_aligns_end_to_complete_period_in_team_timezone(
+        self, _name: str, end_at: str, expected_end: datetime
+    ) -> None:
+        window = compute_report_window(
+            self._team("America/Los_Angeles"),
+            last_scheduled_cutoff=None,
+            now=datetime(2026, 7, 15, 16, 0, tzinfo=UTC),
+            window_days=7,
+            mode=Subscription.AIWindowMode.LAST_N_DAYS,
+            start_days_ago=7,
+            end_at=end_at,
+        )
+
+        assert window.end == expected_end
+        assert window.start == expected_end - timedelta(days=7)
 
     def test_days_ago_range_is_an_explicit_historical_range(self) -> None:
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
