@@ -1171,14 +1171,6 @@
     "chromium": 12.572,
     "webkit": 2.779
   },
-  "frontend/src/scenes/quickstart/Quickstart.stories.tsx": {
-    "chromium": 1.569,
-    "webkit": 1.069
-  },
-  "frontend/src/scenes/quickstart/QuickstartProductCard.stories.tsx": {
-    "chromium": 9.486,
-    "webkit": 3.117
-  },
   "frontend/src/scenes/saved-insights/SavedInsights.stories.tsx": {
     "chromium": 14.968,
     "webkit": 3.172

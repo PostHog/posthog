@@ -199,6 +199,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 RESPONSE_SIZE_BUCKETS,
             )
             .unwrap()
+            // Handoff phase timings are a stall detector: healthy phases
+            // complete in seconds, and the interesting tail is minutes.
+            // The default buckets cap at 10s, which would collapse every
+            // stall into +Inf.
+            .set_buckets_for_metric(
+                metrics_exporter_prometheus::Matcher::Full(
+                    "personhog_coordination_handoff_phase_reached_ms".into(),
+                ),
+                &[
+                    1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0, 300000.0, 600000.0,
+                ],
+            )
+            .unwrap()
             .install_recorder()
             .expect("Failed to install metrics recorder");
 
