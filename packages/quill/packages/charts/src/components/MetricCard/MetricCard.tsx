@@ -282,7 +282,9 @@ function MetricCardInner({
               tabIndex: 0,
               onClick,
               onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
+                  // Only the card's own key events drill — a keydown bubbling up from a focused
+                  // footer link/button (target !== the card) must reach that control instead.
+                  if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
                       e.preventDefault()
                       onClick?.()
                   }
