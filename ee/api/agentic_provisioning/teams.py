@@ -40,9 +40,18 @@ def resolve_team_for_existing_user(user: User, requested_team_id: int | None = N
             return None
         if team.organization_id not in org_ids:
             return None
+        # Org membership alone is not access: a partner can name any team id in
+        # the user's orgs, so a team the user is excluded from must not become
+        # the scope of the minted code.
+        if not user_can_access_team(user, team):
+            return None
         return team
 
-    non_demo_teams = list(Team.objects.filter(organization_id__in=org_ids, is_demo=False))
+    non_demo_teams = [
+        team
+        for team in Team.objects.filter(organization_id__in=org_ids, is_demo=False)
+        if user_can_access_team(user, team)
+    ]
 
     if len(non_demo_teams) == 1:
         return non_demo_teams[0]
