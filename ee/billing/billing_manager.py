@@ -14,6 +14,7 @@ import jwt
 import requests
 import structlog
 from requests import JSONDecodeError
+from requests.adapters import HTTPAdapter, Retry
 from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import get_cached_instance_license
@@ -30,6 +31,45 @@ from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
 logger = structlog.get_logger(__name__)
+
+# Billing runs server-to-server through the outbound proxy, where transient TLS/proxy
+# handshake blips surface as SSLError/ConnectionError and would otherwise 500 the billing
+# page. (connect, read) timeout in seconds — applied to every billing call by default.
+BILLING_REQUEST_TIMEOUT = (5, 30)
+
+
+class _BillingSession(requests.Session):
+    """Session for billing service calls: applies a default timeout to every request so a
+    hung billing service can't pin a web worker, on top of the mounted retry adapter."""
+
+    def request(self, *args: Any, **kwargs: Any) -> requests.Response:
+        kwargs.setdefault("timeout", BILLING_REQUEST_TIMEOUT)
+        return super().request(*args, **kwargs)
+
+
+def _create_billing_session() -> requests.Session:
+    session = _BillingSession()
+    retries = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        status=3,
+        backoff_factor=0.5,
+        status_forcelist=(500, 502, 503, 504),
+        # allowed_methods defaults to the idempotent set, so read/5xx retries skip POST/PATCH.
+        # Connection-level failures (e.g. a proxy TLS handshake that never sent the request)
+        # still retry for every method, so mutations aren't double-submitted.
+        raise_on_status=False,  # return the final response so handle_billing_service_error can inspect its body
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+# Shared session (thread-safe for sending); mounts a urllib3 Retry adapter so transient
+# connection/TLS/5xx failures are retried with backoff instead of bubbling up as 500s.
+billing_session = _create_billing_session()
 
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signature"
 BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
@@ -246,7 +286,7 @@ class BillingManager:
     def update_billing(
         self, organization: Organization, data: dict[str, Any], authorizer_actor: Optional[User] = None
     ) -> None:
-        res = requests.patch(
+        res = billing_session.patch(
             f"{BILLING_SERVICE_URL}/api/billing/",
             headers=self.get_auth_headers(organization, authorizer_actor=authorizer_actor),
             json=data,
@@ -255,7 +295,7 @@ class BillingManager:
         handle_billing_service_error(res)
 
     def update_available_product_features(self, organization: Organization) -> list[dict[str, Any]]:
-        res = requests.get(
+        res = billing_session.get(
             f"{BILLING_SERVICE_URL}/api/billing/available_product_features",
             headers=self.get_auth_headers(organization),
         )
@@ -335,7 +375,7 @@ class BillingManager:
             capture_exception(e, {"organization_id": organization.id})
 
     def activate_subscription(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = requests.post(
+        res = billing_session.post(
             f"{BILLING_SERVICE_URL}/api/activate",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -346,7 +386,7 @@ class BillingManager:
         return res.json()
 
     def deactivate_products(self, organization: Organization, products: str) -> None:
-        res = requests.post(
+        res = billing_session.post(
             f"{BILLING_SERVICE_URL}/api/billing/deactivate",
             headers=self.get_auth_headers(organization),
             json={"products": products},
@@ -403,11 +443,23 @@ class BillingManager:
         if not self.license:  # mypy
             raise Exception("No license found")
 
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/billing",
-            headers=self.get_auth_headers(organization),
-            params=query_params,
-        )
+        try:
+            res = billing_session.get(
+                f"{BILLING_SERVICE_URL}/api/billing",
+                headers=self.get_auth_headers(organization),
+                params=query_params,
+            )
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            # Retries are already exhausted here. A transient proxy/TLS blip shouldn't 500 the
+            # billing page: return an empty status so get_billing falls back to the default
+            # response (which it already does whenever no customer is present).
+            logger.warning(
+                "billing_service_unreachable",
+                error=str(e),
+                organization_id=str(organization.id),
+            )
+            return cast(BillingStatus, {})
+
         handle_billing_service_error(res)
 
         data = res.json()
@@ -421,7 +473,7 @@ class BillingManager:
         if not self.license:  # mypy
             raise Exception("No license found")
 
-        res = requests.get(
+        res = billing_session.get(
             f"{BILLING_SERVICE_URL}/api/billing/portal",
             headers=self.get_auth_headers(organization),
         )
@@ -439,7 +491,7 @@ class BillingManager:
         if self.license and organization:
             headers = self.get_auth_headers(organization)
 
-        res = requests.get(
+        res = billing_session.get(
             f"{BILLING_SERVICE_URL}/api/products-v2",
             params=params,
             headers=headers,
@@ -578,7 +630,7 @@ class BillingManager:
         return headers
 
     def get_invoices(self, organization: Organization, status: str | None):
-        res = requests.get(
+        res = billing_session.get(
             # TODO(@zach): update this to /api/invoices
             f"{BILLING_SERVICE_URL}/api/billing/get_invoices",
             params={"status": status},
@@ -592,7 +644,7 @@ class BillingManager:
         return data
 
     def credits_overview(self, organization: Organization):
-        res = requests.get(
+        res = billing_session.get(
             f"{BILLING_SERVICE_URL}/api/credits/overview",
             headers=self.get_auth_headers(organization),
         )
@@ -602,7 +654,7 @@ class BillingManager:
         return res.json()
 
     def purchase_credits(self, organization: Organization, data: dict[str, Any]):
-        res = requests.post(
+        res = billing_session.post(
             f"{BILLING_SERVICE_URL}/api/credits/purchase",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -620,7 +672,7 @@ class BillingManager:
         would swallow 404 (endpoint not deployed) and 401 (auth failure) as success and record an
         error body as a synced credit, hence the explicit (200,).
         """
-        res = requests.post(
+        res = billing_session.post(
             f"{BILLING_SERVICE_URL}/api/signals/dispute-pr",
             # The service_action claim is required by billing: it distinguishes this
             # backend-minted token from ones minted for user-initiated billing calls,
@@ -635,7 +687,7 @@ class BillingManager:
         return res.json()
 
     def activate_trial(self, organization: Organization, data: dict[str, Any]):
-        res = requests.post(
+        res = billing_session.post(
             f"{BILLING_SERVICE_URL}/api/trials/activate",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -648,7 +700,7 @@ class BillingManager:
         return res.json()
 
     def cancel_trial(self, organization: Organization, data: dict[str, Any]):
-        res = requests.post(
+        res = billing_session.post(
             f"{BILLING_SERVICE_URL}/api/trials/cancel",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -684,7 +736,7 @@ class BillingManager:
 
         data = {"billing_provider": billing_provider}
 
-        res = requests.post(
+        res = billing_session.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize",
             headers=self.get_auth_headers(organization, billing_provider),
             json=data,
@@ -695,7 +747,7 @@ class BillingManager:
         return res.json()
 
     def authorize_status(self, organization: Organization, data: dict[str, Any]):
-        res = requests.post(
+        res = billing_session.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize/status",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -719,7 +771,7 @@ class BillingManager:
         Returns:
             Response from billing service with success status
         """
-        res = requests.post(
+        res = billing_session.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize/uninstall",
             headers=self.get_auth_headers(organization),
             json={"billing_provider": billing_provider.value},
@@ -739,7 +791,7 @@ class BillingManager:
         return res.json()
 
     def switch_plan(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = requests.post(
+        res = billing_session.post(
             f"{BILLING_SERVICE_URL}/api/subscription/switch-plan/",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -751,7 +803,7 @@ class BillingManager:
         return res.json()
 
     def apply_startup_program(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = requests.post(
+        res = billing_session.post(
             f"{BILLING_SERVICE_URL}/api/startups/apply",
             json=data,
             headers=self.get_auth_headers(organization),
@@ -761,7 +813,7 @@ class BillingManager:
         return res.json()
 
     def claim_coupon(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = requests.post(
+        res = billing_session.post(
             f"{BILLING_SERVICE_URL}/api/coupons/claim",
             json=data,
             headers=self.get_auth_headers(organization),
@@ -771,7 +823,7 @@ class BillingManager:
         return res.json()
 
     def coupons_overview(self, organization: Organization) -> dict[str, Any]:
-        res = requests.get(
+        res = billing_session.get(
             f"{BILLING_SERVICE_URL}/api/coupons/overview",
             headers=self.get_auth_headers(organization),
         )
@@ -799,7 +851,7 @@ class BillingManager:
         url = f"{BILLING_SERVICE_URL}{path}"
         headers = self.get_auth_headers(organization)
 
-        res = requests.get(url, headers=headers, params=self._to_query_params(params))
+        res = billing_session.get(url, headers=headers, params=self._to_query_params(params))
 
         if res.status_code in (414, 431):
             logger.info(
@@ -808,7 +860,7 @@ class BillingManager:
                 status_code=res.status_code,
                 organization_id=str(organization.id),
             )
-            res = requests.post(url, headers=headers, json=self._to_post_body(params))
+            res = billing_session.post(url, headers=headers, json=self._to_post_body(params))
 
         handle_billing_service_error(res)
         return res.json()
@@ -880,7 +932,7 @@ class BillingManager:
             "Content-Type": "application/json",
         }
 
-        res = requests.post(
+        res = billing_session.post(
             f"{BILLING_SERVICE_URL}/api/webhooks/billing-provider",
             headers=headers,
             data=body,
