@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>PostHog on the call</title>
+        <style>
+            :root {
+                --bg: #1d1f27;
+                --panel: #26282f;
+                --text: #eeefef;
+                --muted: #9ea2b0;
+                --orange: #f54e00;
+                --yellow: #f7a501;
+                --blue: #2f80fa;
+            }
+            * {
+                box-sizing: border-box;
+            }
+            html,
+            body {
+                margin: 0;
+                height: 100%;
+                background: var(--bg);
+                color: var(--text);
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                overflow: hidden;
+            }
+            /* Recall renders this page at 1280x720 and streams it as the bot's camera, so the layout is
+               fixed to that box and scaled rather than made responsive. */
+            #stage {
+                width: 1280px;
+                height: 720px;
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                display: flex;
+                flex-direction: column;
+                padding: 56px 64px;
+                gap: 28px;
+            }
+            header {
+                display: flex;
+                align-items: center;
+                gap: 16px;
+            }
+            .mark {
+                width: 40px;
+                height: 40px;
+                border-radius: 10px;
+                background: var(--orange);
+                display: grid;
+                place-items: center;
+                font-weight: 800;
+                font-size: 22px;
+            }
+            .wordmark {
+                font-size: 24px;
+                font-weight: 700;
+                letter-spacing: -0.01em;
+            }
+            .status {
+                margin-left: auto;
+                font-size: 18px;
+                color: var(--muted);
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+            .dot {
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                background: var(--muted);
+            }
+            .dot.live {
+                background: var(--orange);
+                animation: pulse 1.4s ease-in-out infinite;
+            }
+            @keyframes pulse {
+                0%,
+                100% {
+                    opacity: 0.35;
+                }
+                50% {
+                    opacity: 1;
+                }
+            }
+            main {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                gap: 24px;
+                min-height: 0;
+            }
+            .question {
+                font-size: 26px;
+                color: var(--muted);
+            }
+            .question strong {
+                color: var(--text);
+                font-weight: 600;
+            }
+            .headline {
+                font-size: 76px;
+                font-weight: 800;
+                line-height: 1.05;
+                letter-spacing: -0.03em;
+            }
+            .detail {
+                font-size: 26px;
+                color: var(--muted);
+                line-height: 1.4;
+            }
+            .idle {
+                font-size: 44px;
+                font-weight: 600;
+                line-height: 1.25;
+            }
+            .idle span {
+                color: var(--orange);
+            }
+            .chart {
+                display: flex;
+                align-items: flex-end;
+                gap: 18px;
+                height: 190px;
+            }
+            .bar {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                justify-content: flex-end;
+                gap: 8px;
+                min-width: 0;
+            }
+            .bar .fill {
+                border-radius: 8px 8px 2px 2px;
+                background: var(--blue);
+            }
+            .bar:nth-child(even) .fill {
+                background: var(--yellow);
+            }
+            .bar .value {
+                font-size: 20px;
+                font-weight: 700;
+            }
+            .bar .label {
+                font-size: 17px;
+                color: var(--muted);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            footer {
+                min-height: 52px;
+                background: var(--panel);
+                border-radius: 12px;
+                padding: 14px 20px;
+                font-size: 20px;
+                color: var(--muted);
+                display: flex;
+                align-items: center;
+            }
+            .thinking::after {
+                content: '';
+                animation: ellipsis 1.5s steps(4, end) infinite;
+            }
+            @keyframes ellipsis {
+                0% {
+                    content: '';
+                }
+                25% {
+                    content: '.';
+                }
+                50% {
+                    content: '..';
+                }
+                75% {
+                    content: '...';
+                }
+            }
+            .error .headline {
+                font-size: 40px;
+                color: var(--yellow);
+            }
+            .hidden {
+                display: none;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="stage">
+            <header>
+                <div class="mark">🦔</div>
+                <div class="wordmark">PostHog</div>
+                <div class="status"><span class="dot" id="dot"></span><span id="status">Connecting</span></div>
+            </header>
+            <main id="main"></main>
+            <footer id="caption"></footer>
+        </div>
+        <audio id="player"></audio>
+
+        <script>
+            const params = new URLSearchParams(location.search)
+            const main = document.getElementById('main')
+            const caption = document.getElementById('caption')
+            const status = document.getElementById('status')
+            const dot = document.getElementById('dot')
+            const player = document.getElementById('player')
+
+            let socket = null
+
+            function setStatus(text, live) {
+                status.textContent = text
+                dot.classList.toggle('live', Boolean(live))
+            }
+
+            function escapeHtml(value) {
+                return String(value).replace(
+                    /[&<>"']/g,
+                    (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]
+                )
+            }
+
+            function formatNumber(value) {
+                return Math.abs(value) >= 1000
+                    ? value.toLocaleString('en-US', { maximumFractionDigits: 0 })
+                    : String(Math.round(value * 100) / 100)
+            }
+
+            function renderChart(series) {
+                if (!series || series.length === 0) {
+                    return ''
+                }
+                const peak = Math.max(...series.map((point) => Math.abs(point.value)), 1)
+                const bars = series
+                    .slice(0, 8)
+                    .map((point) => {
+                        const height = Math.max(6, Math.round((Math.abs(point.value) / peak) * 150))
+                        return `<div class="bar">
+                            <div class="value">${escapeHtml(formatNumber(point.value))}</div>
+                            <div class="fill" style="height:${height}px"></div>
+                            <div class="label">${escapeHtml(point.label)}</div>
+                        </div>`
+                    })
+                    .join('')
+                return `<div class="chart">${bars}</div>`
+            }
+
+            function renderIdle() {
+                setStatus('Listening', true)
+                caption.textContent = ''
+                main.innerHTML = `<div class="idle">Say <span>“Hey PostHog”</span> to ask about your data</div>`
+            }
+
+            function renderHeard(question) {
+                setStatus('Listening', true)
+                main.innerHTML = `<div class="question">You asked</div>
+                    <div class="headline" style="font-size:44px">${escapeHtml(question)}</div>`
+            }
+
+            function renderThinking() {
+                setStatus('Working', true)
+                caption.innerHTML = '<span class="thinking">Looking that up</span>'
+            }
+
+            function renderAnswer(answer) {
+                setStatus('Answering', true)
+                caption.textContent = answer.unit ? `Measured in ${answer.unit}` : ''
+                main.innerHTML = `<div class="headline">${escapeHtml(answer.headline)}</div>
+                    <div class="detail">${escapeHtml(answer.detail)}</div>
+                    ${renderChart(answer.series)}`
+            }
+
+            function renderError(message) {
+                setStatus('Listening', true)
+                caption.textContent = 'Ask again, or check the meeting-bot logs.'
+                main.innerHTML = `<div class="error"><div class="headline">Couldn’t answer that</div>
+                    <div class="detail">${escapeHtml(message)}</div></div>`
+            }
+
+            /* Recall's output-media browser allows autoplay, but a clip can still be rejected if it is handed
+               over before the page has finished its first paint, so retry a few times before giving up. */
+            function play(url, attempt = 0) {
+                player.src = url
+                player.play().catch(() => {
+                    if (attempt < 5) {
+                        setTimeout(() => play(url, attempt + 1), 400)
+                    }
+                })
+            }
+
+            player.addEventListener('ended', () => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({ type: 'spoken' }))
+                }
+            })
+
+            function connect() {
+                const scheme = location.protocol === 'https:' ? 'wss' : 'ws'
+                socket = new WebSocket(`${scheme}://${location.host}/stage/socket?token=${params.get('token')}`)
+
+                socket.addEventListener('open', () => renderIdle())
+                socket.addEventListener('close', () => {
+                    setStatus('Reconnecting', false)
+                    setTimeout(connect, 1000)
+                })
+                socket.addEventListener('message', (event) => {
+                    const message = JSON.parse(event.data)
+                    if (message.type === 'idle') {
+                        renderIdle()
+                    } else if (message.type === 'caption') {
+                        caption.textContent = `${message.speaker}: ${message.text}`
+                    } else if (message.type === 'heard') {
+                        renderHeard(message.question)
+                    } else if (message.type === 'thinking') {
+                        renderThinking()
+                    } else if (message.type === 'answer') {
+                        renderAnswer(message.answer)
+                        play(message.audioUrl)
+                    } else if (message.type === 'error') {
+                        renderError(message.message)
+                    }
+                })
+            }
+
+            renderIdle()
+            connect()
+        </script>
+    </body>
+</html>

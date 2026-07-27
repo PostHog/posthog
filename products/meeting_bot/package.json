@@ -1,0 +1,30 @@
+{
+    "name": "@posthog/meeting-bot",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Voice agent that joins Google Meet calls via Recall.ai, answers PostHog data questions on a trigger phrase, and speaks plus displays the answer.",
+    "license": "MIT",
+    "author": "PostHog <hey@posthog.com>",
+    "type": "module",
+    "scripts": {
+        "start": "tsx src/index.ts",
+        "start:dev": "tsx watch src/index.ts",
+        "join": "tsx src/cli.ts",
+        "lint": "oxlint --quiet .",
+        "format": "oxfmt .",
+        "format:check": "oxfmt --check .",
+        "typescript:check": "tsc --noEmit -p .",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@anthropic-ai/sdk": "^0.115.0",
+        "ws": "^8.18.0"
+    },
+    "devDependencies": {
+        "@types/node": "^22.10.2",
+        "@types/ws": "^8.5.13",
+        "tsx": "^4.20.5",
+        "typescript": "6.0.3",
+        "vitest": "^3.2.4"
+    }
+}

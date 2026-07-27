@@ -24,6 +24,8 @@ packages:
     - services/stripe-app
     - tools/*
     - '!tools/hedgebox-dummy'
+    # Standalone demo service with its own lockfile, kept out of the root install.
+    - '!products/meeting_bot'
     - rust/cyclotron-node
     - rust/common/hogvm/node
     - rust/replay-anonymizer-node
