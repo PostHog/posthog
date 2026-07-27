@@ -1,4 +1,3 @@
-import io
 import re
 import json
 import time
@@ -44,6 +43,9 @@ MAX_DOWNLOAD_SECONDS = 900
 EXPORT_SPOOL_MAX_BYTES = 32 * 1024 * 1024
 MAX_EXPORT_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024
 MAX_EXPORT_DECOMPRESSED_BYTES = 16 * 1024 * 1024 * 1024
+# Cap a single NDJSON line so a newline-free member can't buffer unbounded before the byte
+# budget is checked. Qualtrics response rows are far smaller than this.
+MAX_EXPORT_LINE_BYTES = 64 * 1024 * 1024
 
 # Export jobs are asynchronous: create, then poll until Qualtrics reports `complete`.
 EXPORT_POLL_INTERVAL_SECONDS = 3.0
@@ -285,8 +287,13 @@ class QualtricsAuthManager:
         finally:
             response.close()
 
+        if not isinstance(payload, dict):
+            raise QualtricsConfigurationError(f"{INCOMPLETE_CREDENTIALS_ERROR}: unexpected OAuth token response")
+        token = payload.get("access_token")
+        if not token:
+            raise QualtricsConfigurationError(f"{INCOMPLETE_CREDENTIALS_ERROR}: OAuth token endpoint returned no token")
+        self._token = token
         expires_in = payload.get("expires_in")
-        self._token = payload["access_token"]
         self._deadline = time.monotonic() + (
             float(expires_in) if expires_in is not None else DEFAULT_TOKEN_LIFETIME_SECONDS
         )
@@ -364,19 +371,24 @@ class QualtricsClient:
             response.close()
 
 
-def _elements(payload: Any) -> list[dict[str, Any]]:
+def _result(payload: Any) -> dict[str, Any]:
+    """Pull the `result` object out of a Qualtrics envelope, tolerating any non-dict shape.
+
+    Every Qualtrics v3 response nests its payload under `result`, but a misbehaving or custom
+    host could return valid JSON that isn't a dict — treat anything unexpected as empty rather
+    than letting `.get()` raise mid-sync.
+    """
     result = payload.get("result") if isinstance(payload, dict) else None
-    if not isinstance(result, dict):
-        return []
-    elements = result.get("elements")
+    return result if isinstance(result, dict) else {}
+
+
+def _elements(payload: Any) -> list[dict[str, Any]]:
+    elements = _result(payload).get("elements")
     return elements if isinstance(elements, list) else []
 
 
 def _next_page(payload: Any) -> str | None:
-    result = payload.get("result") if isinstance(payload, dict) else None
-    if not isinstance(result, dict):
-        return None
-    next_page = result.get("nextPage")
+    next_page = _result(payload).get("nextPage")
     return next_page if isinstance(next_page, str) and next_page else None
 
 
@@ -426,21 +438,57 @@ def _survey_ids(client: QualtricsClient) -> list[str]:
     return ids
 
 
-def _iter_ndjson(stream: IO[bytes]) -> Iterator[dict[str, Any]]:
-    """Parse an NDJSON stream line by line, bounding total decompressed bytes."""
-    total = 0
-    for line in io.TextIOWrapper(stream, encoding="utf-8", errors="replace"):
-        total += len(line)
-        if total > MAX_EXPORT_DECOMPRESSED_BYTES:
+class _DecompressionBudget:
+    """One decompressed-byte budget, shared across every member of an export archive.
+
+    A single counter across the whole archive stops a multi-member zip from bypassing the cap:
+    each member could stay under the limit while their aggregate decompressed size blows past it.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self._limit = limit
+        self._total = 0
+
+    def charge(self, n: int) -> None:
+        self._total += n
+        if self._total > self._limit:
+            raise QualtricsResponseTooLargeError(f"Qualtrics export exceeded the {self._limit}-byte decompressed limit")
+
+
+def _parse_ndjson_line(line: bytes) -> Iterator[dict[str, Any]]:
+    stripped = line.strip()
+    if not stripped:
+        return
+    parsed = json.loads(stripped.decode("utf-8", errors="replace"))
+    if isinstance(parsed, dict):
+        yield parsed
+
+
+def _iter_ndjson(stream: IO[bytes], budget: _DecompressionBudget) -> Iterator[dict[str, Any]]:
+    """Parse an NDJSON stream from bounded binary chunks, charging bytes to a shared budget.
+
+    Reading raw chunks (rather than `TextIOWrapper` line iteration) keeps a single newline-free
+    member from allocating an unbounded line before the byte budget is ever consulted.
+    """
+    buffer = bytearray()
+    while True:
+        chunk = stream.read(_RESPONSE_CHUNK_BYTES)
+        if not chunk:
+            break
+        budget.charge(len(chunk))
+        buffer.extend(chunk)
+        newline = buffer.rfind(b"\n")
+        if newline != -1:
+            complete = bytes(buffer[: newline + 1])
+            del buffer[: newline + 1]
+            for line in complete.splitlines():
+                yield from _parse_ndjson_line(line)
+        if len(buffer) > MAX_EXPORT_LINE_BYTES:
             raise QualtricsResponseTooLargeError(
-                f"Qualtrics export exceeded the {MAX_EXPORT_DECOMPRESSED_BYTES}-byte decompressed limit"
+                f"Qualtrics export line exceeded the {MAX_EXPORT_LINE_BYTES}-byte limit"
             )
-        stripped = line.strip()
-        if not stripped:
-            continue
-        parsed = json.loads(stripped)
-        if isinstance(parsed, dict):
-            yield parsed
+    if buffer:
+        yield from _parse_ndjson_line(bytes(buffer))
 
 
 def _iter_export_file(response: requests.Response) -> Iterator[dict[str, Any]]:
@@ -471,10 +519,13 @@ def _iter_export_file(response: requests.Response) -> Iterator[dict[str, Any]]:
         finally:
             response.close()
 
+        # One budget for the whole download so multi-member archives can't bypass the cap.
+        budget = _DecompressionBudget(MAX_EXPORT_DECOMPRESSED_BYTES)
+
         buffer.seek(0)
         if buffer.read(4) != b"PK\x03\x04":
             buffer.seek(0)
-            yield from _iter_ndjson(buffer)
+            yield from _iter_ndjson(buffer, budget)
             return
 
         buffer.seek(0)
@@ -483,7 +534,7 @@ def _iter_export_file(response: requests.Response) -> Iterator[dict[str, Any]]:
                 if info.is_dir():
                     continue
                 with archive.open(info) as member:
-                    yield from _iter_ndjson(member)
+                    yield from _iter_ndjson(member, budget)
 
 
 def _normalize_response_row(survey_id: str, row: dict[str, Any]) -> dict[str, Any]:
@@ -527,14 +578,14 @@ def _export_responses(
         body["startDate"] = start_date
 
     created = client.post_json(export_url, body)
-    progress_id = (created.get("result") or {}).get("progressId")
+    progress_id = _result(created).get("progressId")
     if not progress_id:
         raise QualtricsExportFailedError(f"{EXPORT_FAILED_ERROR}: no progressId returned for survey {survey_id}")
 
     deadline = time.monotonic() + MAX_EXPORT_POLL_SECONDS
     file_id: str | None = None
     while True:
-        progress = client.get_json(f"{export_url}/{progress_id}").get("result") or {}
+        progress = _result(client.get_json(f"{export_url}/{progress_id}"))
         status = progress.get("status")
         if status == "complete":
             file_id = progress.get("fileId")

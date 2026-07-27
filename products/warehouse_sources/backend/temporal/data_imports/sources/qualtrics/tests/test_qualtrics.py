@@ -97,6 +97,14 @@ def _zip_bytes(name: str, content: str) -> bytes:
     return buffer.getvalue()
 
 
+def _multi_member_zip_bytes(members: dict[str, str]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    return buffer.getvalue()
+
+
 def _run_get_rows(
     endpoint: str,
     session: mock.MagicMock,
@@ -454,6 +462,14 @@ class TestResponseExport:
         with mock.patch.object(qualtrics_module, "MAX_EXPORT_DECOMPRESSED_BYTES", 4):
             with pytest.raises(QualtricsResponseTooLargeError):
                 list(_iter_export_file(_response(body=_zip_bytes("r.ndjson", self.NDJSON))))
+
+    def test_decompressed_cap_is_shared_across_archive_members(self) -> None:
+        # Each member stays under the cap; only their aggregate exceeds it, so a per-member
+        # counter would let the archive through.
+        body = _multi_member_zip_bytes({"a.ndjson": self.NDJSON, "b.ndjson": self.NDJSON})
+        with mock.patch.object(qualtrics_module, "MAX_EXPORT_DECOMPRESSED_BYTES", len(self.NDJSON) + 5):
+            with pytest.raises(QualtricsResponseTooLargeError):
+                list(_iter_export_file(_response(body=body)))
 
 
 class TestNormalizeResponseRow:
