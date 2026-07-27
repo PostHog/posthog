@@ -965,6 +965,36 @@ describe('CDP API', () => {
             }
         })
 
+        it('resolves the audience from the posted snapshot, not the live trigger filters', async () => {
+            // The snapshot was validated at confirm time - re-reading the trigger here would let an
+            // edit racing the dispatch widen the send past what was previewed.
+            const snapshotProperties = [{ key: 'email', type: 'person', value: 'a', operator: 'icontains' }]
+
+            const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+            api['batchResolverProducer'] = {
+                createJob: createJobMock,
+                countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
+                rescheduleParkedJobs: jest.fn(),
+                disconnect: jest.fn().mockResolvedValue(undefined),
+            }
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-791`
+                    )
+                    .send({ filters: { properties: snapshotProperties } })
+
+                expect(res.status).toEqual(200)
+                const arg = createJobMock.mock.calls[0][0]
+                const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
+                expect(state.filters.properties).toEqual(snapshotProperties)
+                expect(state.filters.properties).not.toEqual((batchHogFlow as any).trigger.filters.properties)
+            } finally {
+                api['batchResolverProducer'] = null
+            }
+        })
+
         it('sets email dedupe on the resolver state when the flow sends email to the default {{person.properties.email}}', async () => {
             const emailHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),

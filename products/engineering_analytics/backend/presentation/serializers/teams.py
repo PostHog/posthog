@@ -21,15 +21,15 @@ class TeamCIHealthItemSerializer(DataclassSerializer):
                 "or the literal 'unowned' for tests whose spans carry no ownership stamp.",
             },
             "flaky_test_count": {
-                "help_text": "Owned tests an in-job retry recovered in the window: the same proof, and the same "
-                "word, that flaky_tests calls a confirmed_flake. Compare with flaky_test_count_prior for the "
-                "delta.",
+                "help_text": "Owned tests one commit was seen both failing and passing in the window: the same "
+                "proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with "
+                "flaky_test_count_prior for the delta.",
             },
             "flaky_test_count_prior": {
                 "help_text": "Same count over the equal-length window immediately before date_from.",
             },
             "regression_test_count": {
-                "help_text": "Owned tests that failed with no recorded in-run recovery and still hit the "
+                "help_text": "Owned tests that failed with no recorded same-commit recovery and still hit the "
                 "blast-radius bar (a master/main failure, or min_failed_prs distinct PRs). Not flakes: absence "
                 "of proof, not proof.",
             },
@@ -39,10 +39,11 @@ class TeamCIHealthItemSerializer(DataclassSerializer):
                 "An absolute count, not a rate: fast passing runs are not emitted.",
             },
             "failed_run_count_prior": {"help_text": "Same count over the prior window."},
-            "rerun_passed_run_count": {
-                "help_text": "Runs where an in-job pytest retry recovered an owned test after it failed.",
+            "same_commit_recovery_run_count": {
+                "help_text": "Runs where one commit both failed and passed an owned test: a re-run attempt went "
+                "green, or an in-job retry recovered it.",
             },
-            "rerun_passed_run_count_prior": {"help_text": "Same count over the prior window."},
+            "same_commit_recovery_run_count_prior": {"help_text": "Same count over the prior window."},
             "quarantined_failed_run_count": {
                 "help_text": "Runs where an owned test failed while quarantined (xfail): masked in CI, still failing.",
             },

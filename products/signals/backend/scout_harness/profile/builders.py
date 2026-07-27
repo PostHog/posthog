@@ -7,7 +7,8 @@ the tools layer dumps it into the `SignalProjectProfile.payload` jsonb column.
 
 Sections fall into three layers. **Capability / configured (sticky)** — `project_context`,
 `products_in_use`, `product_intents`, `integrations`, `external_data_sources`,
-`signal_source_configs`, `emit_eligibility` (whether findings can reach the inbox at all).
+`signal_source_configs`, `emit_eligibility` (whether findings can reach the inbox at all),
+`scout_fleet` (which other scouts are configured on this team, and whether they're live).
 Answers "what's turned on." **Aggregated recency** —
 `recent_activity` (per-scope counts off the activity log, cross-cutting orientation
 across every entity type). **Per-entity recent inventory** — `recent_dashboards`,
@@ -58,8 +59,10 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.facade import api as notebooks
-from products.signals.backend.models import SignalReport, SignalSourceConfig
+from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.config_registry import live_scout_skill_names
 from products.signals.backend.scout_harness.profile.schema import Inventory
+from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -70,7 +73,7 @@ logger = logging.getLogger(__name__)
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v10"
+INVENTORY_SOURCE_VERSION = "v11"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -107,6 +110,12 @@ RECENT_ACTIVITY_LIMIT = 20
 REVIEWER_CORRECTIONS_WINDOW_DAYS = 90
 REVIEWER_CORRECTIONS_LIMIT = 20
 
+# How far back `_scout_fleet` looks for each scout's most recent emitting run. 30 days covers
+# several cycles of the default 24-hour cadence, so a scout that emits occasionally still reads
+# as active rather than silent. The roster is bounded by the team's scout count (a few dozen at
+# most), so it needs no result cap of its own.
+SCOUT_FLEET_EMITTED_LOOKBACK_DAYS = 30
+
 
 def build_inventory(team: Team) -> Inventory:
     """Aggregate the deterministic inventory layer for a team.
@@ -129,6 +138,7 @@ def build_inventory(team: Team) -> Inventory:
             "external_data_sources": _external_data_sources(team),
             "signal_source_configs": _signal_source_configs(team),
             "emit_eligibility": _emit_eligibility(team),
+            "scout_fleet": _scout_fleet(team),
             "existing_inbox_reports": _existing_inbox_reports(team),
             "recent_activity": _recent_activity(team),
             "recent_reviewer_corrections": _recent_reviewer_corrections(team),
@@ -301,6 +311,73 @@ def _emit_eligibility(team: Team) -> dict[str, Any]:
         "source_enabled": source_enabled,
         "can_emit": can_emit,
         "remediation": remediation_for_skip(blocking_reason),
+    }
+
+
+def _scout_fleet(team: Team) -> dict[str, Any]:
+    """The other scouts configured on this team, split by whether they actually run.
+
+    The split is on dispatchability, not on `SignalScoutConfig.enabled` alone. The coordinator
+    dispatches only configs whose skill is in `live_scout_skill_names` (latest, non-deleted,
+    not held back by the `signals-scout` flag's denylist), so an enabled config whose skill was
+    deleted, superseded, or withheld never runs. Reporting it as enabled would tell a reading
+    scout that a surface has active coverage when nothing is watching it, which is the exact
+    hole the prompt's fleet-seams guidance asks scouts not to defer into. `not_running_reason`
+    keeps the two causes distinguishable without a third bucket. Held-back scouts are the one
+    case dropped rather than classified, so this payload can't disclose them (see below).
+
+    Queries: the config rows (schedule + emit posture, authoritative), the live skill names, the
+    flag payload for the holdback denylist, and one grouped pass over recent run rows for the
+    last time each scout produced output. `last_run_at` comes off the config because the
+    coordinator stamps it at dispatch, so it stays correct for a scout whose runs have aged out
+    of the run-history window.
+    """
+    emitted_since = timezone.now() - timedelta(days=SCOUT_FLEET_EMITTED_LOOKBACK_DAYS)
+    touched_a_report = (~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)) | (
+        ~Q(edited_report_ids=[]) & ~Q(edited_report_ids__isnull=True)
+    )
+    # `for_team` rather than a plain `objects.filter(team=...)`: both models are fail-closed
+    # team-scoped, and this builder also runs outside request context (the profile-refresh
+    # Temporal path), where the scoped manager has no ambient team to resolve.
+    last_emitted_by_skill = {
+        row["skill_name"]: row["last_emitted_at"]
+        for row in SignalScoutRun.objects.for_team(team.id)
+        .filter(created_at__gte=emitted_since)
+        .filter(Q(emitted_count__gt=0) | touched_a_report)
+        .values("skill_name")
+        .annotate(last_emitted_at=Max("created_at"))
+    }
+    # Held-back scouts are excluded outright rather than classified, matching
+    # `SignalScoutConfigViewSet.list`: this payload is readable with `signal_scout:read`, so
+    # listing a withheld row (even as not-running) would disclose the name and rollout status of
+    # an unreleased scout to the very team it is withheld from.
+    withheld = withheld_skills_for_team(team.id)
+    live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld)
+    enabled: list[dict[str, Any]] = []
+    disabled: list[dict[str, Any]] = []
+    for config in SignalScoutConfig.objects.for_team(team.id).exclude(skill_name__in=withheld).order_by("skill_name"):
+        last_emitted_at = last_emitted_by_skill.get(config.skill_name)
+        # `enabled` is what an operator set, so it names the reason when it's off; a skill that
+        # can't dispatch is the residual case where the operator left the scout on.
+        not_running_reason = None
+        if not config.enabled:
+            not_running_reason = "turned_off"
+        elif config.skill_name not in live_skills:
+            not_running_reason = "skill_unavailable"
+        entry = {
+            "skill_name": config.skill_name,
+            "run_interval_minutes": config.run_interval_minutes,
+            "run_cron_schedule": config.run_cron_schedule,
+            "emit": config.emit,
+            "last_run_at": config.last_run_at.isoformat() if config.last_run_at else None,
+            "last_emitted_at": last_emitted_at.isoformat() if last_emitted_at else None,
+            "not_running_reason": not_running_reason,
+        }
+        (disabled if not_running_reason else enabled).append(entry)
+    return {
+        "enabled": enabled,
+        "disabled": disabled,
+        "emitted_lookback_days": SCOUT_FLEET_EMITTED_LOOKBACK_DAYS,
     }
 
 

@@ -28,6 +28,7 @@ use personhog_common::partitioning::partition_for_person;
 use personhog_leader::cache::{CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey};
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
+use personhog_leader::pg::PgFallback;
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::warnings::WarningsProducer;
@@ -508,7 +509,10 @@ pub async fn start_leader_with_pg_fallback(
         Arc::clone(&cache),
         kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
-        Some(pool),
+        Some(PgFallback {
+            pool,
+            table: "posthog_person".to_string(),
+        }),
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
         NUM_PARTITIONS,

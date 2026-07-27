@@ -3,10 +3,11 @@
 Groups ``_test_spans.run_evidence()`` (the one definition of the grain and of what a run proves)
 by nodeid, and ranks by blast radius: how many PRs a test broke and how often it broke master.
 
-A test is a ``confirmed_flake`` only where the evidence already carries proof (an in-job retry
-recovered it), and every other failure is an honest ``suspected_regression`` rather than a guess
-dressed up as one. Failing on many distinct PRs proves only that a failure is not one PR's
-fault, never that the test is flaky: real regressions fail across PRs too.
+A test is a ``confirmed_flake`` only where the evidence already carries proof (one commit was
+seen both failing and passing it: a re-run attempt going green, or an in-job retry), and every
+other failure is an honest ``suspected_regression`` rather than a guess dressed up as one.
+Failing on many distinct PRs proves only that a failure is not one PR's fault, never that the
+test is flaky: real regressions fail across PRs too.
 
 Every figure is an absolute count: the emitter drops sub-threshold passes, so there is no
 denominator to divide by.
@@ -36,7 +37,7 @@ _SELECT = """
     SELECT
         nodeid,
         anyIf(selector, selector != '') AS selector,
-        countIf(recovered_in_run) AS rerun_passed_run_count,
+        countIf(recovered_in_run) AS same_commit_recovery_run_count,
         countIf(failed_in_run) AS failed_run_count,
         uniqIf(pr_number, failed_in_run AND pr_number != '') AS failed_pr_count,
         countIf(failed_in_run AND branch IN ('master', 'main')) AS master_failed_run_count,
@@ -44,7 +45,7 @@ _SELECT = """
         max(run_signal_at) AS last_signal_at
     FROM (__RUN_EVIDENCE__)
     GROUP BY nodeid
-    HAVING rerun_passed_run_count > 0
+    HAVING same_commit_recovery_run_count > 0
         OR quarantined_failed_run_count > 0
         OR master_failed_run_count > 0
         OR failed_pr_count >= {min_failed_prs}
@@ -94,9 +95,9 @@ def query_flaky_tests(
                 selector=selector or selector_from_nodeid(nodeid),
                 classification=FlakyTestClassification.from_run_evidence(
                     quarantined_failed_run_count=quarantined_failed_run_count,
-                    rerun_passed_run_count=rerun_passed_run_count,
+                    same_commit_recovery_run_count=same_commit_recovery_run_count,
                 ),
-                rerun_passed_run_count=rerun_passed_run_count,
+                same_commit_recovery_run_count=same_commit_recovery_run_count,
                 failed_run_count=failed_run_count,
                 failed_pr_count=failed_pr_count,
                 master_failed_run_count=master_failed_run_count,
@@ -106,7 +107,7 @@ def query_flaky_tests(
             for (
                 nodeid,
                 selector,
-                rerun_passed_run_count,
+                same_commit_recovery_run_count,
                 failed_run_count,
                 failed_pr_count,
                 master_failed_run_count,
