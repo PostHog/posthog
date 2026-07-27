@@ -1012,6 +1012,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "task_id": self.context.task_id,
                 "repository": self.context.repository,
                 "team_id": self.context.team_id,
+                "loop_id": self.context.loop_id,
+                "loop_trigger_id": self.context.loop_trigger_id,
             },
         )
 
@@ -1064,6 +1066,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "agent_launch_ms": sandbox_output.launch_ms,
                 "agent_ready_wait_ms": agent_server_output.ready_wait_ms,
                 "agent_session_init_ms": agent_server_output.session_init_ms,
+                "loop_id": self.context.loop_id,
+                "loop_trigger_id": self.context.loop_trigger_id,
             },
         )
         return sandbox_id, agent_server_output.sandbox_url, agent_server_output.connect_token
