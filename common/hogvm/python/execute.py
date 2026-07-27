@@ -178,6 +178,10 @@ def execute_bytecode(
         if time.time() - start_time > timeout.total_seconds() and not debug:
             raise HogVMRuntimeExceededException(timeout_seconds=timeout.total_seconds(), ops_performed=ops)
 
+    def remaining_timeout() -> float:
+        # Budget left for this run, so blocking STL functions (e.g. sleep) can bound themselves to it.
+        return max(0.0, timeout.total_seconds() - (time.time() - start_time))
+
     def capture_upvalue(index) -> dict:
         nonlocal upvalues
         for upvalue in reversed(upvalues):
@@ -546,7 +550,7 @@ def execute_bytecode(
                             args = [pop_stack() for _ in range(arg_count)]
                         else:
                             args = stack_keep_first_elements(len(stack) - arg_count)
-                        push_stack(STL[name].fn(args, team, stdout, timeout.total_seconds()))
+                        push_stack(STL[name].fn(args, team, stdout, remaining_timeout()))
                     elif name in BYTECODE_STL:
                         arg_names = BYTECODE_STL[name][0]
                         if len(arg_names) != arg_count:
@@ -622,7 +626,7 @@ def execute_bytecode(
                         args = list(reversed([pop_stack() for _ in range(args_length)]))
                         if stl_fn.maxArgs is not None and len(args) < stl_fn.maxArgs:
                             args = [*args, *([None] * (stl_fn.maxArgs - len(args)))]
-                    push_stack(stl_fn.fn(args, team, stdout, timeout.total_seconds()))
+                    push_stack(stl_fn.fn(args, team, stdout, remaining_timeout()))
 
                 elif callable.get("__hogCallable__") == "async":
                     raise HogVMException("Async functions are not supported")

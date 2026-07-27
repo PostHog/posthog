@@ -5,6 +5,19 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.utils import deserialize_hx_ast, is_simple_value
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
+from common.hogvm.python.stl import BLOCKING_FUNCTIONS
+
+
+class FindBlockingCalls(TraversingVisitor):
+    def __init__(self):
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_call(self, node: ast.Call):
+        if node.name in BLOCKING_FUNCTIONS:
+            self.names.add(node.name)
+        super().visit_call(node)
+
 
 class FindPlaceholders(TraversingVisitor):
     def __init__(self):
@@ -42,6 +55,13 @@ class ReplacePlaceholders(CloningVisitor):
         from posthog.hogql.compiler.bytecode import create_bytecode
 
         from common.hogvm.python.execute import execute_bytecode
+
+        # This bytecode runs on the request thread before access control, so refuse blocking calls.
+        finder = FindBlockingCalls()
+        finder.visit(node.expr)
+        if finder.names:
+            disallowed = ", ".join(sorted(finder.names))
+            raise QueryError(f"Query placeholders can't call {disallowed}. Remove the call to run this query.")
 
         bytecode = create_bytecode(node.expr)
         response = execute_bytecode(bytecode.bytecode, self.placeholders)
