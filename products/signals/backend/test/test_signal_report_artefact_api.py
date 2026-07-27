@@ -407,6 +407,22 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert stored["alice"]["reason"] == "Top recent author on the affected surface"
         assert stored["dave"]["reason"].startswith("Added as a reviewer by Zelda Zebra on ")
 
+    def test_put_explicit_null_reason_on_new_reviewer_is_not_stamped(self):
+        # Field-presence semantics: an explicitly-supplied null reason clears the reason, so the
+        # manual-add note must only fill entries where the reason field was omitted entirely.
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[])
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "alice", "reason": None}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        stored = {r["github_login"]: r for r in self._latest_reviewers(report)}
+        assert stored["alice"]["reason"] is None
+
     def test_put_resolves_user_uuid_to_github_login(self):
         member = self._create_org_member("alice@example.com", github_login="AliceCase")
         report = self._create_report()

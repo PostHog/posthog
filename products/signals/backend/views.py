@@ -53,6 +53,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
@@ -2329,6 +2330,23 @@ def _schedule_reviewer_added_slack_notifications(
     )
 
 
+def _acting_user(request: Request) -> User:
+    """The human to name in a manual reviewer edit. Under staff impersonation `request.user` is the
+    impersonated customer, so resolve the real operator — a browser loginas session, else the OAuth
+    token's `impersonated_by` — rather than falsely attributing the edit to the customer."""
+    actor = cast(User, request.user)
+    if not is_impersonated(request):
+        return actor
+    original = get_original_user_from_session(request)
+    if original is not None:
+        return original
+    authenticator = getattr(request, "successful_authenticator", None)
+    impersonator_id = getattr(getattr(authenticator, "access_token", None), "impersonated_by_id", None)
+    if impersonator_id:
+        return User.objects.filter(pk=impersonator_id).first() or actor
+    return actor
+
+
 def append_suggested_reviewers(
     *,
     team: Team,
@@ -2437,9 +2455,10 @@ def append_suggested_reviewers(
                 if isinstance(prior_reason, str):
                     prior_reason_by_login[login] = prior_reason
 
-        # Newly-added reviewers carry no routing evidence, so record who added them and when
-        # (this path is always attributed to request.user). Dates use the report's project timezone.
-        actor = cast(User, request.user)
+        # Newly-added reviewers carry no routing evidence, so record who added them and when.
+        # Under staff impersonation request.user is the customer, so name the real operator instead.
+        # Dates use the report's project timezone.
+        actor = _acting_user(request)
         added_on = timezone.now().astimezone(team.timezone_info).strftime("%b %-d, %Y")
         manual_add_reason = f"Added as a reviewer by {actor.get_full_name().strip() or actor.email} on {added_on}"
 
@@ -2451,10 +2470,11 @@ def append_suggested_reviewers(
             seen.add(login_lc)
             # If the client supplied github_name (incl. ""), honour it. Otherwise
             # carry over the prior one so kept reviewers don't lose their name.
-            # Same rule for reason, falling back to the manual-add note for brand-new reviewers.
+            # Same rule for reason. Only fall back to the manual-add note when the field was
+            # omitted for a brand-new reviewer — an explicit null clears the reason, as for kept ones.
             effective_name = github_name if explicit_name else prior_name_by_login.get(login_lc)
             effective_reason = reason if explicit_reason else prior_reason_by_login.get(login_lc)
-            if effective_reason is None and login_lc not in prior_logins:
+            if not explicit_reason and login_lc not in prior_logins:
                 effective_reason = manual_add_reason
             new_content.append(
                 {
