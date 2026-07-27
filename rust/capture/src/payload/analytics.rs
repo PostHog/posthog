@@ -26,16 +26,7 @@ use crate::{
 /// /i/v0/e/, /batch/, /e/, /capture/, /track/, and /engage/ endpoints
 #[instrument(
     skip_all,
-    fields(
-        method,
-        path,
-        token,
-        ip,
-        historical_migration,
-        compression,
-        lib_version,
-        batch_size
-    )
+    fields(method, path, token, ip, historical_migration, compression, batch_size)
 )]
 pub async fn handle_event_payload(
     state: &State<router::State>,
@@ -59,7 +50,6 @@ pub async fn handle_event_payload(
     // GET query params should contain the following:
     //     - data        = JSON payload which may itself be compressed or base64 encoded or both
     //     - compression = hint to how "data" is encoded or compressed
-    //     - lib_version = SDK version that submitted the request
 
     // Extract body with optional chunk timeout
     let body = extract_body_with_timeout(
@@ -77,11 +67,9 @@ pub async fn handle_event_payload(
     debug_or_info!(chatty_debug_enabled, metadata=?metadata, "extracted metadata");
 
     // Extract payload bytes and metadata using shared helper
-    let (data, compression, lib_version) =
-        extract_payload_bytes(query_params, headers, method, body)?;
+    let (data, compression) = extract_payload_bytes(query_params, headers, method, body)?;
 
     Span::current().record("compression", format!("{compression}"));
-    Span::current().record("lib_version", &lib_version);
 
     debug_or_info!(chatty_debug_enabled, metadata=?metadata, "extracted payload");
 
@@ -121,7 +109,6 @@ pub async fn handle_event_payload(
     let now = state.timesource.current_time();
 
     let context = ProcessingContext {
-        lib_version,
         sent_at,
         token,
         now,

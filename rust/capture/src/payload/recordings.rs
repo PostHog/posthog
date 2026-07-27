@@ -42,7 +42,7 @@ impl RecordingPayload {
 /// handle_recording_payload processes recording (session replay) payloads
 /// This is optimized to avoid the double serialization that would occur
 /// if we went through RawRequest -> Vec<RawEvent> -> process
-#[instrument(skip_all, fields(batch_size, params_lib_version, params_compression))]
+#[instrument(skip_all, fields(batch_size, params_compression))]
 pub async fn handle_recording_payload(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
@@ -74,13 +74,11 @@ pub async fn handle_recording_payload(
     debug_or_info!(chatty_debug_enabled, metadata=?metadata, "extracted metadata");
 
     // Extract payload bytes and metadata using shared helper
-    let (data, compression, lib_version) =
-        extract_payload_bytes(query_params, headers, method, body)?;
+    let (data, compression) = extract_payload_bytes(query_params, headers, method, body)?;
 
     Span::current().record("compression", format!("{compression}"));
-    Span::current().record("lib_version", &lib_version);
 
-    debug_or_info!(chatty_debug_enabled, metadata=?metadata, compression=?compression, lib_version=?lib_version, "extracted payload");
+    debug_or_info!(chatty_debug_enabled, metadata=?metadata, compression=?compression, "extracted payload");
 
     // Decompress the payload
     let payload = decompress_payload(
@@ -90,7 +88,7 @@ pub async fn handle_recording_payload(
         path.as_str(),
     )?;
 
-    debug_or_info!(chatty_debug_enabled, metadata=?metadata, compression=?compression, lib_version=?lib_version, "decompressed payload");
+    debug_or_info!(chatty_debug_enabled, metadata=?metadata, compression=?compression, "decompressed payload");
 
     // Deserialize to RecordingPayload (handles both single event and array)
     let recording_payload: RecordingPayload = serde_json::from_str(&payload)?;
@@ -118,7 +116,6 @@ pub async fn handle_recording_payload(
     let sent_at = query_params.sent_at();
 
     let context = ProcessingContext {
-        lib_version,
         sent_at,
         token,
         now,

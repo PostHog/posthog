@@ -5,11 +5,11 @@ export function makeQuota(overrides: Partial<VisionQuotaApi> = {}): VisionQuotaA
     const now = new Date()
     const daysFromNow = (days: number): string => new Date(now.getTime() + days * 24 * 3600 * 1000).toISOString()
     return {
-        monthly_quota: 10_000,
-        usage_this_month: 0,
+        credit_limit: 10_000,
+        credits_used: 0,
         remaining: 10_000,
         exhausted: false,
-        projected_monthly_observations: 0,
+        projected_monthly_credits: 0,
         period_start: daysFromNow(-10),
         period_end: daysFromNow(20),
         ...overrides,

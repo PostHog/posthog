@@ -24,23 +24,29 @@ import {
     FeatureFlagType,
     PropertyFilterType,
     PropertyOperator,
+    UniversalFiltersGroupValue,
 } from '~/types'
 
 import { filterToMetricConfig } from './metricQueryUtils'
 import { getNiceTickValues } from './MetricsView/shared/utils'
 import {
+    applySessionLinkability,
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
+    getBaselineVariantKey,
     getEventCountQuery,
     getOrderedMetricsWithResults,
+    getSessionLinkabilityEventNames,
     getViewRecordingFilters,
+    getViewRecordingFiltersForVariant,
     getViewRecordingFiltersLegacy,
     isEvenlyDistributed,
     isLegacyExperiment,
     isLegacyExperimentQuery,
     metricResults,
     percentageDistribution,
+    toExperimentWritePayload,
 } from './utils'
 
 describe('utils', () => {
@@ -140,12 +146,7 @@ describe('getViewRecordingFilters', () => {
         secondary_metrics_ordered_uuids: null,
         saved_metrics_ids: [],
         saved_metrics: [],
-        parameters: {
-            feature_flag_variants: [
-                { key: 'control', rollout_percentage: 50 },
-                { key: 'test', rollout_percentage: 50 },
-            ],
-        },
+        parameters: {},
         secondary_metrics: [],
         created_at: null,
         created_by: null,
@@ -365,6 +366,284 @@ describe('getViewRecordingFilters', () => {
     })
 })
 
+describe('getViewRecordingFiltersForVariant', () => {
+    const experimentBase = {
+        id: 1,
+        name: 'test experiment',
+        feature_flag_key: 'my-flag',
+        feature_flag: {
+            id: 1,
+            team_id: 1,
+            key: 'my-flag',
+            name: '',
+            filters: {
+                groups: [],
+                multivariate: {
+                    variants: [
+                        { key: 'control', rollout_percentage: 50 },
+                        { key: 'test', rollout_percentage: 50 },
+                    ],
+                },
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: null,
+        },
+        exposure_criteria: undefined,
+        filters: {},
+        metrics: [],
+        metrics_secondary: [],
+        primary_metrics_ordered_uuids: null,
+        secondary_metrics_ordered_uuids: null,
+        saved_metrics_ids: [],
+        saved_metrics: [],
+        parameters: {},
+        secondary_metrics: [],
+        created_at: null,
+        created_by: null,
+        updated_at: null,
+        user_access_level: AccessControlLevel.Editor,
+    } satisfies Experiment
+
+    const customExposure = {
+        exposure_criteria: {
+            exposure_config: {
+                kind: NodeKind.ExperimentEventExposureConfig,
+                event: 'exposure_event',
+                properties: [
+                    { key: 'foo', value: 'bar', operator: PropertyOperator.IsNot, type: PropertyFilterType.Event },
+                ],
+            },
+        },
+    } satisfies Pick<Experiment, 'exposure_criteria'>
+
+    const variantIn = (key: string, variantKeys: string[]): Record<string, any> => ({
+        key,
+        type: PropertyFilterType.Event,
+        value: variantKeys,
+        operator: PropertyOperator.Exact,
+    })
+    const variantIsSet = (key: string): Record<string, any> => ({
+        key,
+        type: PropertyFilterType.Event,
+        value: PropertyOperator.IsSet,
+        operator: PropertyOperator.IsSet,
+    })
+    const flagExact = {
+        key: '$feature_flag',
+        type: PropertyFilterType.Event,
+        value: 'my-flag',
+        operator: PropertyOperator.Exact,
+    }
+    const customExposureProperty = {
+        key: 'foo',
+        value: 'bar',
+        operator: PropertyOperator.IsNot,
+        type: PropertyFilterType.Event,
+    }
+
+    it.each([
+        {
+            desc: 'default exposure, specific variant: matches exactly that response',
+            experiment: experimentBase,
+            variantKey: 'variantA',
+            expected: [variantIn('$feature_flag_response', ['variantA']), flagExact],
+        },
+        {
+            desc: 'default exposure, all variants: matches the response against every variant, excluding non-enrolled evaluations',
+            experiment: experimentBase,
+            variantKey: undefined,
+            expected: [variantIn('$feature_flag_response', ['control', 'test']), flagExact],
+        },
+        {
+            desc: 'default exposure, all variants with unknown flag variants: falls back to the response being set',
+            experiment: { ...experimentBase, feature_flag: undefined },
+            variantKey: undefined,
+            expected: [variantIsSet('$feature_flag_response'), flagExact],
+        },
+        {
+            desc: 'custom exposure, specific variant: matches exactly that variant stamp',
+            experiment: { ...experimentBase, ...customExposure },
+            variantKey: 'variantA',
+            expected: [customExposureProperty, variantIn('$feature/my-flag', ['variantA'])],
+        },
+        {
+            desc: 'custom exposure, all variants: matches the stamp against every variant, excluding non-enrolled events',
+            experiment: { ...experimentBase, ...customExposure },
+            variantKey: undefined,
+            expected: [customExposureProperty, variantIn('$feature/my-flag', ['control', 'test'])],
+        },
+        {
+            desc: 'custom exposure, all variants with unknown flag variants: falls back to the enrollment stamp being set',
+            experiment: { ...experimentBase, ...customExposure, feature_flag: undefined },
+            variantKey: undefined,
+            expected: [customExposureProperty, variantIsSet('$feature/my-flag')],
+        },
+    ])('$desc', ({ experiment, variantKey, expected }) => {
+        const isCustom = !!experiment.exposure_criteria?.exposure_config
+        expect(getViewRecordingFiltersForVariant(experiment, variantKey)).toEqual([
+            {
+                id: isCustom ? 'exposure_event' : '$feature_flag_called',
+                name: isCustom ? 'exposure_event' : '$feature_flag_called',
+                type: 'events',
+                properties: expected,
+            },
+        ])
+    })
+})
+
+describe('getSessionLinkabilityEventNames', () => {
+    const experimentBase = {
+        id: 1,
+        name: 'test experiment',
+        feature_flag_key: 'my-flag',
+        exposure_criteria: undefined,
+        filters: {},
+        metrics: [],
+        metrics_secondary: [],
+        primary_metrics_ordered_uuids: null,
+        secondary_metrics_ordered_uuids: null,
+        saved_metrics_ids: [],
+        saved_metrics: [],
+        parameters: {},
+        secondary_metrics: [],
+        created_at: null,
+        created_by: null,
+        updated_at: null,
+        user_access_level: AccessControlLevel.Editor,
+    }
+
+    it('collects the default exposure event and every plain-event metric step, deduped, across primary, secondary and shared metrics', () => {
+        const experiment = {
+            ...experimentBase,
+            metrics: [
+                {
+                    kind: NodeKind.ExperimentMetric,
+                    metric_type: ExperimentMetricType.FUNNEL,
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'step1', name: 'step1' },
+                        { kind: NodeKind.ActionsNode, id: 123, name: 'action1' },
+                        // "all events" step: no event name, matches recordings unconditionally, so not checked
+                        { kind: NodeKind.EventsNode, event: null },
+                    ],
+                },
+            ],
+            metrics_secondary: [
+                {
+                    kind: NodeKind.ExperimentMetric,
+                    metric_type: ExperimentMetricType.RATIO,
+                    numerator: { kind: NodeKind.EventsNode, event: 'purchase', name: 'purchase' },
+                    denominator: { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                },
+            ],
+            saved_metrics: [
+                {
+                    metadata: { type: 'primary' },
+                    query: {
+                        kind: NodeKind.ExperimentMetric,
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: 'purchase', name: 'purchase' },
+                    },
+                },
+            ],
+        } satisfies Experiment
+
+        expect(getSessionLinkabilityEventNames(experiment)).toEqual([
+            '$feature_flag_called',
+            'step1',
+            'purchase',
+            '$pageview',
+        ])
+    })
+
+    it('includes a custom exposure event but not a custom exposure action', () => {
+        const withEventExposure = {
+            ...experimentBase,
+            exposure_criteria: {
+                exposure_config: {
+                    kind: NodeKind.ExperimentEventExposureConfig,
+                    event: 'exposure_event',
+                    properties: [],
+                },
+            },
+        } satisfies Experiment
+        expect(getSessionLinkabilityEventNames(withEventExposure)).toEqual(['exposure_event'])
+
+        const withActionExposure = {
+            ...experimentBase,
+            exposure_criteria: {
+                exposure_config: { kind: NodeKind.ActionsNode, id: 123, name: 'action1' },
+            },
+        } satisfies Experiment
+        expect(getSessionLinkabilityEventNames(withActionExposure)).toEqual([])
+    })
+})
+
+describe('applySessionLinkability', () => {
+    const exposureFilter: UniversalFiltersGroupValue = {
+        id: '$feature_flag_called',
+        name: '$feature_flag_called',
+        type: 'events',
+        properties: [],
+    }
+    const purchaseEventFilter: UniversalFiltersGroupValue = {
+        id: 'purchase',
+        name: 'purchase',
+        type: 'events',
+        properties: [],
+    }
+    const checkoutEventFilter: UniversalFiltersGroupValue = {
+        id: 'checkout',
+        name: 'checkout',
+        type: 'events',
+        properties: [],
+    }
+    const purchaseActionFilter: UniversalFiltersGroupValue = { id: 123, name: 'purchase', type: 'actions' }
+
+    it.each([
+        {
+            case: 'keeps everything when nothing is unlinkable',
+            filters: [exposureFilter, purchaseEventFilter],
+            unlinkable: new Set<string>(),
+            expected: {
+                filters: [exposureFilter, purchaseEventFilter],
+                droppedMetricEventCount: 0,
+                exposureUnlinkable: false,
+            },
+        },
+        {
+            case: 'drops unlinkable metric event steps but keeps the rest',
+            filters: [exposureFilter, purchaseEventFilter, checkoutEventFilter],
+            unlinkable: new Set(['purchase']),
+            expected: {
+                filters: [exposureFilter, checkoutEventFilter],
+                droppedMetricEventCount: 1,
+                exposureUnlinkable: false,
+            },
+        },
+        {
+            case: 'lets action steps pass through unchecked even when their name matches',
+            filters: [exposureFilter, purchaseActionFilter],
+            unlinkable: new Set(['purchase']),
+            expected: {
+                filters: [exposureFilter, purchaseActionFilter],
+                droppedMetricEventCount: 0,
+                exposureUnlinkable: false,
+            },
+        },
+        {
+            case: 'empties the filters when the exposure event itself is unlinkable',
+            filters: [exposureFilter, purchaseEventFilter],
+            unlinkable: new Set(['$feature_flag_called']),
+            expected: { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: true },
+        },
+    ])('$case', ({ filters, unlinkable, expected }) => {
+        const input = [...filters]
+        expect(applySessionLinkability(filters, unlinkable)).toEqual(expected)
+        expect(filters).toEqual(input) // does not mutate its input
+    })
+})
+
 describe('getViewRecordingFiltersLegacy', () => {
     const featureFlagKey = 'jan-16-running'
 
@@ -570,55 +849,69 @@ describe('checkFeatureFlagEligibility', () => {
         evaluation_contexts: [],
         bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     }
-    it('throws an error for a remote configuration feature flag', () => {
+    const withVariants = (variantKeys: string[]): FeatureFlagType => ({
+        ...baseFeatureFlag,
+        filters: {
+            ...baseFeatureFlag.filters,
+            multivariate: {
+                variants: variantKeys.map((key) => ({ key, rollout_percentage: 100 / variantKeys.length })),
+            },
+        },
+    })
+
+    it('throws an error for a remote configuration feature flag (no variants)', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }
         expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow(
-            'Feature flag must use multiple variants with control as the first variant.'
-        )
-    })
-    it('throws an error for a feature flag without control as the first variant', () => {
-        const featureFlag = {
-            ...baseFeatureFlag,
-            filters: {
-                ...baseFeatureFlag.filters,
-                multivariate: {
-                    variants: [
-                        { key: 'foobar', rollout_percentage: 50 },
-                        { key: 'control', rollout_percentage: 50 },
-                    ],
-                },
-            },
-        }
-        expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow(
-            'Feature flag must have control as the first variant.'
+            'Feature flag must have at least 2 variants (a baseline and at least one test variant).'
         )
     })
     it('throws an error for a feature flag with only one variant', () => {
-        const featureFlag = {
-            ...baseFeatureFlag,
-            filters: {
-                ...baseFeatureFlag.filters,
-                multivariate: { variants: [{ key: 'test', rollout_percentage: 50 }] },
-            },
-        }
-        expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow(
-            'Feature flag must use multiple variants with control as the first variant.'
+        expect(() => featureFlagEligibleForExperiment(withVariants(['test']))).toThrow(
+            'Feature flag must have at least 2 variants (a baseline and at least one test variant).'
         )
     })
+    it('throws an error for a feature flag with more than 20 variants', () => {
+        const manyVariants = Array.from({ length: 21 }, (_, i) => `variant-${i}`)
+        expect(() => featureFlagEligibleForExperiment(withVariants(manyVariants))).toThrow(
+            'Feature flag must have at most 20 variants.'
+        )
+    })
+    it('returns true for a feature flag with exactly 20 variants', () => {
+        const maxVariants = Array.from({ length: 20 }, (_, i) => `variant-${i}`)
+        expect(featureFlagEligibleForExperiment(withVariants(maxVariants))).toEqual(true)
+    })
     it('returns true for a feature flag with control and test variants', () => {
-        const featureFlag = {
-            ...baseFeatureFlag,
-            filters: {
-                ...baseFeatureFlag.filters,
-                multivariate: {
-                    variants: [
-                        { key: 'control', rollout_percentage: 50 },
-                        { key: 'test', rollout_percentage: 50 },
-                    ],
+        expect(featureFlagEligibleForExperiment(withVariants(['control', 'test']))).toEqual(true)
+    })
+    it('returns true for a feature flag without a control variant', () => {
+        expect(featureFlagEligibleForExperiment(withVariants(['foobar', 'test']))).toEqual(true)
+    })
+    it('returns true for a feature flag with control not as the first variant', () => {
+        expect(featureFlagEligibleForExperiment(withVariants(['foobar', 'control']))).toEqual(true)
+    })
+})
+
+describe('getBaselineVariantKey', () => {
+    const experimentWith = (variantKeys: string[], baselineVariantKey?: string): Partial<Experiment> =>
+        ({
+            stats_config: baselineVariantKey ? { baseline_variant_key: baselineVariantKey } : {},
+            feature_flag: {
+                filters: {
+                    multivariate: { variants: variantKeys.map((key) => ({ key, rollout_percentage: 50 })) },
                 },
             },
-        }
-        expect(featureFlagEligibleForExperiment(featureFlag)).toEqual(true)
+        }) as unknown as Partial<Experiment>
+
+    it.each([
+        ['the configured baseline_variant_key', experimentWith(['variant-a', 'variant-b'], 'variant-b'), 'variant-b'],
+        ['control when present and unconfigured', experimentWith(['variant-a', 'control']), 'control'],
+        [
+            'the first variant when control-less and unconfigured',
+            experimentWith(['variant-a', 'variant-b']),
+            'variant-a',
+        ],
+    ])('resolves %s', (_name, experiment, expected) => {
+        expect(getBaselineVariantKey(experiment)).toEqual(expected)
     })
 })
 
@@ -1583,5 +1876,50 @@ describe('getEventCountQuery', () => {
         const query = getEventCountQuery(metric, true)
 
         expect(query).toBeNull()
+    })
+})
+
+describe('toExperimentWritePayload', () => {
+    const featureFlagConfig = {
+        filters: {
+            multivariate: {
+                variants: [
+                    { key: 'control', rollout_percentage: 60 },
+                    { key: 'test', name: 'Test', rollout_percentage: 40 },
+                ],
+            },
+            groups: [{ properties: [], rollout_percentage: 80 }],
+            aggregation_group_type_index: 1,
+            payloads: { test: '"v1"' },
+        },
+        ensure_experience_continuity: false,
+    }
+    const experiment = {
+        name: 'test',
+        // A read projection echoed back on the object; must not travel to the API.
+        feature_flag: { id: 456, key: 'test-flag' },
+        feature_flag_config: featureFlagConfig,
+        parameters: { variant_notes: { control: 'baseline' } },
+    } as unknown as Experiment
+
+    it('moves the draft flag config into the feature_flag field and drops the echoed flag', () => {
+        expect(toExperimentWritePayload(experiment)).toEqual({
+            name: 'test',
+            parameters: { variant_notes: { control: 'baseline' } },
+            feature_flag: featureFlagConfig,
+        })
+    })
+
+    it('omits flag config entirely when linking a pre-existing flag', () => {
+        expect(toExperimentWritePayload(experiment, { omitFlagConfig: true })).toEqual({
+            name: 'test',
+            parameters: { variant_notes: { control: 'baseline' } },
+        })
+    })
+
+    it('sends no feature_flag object when there is no draft flag config', () => {
+        expect(toExperimentWritePayload({ parameters: { variant_notes: {} } } as unknown as Experiment)).toEqual({
+            parameters: { variant_notes: {} },
+        })
     })
 })

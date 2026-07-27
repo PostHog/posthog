@@ -164,7 +164,8 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
 
     def _calculate(self) -> LifecycleQueryResponse:
         query = self.to_query()
-        hogql = to_printed_hogql(query, self.team)
+        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
+        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
 
         response = execute_hogql_query(
             query_type="LifecycleQuery",
@@ -299,7 +300,9 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     def _earliest_timestamp(self) -> datetime | None:
         if self.query.dateRange and self.query.dateRange.date_from == "all":
             # Get earliest timestamp across all series in this insight
-            return get_earliest_timestamp_from_series(team=self.team, series=list(self.query.series or []))
+            return get_earliest_timestamp_from_series(
+                team=self.team, series=list(self.query.series or []), user=self.user
+            )
 
         return None
 
@@ -322,6 +325,9 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     def event_filter(self) -> ast.Expr:
         event_filters: list[ast.Expr] = []
         if not self.is_data_warehouse_series:
+            # Personless (anonymous) events are excluded: lifecycle classifies a user's activity
+            # across periods, which requires a person profile. This makes lifecycle counts lower
+            # than unique-user trends for projects with anonymous traffic.
             event_filters.append(
                 ast.CompareOperation(
                     left=ast.Field(chain=["properties", "$process_person_profile"]),
@@ -344,6 +350,9 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     timings=self.timings,
                 )
             )
+            day_of_week_filter = self.query_date_range.day_of_week_filter_expr(self.timestamp_field)
+            if day_of_week_filter is not None:
+                event_filters.append(day_of_week_filter)
         with self.timings.measure("properties"):
             if self.query.properties is not None and self.query.properties != []:
                 event_filters.append(property_to_expr(self.query.properties, self.team))

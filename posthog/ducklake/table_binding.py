@@ -69,8 +69,7 @@ def _bind_source_tables(database: Any, team_id: int) -> None:
     from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
     from posthog.hogql.errors import ResolutionError
 
-    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-    from products.warehouse_sources.backend.models.table import DataWarehouseTable
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
     schema_name = duckgres_data_imports_schema(team_id)
     tables = (

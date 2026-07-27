@@ -12,7 +12,14 @@ import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsVi
 import { Facet, FacetOption } from './Facet'
 import { facetCountsLogic } from './facetCountsLogic'
 import { facetRailLogic } from './facetRailLogic'
-import { FacetConfig, FacetFilterKey, facetsByGroup, filterFacetsByName, resourceAttributeValues } from './facets'
+import {
+    FacetConfig,
+    FacetFilterKey,
+    facetsByGroup,
+    filterFacetsByName,
+    mergeSelectedIntoOptions,
+    resourceAttributeValues,
+} from './facets'
 
 const DEFAULT_WIDTH_PX = 240
 const COLLAPSE_THRESHOLD_PX = 120
@@ -95,12 +102,18 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
             )
         }
 
-        // Dynamic facet: values + counts come straight from the cross-filtered endpoint (zeros never appear).
+        // Dynamic facet: values + counts come from the cross-filtered endpoint, plus any selected
+        // values it didn't return (zero matches in scope, or below the top-N cutoff) so an active
+        // filter — e.g. from an old saved-view URL — is always visible and removable.
         return (
             <Facet
                 key={facet.key}
                 title={facet.title}
-                options={fetched}
+                options={mergeSelectedIntoOptions(
+                    fetched,
+                    selected,
+                    facet.searchable ? facetSearch[facet.key] : undefined
+                )}
                 selected={selected}
                 onToggle={onToggle}
                 loading={loading}

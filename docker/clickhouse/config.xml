@@ -79,6 +79,14 @@
     <!-- how many threads merge files, default is 16 -->
     <background_pool_size>4</background_pool_size>
 
+    <!-- Since 26.6, CREATE TABLE with a projection sanity-checks the built-in
+         number_of_free_entries_in_pool_to_execute_mutation (20) and
+         number_of_free_entries_in_pool_to_execute_optimize_entire_partition (25)
+         defaults against background_pool_size * this ratio, ignoring our
+         <merge_tree> overrides. 4 * 8 = 32 satisfies both checks without
+         adding merge threads. -->
+    <background_merges_mutations_concurrency_ratio>8</background_merges_mutations_concurrency_ratio>
+
     <!-- Number of workers to recycle connections in background (see also drain_timeout).
          If the pool is full, connection will be drained synchronously. -->
     <!-- <max_threads_for_connection_collector>10</max_threads_for_connection_collector> -->

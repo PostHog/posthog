@@ -506,11 +506,11 @@ class TestResetRestartCountIfStable(BaseTest):
 
 
 class TestSyncSandboxStatus(BaseTest):
-    """_sync_sandbox_status must never promote STARTING → RUNNING — that
+    """sync_sandbox_status must never promote STARTING → RUNNING — that
     path is reserved for start_app after both readiness probes pass."""
 
     def test_sync_does_not_promote_starting_to_running(self):
-        from products.streamlit_apps.backend.logic.app_runtime import _sync_sandbox_status
+        from products.streamlit_apps.backend.logic.app_runtime import sync_sandbox_status
 
         app = StreamlitApp.objects.create(team=self.team, name="T")
         version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
@@ -525,17 +525,17 @@ class TestSyncSandboxStatus(BaseTest):
             mock_sandbox = MagicMock()
             mock_sandbox.is_running.return_value = True
             mock_cls.return_value.get_by_id.return_value = mock_sandbox
-            result = _sync_sandbox_status(sandbox_record)
+            result = sync_sandbox_status(sandbox_record)
 
         assert result.status == StreamlitAppSandbox.Status.STARTING
 
     def test_sync_expires_stuck_starting_to_error(self):
-        from products.streamlit_apps.backend.logic.app_runtime import STARTING_TIMEOUT_SECONDS, _sync_sandbox_status
+        from products.streamlit_apps.backend.logic.app_runtime import STARTING_TIMEOUT_SECONDS, sync_sandbox_status
 
         app = StreamlitApp.objects.create(team=self.team, name="T")
         version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
         # Backdate started_at past the startup budget: started_at is the
-        # reference _sync_sandbox_status uses for the STARTING age check,
+        # reference sync_sandbox_status uses for the STARTING age check,
         # and start_app stamps it on every new attempt.
         sandbox_record = StreamlitAppSandbox.objects.create(
             app=app,
@@ -545,7 +545,7 @@ class TestSyncSandboxStatus(BaseTest):
             started_at=timezone.now() - timedelta(seconds=STARTING_TIMEOUT_SECONDS + 10),
         )
 
-        result = _sync_sandbox_status(sandbox_record)
+        result = sync_sandbox_status(sandbox_record)
         assert result.status == StreamlitAppSandbox.Status.ERROR
         assert "timed out" in result.last_error.lower()
 
@@ -556,7 +556,7 @@ class TestSyncSandboxStatus(BaseTest):
         attempt must NOT be marked as timed out — the age check uses
         started_at which tracks this particular attempt.
         """
-        from products.streamlit_apps.backend.logic.app_runtime import STARTING_TIMEOUT_SECONDS, _sync_sandbox_status
+        from products.streamlit_apps.backend.logic.app_runtime import STARTING_TIMEOUT_SECONDS, sync_sandbox_status
 
         app = StreamlitApp.objects.create(team=self.team, name="T")
         version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
@@ -575,7 +575,7 @@ class TestSyncSandboxStatus(BaseTest):
         )
         sandbox_record.refresh_from_db()
 
-        result = _sync_sandbox_status(sandbox_record)
+        result = sync_sandbox_status(sandbox_record)
 
         assert result.status == StreamlitAppSandbox.Status.STARTING
         assert result.last_error == ""

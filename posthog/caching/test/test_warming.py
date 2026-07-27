@@ -3,7 +3,8 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task
+from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task, warm_insight_cache_task
+from posthog.exceptions import ClickHouseAtCapacity
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -156,3 +157,17 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
         self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[0][0][0], "1234")
         self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[0][0][1], "5678")
         self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[1][0][0], "2345")
+
+
+class TestWarmInsightCacheTask(APIBaseTest):
+    @patch("posthog.caching.warming.capture_exception")
+    @patch("posthog.caching.warming.process_query_dict", side_effect=ClickHouseAtCapacity())
+    def test_capacity_errors_propagate_for_retry_instead_of_being_captured(
+        self, mock_process_query_dict, mock_capture_exception
+    ):
+        insight = Insight.objects.create(team=self.team, query={"kind": "TrendsQuery", "series": []})
+
+        with self.assertRaises(ClickHouseAtCapacity):
+            warm_insight_cache_task(insight.pk, None)
+
+        mock_capture_exception.assert_not_called()

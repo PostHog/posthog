@@ -12,7 +12,7 @@ from posthog.cdp.validation import compile_hog as compile_hog_for_check
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 # The powerplatform branch the migration must splice into stale Microsoft Teams functions.
-POWERPLATFORM_BRANCH = "environment.api.powerplatform.com(:443)?/powerautomate/automations/direct/workflows"
+POWERPLATFORM_BRANCH = "environment.api.powerplatform.com(:443)?/powerautomate/automations/direct/(.*/)?workflows"
 
 # The exact tail shared by the standard 4-branch stock block and the powerplatform.com:443 variant.
 _FOUR_BRANCH_TAIL = "not match(inputs.webhookUrl, '^https://[^/]+.flow.microsoft.com/[^/]+')) {\n    throw Error('Invalid URL. The URL should match either Azure Logic Apps format (https://<region>.logic.azure.com:443/workflows/...), Power Platform format (https://<tenant>.webhook.office.com/webhookb2/...), or Power Automate format (https://<region>.powerautomate.com/... or https://<region>.flow.microsoft.com/...)')"
@@ -295,6 +295,33 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert POWERPLATFORM_BRANCH in function.hog
         self.assertIn("Updated: 1", out.getvalue())
         # The migrated source must be valid Hog - guards against a typo in the replacement's to_string.
+        compile_hog_for_check(function.hog, "destination")
+
+    def test_microsoft_teams_powerplatform_cu_path_migration(self):
+        # A function already deployed with the stale `direct/workflows/` regex, which rejects real
+        # Power Platform environment URLs that carry a cluster segment (e.g. `/cu/11`) in the path.
+        buggy_hog = (
+            "if (not match(inputs.webhookUrl, "
+            "'^https://[^/]+.environment.api.powerplatform.com(:443)?/powerautomate/automations/direct/workflows/.*')) {\n"
+            "    throw Error('Invalid URL. The URL should match ... or Power Platform environment format "
+            "(https://<tenant>.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/...)')\n}"
+        ) + _SEND_BODY
+        function = self._create_teams_function(buggy_hog)
+
+        with patch(
+            "posthog.management.commands.update_hog_function_code.compile_hog",
+            return_value="compiled_bytecode",
+        ):
+            out = StringIO()
+            call_command("update_hog_function_code", replace_key="microsoft-teams-powerplatform-cu-path", stdout=out)
+
+        function.refresh_from_db()
+        # Both the regex and the human-readable example in the error message are widened.
+        assert "automations/direct/(.*/)?workflows/.*'" in function.hog
+        assert "automations/direct/[<cluster>/]workflows/...)'" in function.hog
+        assert "automations/direct/workflows/.*'" not in function.hog
+        assert "automations/direct/workflows/...)'" not in function.hog
+        self.assertIn("Updated: 1", out.getvalue())
         compile_hog_for_check(function.hog, "destination")
 
     def test_microsoft_teams_migration_leaves_functions_without_the_stale_block_untouched(self):

@@ -46,6 +46,45 @@ test('dispatch returns the action result for a known tool + action', async () =>
     assert.deepEqual(out.result, { got: { hi: 'world' } })
 })
 
+test('dispatch unwraps an esbuild-CJS default export (typed-pipeline compiled.js)', async () => {
+    setupToolsDir()
+    // This fixture IS the repo's esbuild output: the janitor's typed pipeline
+    // mandates `export default {...}` source and compiles with esbuild
+    // format:"cjs" (loader:"ts", target:"node20"), which exposes the tool
+    // object as `.default` via a __toCommonJS getter on module.exports — not
+    // a bare `module.exports = {...}` like the fixtures above.
+    writeTool(
+        'typed-echo',
+        `var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var stdin_exports = {};
+__export(stdin_exports, {
+  default: () => stdin_default
+});
+module.exports = __toCommonJS(stdin_exports);
+var stdin_default = { id: "typed-echo", actions: { default: async (args) => ({ ok: true, echo: args.x }) } };
+`
+    )
+    const { dispatch } = freshRequire()
+    const out = await dispatch({ toolId: 'typed-echo', action: 'default', args: { x: 42 } })
+    assert.deepEqual(out.result, { ok: true, echo: 42 })
+})
+
 test('dispatch surfaces a tool-not-found error code', async () => {
     setupToolsDir()
     const { dispatch } = freshRequire()

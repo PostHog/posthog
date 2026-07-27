@@ -15,7 +15,7 @@ from typing import Any
 
 import requests
 
-from posthog.egress.github.limiter import consume_github_installation_sync
+from posthog.egress.github.limiter import classify_github_resource, consume_github_installation_sync
 from posthog.egress.github.observability import record_github_api_exception, record_github_api_response
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
@@ -35,28 +35,32 @@ class GitHubRateLimitError(Exception):
     """GitHub itself rate-limited an outbound call (a 429, or a 403 with a rate-limit body) — the
     reactive, GitHub-side twin of :class:`GitHubEgressBudgetExhausted`. A GitHub egress condition, so it
     lives here (not the model layer); it deliberately does not subclass ``GitHubIntegrationError`` — a
-    transient rate limit isn't a fatal integration failure. Exposes ``is_rate_limit`` /
-    ``retry_after_seconds`` so backoff filters can key off it."""
+    transient rate limit isn't a fatal integration failure. ``retry_after`` (seconds) is the backoff
+    hint; :func:`raise_if_github_rate_limited` always sets it, hand-built instances may not."""
 
     def __init__(self, message: str, reset_at: int | None = None, retry_after: int | None = None):
         super().__init__(message)
-        self.is_rate_limit = True
-        self.retry_after_seconds = float(retry_after) if retry_after is not None else None
         self.reset_at = reset_at
         self.retry_after = retry_after
 
 
 def raise_if_github_rate_limited(response: requests.Response) -> None:
-    """Raise :class:`GitHubRateLimitError` when the response signals a GitHub rate limit (primary
-    403 + body, or secondary 429). Safe to call unconditionally after any GitHub API response."""
+    """Raise :class:`GitHubRateLimitError` when the response signals a GitHub rate limit. Safe to call
+    unconditionally after any GitHub API response. Covers every documented signal: secondary 429,
+    primary 403 with an exhausted window (``X-RateLimit-Remaining: 0``) or a ``Retry-After`` hint,
+    and 403s that only mark the limit in the body (rate limit / abuse detection)."""
     if response.status_code == 429:
         is_rate_limited = True
     elif response.status_code == 403:
-        try:
-            body = response.text
-        except Exception:
-            body = ""
-        is_rate_limited = "rate limit" in body.lower()
+        if response.headers.get("retry-after") or response.headers.get("x-ratelimit-remaining") == "0":
+            is_rate_limited = True
+        else:
+            try:
+                body = response.text
+            except Exception:
+                body = ""
+            body = body.lower()
+            is_rate_limited = "rate limit" in body or "abuse detection" in body
     else:
         return
 
@@ -76,6 +80,9 @@ def raise_if_github_rate_limited(response: requests.Response) -> None:
     retry_after = _int_header("retry-after")
     if retry_after is None and reset_at is not None:
         retry_after = max(1, reset_at - int(time.time()))
+    if retry_after is None:
+        # No timing headers at all (body-only signal) — GitHub's documented guidance is to wait ≥1 minute.
+        retry_after = 60
 
     raise GitHubRateLimitError(
         f"GitHub API rate limit exceeded (resets at {reset_at})",
@@ -91,8 +98,10 @@ class GitHubClient(EgressClient):
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": GITHUB_API_VERSION}
 
-    def _consume(self, scope: str, priority: Priority, source: str) -> bool:
-        return consume_github_installation_sync(scope, priority=priority, source=source)
+    def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
+        return consume_github_installation_sync(
+            scope, resource=classify_github_resource(url), priority=priority, source=source
+        )
 
     def _record_response(
         self, response: requests.Response, *, source: str, scope: str | None, method: str, endpoint: str | None

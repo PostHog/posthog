@@ -7,7 +7,44 @@ from pydantic import BaseModel
 
 from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3, NodeKind
 
+from posthog.hogql import ast
+
 logger = structlog.get_logger(__name__)
+
+
+def build_source_normalization_expr(source_expr: ast.Expr, source_mappings: dict[str, list[str]]) -> ast.Expr:
+    """Map alternative UTM sources onto their primary source ('YouTube' -> 'google'), case-insensitively.
+
+    Shared by the conversion-goal side and the sessions side so both collapse a source the same way —
+    otherwise the two sides of the join would disagree on what 'youtube' is and split into two rows.
+    """
+    lowercase_source = ast.Call(name="lower", args=[source_expr])
+    normalized_expr = source_expr
+
+    # Known gap: the primary is excluded from its own alternatives, so a differently-cased spelling
+    # of it ("Google") passes through unnormalized while the cost side emits "google" — the same
+    # source then splits into two rows. Fixing it changes the SQL at every drill-down level, so it
+    # belongs in its own change.
+    for primary_source, alternative_sources in source_mappings.items():
+        alternatives_only = [s.lower() for s in alternative_sources if s != primary_source]
+        if not alternatives_only:
+            continue
+        normalized_expr = ast.Call(
+            name="if",
+            args=[
+                ast.Call(
+                    name="in",
+                    args=[
+                        lowercase_source,
+                        ast.Array(exprs=[ast.Constant(value=alt) for alt in alternatives_only]),
+                    ],
+                ),
+                ast.Constant(value=primary_source),
+                normalized_expr,
+            ],
+        )
+
+    return normalized_expr
 
 
 def _filter_to_model_fields(goal_dict: dict[str, Any], model: type[BaseModel]) -> dict[str, Any]:

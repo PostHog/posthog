@@ -14,6 +14,7 @@ from llm_gateway.products.config import get_product_config
 from llm_gateway.rate_limiting.cost_refresh import normalize_metric_labels
 from llm_gateway.request_context import (
     get_auth_user,
+    get_effort,
     get_posthog_flags,
     get_posthog_properties,
     get_product,
@@ -63,24 +64,30 @@ _TRUNCATABLE_FIELDS = ("$ai_output_choices", "$ai_input")
 
 
 def _is_product_billable(product: str) -> bool:
-    """Look up the product's billable flag in the central registry. False for
-    unknown products so we never accidentally bill calls we can't attribute.
+    """A product is billable if it bills into a credit bucket in the central
+    registry. False for unknown products so we never accidentally bill calls we
+    can't attribute.
     """
     config = get_product_config(product)
-    return bool(config and config.billable)
+    return config is not None and config.credit_bucket is not None
 
 
 def _apply_owned_event_properties(properties: dict[str, Any], product: str, team_id: int | None) -> None:
     """Enforce gateway-owned event properties, run after caller `x-posthog-property-*` headers are merged.
 
-    `ai_product` and `$ai_billable` are derived from the product config / route and must NOT be
-    overridable by callers — a typo would silently mis-bill or misattribute the generation, so we
-    re-assert them on top of whatever the headers set. `team_id`, in contrast, is a deliberate caller
-    override (a shared-key caller such as signals sets it to the customer team); we only fall back to
-    the authenticated key owner's team when no override was supplied.
+    `ai_product`, `$ai_billable`, and `$ai_effort` are gateway-derived (effort via
+    `ProviderConfig.extract_effort`) and must not be spoofable via headers, so we re-assert them
+    here and drop `$ai_effort` when the gateway found none. `team_id`, in contrast, is a
+    deliberate caller override (e.g. a shared-key caller attributing to a customer team); we only
+    fall back to the key owner's team when no override was supplied.
     """
     properties["ai_product"] = product
     properties["$ai_billable"] = _is_product_billable(product)
+    effort = get_effort()
+    if effort is not None:
+        properties["$ai_effort"] = effort
+    else:
+        properties.pop("$ai_effort", None)
     if team_id is not None:
         properties.setdefault("team_id", team_id)
     # A header-supplied team_id arrives as a string ("42"); store it as an int so the captured

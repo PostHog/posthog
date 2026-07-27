@@ -1,11 +1,11 @@
 import { Message } from 'node-rdkafka'
 
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
-import { KafkaProducerRegistryComponent } from '~/ingestion/common/producer-registry'
+import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
 import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
-} from '~/ingestion/common/producers'
+} from '~/ingestion/common/outputs/producers'
 import { Component, newScope } from '~/ingestion/common/scopes'
 import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
 import {

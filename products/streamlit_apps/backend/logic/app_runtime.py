@@ -17,6 +17,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.ph_client import PH_EU_API_KEY, PH_EU_HOST, PH_US_API_KEY, PH_US_HOST
 from posthog.utils import get_instance_region
 
+from products.streamlit_apps.backend.facade.contracts import AppRuntimeConcurrencyError, AppRuntimeError
 from products.streamlit_apps.backend.logic.oauth import create_sandbox_bridge_token, get_streamlit_oauth_app
 from products.streamlit_apps.backend.logic.zip_validator import MAX_UNCOMPRESSED_SIZE, is_safe_zip_path
 from products.streamlit_apps.backend.models import (
@@ -51,16 +52,6 @@ RESTART_COUNT_STABILITY_SECONDS = 5 * 60
 # 24h TTL). The auto-restart task keys off this exact string to distinguish
 # crashes from user/idle stops.
 TTL_TIMEOUT_LAST_ERROR = "Sandbox terminated (TTL timeout)"
-
-
-class AppRuntimeError(Exception):
-    pass
-
-
-class AppRuntimeConcurrencyError(AppRuntimeError):
-    """Raised when a lifecycle action collides with one already in flight."""
-
-    pass
 
 
 def _get_sandbox_callback_url() -> str:
@@ -293,7 +284,7 @@ def _clear_sync_failures(sandbox_record: StreamlitAppSandbox) -> None:
     cache.delete(_sync_failure_key(sandbox_record))
 
 
-def _sync_sandbox_status(sandbox_record: StreamlitAppSandbox) -> StreamlitAppSandbox:
+def sync_sandbox_status(sandbox_record: StreamlitAppSandbox) -> StreamlitAppSandbox:
     """Sync DB sandbox status with the Modal sandbox state.
 
     Handles only RUNNING→STOPPED (died) and STARTING→ERROR (timed out).
@@ -495,7 +486,7 @@ class AppRuntimeService:
                 "restart_count": app.restart_count,
             }
 
-        sandbox_record = _sync_sandbox_status(sandbox_record)
+        sandbox_record = sync_sandbox_status(sandbox_record)
 
         return {
             "status": sandbox_record.status,
@@ -514,7 +505,7 @@ class AppRuntimeService:
         if not sandbox_record or not sandbox_record.sandbox_id:
             return None
 
-        sandbox_record = _sync_sandbox_status(sandbox_record)
+        sandbox_record = sync_sandbox_status(sandbox_record)
         if sandbox_record.status != StreamlitAppSandbox.Status.RUNNING:
             return None
 

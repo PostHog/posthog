@@ -15,14 +15,16 @@ import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunction
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
 import type { CommonConfig } from '../../common/config'
 import { CdpCoreServicesConfig, createCdpReaderRedisPool, createCdpValkeyShadowPools } from '../cdp-services'
-import { HogExecutorService } from '../services/hog-executor.service'
+import { HogExecutorService, MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from '../services/hog-executor.service'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { IntegrationManagerService } from '../services/managers/integration-manager.service'
 import { TeamWorkflowsConfigService } from '../services/managers/team-workflows-config.service'
+import { EmailSuppressionService } from '../services/messaging/email-suppression.service'
 import { EmailService } from '../services/messaging/email.service'
 import { EmailTrackingCodeSigner } from '../services/messaging/helpers/tracking-code'
+import { PushNotificationService } from '../services/messaging/push-notification.service'
 import { RecipientTokensService } from '../services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService, MonitoringOutput } from '../services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from '../services/monitoring/hog-watcher.service'
@@ -30,11 +32,14 @@ import { EncryptedFields } from '../utils/encryption-utils'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation } from '../utils/invocation-utils'
 import { mirrorCall } from '../utils/mirror-call'
+import { RustVmExecutor } from './rust-vm-executor'
 import { getTransformationFunctions } from './transformation-functions'
 
 export interface HogTransformerConfig {
     siteUrl: string
     hogWatcherSampleRate: number
+    hogRustVmExecutionEnabled: boolean
+    mmdbFileLocation: string
 }
 
 export const hogTransformationDroppedEvents = new Counter({
@@ -85,6 +90,7 @@ export class HogTransformerService implements HogTransformer {
     private invocationResults: CyclotronJobInvocationResult[] = []
     private cachedGeoIp?: GeoIp
     private cachedTransformationFunctions?: ReturnType<typeof getTransformationFunctions>
+    private rustVmExecutor: RustVmExecutor | null
 
     constructor(
         private hogFunctionManager: HogFunctionManagerService,
@@ -96,7 +102,11 @@ export class HogTransformerService implements HogTransformer {
         private geoipService: GeoIPService,
         private redis: RedisV2,
         private config: HogTransformerConfig
-    ) {}
+    ) {
+        this.rustVmExecutor = config.hogRustVmExecutionEnabled
+            ? new RustVmExecutor({ mmdbPath: config.mmdbFileLocation })
+            : null
+    }
 
     public async start(): Promise<void> {}
 
@@ -299,6 +309,7 @@ export class HogTransformerService implements HogTransformer {
                 return {
                     event: null,
                     invocationResults: results,
+                    droppedBy: { id: hogFunction.id, name: hogFunction.name },
                 }
             }
 
@@ -399,13 +410,24 @@ export class HogTransformerService implements HogTransformer {
 
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
-        const result = isLegacyPluginHogFunction(hogFunction)
-            ? await this.pluginExecutor.execute(invocation)
-            : await this.hogExecutor.execute(invocation, {
-                  functions: transformationFunctions,
-                  asyncFunctionsNames: [],
-              })
-        return result
+        if (isLegacyPluginHogFunction(hogFunction)) {
+            return await this.pluginExecutor.execute(invocation)
+        }
+
+        if (this.rustVmExecutor) {
+            const sensitiveValues = this.hogExecutor.getSensitiveValues(hogFunction, globalsWithInputs.inputs)
+            const rustResult = this.rustVmExecutor.execute(invocation, sensitiveValues)
+            // Null means the Rust VM can't run this program (addon not built, unsupported host
+            // function): fall through to the Node VM.
+            if (rustResult) {
+                return rustResult
+            }
+        }
+
+        return await this.hogExecutor.execute(invocation, {
+            functions: transformationFunctions,
+            asyncFunctionsNames: [],
+        })
     }
 
     public async fetchAndCacheHogFunctionStates(functionIds: string[]): Promise<void> {
@@ -450,9 +472,10 @@ export class HogTransformerService implements HogTransformer {
 /**
  * Config needed by the HogTransformer when running inside ingestion.
  * This is CdpCoreServicesConfig (CDP redis, watcher, monitoring, encryption, etc.)
- * plus the ingestion-specific CDP_HOG_WATCHER_SAMPLE_RATE from CommonConfig.
+ * plus the ingestion-specific sample rates from CommonConfig.
  */
-export type HogTransformerServiceConfig = CdpCoreServicesConfig & Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE'>
+export type HogTransformerServiceConfig = CdpCoreServicesConfig &
+    Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE' | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED' | 'MMDB_FILE_LOCATION'>
 
 export interface HogTransformerServiceDeps {
     geoipService: GeoIPService
@@ -483,9 +506,13 @@ export function createHogTransformerService(
     const valkeyShadow = createCdpValkeyShadowPools(config, 'hog-transformer-redis')
 
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
-    const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+    const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+    const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
     const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
+    const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
+        transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
+    })
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -497,9 +524,21 @@ export function createHogTransformerService(
         teamWorkflowsConfigService,
         config.ENCRYPTION_SALT_KEYS,
         config.SITE_URL,
-        trackingCodeSigner
+        trackingCodeSigner,
+        emailSuppressionService
     )
-    const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+    const pushNotificationService = new PushNotificationService(
+        deps.integrationManager,
+        deps.encryptedFields,
+        {
+            trackedFetch: cdpTrackedFetch,
+            maxFetchTimeoutMs: MAX_FETCH_TIMEOUT_MS,
+            maxRetries: config.CDP_FETCH_RETRIES,
+            backoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
+            backoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+        },
+        redis
+    )
     const hogExecutor = new HogExecutorService(
         {
             hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
@@ -507,12 +546,12 @@ export function createHogTransformerService(
             fetchRetries: config.CDP_FETCH_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
-            selfLoopGuardMode: config.CDP_SELF_LOOP_GUARD_MODE,
         },
         { teamManager: deps.teamManager, siteUrl: config.SITE_URL },
         hogInputsService,
         emailService,
-        recipientTokensService
+        recipientTokensService,
+        pushNotificationService
     )
     const pluginExecutor = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(deps.monitoringOutputs)
@@ -556,6 +595,8 @@ export function createHogTransformerService(
         {
             siteUrl: config.SITE_URL,
             hogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
+            hogRustVmExecutionEnabled: config.CDP_HOG_RUST_VM_EXECUTION_ENABLED,
+            mmdbFileLocation: config.MMDB_FILE_LOCATION,
         }
     )
 }

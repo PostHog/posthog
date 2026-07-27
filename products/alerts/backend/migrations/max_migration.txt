@@ -1,1 +1,1 @@
-0002_migrate_product_analytics_models
+0003_alter_alertconfiguration_calculation_interval

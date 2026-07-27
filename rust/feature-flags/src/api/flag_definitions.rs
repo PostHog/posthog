@@ -238,12 +238,12 @@ pub async fn flags_definitions(
     ))
 }
 
-fn format_weak_etag(raw: &str) -> String {
+pub(crate) fn format_weak_etag(raw: &str) -> String {
     format!("W/\"{}\"", raw)
 }
 
 /// Build a 304 Not Modified response with ETag and Cache-Control headers.
-fn not_modified_response(etag: &str) -> Response {
+pub(crate) fn not_modified_response(etag: &str) -> Response {
     (
         StatusCode::NOT_MODIFIED,
         [
@@ -275,7 +275,7 @@ fn ok_response_with_etag(data: Value, etag: Option<&str>) -> Response {
 ///
 /// Handles both strong ETags (`"abc123"`) and weak ETags (`W/"abc123"`) per RFC 7232.
 /// Returns `None` if the header is absent or empty.
-fn extract_etag_from_header(header: Option<&axum::http::HeaderValue>) -> Option<String> {
+pub(crate) fn extract_etag_from_header(header: Option<&axum::http::HeaderValue>) -> Option<String> {
     let value = header?.to_str().ok()?;
     let trimmed = value.trim();
     if trimmed.is_empty() {

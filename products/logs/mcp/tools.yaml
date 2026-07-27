@@ -67,9 +67,22 @@ tools:
             idempotent: false
         title: Attach alert destination
         description: >
-            Attach a notification destination (Slack channel or webhook) to a log alert. Without a destination an alert
-            evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved, broken,
-            errored) atomically — the returned hog_function_ids identify the destination group.
+            Attach a Slack, webhook, or Microsoft Teams notification destination to a log alert. Without a destination
+            an alert evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved,
+            broken, errored) atomically. The returned hog_function_ids identify the destination group.
+        param_overrides:
+            type:
+                description: >
+                    Destination type. Use slack, webhook, or teams. Slack requires slack_workspace_id and
+                    slack_channel_id. Webhook and teams require webhook_url.
+            slack_workspace_id:
+                description: Slack workspace integration ID. Required when type is slack.
+            slack_channel_id:
+                description: Slack channel ID. Required when type is slack.
+            slack_channel_name:
+                description: Optional Slack channel name used for display.
+            webhook_url:
+                description: Required when type is webhook or teams.
         feature_flag: logs-alerting
         response:
             include:
@@ -355,12 +368,67 @@ tools:
         response:
             include:
                 - results
+    logs-group-by-create:
+        operation: logs_group_by_create
+        enabled: false
     logs-has-logs-retrieve:
         operation: logs_has_logs_retrieve
         enabled: false
-    logs-patterns-create:
-        operation: logs_patterns_create
+    logs-metric-rules-create:
+        operation: logs_metric_rules_create
         enabled: false
+    logs-metric-rules-destroy:
+        operation: logs_metric_rules_destroy
+        enabled: false
+    logs-metric-rules-list:
+        operation: logs_metric_rules_list
+        enabled: false
+    logs-metric-rules-partial-update:
+        operation: logs_metric_rules_partial_update
+        enabled: false
+    logs-metric-rules-retrieve:
+        operation: logs_metric_rules_retrieve
+        enabled: false
+    logs-metric-rules-update:
+        operation: logs_metric_rules_update
+        enabled: false
+    logs-patterns:
+        operation: logs_patterns_create
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Mine log patterns
+        description_file: ./prompts/logs-patterns.md
+        feature_flag: logs-patterns-view
+        response:
+            exclude:
+                - patterns.*.examples
+                - patterns.*.sparkline
+                - patterns.*.count
+                - patterns.*.error_count
+                - sparkline_buckets
+    logs-patterns-diff:
+        operation: logs_patterns_diff_create
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Diff log patterns between two windows
+        description_file: ./prompts/logs-patterns-diff.md
+        feature_flag: logs-patterns-view
+        response:
+            exclude:
+                - entries.*.pattern.examples
+                - entries.*.pattern.sparkline
+                - entries.*.pattern.count
+                - entries.*.pattern.error_count
     logs-sampling-rules-create:
         operation: logs_sampling_rules_create
         enabled: false

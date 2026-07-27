@@ -70,6 +70,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_global_shutdown_timeout(Duration::from_secs(30))
         .build();
 
+    // Shutdown order is the inverse of the leader's: the gRPC server
+    // drains first (phase 0) while the routing table, coordinator, and
+    // discovery stay alive to serve its in-flight requests and keep
+    // acking freezes; they stop in phase 1, at which point the
+    // coordinator exits cleanly and revokes the election lease so another
+    // router takes over coordination immediately.
     let grpc_handle = manager.register(
         "grpc-server",
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
@@ -83,23 +89,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (routing_table_handle, coordinator_handle) = if config.router_mode == RouterMode::Leader {
         let rt = manager.register(
             "routing-table",
-            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+            ComponentOptions::new()
+                .with_graceful_shutdown(Duration::from_secs(5))
+                .with_shutdown_phase(1),
         );
-        let coord = manager.register(
-            "coordinator",
-            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
-        );
-        (Some(rt), Some(coord))
+        let coord = config.coordinator_enabled.then(|| {
+            manager.register(
+                "coordinator",
+                ComponentOptions::new()
+                    .with_graceful_shutdown(Duration::from_secs(5))
+                    .with_shutdown_phase(1),
+            )
+        });
+        (Some(rt), coord)
     } else {
         (None, None)
     };
 
     // Register discovery handle before monitor_background() consumes the manager
     let discovery_handle = if config.replica_discovery_mode == ReplicaDiscoveryMode::K8s {
-        Some(manager.register(
-            "replica-discovery",
-            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
-        ))
+        Some(
+            manager.register(
+                "replica-discovery",
+                ComponentOptions::new()
+                    .with_graceful_shutdown(Duration::from_secs(5))
+                    .with_shutdown_phase(1),
+            ),
+        )
     } else {
         None
     };
@@ -255,16 +271,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             RoutingTable::new(Arc::clone(&store), routing_table_config);
 
         let shared_table = coordination_routing_table.table_handle();
-        let leader_port = config.leader_port;
+        // Addresses come from the same etcd records that carry ownership
+        // (each pod registers its advertised host:port, and the
+        // coordinator copies it into handoffs and assignments), so a
+        // routable owner is always dialable — there is no separate
+        // discovery or DNS step to lag behind the routing table.
+        let leader_addresses = coordination_routing_table.addresses_handle();
         let leader_backend = Arc::new(LeaderBackend::new(
             shared_table,
-            Arc::new(move |pod_name: &str| Some(format!("http://{}:{}", pod_name, leader_port))),
+            Arc::new(move |pod_name: &str| {
+                leader_addresses
+                    .read()
+                    .expect("addresses lock poisoned")
+                    .get(pod_name)
+                    .map(|address| format!("http://{address}"))
+            }),
             LeaderBackendConfig {
                 num_partitions,
                 timeout: config.backend_timeout(),
                 retry_config: config.retry_config(),
-                max_send_message_size: config.grpc_max_send_message_size,
-                max_recv_message_size: config.grpc_max_recv_message_size,
             },
             StashTable::with_bounds(
                 config.stash_max_messages_per_partition,
@@ -292,49 +317,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
-        // K8s awareness (optional)
-        let k8s_cancel = CancellationToken::new();
-        let k8s_awareness = if config.k8s_awareness_enabled {
-            let namespace = config
-                .resolve_k8s_namespace()
-                .expect("k8s awareness enabled but namespace resolution failed");
-            let client = kube::Client::try_default()
-                .await
-                .expect("failed to create K8s client");
-            tracing::info!(%namespace, "K8s awareness enabled");
-            Some(Arc::new(K8sAwareness::new(
-                client,
-                namespace,
-                k8s_cancel.child_token(),
-            )))
+        // Start coordinator (leader election + partition assignment),
+        // unless this router opted out of candidacy. K8s awareness only
+        // feeds the coordinator's placement decisions, so it starts (and
+        // stops) with it.
+        if let Some(coordinator_handle) = coordinator_handle {
+            let k8s_cancel = CancellationToken::new();
+            let k8s_awareness = if config.k8s_awareness_enabled {
+                let namespace = config
+                    .resolve_k8s_namespace()
+                    .expect("k8s awareness enabled but namespace resolution failed");
+                let client = kube::Client::try_default()
+                    .await
+                    .expect("failed to create K8s client");
+                tracing::info!(%namespace, "K8s awareness enabled");
+                Some(Arc::new(K8sAwareness::new(
+                    client,
+                    namespace,
+                    k8s_cancel.child_token(),
+                )))
+            } else {
+                tracing::info!("K8s awareness disabled");
+                None
+            };
+
+            let coordinator = Coordinator::new(
+                store,
+                CoordinatorConfig {
+                    name: config.pod_name.clone(),
+                    leader_lease_ttl: config.coordinator_lease_ttl,
+                    keepalive_interval: config.coordinator_keepalive_interval(),
+                    election_retry_interval: config.coordinator_election_retry_interval(),
+                    rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
+                    reconcile_interval: config.coordinator_reconcile_interval(),
+                },
+                Arc::new(StickyBalancedStrategy),
+                k8s_awareness,
+            );
+
+            tokio::spawn(async move {
+                let _guard = coordinator_handle.process_scope();
+                if let Err(e) = coordinator.run(coordinator_handle.shutdown_token()).await {
+                    coordinator_handle.signal_failure(format!("Coordinator error: {e}"));
+                }
+                k8s_cancel.cancel();
+            });
         } else {
-            tracing::info!("K8s awareness disabled");
-            None
-        };
-
-        // Start coordinator (leader election + partition assignment)
-        let coordinator_handle =
-            coordinator_handle.expect("coordinator handle must be registered in leader mode");
-        let coordinator = Coordinator::new(
-            store,
-            CoordinatorConfig {
-                name: config.pod_name.clone(),
-                leader_lease_ttl: config.coordinator_lease_ttl,
-                keepalive_interval: config.coordinator_keepalive_interval(),
-                election_retry_interval: config.coordinator_election_retry_interval(),
-                rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
-            },
-            Arc::new(StickyBalancedStrategy),
-            k8s_awareness,
-        );
-
-        tokio::spawn(async move {
-            let _guard = coordinator_handle.process_scope();
-            if let Err(e) = coordinator.run(coordinator_handle.shutdown_token()).await {
-                coordinator_handle.signal_failure(format!("Coordinator error: {e}"));
-            }
-            k8s_cancel.cancel();
-        });
+            tracing::info!("coordinator election disabled; this router never campaigns");
+        }
 
         Some(leader_backend)
     } else {

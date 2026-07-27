@@ -57,7 +57,11 @@ def _slack_destination_payload(action: VisionAction, target: dict[str, Any]) -> 
         "inputs": {
             "slack_workspace": {"value": target["integration_id"]},
             "channel": {"value": _channel_id(target["channel"])},
-            # Hog-templated pass-through of the pre-formatted Slack text carried on the event.
+            # Pre-split section blocks carried on the event: a whole-string template on a json input
+            # resolves to the raw list, so the full report renders as ONE message (Slack never splits
+            # blocks, while `text` over ~4k gets split at arbitrary positions, cutting links in half).
+            "blocks": {"value": "{event.properties.slack_blocks}"},
+            # Fallback + notification preview when blocks are present or missing (pre-blocks runs).
             "text": {"value": "{event.properties.slack_text}"},
         },
     }

@@ -56,6 +56,7 @@ export function DashboardHeader(): JSX.Element | null {
                 isLoading={dashboardLoading}
                 saveOnBlur
                 renameDebounceMs={0}
+                maxButtonLabel="PostHog AI"
                 maxToolProps={
                     dashboard && canEditDashboard
                         ? {

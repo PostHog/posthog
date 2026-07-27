@@ -52,6 +52,8 @@ export function QuarantineTestModal({
     const [customReason, setCustomReason] = useState('')
     const [owner, setOwner] = useState('')
     const [expires, setExpires] = useState<dayjs.Dayjs | null>(dayjs().add(DEFAULT_QUARANTINE_DAYS, 'day'))
+    // 'Edit details' flips a confirm-presentation modal into the full form.
+    const [editing, setEditing] = useState(false)
 
     // Reseed when a new modal opens; keyed on identity so background refreshes don't trample edits.
     useEffect(() => {
@@ -66,7 +68,10 @@ export function QuarantineTestModal({
         // New quarantines suggest the owning team from a product selector; extend keeps the entry's owner.
         setOwner(modal.owner || (modal.action === 'extend' ? '' : inferOwnerFromSelector(modal.selector)))
         setExpires(dayjs().add(DEFAULT_QUARANTINE_DAYS, 'day'))
+        setEditing(false)
     }, [modal])
+
+    const isConfirm = !!modal?.confirm && !editing && !isExtend
 
     const reason = reasonChoice === OTHER_REASON ? customReason.trim() : reasonChoice
     // Backend requires a future expiry within the cap; mirror that so submit can't 400.
@@ -99,6 +104,22 @@ export function QuarantineTestModal({
         })
     }
 
+    // Owner is the one field editable in both presentations (a leaderboard row can't always infer it).
+    const ownerField = (
+        <div>
+            <label className="mb-1 block text-sm font-medium">Owner</label>
+            <LemonInputSelect
+                mode="single"
+                allowCustomValues
+                value={owner ? [owner] : []}
+                onChange={(values) => setOwner(values[0] ?? '')}
+                options={ownerOptions.map((option) => ({ key: option, label: option }))}
+                placeholder="Select the owning team"
+                data-attr="eng-analytics-quarantine-owner"
+            />
+        </div>
+    )
+
     return (
         <LemonModal
             isOpen={!!modal}
@@ -111,6 +132,15 @@ export function QuarantineTestModal({
             }
             footer={
                 <>
+                    {isConfirm && (
+                        <LemonButton
+                            type="tertiary"
+                            onClick={() => setEditing(true)}
+                            data-attr="eng-analytics-quarantine-edit"
+                        >
+                            Edit details
+                        </LemonButton>
+                    )}
                     <LemonButton type="secondary" onClick={onClose} data-attr="eng-analytics-quarantine-cancel">
                         Cancel
                     </LemonButton>
@@ -126,74 +156,89 @@ export function QuarantineTestModal({
                 </>
             }
         >
-            <div className="flex flex-col gap-4">
-                <div>
-                    <label className="mb-1 block text-sm font-medium">Test selector</label>
-                    {isExtend ? (
-                        <div className="rounded bg-surface-secondary px-2 py-1.5 font-mono text-xs text-secondary">
+            {isConfirm ? (
+                // Glanceable confirmation for prefilled openers: selector/reason/expiry are review-only.
+                <div className="flex flex-col gap-4">
+                    <div>
+                        <div className="mb-1 text-sm font-medium">Test selector</div>
+                        <div className="rounded bg-surface-secondary px-2 py-1.5 font-mono text-xs break-all">
                             {selector}
                         </div>
-                    ) : (
-                        <LemonInput
-                            value={selector}
-                            onChange={setSelector}
-                            placeholder="posthog/path/test.py::TestClass::test_method or product:my-product"
-                            autoFocus
+                    </div>
+                    <div>
+                        <div className="mb-1 text-sm font-medium">Reason</div>
+                        <div className="text-sm text-secondary">{reason}</div>
+                    </div>
+                    <div>
+                        <div className="mb-1 text-sm font-medium">Expires</div>
+                        <div className="text-sm">
+                            {expires?.format('MMMM D, YYYY')}
+                            <span className="ml-1 text-tertiary">
+                                (in {DEFAULT_QUARANTINE_DAYS} days — the test gates CI again after this unless extended)
+                            </span>
+                        </div>
+                    </div>
+                    {ownerField}
+                </div>
+            ) : (
+                <div className="flex flex-col gap-4">
+                    <div>
+                        <label className="mb-1 block text-sm font-medium">Test selector</label>
+                        {isExtend ? (
+                            <div className="rounded bg-surface-secondary px-2 py-1.5 font-mono text-xs text-secondary">
+                                {selector}
+                            </div>
+                        ) : (
+                            <LemonInput
+                                value={selector}
+                                onChange={setSelector}
+                                placeholder="posthog/path/test.py::TestClass::test_method or product:my-product"
+                                autoFocus
+                            />
+                        )}
+                    </div>
+
+                    <div>
+                        <label className="mb-1 block text-sm font-medium">Reason</label>
+                        <LemonSelect
+                            value={reasonChoice || null}
+                            onChange={(value) => setReasonChoice(value ?? '')}
+                            options={[
+                                ...REASON_OPTIONS.map((option) => ({ value: option, label: option })),
+                                { value: OTHER_REASON, label: 'Other…' },
+                            ]}
+                            placeholder="Select a reason"
+                            fullWidth
+                            data-attr="eng-analytics-quarantine-reason"
                         />
-                    )}
-                </div>
+                        {reasonChoice === OTHER_REASON && (
+                            <LemonInput
+                                className="mt-2"
+                                value={customReason}
+                                onChange={setCustomReason}
+                                placeholder="Describe the reason"
+                                autoFocus
+                            />
+                        )}
+                    </div>
 
-                <div>
-                    <label className="mb-1 block text-sm font-medium">Reason</label>
-                    <LemonSelect
-                        value={reasonChoice || null}
-                        onChange={(value) => setReasonChoice(value ?? '')}
-                        options={[
-                            ...REASON_OPTIONS.map((option) => ({ value: option, label: option })),
-                            { value: OTHER_REASON, label: 'Other…' },
-                        ]}
-                        placeholder="Select a reason"
-                        fullWidth
-                        data-attr="eng-analytics-quarantine-reason"
-                    />
-                    {reasonChoice === OTHER_REASON && (
-                        <LemonInput
-                            className="mt-2"
-                            value={customReason}
-                            onChange={setCustomReason}
-                            placeholder="Describe the reason"
-                            autoFocus
+                    {ownerField}
+
+                    <div>
+                        <label className="mb-1 block text-sm font-medium">Expires</label>
+                        <LemonCalendarSelectInput
+                            value={expires}
+                            onChange={setExpires}
+                            placeholder="Pick an expiry"
+                            clearable={false}
+                            selectionPeriod="upcoming"
                         />
-                    )}
-                </div>
-
-                <div>
-                    <label className="mb-1 block text-sm font-medium">Owner</label>
-                    <LemonInputSelect
-                        mode="single"
-                        allowCustomValues
-                        value={owner ? [owner] : []}
-                        onChange={(values) => setOwner(values[0] ?? '')}
-                        options={ownerOptions.map((option) => ({ key: option, label: option }))}
-                        placeholder="Select a team"
-                        data-attr="eng-analytics-quarantine-owner"
-                    />
-                </div>
-
-                <div>
-                    <label className="mb-1 block text-sm font-medium">Expires</label>
-                    <LemonCalendarSelectInput
-                        value={expires}
-                        onChange={setExpires}
-                        placeholder="Pick an expiry"
-                        clearable={false}
-                        selectionPeriod="upcoming"
-                    />
-                    <div className="mt-1 text-xs text-tertiary">
-                        At most {MAX_QUARANTINE_DAYS} days out. After this the test gates CI again unless extended.
+                        <div className="mt-1 text-xs text-tertiary">
+                            At most {MAX_QUARANTINE_DAYS} days out. After this the test gates CI again unless extended.
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
         </LemonModal>
     )
 }

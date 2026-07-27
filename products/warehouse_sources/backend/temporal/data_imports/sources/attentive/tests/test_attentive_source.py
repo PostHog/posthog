@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.attentive.
     AttentiveSource,
     _webhook_table_transformer,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AttentiveSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.attentive import (
+    AttentiveSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

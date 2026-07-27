@@ -233,6 +233,85 @@ export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Update one `.md` file on a draft revision.
+ *
+ * `agent.md` writes go to the draft bundle. `skills/<id>/SKILL.md`
+ * writes are store-backed — skills are materialized from the skill
+ * store at freeze, so the edit publishes a new version of the
+ * referenced store skill and re-pins the draft's `skill_refs` entry
+ * to it. `<id>` must be a ref alias on this revision; add new skills
+ * via `bundle/import/` or `skill_refs`. Tool source / schema editing
+ * is out of scope here — use the per-tool endpoints. Returns the
+ * updated revision so the caller can refresh in one round-trip.
+ */
+export const AgentApplicationsRevisionsBundleFileUpdateBody = /* @__PURE__ */ zod
+    .object({
+        path: zod
+            .string()
+            .describe(
+                'Canonical bundle path. Must be `agent.md` or `skills\/<id>\/SKILL.md` where `<id>` is a skill-reference alias on this revision.'
+            ),
+        content: zod
+            .string()
+            .describe(
+                'The new file contents. For `agent.md`, written verbatim to the draft bundle. For a skill, published as a new version of the referenced store skill — shared with every agent that references it. SKILL.md frontmatter (description, license, allowed-tools, metadata) is honoured when present; body-only content carries those fields forward.'
+            ),
+    })
+    .describe(
+        "Body shape for PUT \/revisions\/<id>\/bundle\/file\/.\n\nEdits one `.md` file on a draft revision. `agent.md` writes go to the\ndraft bundle. `skills\/<id>\/SKILL.md` writes are store-backed: the edit\npublishes a new version of the referenced skill-store skill and re-pins\nthe draft's `skill_refs` entry to it — skills are materialized from the\nstore at freeze, so the store is the single source of truth. Tool\nsource \/ schema editing is out of scope here; use the per-tool endpoint."
+    )
+
+/**
+ * Bulk-merge a set of `.md` files into a draft revision.
+ *
+ * Sets `agent_md` on the draft bundle if present. `skills[]` are
+ * store-backed and merge by `id`: an id already referenced by the
+ * draft publishes a new version of its store skill; an unreferenced
+ * id attaches the store skill of that name (publishing the payload's
+ * body to it), or creates it when no such skill exists — and each
+ * ref is (re-)pinned to the published version. Skills not mentioned
+ * are left alone, so the import is safe to retry. Draft-only;
+ * non-draft revisions return 409 untouched.
+ */
+export const AgentApplicationsRevisionsBundleImportCreateBody = /* @__PURE__ */ zod
+    .object({
+        agent_md: zod
+            .string()
+            .optional()
+            .describe('New `agent.md` contents. When omitted, the existing agent.md is left alone.'),
+        skills: zod
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .describe(
+                                'Skill id. Lowercase letters, digits, hyphens, or underscores; must start and end with `[a-z0-9]`.'
+                            ),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'One-line summary shown in the skill index. Required when creating a new skill; optional when updating one.'
+                            ),
+                        body: zod
+                            .string()
+                            .describe("The skill's markdown body, published as a new version of the store skill."),
+                    })
+                    .describe(
+                        'One skill entry in a bulk-import payload.\n\nSkills are store-backed: each entry publishes to (or creates) a skill in\nthe skill store and pins a `skill_refs` entry on the draft. The optional\n`description` is honoured when supplied; when omitted on an existing\nskill, the current store description is preserved. Skill `id` must match\nthe canonical resource-id regex used by the janitor.'
+                    )
+            )
+            .optional()
+            .describe(
+                "Per-skill payloads merged into the skill store by id and pinned onto the draft's skill references. When omitted, no skills are touched."
+            ),
+    })
+    .describe(
+        'Body shape for POST \/revisions\/<id>\/bundle\/import\/.\n\nBulk-paste hatch for migrating an existing multi-file agent. Either\n`agent_md` or `skills` (or both) may be present. Skills merge by `id`\ninto the skill store: an id already referenced by the draft publishes a\nnew version of its store skill; a new id attaches (or creates) the store\nskill of that name and appends a pinned `skill_refs` entry. Skills NOT\nmentioned are left alone — the import is safe to retry.'
+    )
+
+/**
  * Copy every file from `source_revision_id` into this revision.
  */
 export const AgentApplicationsRevisionsCloneFromCreateBody = /* @__PURE__ */ zod
@@ -417,6 +496,32 @@ export const AgentApplicationsRevisionsToolsUpdateBody = /* @__PURE__ */ zod
     .describe('Body shape for PUT \/revisions\/<id>\/tools\/<tool_id>\/.')
 
 /**
+ * Execute one persisted custom tool in a single-shot sandbox.
+ *
+ * Authoring loop's "test this tool" button. The tool's source must
+ * already be PUT (compiled.js is what runs); this just invokes it
+ * with the caller-supplied args and a stubbed ctx. No real secrets
+ * leave Django — `mock_secrets` is a `{name → placeholder}` map.
+ */
+export const AgentApplicationsRevisionsToolsDryRunCreateBody = /* @__PURE__ */ zod
+    .object({
+        args: zod
+            .unknown()
+            .describe(
+                "Synthetic args the tool's `actions.default` is called with. Free-form JSON; the sandbox doesn't validate against the tool's `args_schema` — that's the author's responsibility to keep in sync."
+            ),
+        mock_secrets: zod
+            .record(zod.string(), zod.string())
+            .optional()
+            .describe(
+                'Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox.'
+            ),
+    })
+    .describe(
+        "Body shape for POST \/revisions\/<id>\/tools\/<tool_id>\/dry_run\/.\n\nExecutes the persisted compiled.js once in the janitor's single-shot\nsandbox with caller-supplied args + a stubbed ctx. No real secrets\nleave Django — `mock_secrets` is a `{name → opaque nonce}` map the\nsandbox plumbs into `ctx.secrets.ref(name)` so the tool body returns\nsomething deterministic to the author."
+    )
+
+/**
  * Create a fresh draft revision under `application_id` and seed it
  * from `source_revision_id`. Saves the MCP one round-trip vs the
  * explicit create + clone_from sequence.
@@ -533,6 +638,26 @@ export const AgentApplicationsApprovalsDecideBody = /* @__PURE__ */ zod
     .describe('Body shape for POST \/agent_applications\/<id>\/approvals\/<approval_id>\/decide\/.')
 
 /**
+ * Start a new session on this agent's LIVE (promoted) revision.
+ *
+ * Bridges to ingress `POST /agents/<slug>/run`, forwarding the caller's PAT
+ * so the session principal is the real caller. Returns the new `session_id`;
+ * drive the conversation with `agent-applications-send` and read progress with
+ * `agent-applications-listen`. For non-live / draft revisions use `preview_proxy` instead.
+ */
+export const AgentApplicationsInvokeBody = /* @__PURE__ */ zod
+    .object({
+        message: zod.string().describe('The user message that starts the session. Required, non-empty.'),
+        external_key: zod
+            .string()
+            .optional()
+            .describe(
+                'Optional idempotency \/ threading key. A repeat invoke with the same external_key resumes the existing session instead of starting a new one.'
+            ),
+    })
+    .describe("Body for `agent-applications-invoke` — start a new session on the agent's live (promoted) revision.")
+
+/**
  * Authoring-side proxy for invoking a *draft* (or any non-live) revision.
  *
  * Closes the anonymous-draft-invoke gap: the public ingress URL refuses
@@ -561,3 +686,23 @@ export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
     .describe(
         'Body forwarded verbatim to the agent ingress for a \*preview\* invoke of a\nnon-live revision. The meaningful shape depends on the `rest` path segment:\n\n- `run` — `{ message }`: the user message that starts a new session.\n- `send` — `{ session_id, message }`: append a message to a running session.\n- `cancel` \/ `listen` — no body.\n\nDocuments `message` \/ `session_id` so the generated MCP tool exposes them;\nany extra keys are still forwarded as-is to ingress.'
     )
+
+/**
+ * Append a message to an existing LIVE session and re-queue it.
+ *
+ * Bridges to ingress `POST /agents/<slug>/send`, forwarding the caller's PAT
+ * so the ACL principal-match passes. A `completed` session is NOT terminal —
+ * it's a per-turn idle state for a multi-turn agent, so send re-queues it for
+ * another turn; only truly-terminal states (failed / cancelled / closed) 410,
+ * which passes through as a 410. A janitor ownership pre-check runs first, but
+ * it's redundant defense-in-depth (ingress `/send` already app-scopes the
+ * load), kept for a clean early 404.
+ */
+export const AgentApplicationsSendBody = /* @__PURE__ */ zod
+    .object({
+        session_id: zod
+            .uuid()
+            .describe('The session to append to (returned by agent-applications-invoke). Must belong to this agent.'),
+        message: zod.string().describe('The user message to append. Required, non-empty.'),
+    })
+    .describe('Body for `agent-applications-send` — append a message to an existing live session.')

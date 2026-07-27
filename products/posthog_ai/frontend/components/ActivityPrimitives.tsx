@@ -112,8 +112,12 @@ export function ActivityHeader({
     return (
         <div
             className={clsx(
-                'group/activity-header transition-all duration-500 flex select-none min-w-0',
-                (isPending || isFailed) && 'text-muted',
+                // Explicit transition properties, not transition-all: `all` also catches inherited
+                // scrollbar-color flips from the scrolling ancestor, starting hundreds of no-op
+                // transitions (and full-document style recalcs) whenever the thread is hovered.
+                'group/activity-header transition-colors duration-500 flex select-none min-w-0',
+                isPending && 'text-muted',
+                isFailed && 'text-danger',
                 !isInProgress && !isPending && !isFailed && 'text-default',
                 hasDetails ? 'cursor-pointer' : 'cursor-default',
                 hasDetails && 'rounded px-1 -mx-1 hover:bg-fill-button-tertiary-hover',
@@ -139,7 +143,7 @@ export function ActivityHeader({
                 <div className="relative flex items-center justify-center size-5 shrink-0 overflow-hidden">
                     <span
                         className={clsx(
-                            'inline-flex transition-all duration-200 ease-out',
+                            'inline-flex transition-[color,transform,opacity] duration-200 ease-out',
                             isInProgress && 'text-muted',
                             hasDetails &&
                                 'group-hover/activity-header:-translate-x-1 group-hover/activity-header:scale-90 group-hover/activity-header:opacity-0 group-focus-within/activity-header:-translate-x-1 group-focus-within/activity-header:scale-90 group-focus-within/activity-header:opacity-0'
@@ -148,7 +152,7 @@ export function ActivityHeader({
                         {isInProgress && animate ? <ShimmeringContent>{icon}</ShimmeringContent> : icon}
                     </span>
                     {hasDetails && (
-                        <span className="absolute inline-flex translate-x-1 scale-90 text-tertiary opacity-0 transition-all duration-200 ease-out group-hover/activity-header:translate-x-0 group-hover/activity-header:scale-100 group-hover/activity-header:text-primary group-hover/activity-header:opacity-100 group-focus-within/activity-header:translate-x-0 group-focus-within/activity-header:scale-100 group-focus-within/activity-header:text-primary group-focus-within/activity-header:opacity-100">
+                        <span className="absolute inline-flex translate-x-1 scale-90 text-tertiary opacity-0 transition-[color,transform,opacity] duration-200 ease-out group-hover/activity-header:translate-x-0 group-hover/activity-header:scale-100 group-hover/activity-header:text-primary group-hover/activity-header:opacity-100 group-focus-within/activity-header:translate-x-0 group-focus-within/activity-header:scale-100 group-focus-within/activity-header:text-primary group-focus-within/activity-header:opacity-100">
                             <IconChevronDown className="size-5" />
                         </span>
                     )}
@@ -295,7 +299,7 @@ export function Activity({
     }, [shouldExpandDetails])
 
     return (
-        <div className="flex flex-col rounded transition-all duration-500 w-full min-w-0 gap-1 text-xs">
+        <div className="flex flex-col rounded w-full min-w-0 gap-1 text-xs">
             <ActivityHeader
                 title={title}
                 status={status}

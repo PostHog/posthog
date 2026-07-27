@@ -2,34 +2,22 @@ from enum import StrEnum
 
 from temporalio.exceptions import ApplicationError
 
+from products.replay_vision.backend.error_kinds import FailureKind, IneligibleSessionKind
+
+__all__ = [
+    "INELIGIBLE_SESSION_ERROR_TYPE",
+    "SCANNER_FAILURE_ERROR_TYPE",
+    "ConsentWithdrawnError",
+    "FailureKind",
+    "IneligibleSessionError",
+    "IneligibleSessionKind",
+    "ScannerFailureError",
+]
+
 # Strings survive Temporal's ActivityError wrapping via ApplicationError.type, so the
 # workflow can dispatch on them without parsing exception messages.
 INELIGIBLE_SESSION_ERROR_TYPE = "IneligibleSession"
 SCANNER_FAILURE_ERROR_TYPE = "ScannerFailure"
-
-
-class IneligibleSessionKind(StrEnum):
-    """Reason a scanner couldn't be applied to a session — not a failure, the session doesn't qualify."""
-
-    NO_RECORDING = "no_recording"
-    TOO_SHORT = "too_short"
-    TOO_INACTIVE = "too_inactive"
-    TOO_LONG = "too_long"
-    NO_EVENTS = "no_events"
-
-
-class FailureKind(StrEnum):
-    """User-facing classification of a failed observation; drives the frontend description + advice."""
-
-    PROVIDER_TRANSIENT = "provider_transient"  # AI provider outage / network — retry usually helps
-    PROVIDER_REJECTED = "provider_rejected"  # AI provider couldn't process the video — won't recover
-    RASTERIZATION_FAILED = "rasterization_failed"  # Rasterizer couldn't render this recording — known issue
-    VALIDATION_FAILED = "validation_failed"  # LLM output didn't match the scanner schema after internal retries
-    INTERNAL_ERROR = "internal_error"  # Unclassified / bug paths — user can't fix
-
-    @property
-    def is_retryable(self) -> bool:
-        return self is FailureKind.PROVIDER_TRANSIENT
 
 
 class _KindedApplicationError(ApplicationError):
@@ -56,3 +44,16 @@ class ScannerFailureError(_KindedApplicationError):
 
     def __init__(self, message: str, *, kind: FailureKind) -> None:
         super().__init__(message, kind=kind, type=SCANNER_FAILURE_ERROR_TYPE, non_retryable=not kind.is_retryable)
+
+
+class _ConsentKind(StrEnum):
+    # Kept out of IneligibleSessionKind on purpose: this is a policy abort, not a session-eligibility reason,
+    # so it stays off the DB `error_reason` help text / OpenAPI taxonomy. Surfaced as INELIGIBLE all the same.
+    NO_AI_CONSENT = "no_ai_consent"
+
+
+class ConsentWithdrawnError(_KindedApplicationError):
+    """Org AI data-processing consent was withdrawn before an egress step. Surfaced as INELIGIBLE, never retried."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, kind=_ConsentKind.NO_AI_CONSENT, type=INELIGIBLE_SESSION_ERROR_TYPE)

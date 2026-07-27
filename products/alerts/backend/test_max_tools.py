@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
@@ -354,6 +355,53 @@ class TestUpsertAlertTool(BaseTest):
             )
 
         assert "limited to 1 alerts" in content.lower()
+        assert artifact["error"] == "plan_limit_reached"
+
+    async def _enable_real_time_alerts(self, limit: int) -> None:
+        def _set():
+            self.organization.available_product_features = [
+                *(self.organization.available_product_features or []),
+                {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts", "limit": limit},
+            ]
+            self.organization.save()
+
+        await sync_to_async(_set)()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_rejects_when_real_time_limit_reached(self):
+        await self._enable_real_time_alerts(limit=1)
+        insight = await self._create_insight()
+        await self._create_alert(insight, calculation_interval=AlertCalculationInterval.REAL_TIME)
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            action=CreateAlertAction(
+                name="Over real-time limit",
+                condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                insight_id=insight.id,
+                lower_threshold=100.0,
+                calculation_interval=AlertCalculationInterval.REAL_TIME,
+            )
+        )
+
+        assert "limit of 1 real-time alerts" in content.lower()
+        assert artifact["error"] == "plan_limit_reached"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_update_rejects_enabling_real_time_over_limit(self):
+        await self._enable_real_time_alerts(limit=1)
+        insight = await self._create_insight()
+        await self._create_alert(insight, name="Active", calculation_interval=AlertCalculationInterval.REAL_TIME)
+        disabled = await self._create_alert(
+            insight, name="Disabled", calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=False
+        )
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(disabled.id), enabled=True))
+
+        assert "limit of 1 real-time alerts" in content.lower()
         assert artifact["error"] == "plan_limit_reached"
 
     @pytest.mark.django_db

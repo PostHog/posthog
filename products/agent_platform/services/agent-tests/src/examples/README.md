@@ -17,7 +17,6 @@ walks through the deploy steps. But the source of truth for
 | ---------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------ |
 | [`sre-slack-bot/`](sre-slack-bot/)             | [`../cases/example-sre-bot.test.ts`](../cases/example-sre-bot.test.ts)                         | infant |
 | [`wake-me-up/`](wake-me-up/)                   | [`../cases/example-wake-me-up.test.ts`](../cases/example-wake-me-up.test.ts)                   | infant |
-| [`kudos-bot/`](kudos-bot/)                     | [`../cases/example-kudos-bot.test.ts`](../cases/example-kudos-bot.test.ts)                     | infant |
 | [`agent-approval-demo/`](agent-approval-demo/) | [`../cases/example-agent-approval-demo.test.ts`](../cases/example-agent-approval-demo.test.ts) | ready  |
 
 "Infant" = buildable today against shipped primitives, but

@@ -13,7 +13,7 @@ import pyarrow as pa
 import structlog
 from clickhouse_connect import get_client
 from clickhouse_connect.driver.client import Client as ClickHouseClient
-from clickhouse_connect.driver.exceptions import ClickHouseError
+from clickhouse_connect.driver.exceptions import ClickHouseError, ProgrammingError
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 
@@ -104,11 +104,74 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     "EOF occurred in violation of protocol",
     "Connection reset by peer",
     "Connection aborted",
+    # The egress proxy answered our CONNECT with a transient gateway status
+    # (`http.client` raises `OSError("Tunnel connection failed: <code> ...")`).
+    # 502/503/504 are the proxy or its upstream being briefly unreachable or
+    # overloaded, so a fresh attempt recovers. We match only these gateway
+    # codes, not deterministic proxy responses like 407 (auth required).
+    "Tunnel connection failed: 502",
+    "Tunnel connection failed: 503",
+    "Tunnel connection failed: 504",
+    # The ClickHouse host (or a proxy/gateway in front of it) rate-limited the
+    # request with HTTP 429 ("HTTPDriver for <url> returned response code 429").
+    # A 429 is a transient "back off and retry" signal, not a config error.
+    # clickhouse-connect already retries 429 for queries (query_retries), but
+    # the probe it runs while constructing the client passes retries=0, so a
+    # 429 at connect time reaches us with no retry at all — a bounded backoff
+    # retry here recovers the common transient burst. We match only 429; other
+    # HTTP statuses keep their existing handling (404 is non-retryable in the
+    # source, 5xx stay retryable via Temporal).
+    "returned response code 429",
 )
 
 
 def _is_transient_connect_drop(error_message: str) -> bool:
     return any(substring in error_message for substring in _TRANSIENT_CONNECT_DROP_SUBSTRINGS)
+
+
+# clickhouse-connect surfaces an upstream rate-limit as a full HTTP response
+# ("HTTPDriver for <url> returned response code 429"), not a dropped connection:
+# the request reached the server (or a proxy in front of it) and it told us to
+# slow down. A 429 is explicitly "retry later", so a brief backed-off re-attempt
+# often clears a short rate-limit burst; if it doesn't, the failing Temporal
+# activity stays retryable and recovers later. We match only 429 — other 4xx
+# response codes are deterministic (e.g. 404 stays non-retryable). Matching the
+# stable status phrase keeps the volatile per-request URL out of the comparison.
+_TRANSIENT_RATE_LIMIT_SUBSTRING = "returned response code 429"
+
+# Backoff base between connect retries after a 429. Longer than the connect-drop
+# retry (which just re-dials) to give the rate limit room to clear.
+_RATE_LIMIT_BACKOFF_BASE_SECONDS = 2
+
+
+def _is_rate_limited(error_message: str) -> bool:
+    return _TRANSIENT_RATE_LIMIT_SUBSTRING in error_message
+
+
+def _is_retryable_connect_error(error_message: str) -> bool:
+    return _is_transient_connect_drop(error_message) or _is_rate_limited(error_message)
+
+
+def _apply_session_settings(client: ClickHouseClient, settings: dict[str, Any]) -> None:
+    """Apply session settings, tolerating a server that reports one as readonly.
+
+    Our settings are performance and Arrow-output tuning hints. A readonly user
+    profile (common on managed ClickHouse) reports every setting as readonly, and
+    clickhouse-connect refuses to send those — raising ProgrammingError ("Setting
+    <x> is unknown or readonly"). Passing them at client construction turns that
+    into a fatal connect error that fails the whole sync. Applying them one by one
+    lets us keep the settings the server accepts and fall back to the server
+    default for the rest.
+    """
+    for key, value in settings.items():
+        try:
+            client.set_client_setting(key, value)
+        except ProgrammingError as e:
+            structlog.get_logger().warning(
+                "ClickHouse rejected session setting; falling back to server default",
+                setting=key,
+                exc_info=e,
+            )
 
 
 def _get_client(
@@ -133,7 +196,7 @@ def _get_client(
     attempt = 0
     while True:
         try:
-            return get_client(
+            client = get_client(
                 host=host,
                 port=port,
                 database=database,
@@ -145,7 +208,6 @@ def _get_client(
                 connect_timeout=CONNECT_TIMEOUT_SECONDS,
                 send_receive_timeout=query_timeout,
                 query_limit=0,  # we manage limits ourselves
-                settings=settings or {},
                 compress=True,
             )
         except (ClickHouseError, OSError, ssl.SSLError) as e:
@@ -155,16 +217,27 @@ def _get_client(
             # the request.
             attempt += 1
             message = str(e)
-            if attempt < _MAX_CONNECT_ATTEMPTS and _is_transient_connect_drop(message):
+            if attempt < _MAX_CONNECT_ATTEMPTS and _is_retryable_connect_error(message):
+                # A 429 is the server asking us to slow down, so back off
+                # exponentially to give the rate limit room to clear; a dropped
+                # connection just needs a re-dial, so a short linear wait is enough.
+                wait = _RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)) if _is_rate_limited(message) else attempt
                 structlog.get_logger().warning(
-                    "Transient ClickHouse connection drop during connect; retrying",
+                    "Transient ClickHouse connect error; retrying",
                     attempt=attempt,
                     max_attempts=_MAX_CONNECT_ATTEMPTS,
+                    wait_seconds=wait,
                     exc_info=e,
                 )
-                time.sleep(attempt)
+                time.sleep(wait)
                 continue
             raise ClickHouseConnectionError(message) from e
+
+        # Apply tuning settings after connect, not at construction, so a readonly
+        # source profile that rejects one degrades to the server default instead
+        # of failing the whole connection.
+        _apply_session_settings(client, settings or {})
+        return client
 
 
 def _strip_type_modifiers(type_name: str) -> tuple[str, bool]:
@@ -891,6 +964,24 @@ def _get_incremental_row_count(
     return int(count) if count is not None else None
 
 
+# clickhouse-connect surfaces a non-2xx HTTP status from the server (or a
+# proxy/LB in front of it) as `HTTPDriver for <url> returned response code <N>`.
+# 429 (rate limited) and the transient gateway codes mean the endpoint can't
+# serve us right now, not that anything we sent was wrong — they clear on their
+# own. A real ClickHouse query error carries a `Code: NNN` instead. We match
+# only these transient statuses so genuine failures still surface.
+_TRANSIENT_HTTP_RESPONSE_SUBSTRINGS: tuple[str, ...] = (
+    "returned response code 429",
+    "returned response code 502",
+    "returned response code 503",
+    "returned response code 504",
+)
+
+
+def _is_transient_http_response(message: str) -> bool:
+    return any(substring in message for substring in _TRANSIENT_HTTP_RESPONSE_SUBSTRINGS)
+
+
 def _get_partition_settings(
     client: ClickHouseClient, database: str, table_name: str, logger: FilteringBoundLogger
 ) -> PartitionSettings | None:
@@ -912,7 +1003,12 @@ def _get_partition_settings(
             parameters={"database": database, "table": table_name},
         )
     except ClickHouseError as e:
-        capture_exception(e)
+        # Partitioning is a best-effort optimization; any failure here degrades
+        # to default partitioning. A transient rate-limit/gateway response from
+        # the source isn't actionable on our side, so don't add error-tracking
+        # noise for it — genuine errors are still captured.
+        if not _is_transient_http_response(str(e)):
+            capture_exception(e)
         logger.debug(f"_get_partition_settings: failed: {e}")
         return None
 

@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import VitallySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vitally import (
+    VitallySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.settings import (
     CUSTOM_OBJECT_SCHEMA_PREFIX,
     ENDPOINTS as VITALLY_ENDPOINTS,
@@ -40,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VitallySource(SimpleSource[VitallySourceConfig]):
+    api_docs_url = "https://docs.vitally.io"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -60,6 +64,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = [
             SourceSchema(
@@ -117,7 +122,11 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: VitallySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: VitallySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         subdomain_regex = re.compile("^[a-zA-Z-]+$")
         if config.region.selection == "US" and not subdomain_regex.match(config.region.subdomain):

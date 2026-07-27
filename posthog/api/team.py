@@ -12,6 +12,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
@@ -56,6 +57,7 @@ from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
+from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -103,20 +105,70 @@ tracer = trace.get_tracer(__name__)
 
 class TeamLogsConfigSerializer(serializers.ModelSerializer):
     logs_distinct_id_attribute_key = serializers.CharField(
-        max_length=200,
+        read_only=True,
         help_text=(
-            "Log attribute key whose value should match a person's distinct_id. "
-            "Used by the person profile Logs tab and the `query-logs` MCP tool. "
-            "Defaults to 'posthogDistinctId' — the convention documented at "
+            "Legacy single-key alias — always the first entry of "
+            "`logs_distinct_id_attribute_keys`. Read-only; write the plural field instead."
+        ),
+    )
+    logs_distinct_id_attribute_keys = serializers.ListField(
+        # trim_whitespace is the DRF default, but the uniqueness validator below
+        # depends on it — spell it out so it can't drift silently.
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
+        allow_empty=False,
+        max_length=10,
+        help_text=(
+            "Log attribute keys whose values should match a person's distinct_id — a log "
+            "links to a person when any of these attributes equals one of their distinct IDs. "
+            "Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to "
+            "['posthogDistinctId'] — the convention documented at "
             "https://posthog.com/docs/logs/link-session-replay and the key the "
-            "posthog-js / posthog-react-native SDKs auto-attach. Override only if "
-            "your pipeline emits a different attribute."
+            "posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your "
+            "pipeline emits the person identifier under different attributes."
+        ),
+    )
+    logs_session_id_attribute_keys = serializers.ListField(
+        # trim_whitespace is the DRF default, but the uniqueness validator below
+        # depends on it — spell it out so it can't drift silently.
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
+        allow_empty=False,
+        max_length=10,
+        help_text=(
+            "Ordered list of log attribute keys whose values hold the PostHog session ID. "
+            "Detection checks keys in order; the first key with a value wins. Defaults to "
+            "['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs "
+            "auto-attach. Add keys only if your pipeline emits the session ID under "
+            "different attributes."
         ),
     )
 
     class Meta:
         model = TeamLogsConfig
-        fields = ["logs_distinct_id_attribute_key"]
+        fields = [
+            "logs_distinct_id_attribute_key",
+            "logs_distinct_id_attribute_keys",
+            "logs_session_id_attribute_keys",
+        ]
+
+    def _validate_unique_keys(self, value: list[str]) -> list[str]:
+        # The child CharField already trims whitespace and rejects blanks; only
+        # cross-item uniqueness needs checking here.
+        if len(set(value)) != len(value):
+            raise serializers.ValidationError("Attribute keys must be unique.")
+        return value
+
+    def validate_logs_distinct_id_attribute_keys(self, value: list[str]) -> list[str]:
+        return self._validate_unique_keys(value)
+
+    def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
+        return self._validate_unique_keys(value)
+
+    def update(self, instance: TeamLogsConfig, validated_data: dict) -> TeamLogsConfig:
+        # Keep the legacy single-key column in sync so pre-plural readers stay coherent.
+        keys = validated_data.get("logs_distinct_id_attribute_keys")
+        if keys:
+            validated_data["logs_distinct_id_attribute_key"] = keys[0]
+        return super().update(instance, validated_data)
 
 
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:
@@ -276,6 +328,25 @@ def handle_evaluation_context_suggestions(request: request.Request, team: Team) 
     return response.Response({"success": True, "name": context_name, "hidden_from_suggestions": hidden})
 
 
+def validate_secret_token_generation(team: Team, user: User) -> None:
+    """Rotating an existing legacy secret token stays allowed for safe migration, but minting a
+    first one is blocked once the team has access to project secret API keys."""
+    if team.secret_api_token or team.secret_api_token_backup:
+        return
+    if posthoganalytics.feature_enabled(
+        "project-secret-api-keys",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    ):
+        raise exceptions.ValidationError(
+            "The feature flags secure API key is deprecated. Create a project secret API key with the "
+            "feature_flag:read scope instead."
+        )
+
+
 def _format_serializer_errors(serializer_errors: dict) -> str:
     """Formats DRF serializer errors into a human readable string."""
     error_messages: list[str] = []
@@ -426,6 +497,10 @@ TEAM_CONFIG_ADMIN_FIELDS_SET: set[str] = (TEAM_CONFIG_FIELDS_SET - TEAM_CONFIG_M
     "is_demo",
     "app_urls",
     "access_control",
+    # Renaming a project/environment is admin-only (the settings UI gates TeamDisplayName behind
+    # useRestrictedArea(Admin)). Excluded from the create-time gate below so members allowed to
+    # create projects can still name them.
+    "name",
 }
 
 # Fields that are not member-safe but carry their own `field_access_control` (enforced in
@@ -436,27 +511,22 @@ TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS: set[str] = {"app_urls"}
 
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     events = serializers.JSONField(required=False)
-    goals = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
 
     class Meta:
         model = TeamRevenueAnalyticsConfig
-        fields = ["base_currency", "events", "goals", "filter_test_accounts"]
+        fields = ["base_currency", "events", "filter_test_accounts"]
 
     def to_representation(self, instance):
         repr = super().to_representation(instance)
         if instance.events:
             repr["events"] = [event.model_dump() for event in instance.events]
-        if instance.goals:
-            repr["goals"] = [goal.model_dump() for goal in instance.goals]
         return repr
 
     def to_internal_value(self, data):
         internal_value = super().to_internal_value(data)
         if "events" in internal_value:
             internal_value["_events"] = internal_value["events"]
-        if "goals" in internal_value:
-            internal_value["_goals"] = internal_value["goals"]
         return internal_value
 
 
@@ -713,6 +783,7 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
+    _group_types_cache: list[dict[str, Any]] | None = None
 
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
@@ -809,11 +880,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @tracer.start_as_current_span("team_serializer.has_group_types")
     def get_has_group_types(self, team: Team) -> bool:
-        return bool(cached_group_types_for_team(team))
+        return bool(self._get_group_types(team))
 
     @tracer.start_as_current_span("team_serializer.group_types")
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
-        return cached_group_types_for_team(team)
+        return self._get_group_types(team)
+
+    def _get_group_types(self, team: Team) -> list[dict[str, Any]]:
+        group_types = self._group_types_cache
+        if group_types is None:
+            group_types = cached_group_types_for_team(team)
+            self._group_types_cache = group_types
+        return group_types
 
     @extend_schema_field(serializers.BooleanField())
     @tracer.start_as_current_span("team_serializer.events_retention_enforced")
@@ -1276,7 +1354,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 raise serializers.ValidationError(
                     {"slack_bot_display_name": "Must be 200 characters or fewer with no control characters."}
                 )
-        for toggle_key in ("slack_notify_on_join", "slack_notify_on_leave"):
+        for toggle_key in ("slack_notify_on_join", "slack_notify_on_leave", "slack_nudge_enabled"):
             if toggle_key in value:
                 value[toggle_key] = bool(value[toggle_key])
         if "slack_alert_channel_id" in value:
@@ -1575,7 +1653,26 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **validated_data["modifiers"],
             }
 
-        updated_team = super().update(instance, validated_data)
+        # Persist only the fields this request changes. A full-row save() writes back every
+        # column from this request's snapshot of the team, so two concurrent PATCHes clobber
+        # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
+        # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
+        # bouncing freshly onboarded users back into onboarding.
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if validated_data:
+            # auto_now fields only refresh when included in update_fields
+            instance.save(update_fields=[*validated_data.keys(), "updated_at"])
+        # Snapshot before the cache refresh below so the audit diff only reflects this
+        # request's writes, not fields a concurrent request changed.
+        after_update = instance.__dict__.copy()
+        if validated_data:
+            # The in-memory instance may hold stale values for fields a concurrent request
+            # changed, and the post-save receiver has already cached that snapshot. Reload
+            # and re-cache so the team cache reflects the merged row.
+            instance.refresh_from_db()
+            set_team_in_cache(instance.api_token, instance)
+        updated_team = instance
 
         if "proactive_tasks_enabled" in validated_data:
             # Backward compat for old proactive tasks enabled field, remove after February 2026
@@ -1593,7 +1690,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
                 ).delete()
 
-        changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)
+        changes = dict_changes_between("Team", before_update, after_update, use_field_exclusions=True)
 
         log_activity(
             organization_id=cast(UUIDT, instance.organization_id),
@@ -1609,13 +1706,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             ),
         )
 
+        report_conversations_settings_changes(
+            cast(User, self.context["request"].user),
+            before_update.get("conversations_settings"),
+            updated_team,
+        )
+
         return updated_team
 
     def _update_revenue_analytics_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
         # Capture old config before saving
         old_config = {
             "events": [event.model_dump() for event in (instance.revenue_analytics_config.events or [])],
-            "goals": [goal.model_dump() for goal in (instance.revenue_analytics_config.goals or [])],
             "filter_test_accounts": instance.revenue_analytics_config.filter_test_accounts,
         }
 
@@ -1633,7 +1735,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Log activity for revenue analytics config changes
         new_config = {
             "events": validated_data.get("events", []),
-            "goals": validated_data.get("goals", []),
             "filter_test_accounts": validated_data.get("filter_test_accounts", False),
         }
 
@@ -1926,8 +2027,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         return self.get_object()
 
     def perform_destroy(self, team: Team):
-        from posthog.tasks.tasks import delete_project_data_and_notify_task
-
         # Check if bulk deletion operations are disabled via environment variable
         if settings.DISABLE_BULK_DELETES:
             raise exceptions.ValidationError(
@@ -1938,30 +2037,30 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         organization_id = team.organization_id
         team_name = team.name
 
+        # Remove the team from the org's managed warehouse first (no-op for orgs without
+        # one). Blocks when duckgres refuses — e.g. the warehouse's last team, which
+        # requires deprovisioning the warehouse (or deleting the organization) instead.
+        # Keep the product API off the core import path.
+        from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
+            block_team_deletion,
+        )
+
+        warehouse_block_reason = block_team_deletion(team_id, organization_id)
+        if warehouse_block_reason:
+            raise exceptions.ValidationError(warehouse_block_reason)
+
         user = cast(User, self.request.user)
 
         # Hand off all deletion work (bulky postgres, batch exports, team record,
-        # ClickHouse, email). Route to the durable Temporal workflow when the rollout flag
-        # is enabled for this org; otherwise keep the legacy Celery task.
-        from posthog.temporal.delete_teams.dispatch import (
-            delete_via_temporal_enabled,
-            start_delete_project_data_workflow,
-        )
+        # ClickHouse, email) to the durable Temporal workflow.
+        from posthog.temporal.delete_teams.dispatch import start_delete_project_data_workflow
 
-        if delete_via_temporal_enabled(str(organization_id)):
-            start_delete_project_data_workflow(
-                team_ids=[team_id],
-                project_id=None,  # Only deleting a team, not the whole project
-                user_id=user.id,
-                project_name=team_name,
-            )
-        else:
-            delete_project_data_and_notify_task.delay(
-                team_ids=[team_id],
-                project_id=None,  # Only deleting a team, not the whole project
-                user_id=user.id,
-                project_name=team_name,
-            )
+        start_delete_project_data_workflow(
+            team_ids=[team_id],
+            project_id=None,  # Only deleting a team, not the whole project
+            user_id=user.id,
+            project_name=team_name,
+        )
 
         log_activity(
             organization_id=cast(UUIDT, organization_id),
@@ -1995,6 +2094,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
+        validate_secret_token_generation(team, cast(User, request.user))
         team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
@@ -2075,11 +2175,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @action(
         methods=["GET", "PATCH"],
         detail=True,
-        permission_classes=[TeamMemberLightManagementPermission],
+        permission_classes=[TeamMemberStrictManagementPermission],
         url_path="logs_config",
     )
     def logs_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        """Manage logs product configuration for this environment."""
+        """Manage logs product configuration for this environment. Members can read;
+        writing requires project admin, matching the admin-only settings UI."""
         return handle_logs_config(request, self.get_object())
 
     @action(
@@ -2374,6 +2475,26 @@ class ProjectEnvironmentsViewSet(TeamViewSet):
         )
 
 
+def report_conversations_settings_changes(user: User, before_settings: dict | None, team: Team) -> None:
+    """Fire one "support setting changed" event per changed conversations_settings key.
+
+    Shared by the team and project serializers — both endpoints can PATCH the settings.
+    """
+    old_settings = before_settings or {}
+    new_settings = team.conversations_settings or {}
+    changed_keys = sorted(
+        k for k in old_settings.keys() | new_settings.keys() if old_settings.get(k) != new_settings.get(k)
+    )
+    # One event per changed setting so insights can break down by `setting`.
+    for key in changed_keys:
+        new_value = new_settings.get(key)
+        properties: dict[str, Any] = {"setting": key}
+        # Only non-string values are safe to report — the dict holds free text and the widget token.
+        if isinstance(new_value, (bool, int, float, type(None))):
+            properties["value"] = new_value
+        report_user_action(user, "support setting changed", properties, team=team)
+
+
 def handle_conversations_token_on_update(
     validated_data: dict[str, Any],
     current_conversations_enabled: bool | None,
@@ -2423,8 +2544,9 @@ def validate_team_attrs(
         # On create there's no team yet, so check the creator's org-level membership. Without this a
         # non-admin member (allowed to create projects via members_can_create_projects) could set
         # admin-only team fields like receive_org_level_activity_logs. `is_demo` is excluded — demo
-        # project creation is intentionally open to members and gated separately.
-        admin_fields_touched = (TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo"}) & attrs.keys()
+        # project creation is intentionally open to members and gated separately. `name` is excluded
+        # too — naming a project you're allowed to create is not the same as renaming an existing one.
+        admin_fields_touched = (TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo", "name"}) & attrs.keys()
         if admin_fields_touched:
             membership = OrganizationMembership.objects.filter(
                 user=cast(User, view.request.user), organization_id=view.organization_id
@@ -2478,7 +2600,7 @@ class PremiumMultiEnvironmentPermission(BasePermission):
 
         if request.data.get("is_demo"):
             # Allow one demo team per organization
-            if project.organization.teams.filter(is_demo=True).count() > 0:
+            if project.organization.teams.filter(is_demo=True).exists():
                 return False
             return True
 

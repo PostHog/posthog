@@ -150,6 +150,11 @@ class SnowflakePrinter(PostgresPrinter):
     def _get_passthrough_functions(self) -> frozenset[str]:
         return SNOWFLAKE_PASSTHROUGH_FUNCTIONS
 
+    def _get_distinct_capable_handlers(self) -> frozenset[str]:
+        # count() is handler-backed here (for the count(*) special case) but Snowflake
+        # fully supports COUNT(DISTINCT expr), so let the distinct flag through.
+        return frozenset({"count"})
+
     # --- ClickHouse-only SELECT clauses
     #
     # The inherited (base) visit_select_query emits these verbatim; Snowflake has no

@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from posthog.schema import (
     AlertCondition,
     AlertConditionType,
@@ -29,13 +31,20 @@ def _breach_messages(
     series: str | None = None,
     is_current_interval: bool = False,
     unit: str = "",
+    value_formatter: Callable[[float], str] | None = None,
 ) -> list[str]:
     is_percentage = threshold_type == InsightThresholdType.PERCENTAGE
 
-    # `unit` (e.g. "%" for funnel conversion rates, which are absolute 0–100 values) keeps the
-    # notification consistent with the configure-time UI. PERCENTAGE thresholds already render their own %.
+    # PERCENTAGE thresholds render the relative-change ratio as their own % and take precedence.
+    # Otherwise a trends ``value_formatter`` mirrors the insight's axis format (currency, prefix,
+    # decimals). Falls back to raw value + ``unit`` (e.g. "%" for funnel conversion rates, which are
+    # absolute 0–100 values) to keep the notification consistent with the configure-time UI.
     def _fmt(value: float) -> str:
-        return f"{value:.2%}" if is_percentage else f"{value}{unit}"
+        if is_percentage:
+            return f"{value:.2%}"
+        if value_formatter is not None:
+            return value_formatter(value)
+        return f"{value}{unit}"
 
     formatted_value = _fmt(calculated_value)
 
@@ -143,6 +152,7 @@ def evaluate_threshold(
             series=s.label,
             is_current_interval=s.is_current_interval,
             unit=result.unit,
+            value_formatter=result.value_formatter,
         )
         if breaches:
             if not result.aggregate_breaches:

@@ -1,0 +1,3 @@
+id,user_id,distinct_id,event_time,prop_1
+1,alice,shared,2023-01-01,a
+2,bob,shared,2023-01-01,b

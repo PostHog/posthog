@@ -17,7 +17,8 @@ const markdownLoader = {
 
 // Two projects run under a single `pnpm test` invocation:
 //   - `unit`    → fast Node-pool suite (default pool, ~2s)
-//   - `workers` → DO/runtime integration via @cloudflare/vitest-pool-workers
+//   - `workers` → edge-proxy worker entry-point HTTP behavior via
+//                 @cloudflare/vitest-pool-workers
 // Integration tests that need a real PostHog backend stay in their own
 // config (vitest.integration.config.mts) — they boot the full stack and
 // aren't suitable for the default run.

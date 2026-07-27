@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from threading import Barrier
 from uuid import UUID
 
@@ -11,7 +11,9 @@ from unittest.mock import patch
 from django.db import close_old_connections, connection, transaction
 from django.db.utils import IntegrityError
 
-from posthog.models import Team
+from parameterized import parameterized
+
+from posthog.models import Team, User
 
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
@@ -259,6 +261,43 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
             ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
             ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
 
+    @parameterized.expand(
+        [
+            # (source assignees, target assignee, expected target assignee after merge)
+            ("single_source_assignee_adopted", ["a"], None, "a"),
+            ("repeated_same_source_assignee_adopted", ["a", "a"], None, "a"),
+            ("single_assignee_with_unassigned_sources_adopted", ["a", None, None], None, "a"),
+            ("ambiguous_distinct_assignees_left_unassigned", ["a", "b"], None, None),
+            ("ambiguous_distinct_assignees_with_unassigned_left_unassigned", ["a", "b", None], None, None),
+            ("no_source_assignees_left_unassigned", [None, None], None, None),
+            ("target_assignee_takes_precedence", ["a"], "b", "b"),
+        ]
+    )
+    def test_merge_adopts_single_source_assignee(self, _name, source_keys, target_key, expected_key):
+        users = {"a": self.user, "b": User.objects.create(email="merge_assignee_b@posthog.com")}
+
+        def assign(issue: ErrorTrackingIssue, key: str | None) -> None:
+            if key is not None:
+                ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, user=users[key])
+
+        target = self.create_issue(["target_fingerprint"])
+        assign(target, target_key)
+
+        source_ids = []
+        for index, key in enumerate(source_keys):
+            source = self.create_issue([f"source_fingerprint_{index}"])
+            assign(source, key)
+            source_ids.append(source.id)
+
+        target.merge(issue_ids=source_ids)
+
+        assignment = ErrorTrackingIssueAssignment.objects.filter(issue_id=target.id).first()
+        if expected_key is None:
+            assert assignment is None
+        else:
+            assert assignment is not None
+            assert assignment.user_id == users[expected_key].id
+
     @freeze_time("2025-01-01")
     def test_error_tracking_issue_first_seen_earliest_fingerprint(self):
         issue = self.create_issue(["fingerprint_one"])
@@ -273,6 +312,48 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
 
         issue = ErrorTrackingIssue.objects.with_first_seen().get(id=issue.id)
         assert issue.first_seen == fingerprint.first_seen
+
+    def test_list_issues_created_since_filters_and_orders(self):
+        from products.error_tracking.backend.facade import api
+
+        with freeze_time("2020-01-01T00:00:00Z"):
+            ErrorTrackingIssue.objects.create(team=self.team, name="old")
+        with freeze_time("2026-01-02T00:00:00Z"):
+            recent_a = ErrorTrackingIssue.objects.create(team=self.team, name="a")
+        with freeze_time("2026-01-03T00:00:00Z"):
+            recent_b = ErrorTrackingIssue.objects.create(team=self.team, name="b")
+
+        previews = api.list_issues_created_since(team_id=self.team.id, since=datetime(2026, 1, 1, tzinfo=UTC), limit=10)
+
+        # newest first, the 2020 issue excluded
+        assert [p.id for p in previews] == [recent_b.id, recent_a.id]
+
+    def test_list_issues_created_since_respects_limit(self):
+        from products.error_tracking.backend.facade import api
+
+        with freeze_time("2026-01-02T00:00:00Z"):
+            for index in range(3):
+                ErrorTrackingIssue.objects.create(team=self.team, name=f"issue_{index}")
+
+        previews = api.list_issues_created_since(team_id=self.team.id, since=datetime(2026, 1, 1, tzinfo=UTC), limit=2)
+        assert len(previews) == 2
+
+    def test_list_first_fingerprints_returns_earliest_per_issue(self):
+        from products.error_tracking.backend.facade import api
+
+        with freeze_time("2026-01-02T00:00:00Z"):
+            issue_one = self.create_issue(["fp_one_later"])
+        with freeze_time("2026-01-01T00:00:00Z"):
+            ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue_one, fingerprint="fp_one_early")
+        issue_two = self.create_issue(["fp_two"])
+        self.create_issue(["fp_other"])
+
+        fingerprints = api.list_first_fingerprints(team_id=self.team.id, issue_ids=[issue_one.id, issue_two.id])
+
+        assert {f.issue_id: f.fingerprint for f in fingerprints} == {
+            issue_one.id: "fp_one_early",
+            issue_two.id: "fp_two",
+        }
 
     def test_symbol_set_delete_calls_object_storage_delete(self):
         # Create a symbol set with a storage pointer

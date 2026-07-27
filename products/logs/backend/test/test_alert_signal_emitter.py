@@ -3,8 +3,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import LogsAlertStateChangeSignalExtra
-
 from posthog.models import Team
 
 from products.logs.backend.alert_signal_emitter import (
@@ -15,6 +13,7 @@ from products.logs.backend.alert_signal_emitter import (
     signal_action_and_weight,
 )
 from products.logs.backend.alert_state_machine import NotificationAction
+from products.signals.backend.contracts import LogsAlertStateChangeSignalExtra
 
 
 def _notified(action: str = "firing") -> NotifiedAlert:

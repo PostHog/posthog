@@ -3,14 +3,14 @@ import { useActions, useValues } from 'kea'
 import { IconArrowRight, IconChevronDown, IconCursor } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
-import { Logomark } from 'lib/brand/Logomark'
+import { Logomark } from 'lib/brand'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { availableOnboardingProducts, getProductIcon } from 'scenes/onboarding/shared/utils'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import type { ProductKey } from '~/queries/schema/schema-general'
 
 import { OnboardingExitAction } from '../exit'
-import { UseCaseDefinition } from '../productRecommendations'
+import type { UseCaseDefinition } from '../productRecommendations'
 import { productSelectionLogic } from './productSelectionLogic'
 
 type AvailableOnboardingProductKey = keyof typeof availableOnboardingProducts
@@ -46,7 +46,7 @@ function ChoosePathStep(): JSX.Element {
     return (
         <div className="max-w-6xl w-full">
             <div className="flex justify-center mb-4">
-                <Logomark />
+                <Logomark size="md" />
             </div>
             <h1 className="text-4xl font-bold text-center mb-2">{heading}</h1>
             <p className="text-center text-muted mb-8">{subheading}</p>
@@ -153,7 +153,7 @@ function ProductSelectionStep(): JSX.Element {
     return (
         <div className="max-w-6xl w-full">
             <div className="flex justify-center mb-4">
-                <Logomark />
+                <Logomark size="md" />
             </div>
             <h1 className="text-4xl font-bold text-center mb-2">Which products would you like to use?</h1>
             <p className="text-center text-muted mb-8">
@@ -193,6 +193,7 @@ function ProductSelectionStep(): JSX.Element {
             {availableOtherProducts.length > 0 && availableRecommendedProducts.length > 0 && !showAllProducts && (
                 <div className="flex justify-center mt-4">
                     <button
+                        type="button"
                         onClick={() => setShowAllProducts(true)}
                         className="text-muted hover:text-default text-sm flex items-center gap-1 cursor-pointer"
                     >
@@ -238,6 +239,7 @@ function ProductSelectionStep(): JSX.Element {
                     </LemonButton>
                 )}
                 <button
+                    type="button"
                     className="text-muted hover:text-default text-sm cursor-pointer"
                     onClick={() => setStep('choose_path')}
                 >

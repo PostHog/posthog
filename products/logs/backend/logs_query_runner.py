@@ -6,18 +6,21 @@ from zoneinfo import ZoneInfo
 
 from posthog.schema import (
     CachedLogsQueryResponse,
+    FilterLogicalOperator,
     HogQLFilters,
     IntervalType,
     LogPropertyFilter,
     LogPropertyFilterType,
     LogsQuery,
     LogsQueryResponse,
+    PropertyGroupFilterValue,
     PropertyGroupsMode,
     PropertyOperator,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import get_lowercase_index_hint, operator_is_negative, property_to_expr
 
@@ -32,8 +35,17 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 from products.logs.backend.models import DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY, TeamLogsConfig
 
+from products.logs.backend.column_expressions import canonical_key, column_to_expr
+
 if TYPE_CHECKING:
     from posthog.models import Team, User
+
+
+# Bounds the per-request fan-out of user-supplied HogQL expressions. Per-expression cost is already
+# bounded by the query's max_execution_time / max_memory_usage; this just caps how many run at once.
+# Enforced in the runner so every LogsQuery entry point (interactive query endpoint and the
+# server-side CSV export worker) is bounded, not just the interactive one.
+MAX_CUSTOM_COLUMNS = 50
 
 
 LIVE_LOGS_CHECKPOINT_QUERY = parse_select(
@@ -202,6 +214,41 @@ def _get_property_type(value) -> str:
     return "str"
 
 
+def _map_attribute_filter_type(property_filter: LogPropertyFilter) -> LogPropertyFilter:
+    """Suffix a log attribute filter's key with its detected value type so it targets the
+    right typed attributes map (attributes_map_str / attributes_map_float).
+
+    Values that all convert cleanly to float use the __float map; anything else sticks to
+    __str. Datetime is left out until there's a decent UI for datetime filtering. Returns
+    a copy; filters without a value are returned unchanged.
+    """
+    if not property_filter.value:
+        return property_filter
+
+    property_type = "str"
+    if isinstance(property_filter.value, list):
+        property_types = {_get_property_type(v) for v in property_filter.value}
+        # only use the detected type if all given values have the same type
+        # e.g. if values are '1', '2', we can use float, if values are '1', 'a', stick to str
+        if len(property_types) == 1:
+            property_type = property_types.pop()
+    else:
+        property_type = _get_property_type(property_filter.value)
+
+    mapped = property_filter.copy(deep=True)
+    mapped.key = f"{mapped.key}__{property_type}"
+    return mapped
+
+
+def _validated_attribute_group(group: PropertyGroupFilterValue) -> PropertyGroupFilterValue:
+    if not group.values:
+        raise QueryError("Nested filter groups in logs queries must contain at least one filter")
+    for leaf in group.values:
+        if not isinstance(leaf, LogPropertyFilter) or leaf.type != LogPropertyFilterType.LOG_ATTRIBUTE:
+            raise QueryError("Nested filter groups in logs queries support only log_attribute filters")
+    return group
+
+
 class LogsFilterBuilder:
     """Builds HogQL WHERE clause AST from LogsQuery filter fields.
 
@@ -231,8 +278,15 @@ class LogsFilterBuilder:
         self.resource_attribute_negative_filters: list[LogPropertyFilter] = []
         self.log_filters: list[LogPropertyFilter] = []
         self.attribute_filters: list[LogPropertyFilter] = []
+        # Nested groups inside a property group — used to OR one value across several
+        # attribute keys (e.g. matching a person's distinct_id against every configured
+        # `logs_distinct_id_attribute_keys` entry). Only log_attribute leaves supported.
+        self.attribute_filter_groups: list[PropertyGroupFilterValue] = []
         if self.query.filterGroup and len(self.query.filterGroup.values) > 0:
             for property_group in self.query.filterGroup.values:
+                for nested_group in property_group.values:
+                    if isinstance(nested_group, PropertyGroupFilterValue):
+                        self.attribute_filter_groups.append(_validated_attribute_group(nested_group))
                 self.resource_attribute_filters = cast(
                     list[LogPropertyFilter],
                     [
@@ -255,35 +309,15 @@ class LogsFilterBuilder:
                     [f for f in property_group.values if f.type == LogPropertyFilterType.LOG],
                 )
 
-            # dynamically detect type of the given property values
-            # if they all convert cleanly to float, use the __float property mapping instead
-            # we keep multiple attribute maps for different types:
-            # attribute_map_str
-            # attribute_map_float
-            # attribute_map_datetime
-            #
-            # for now we'll just check str and float as we need a decent UI for datetime filtering.
+            # dynamically detect type of the given property values via the typed attribute
+            # maps (attribute_map_str / attribute_map_float) — see _map_attribute_filter_type
             for property_filter in self.query.filterGroup.values[0].values:
                 # we only do the type mapping for log attributes
                 if property_filter.type != LogPropertyFilterType.LOG_ATTRIBUTE:
                     continue
 
                 if isinstance(property_filter, LogPropertyFilter) and property_filter.value:
-                    property_type = "str"
-                    if isinstance(property_filter.value, list):
-                        property_types = {_get_property_type(v) for v in property_filter.value}
-                        # only use the detected type if all given values have the same type
-                        # e.g. if values are '1', '2', we can use float, if values are '1', 'a', stick to str
-                        if len(property_types) == 1:
-                            property_type = property_types.pop()
-                    else:
-                        property_type = _get_property_type(property_filter.value)
-
-                    # defensive copy as we mutate the filter here and don't want to impact other copies
-                    property_filter = property_filter.copy(deep=True)
-                    property_filter.key = f"{property_filter.key}__{property_type}"
-
-                    self.attribute_filters.insert(0, property_filter)
+                    self.attribute_filters.insert(0, _map_attribute_filter_type(property_filter))
 
         if self.exclude_resource_attribute is not None:
             self.resource_attribute_filters = [
@@ -330,6 +364,18 @@ class LogsFilterBuilder:
 
             if self.attribute_filters:
                 exprs.append(property_to_expr(self.attribute_filters, team=self.team))
+
+            for group in self.attribute_filter_groups:
+                leaf_exprs = [
+                    property_to_expr(_map_attribute_filter_type(cast(LogPropertyFilter, leaf)), team=self.team)
+                    for leaf in group.values
+                ]
+                if len(leaf_exprs) == 1:
+                    exprs.append(leaf_exprs[0])
+                elif group.type == FilterLogicalOperator.OR_:
+                    exprs.append(ast.Or(exprs=leaf_exprs))
+                else:
+                    exprs.append(ast.And(exprs=leaf_exprs))
 
             if self.log_filters:
                 for log_filter in self.log_filters:
@@ -564,6 +610,11 @@ class LogsQueryRunnerMixin(QueryRunner):
         return self._filter_builder.resource_filter(existing_filters=existing_filters)
 
 
+# Number of fixed SELECT columns in to_query; custom columns are appended after these,
+# so _calculate maps result[_FIXED_COLUMN_COUNT:] onto the custom column aliases.
+_FIXED_COLUMN_COUNT = 15
+
+
 class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
     query: LogsQuery
     cached_response: CachedLogsQueryResponse
@@ -582,6 +633,23 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
 
         raise UserAccessControlError("logs", "viewer")
 
+    @cached_property
+    def _custom_column_aliases(self) -> list[str]:
+        return [canonical_key(text) for text in self.query.customColumns or []]
+
+    def _custom_column_selects(self) -> list[ast.Expr]:
+        custom_columns = self.query.customColumns or []
+        if len(custom_columns) > MAX_CUSTOM_COLUMNS:
+            raise QueryError(f"Too many custom columns: {len(custom_columns)} (max {MAX_CUSTOM_COLUMNS})")
+        selects: list[ast.Expr] = []
+        for text, alias in zip(custom_columns, self._custom_column_aliases):
+            try:
+                expr = column_to_expr(text)
+            except (ValueError, ExposedHogQLError) as e:
+                raise QueryError(f"Invalid custom column {text!r}: {e}")
+            selects.append(ast.Alias(alias=alias, expr=expr))
+        return selects
+
     def _calculate(self) -> LogsQueryResponse:
         response = self.paginator.execute_hogql_query(
             query_type="LogsQuery",
@@ -598,6 +666,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
         for result in response.results:
             results.append(
                 {
+                    **dict(zip(self._custom_column_aliases, result[_FIXED_COLUMN_COUNT:])),
                     "uuid": result[0],
                     "trace_id": result[1],
                     "span_id": result[2],
@@ -619,7 +688,11 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                 }
             )
 
-        return LogsQueryResponse(results=results, **self.paginator.response_params())
+        return LogsQueryResponse(
+            results=results,
+            columns=self._custom_column_aliases or None,
+            **self.paginator.response_params(),
+        )
 
     def run(self, *args, **kwargs) -> LogsQueryResponse | CachedLogsQueryResponse:
         response = super().run(*args, **kwargs)
@@ -655,15 +728,18 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                     "where": self.where(),
                     "live_logs_checkpoint": LIVE_LOGS_CHECKPOINT_QUERY,
                     # Attribute maps dominate payload size. When excluded we still SELECT a column
-                    # (an empty map) so the positional result mapping in _calculate stays stable.
-                    "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
+                    # (an empty map) so the positional result mapping in _calculate stays stable. The
+                    # placeholder must stay unaliased — aliasing it to `attributes`/`resource_attributes`
+                    # would shadow the physical field a WHERE-clause attribute filter needs to resolve.
+                    "attributes": parse_expr("map()" if self.query.excludeAttributes else "attributes"),
                     "resource_attributes": parse_expr(
-                        "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
+                        "map()" if self.query.excludeAttributes else "resource_attributes"
                     ),
                 },
             )
         )
         assert isinstance(query, ast.SelectQuery)
+        query.select.extend(self._custom_column_selects())
         query.order_by = [
             parse_order_expr(f"timestamp {order_dir}"),
             parse_order_expr(f"uuid {order_dir}"),

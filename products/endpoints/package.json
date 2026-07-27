@@ -10,11 +10,14 @@
         "kea-loaders": "catalog:",
         "kea-router": "catalog:"
     },
+    "devDependencies": {
+        "@storybook/react": "catalog:"
+    },
     "peerDependencies": {
         "@posthog/icons": "catalog:",
         "@types/react": "*",
         "clsx": "*",
-        "fast-deep-equal": "*",
+        "fast-equals": "catalog:",
         "fuse.js": "*",
         "react": "*"
     }

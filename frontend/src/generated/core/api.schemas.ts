@@ -117,50 +117,12 @@ export interface OrganizationDomainApi {
     sso_enforcement?: string
     /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
     readonly has_saml: boolean
-    /**
-     * SAML IdP entity ID (issuer).
-     * @maxLength 512
-     * @nullable
-     */
-    saml_entity_id?: string | null
-    /**
-     * SAML single sign-on (ACS) URL.
-     * @maxLength 512
-     * @nullable
-     */
-    saml_acs_url?: string | null
-    /**
-     * SAML IdP X.509 signing certificate (PEM).
-     * @nullable
-     */
-    saml_x509_cert?: string | null
     /** Returns whether SCIM is configured and enabled for this domain. */
     readonly has_scim: boolean
-    /** Whether SCIM provisioning is enabled for this domain. */
-    scim_enabled?: boolean
     /** @nullable */
     readonly scim_base_url: string | null
-    /** @nullable */
-    readonly scim_bearer_token: string | null
     /** Returns whether ID-JAG (XAA) is configured for this domain. */
     readonly has_id_jag: boolean
-    /**
-     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_issuer_url?: string | null
-    /**
-     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_jwks_url?: string | null
-    /**
-     * Allowed ID-JAG client IDs. Empty list allows any client_id.
-     * @items.maxLength 256
-     */
-    id_jag_allowed_clients?: string[]
     /**
      * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
      * @nullable
@@ -191,50 +153,12 @@ export interface PatchedOrganizationDomainApi {
     sso_enforcement?: string
     /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
     readonly has_saml?: boolean
-    /**
-     * SAML IdP entity ID (issuer).
-     * @maxLength 512
-     * @nullable
-     */
-    saml_entity_id?: string | null
-    /**
-     * SAML single sign-on (ACS) URL.
-     * @maxLength 512
-     * @nullable
-     */
-    saml_acs_url?: string | null
-    /**
-     * SAML IdP X.509 signing certificate (PEM).
-     * @nullable
-     */
-    saml_x509_cert?: string | null
     /** Returns whether SCIM is configured and enabled for this domain. */
     readonly has_scim?: boolean
-    /** Whether SCIM provisioning is enabled for this domain. */
-    scim_enabled?: boolean
     /** @nullable */
     readonly scim_base_url?: string | null
-    /** @nullable */
-    readonly scim_bearer_token?: string | null
     /** Returns whether ID-JAG (XAA) is configured for this domain. */
     readonly has_id_jag?: boolean
-    /**
-     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_issuer_url?: string | null
-    /**
-     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_jwks_url?: string | null
-    /**
-     * Allowed ID-JAG client IDs. Empty list allows any client_id.
-     * @items.maxLength 256
-     */
-    id_jag_allowed_clients?: string[]
     /**
      * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
      * @nullable
@@ -603,9 +527,6 @@ export const BusinessModelEnumApi = {
  * * `track_costs` - track_costs
  * * `set_up_llm_evaluation` - set_up_llm_evaluation
  * * `run_ai_playground` - run_ai_playground
- * * `enable_revenue_analytics_viewset` - enable_revenue_analytics_viewset
- * * `connect_revenue_source` - connect_revenue_source
- * * `set_up_revenue_goal` - set_up_revenue_goal
  * * `enable_log_capture` - enable_log_capture
  * * `view_first_logs` - view_first_logs
  * * `create_first_workflow` - create_first_workflow
@@ -677,9 +598,6 @@ export const AvailableSetupTaskIdsEnumApi = {
     TrackCosts: 'track_costs',
     SetUpLlmEvaluation: 'set_up_llm_evaluation',
     RunAiPlayground: 'run_ai_playground',
-    EnableRevenueAnalyticsViewset: 'enable_revenue_analytics_viewset',
-    ConnectRevenueSource: 'connect_revenue_source',
-    SetUpRevenueGoal: 'set_up_revenue_goal',
     EnableLogCapture: 'enable_log_capture',
     ViewFirstLogs: 'view_first_logs',
     CreateFirstWorkflow: 'create_first_workflow',
@@ -1012,7 +930,6 @@ export const BaseCurrencyEnumApi = {
 export interface TeamRevenueAnalyticsConfigApi {
     base_currency?: BaseCurrencyEnumApi
     events?: unknown
-    goals?: unknown
     filter_test_accounts?: boolean
 }
 
@@ -2786,6 +2703,9 @@ export interface SharePasswordApi {
     readonly is_active: boolean
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
@@ -2794,6 +2714,11 @@ export interface SharingConfigurationApi {
     settings?: unknown
     password_required?: boolean
     readonly share_passwords: readonly SharePasswordApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface FileSystemApi {
@@ -2816,6 +2741,11 @@ export interface FileSystemApi {
     readonly created_at: string
     /** @nullable */
     readonly last_viewed_at: string | null
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedFileSystemListApi {
@@ -2847,15 +2777,43 @@ export interface PatchedFileSystemApi {
     readonly created_at?: string
     /** @nullable */
     readonly last_viewed_at?: string | null
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**
  * Payload for publishing a freeform canvas's React source via the agent.
  */
 export interface PatchedCanvasPublishApi {
+    /** The complete single-file React source for the canvas. */
     code?: string
+    /** Short description of the change, stored on the appended version history entry. */
     prompt?: string
+    /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
     name?: string
+    /**
+     * Optimistic-concurrency guard: the currentVersionId the publisher based its edits on (null when it read a canvas with no versions yet). When provided and the canvas has since moved past it (a concurrent publish, or a user's undo) the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded.
+     * @nullable
+     */
+    expected_current_version_id?: string | null
+}
+
+/**
+ * 409 body for a guarded canvas publish based on a stale version.
+ */
+export interface CanvasPublishConflictApi {
+    /** Human-readable description of the conflict and how to recover. */
+    detail: string
+    /** Always "version_conflict". */
+    code: string
+    /**
+     * The canvas's live currentVersionId at rejection time (null when the canvas has no versions).
+     * @nullable
+     */
+    current_version_id: string | null
 }
 
 export interface ContextGenerationApi {
@@ -2963,6 +2921,11 @@ export interface FileSystemShortcutApi {
      */
     order?: number
     readonly created_at: string
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedFileSystemShortcutListApi {
@@ -3001,6 +2964,11 @@ export interface PatchedFileSystemShortcutApi {
      */
     order?: number
     readonly created_at?: string
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 export interface FileSystemShortcutReorderApi {
@@ -3179,6 +3147,8 @@ export interface EnterprisePropertyDefinitionApi {
     readonly verified_by: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
+    /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+    readonly warehouse_origin: unknown
 }
 
 export interface PaginatedEnterprisePropertyDefinitionListApi {
@@ -3211,6 +3181,8 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly verified_by?: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
+    /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+    readonly warehouse_origin?: unknown
 }
 
 /**
@@ -3218,9 +3190,9 @@ export interface PatchedEnterprisePropertyDefinitionApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const ActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -3237,7 +3209,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: ActionEnumApi
+    action: BulkUpdateTagsActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }
@@ -3355,6 +3327,8 @@ export interface OrganizationApi {
      */
     members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
+    /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+    members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
     /** @nullable */
@@ -3477,6 +3451,7 @@ export const ShortcutPositionEnumApi = {
  * * `delegated` - Delegated to teammate
  * * `later` - Skipped for later
  * * `other` - Other
+ * * `provisioned` - Account provisioned by a partner
  */
 export type OnboardingSkippedReasonEnumApi =
     (typeof OnboardingSkippedReasonEnumApi)[keyof typeof OnboardingSkippedReasonEnumApi]
@@ -3485,6 +3460,7 @@ export const OnboardingSkippedReasonEnumApi = {
     Delegated: 'delegated',
     Later: 'later',
     Other: 'other',
+    Provisioned: 'provisioned',
 } as const
 
 /**
@@ -3538,6 +3514,11 @@ export interface UserApi {
     readonly is_impersonated_until: string | null
     /** @nullable */
     readonly is_impersonated_read_only: boolean | null
+    /**
+     * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+     * @nullable
+     */
+    readonly is_impersonated_reason: string | null
     /** @nullable */
     readonly sensitive_session_expires_at: string | null
     readonly team: TeamBasicApi
@@ -3640,6 +3621,11 @@ export interface PatchedUserApi {
     readonly is_impersonated_until?: string | null
     /** @nullable */
     readonly is_impersonated_read_only?: boolean | null
+    /**
+     * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+     * @nullable
+     */
+    readonly is_impersonated_reason?: string | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
     readonly team?: TeamBasicApi
@@ -3753,9 +3739,24 @@ export interface GitHubBranchesResponseApi {
 }
 
 export interface GitHubRepoApi {
+    /** GitHub repository numeric identifier. */
     id: number
+    /** Repository short name (without the owner prefix). */
     name: string
+    /** Fully-qualified repository name as 'owner/repo'. */
     full_name: string
+    /** Whether the repository is private. */
+    private?: boolean
+    /** The repository's default branch (e.g. 'main'). */
+    default_branch?: string
+    /** Primary programming language GitHub detected for the repository. */
+    language?: string
+    /** ISO 8601 timestamp of the most recent push, useful for sorting by recent activity. */
+    pushed_at?: string
+    /** Whether the repository is archived. */
+    archived?: boolean
+    /** Whether the PostHog GitHub App has write access — required to open pull requests. */
+    can_push?: boolean
 }
 
 export interface GitHubReposResponseApi {
@@ -3776,7 +3777,7 @@ export interface UserGitHubPrepareCallbackRequestApi {
 
 export interface UserGitHubLinkStartRequestApi {
     /**
-     * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
+     * Optional team/project id (e.g. PostHog Desktop); web UI uses the session's current team.
      * @nullable
      */
     team_id?: number | null

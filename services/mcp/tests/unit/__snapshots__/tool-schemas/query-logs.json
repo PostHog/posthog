@@ -8,6 +8,14 @@
                     "description": "Pagination cursor from previous response.",
                     "type": "string"
                 },
+                "customColumns": {
+                    "default": [],
+                    "description": "Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "dateRange": {
                     "description": "Date range for the query. Defaults to last hour.",
                     "properties": {

@@ -14,8 +14,14 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+    WarehouseColumnAnnotation,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestTableDescriptions(APIBaseTest):
@@ -120,7 +126,7 @@ class TestTableDescriptions(APIBaseTest):
     def test_resolves_static_field_description_for_native_tables(self):
         # Native tables carry their descriptions on the field objects, not in an annotation model.
         # Both consumers (information_schema and read_data) rely on the resolver surfacing them.
-        resolver = TableDescriptions({}, {}, {})
+        resolver = TableDescriptions({}, {}, {}, {})
         field = StringDatabaseField(name="ts", description="When the event occurred.")
         table = Table(fields={"ts": field}, name="events", description="Every analytics event.")
 
@@ -158,3 +164,54 @@ class TestTableDescriptions(APIBaseTest):
 
         resolver = TableDescriptions.load(self.team.id)
         assert resolver.for_table(hogql_table) is None
+
+    def _source_schema(
+        self, table: DataWarehouseTable, *, description: str | None, team: Team | None = None
+    ) -> ExternalDataSchema:
+        team = team or self.team
+        source = ExternalDataSource.objects.create(team=team, source_type=ExternalDataSourceType.POSTGRES)
+        return ExternalDataSchema.objects.create(
+            team=team, source=source, name=table.name, table=table, description=description
+        )
+
+    def test_resolves_source_native_table_description_when_no_annotation(self):
+        table = self._warehouse_table()
+        self._source_schema(table, description="Orders imported from the billing Postgres.")
+        resolver = TableDescriptions.load(self.team.id)
+        assert resolver.for_table(table.hogql_definition()) == "Orders imported from the billing Postgres."
+
+    def test_annotation_wins_over_source_native_table_description(self):
+        table = self._warehouse_table()
+        self._source_schema(table, description="Source-native text.")
+        with team_scope(self.team.id, canonical=True):
+            WarehouseColumnAnnotation.objects.create(
+                team=self.team,
+                table=table,
+                column_name="",
+                description="Curated table description.",
+                description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
+            )
+        resolver = TableDescriptions.load(self.team.id)
+        assert resolver.for_table(table.hogql_definition()) == "Curated table description."
+
+    def test_source_native_description_does_not_leak_onto_materialized_view(self):
+        backing = self._warehouse_table(name="revenue_view_backing", columns=("amount",))
+        self._source_schema(backing, description="Backing table source text.")
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="revenue_view",
+            query={"query": "SELECT 1 AS amount"},
+            columns={"amount": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "valid": True}},
+            table=backing,
+            is_materialized=True,
+        )
+        backing_hogql = view.hogql_definition(HogQLQueryModifiers(useMaterializedViews=True))
+        resolver = TableDescriptions.load(self.team.id)
+        assert resolver.for_table(backing_hogql) is None
+
+    @parameterized.expand([("empty", ""), ("null", None)])
+    def test_blank_source_native_description_ignored(self, _name: str, description: str | None):
+        table = self._warehouse_table()
+        self._source_schema(table, description=description)
+        resolver = TableDescriptions.load(self.team.id)
+        assert resolver.for_table(table.hogql_definition()) is None

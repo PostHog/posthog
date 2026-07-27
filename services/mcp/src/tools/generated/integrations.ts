@@ -162,7 +162,7 @@ const integrationsList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'kind', 'display_name', 'created_at', 'created_by'])
+                pickResponseFields(item, ['id', 'kind', 'display_name', 'errors', 'created_at', 'created_by'])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/settings/integrations')

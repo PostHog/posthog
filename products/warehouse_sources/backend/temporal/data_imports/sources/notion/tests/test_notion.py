@@ -12,11 +12,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     MAX_BLOCK_DEPTH,
     MAX_CHILD_PAGES_PER_PARENT,
     MAX_RETRY_AFTER_SECONDS,
-    NOTION_VERSION,
+    NOTION_VERSION_2025_09_03,
+    NOTION_VERSION_2026_03_11,
     NotionBadRequestError,
     NotionNotFoundError,
     NotionResumeConfig,
     NotionRetryableError,
+    _blocks_stream,
     _comments_stream,
     _get_headers,
     _iter_block_children,
@@ -24,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     _request,
     _search_body,
     _search_stream,
+    _users_stream,
     _wait_strategy,
     validate_credentials,
 )
@@ -88,10 +91,11 @@ class _FakeRetryState:
 
 
 class TestNotion:
-    def test_headers_include_bearer_token_and_version(self) -> None:
-        headers = _get_headers("ntn_secret")
+    @parameterized.expand([(NOTION_VERSION_2025_09_03,), (NOTION_VERSION_2026_03_11,)])
+    def test_headers_carry_requested_version(self, api_version: str) -> None:
+        headers = _get_headers("ntn_secret", api_version)
         assert headers["Authorization"] == "Bearer ntn_secret"
-        assert headers["Notion-Version"] == NOTION_VERSION
+        assert headers["Notion-Version"] == api_version
         assert headers["Content-Type"] == "application/json"
 
     @parameterized.expand([("page",), ("data_source",)])
@@ -136,6 +140,70 @@ class TestNotion:
         # The first request must start from the persisted cursor.
         assert session.calls[0]["json"]["start_cursor"] == "resume-cursor"
 
+    @staticmethod
+    def _invalid_cursor_response() -> FakeResponse:
+        response = FakeResponse({}, status_code=400)
+        response.text = (
+            '{"object":"error","status":400,"code":"validation_error",'
+            '"message":"The start_cursor provided is invalid: dead-cursor"}'
+        )
+        return response
+
+    def test_search_stream_restarts_when_resumed_cursor_invalid(self) -> None:
+        # A resumed search cursor can expire before the retry runs; Notion then rejects it with a 400
+        # validation_error. The stream must drop the stale cursor and restart from the beginning
+        # rather than crashing the whole sync.
+        session = FakeSession(
+            [
+                self._invalid_cursor_response(),
+                _list_response([{"id": "p1"}], has_more=False, next_cursor=None),
+            ]
+        )
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = NotionResumeConfig(next_cursor="stale-cursor")
+
+        tables = list(
+            _search_stream(cast(requests.Session, session), NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager)
+        )
+
+        assert sum(t.num_rows for t in tables) == 1
+        # First request replays the stale cursor (rejected); the restart carries no cursor.
+        assert session.calls[0]["json"]["start_cursor"] == "stale-cursor"
+        assert "start_cursor" not in session.calls[1]["json"]
+
+    def test_search_stream_propagates_non_cursor_bad_request(self) -> None:
+        # A 400 that is not the invalid-cursor case is a genuine bad request and must still fail the
+        # sync rather than being silently restarted.
+        other_400 = FakeResponse({}, status_code=400)
+        other_400.text = '{"code":"validation_error","message":"something else"}'
+        session = FakeSession([other_400])
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = NotionResumeConfig(next_cursor="stale-cursor")
+
+        with pytest.raises(NotionBadRequestError):
+            list(_search_stream(cast(requests.Session, session), NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager))
+
+    def test_users_stream_restarts_when_resumed_cursor_invalid(self) -> None:
+        # The users stream persists the same kind of resume cursor as search, so a stale cursor must
+        # trigger the same restart-from-the-beginning recovery rather than crashing the sync.
+        session = FakeSession(
+            [
+                self._invalid_cursor_response(),
+                _list_response([{"id": "u1"}], has_more=False, next_cursor=None),
+            ]
+        )
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = NotionResumeConfig(next_cursor="stale-cursor")
+
+        tables = list(_users_stream(cast(requests.Session, session), mock.MagicMock(), manager))
+
+        assert sum(t.num_rows for t in tables) == 1
+        assert session.calls[0]["params"]["start_cursor"] == "stale-cursor"
+        assert "start_cursor" not in session.calls[1]["params"]
+
     def test_block_children_inject_page_id(self) -> None:
         session = FakeSession([_list_response([{"id": "b1", "has_children": False}], has_more=False, next_cursor=None)])
         blocks = list(
@@ -145,18 +213,54 @@ class TestNotion:
         assert len(blocks) == 1
         assert blocks[0]["_page_id"] == "page-42"
 
-    def test_block_children_respect_depth_limit(self) -> None:
-        # Every fetched block has children, so recursion would be unbounded without the depth cap.
+    def test_block_children_recurse_to_depth_limit_and_warn_on_truncation(self) -> None:
+        # Every fetched block has children, so recursion would be unbounded without the depth cap. When
+        # the cap is reached the truncation must be logged rather than silently dropping deeper blocks —
+        # that silent drop was the reported data-loss bug.
         def always_has_children(_index: int) -> FakeResponse:
             return _list_response([{"id": "child", "has_children": True}], has_more=False, next_cursor=None)
 
         session = FakeSession(always_has_children)
-        blocks = list(
-            _iter_block_children(cast(requests.Session, session), "block-root", "page-1", mock.MagicMock(), 0)
-        )
+        logger = mock.MagicMock()
+        blocks = list(_iter_block_children(cast(requests.Session, session), "block-root", "page-1", logger, 0))
 
         # depth 0 yields one block, then recurses up to MAX_BLOCK_DEPTH levels.
         assert len(blocks) == MAX_BLOCK_DEPTH + 1
+        assert any("exceeds max depth" in str(call.args[0]) for call in logger.warning.call_args_list)
+
+    def test_blocks_stream_resumes_from_saved_queue(self) -> None:
+        # On retry the blocks stream must consume the persisted page queue instead of re-running the
+        # full page search from scratch — restarting from zero was what burned API quota on retries.
+        session = FakeSession([_list_response([{"id": "b1", "has_children": False}], has_more=False, next_cursor=None)])
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = NotionResumeConfig(remaining_page_ids=["p2"])
+
+        tables = list(_blocks_stream(cast(requests.Session, session), mock.MagicMock(), manager))
+
+        assert sum(t.num_rows for t in tables) == 1
+        # Only the resumed page's block-children fetch runs; no /v1/search re-enumeration.
+        assert len(session.calls) == 1
+        assert session.calls[0]["url"].endswith("/v1/blocks/p2/children")
+
+    def test_blocks_stream_saves_progress_after_each_yield(self) -> None:
+        # After a batch is flushed the in-progress page must be persisted at the head of the queue, so a
+        # crash resumes there. CHUNK_SIZE is patched to 1 to force a yield per block.
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "p1"}, {"id": "p2"}], has_more=False, next_cursor=None)
+            return _list_response([{"id": f"b{index}", "has_children": False}], has_more=False, next_cursor=None)
+
+        session = FakeSession(responses)
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        with mock.patch(f"{MODULE}.CHUNK_SIZE", 1):
+            list(_blocks_stream(cast(requests.Session, session), mock.MagicMock(), manager))
+
+        saved = [call.args[0].remaining_page_ids for call in manager.save_state.call_args_list]
+        # p1 flushed -> head p1 with p2 queued; p2 flushed -> head p2, nothing left.
+        assert saved == [["p1", "p2"], ["p2"]]
 
     def test_block_children_respect_page_cap(self) -> None:
         # Endpoint always reports another page; the per-parent cap must stop the scan.
@@ -361,7 +465,7 @@ class TestNotion:
     def test_validate_credentials_status_mapping(self, status_code: int, expected_valid: bool) -> None:
         session = FakeSession([FakeResponse({}, status_code=status_code)])
         with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            valid, message = validate_credentials("tok")
+            valid, message = validate_credentials("tok", NOTION_VERSION_2026_03_11)
 
         assert valid is expected_valid
         if expected_valid:
@@ -371,7 +475,7 @@ class TestNotion:
 
     def test_validate_credentials_handles_exception(self) -> None:
         with mock.patch(f"{MODULE}.make_tracked_session", side_effect=requests.ConnectionError("boom")):
-            valid, message = validate_credentials("tok")
+            valid, message = validate_credentials("tok", NOTION_VERSION_2026_03_11)
 
         assert valid is False
         assert message == "boom"

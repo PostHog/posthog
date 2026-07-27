@@ -45,7 +45,13 @@ import { randomUUID } from 'crypto'
 import { Request } from 'express'
 import { z } from 'zod'
 
-import { AgentSession, lastAssistantTextPreview, SessionPrincipal, triggerAuthConfig } from '@posthog/agent-shared'
+import {
+    AgentSession,
+    lastAssistantTextPreview,
+    SessionPrincipal,
+    TRIGGER_ROUTES,
+    triggerAuthConfig,
+} from '@posthog/agent-shared'
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
 import { principalsMatch } from '../enqueue/auth'
@@ -207,13 +213,23 @@ async function mcpHandler(ctx: CustomAuthRouteCtx): Promise<void> {
                     res.json(errReply(RPC_UNAUTHORIZED, JSON.stringify(buildElevationResponse(existing, elevationReq))))
                     return
                 }
-                await deps.queue.appendPendingInput(continuationId, {
-                    role: 'user',
-                    content: message,
-                    timestamp: Date.now(),
-                    sender: principal,
-                })
-                await deps.queue.update(continuationId, { state: 'queued' })
+                const credentialWrite = await deps.broker.writeWithRollback(continuationId, auth.credentials)
+                try {
+                    await deps.queue.appendPendingInput(continuationId, {
+                        role: 'user',
+                        content: message,
+                        timestamp: Date.now(),
+                        sender: principal,
+                    })
+                    await deps.queue.update(continuationId, { state: 'queued' })
+                } catch (err) {
+                    try {
+                        await credentialWrite.rollback()
+                    } catch (rollbackError) {
+                        throw new AggregateError([err, rollbackError], 'credential rollback failed')
+                    }
+                    throw err
+                }
                 res.json(
                     reply({
                         content: [
@@ -240,6 +256,7 @@ async function mcpHandler(ctx: CustomAuthRouteCtx): Promise<void> {
                     principal: principal,
                     trigger: 'mcp',
                     requesterDisplay: principalDisplay(principal),
+                    prepareSession: (sessionId) => deps.broker.writeWithRollback(sessionId, auth.credentials),
                 }
             )
             if (freshOutcome.kind === 'elevation_required') {
@@ -594,21 +611,21 @@ export const mcpTrigger: TriggerModule = {
     routes: [
         {
             method: 'POST',
-            path: '/mcp',
+            path: TRIGGER_ROUTES.mcp.rpc,
             bodySchema: z.toJSONSchema(McpRequestBodySchema),
             auth: 'custom',
             handler: mcpHandler,
         },
         defineRoute({
             method: 'GET',
-            path: '/mcp/stream',
+            path: TRIGGER_ROUTES.mcp.stream,
             auth: 'agent_spec',
             schema: McpStreamQuerySchema,
             handler: mcpStreamHandler,
         }),
         {
             method: 'GET',
-            path: '/mcp/connect-info',
+            path: TRIGGER_ROUTES.mcp.connect_info,
             // Public — anyone who knows the URL can ask "how do I connect?".
             // Discovery cannot itself require auth without a chicken-and-egg.
             auth: 'public',

@@ -12,13 +12,12 @@
  *     { "ok": true, "result": unknown }
  *   | { "ok": false, "error": { "code": string, "message": string } }
  *
- * Compiled-tool contract:
- *   module.exports = {
- *     id: "<tool-id>",
- *     actions: {
- *       <name>: (args, ctx) => any | Promise<any>
- *     }
- *   }
+ * Compiled-tool contract — two accepted shapes:
+ *   1. Plain CJS:
+ *      module.exports = { id: "<tool-id>", actions: { <name>: (args, ctx) => any | Promise<any> } }
+ *   2. A `default` property on `module.exports` (esbuild's `__toCommonJS` CJS
+ *      interop for the typed pipeline's mandated `export default {}` source).
+ *   Sibling loader applying the same unwrap rule: agent-shared/src/sandbox/sandbox-inprocess.ts.
  *
  * `ctx` exposes:
  *   - secrets.ref(name)  → opaque per-session nonce string. The raw secret
@@ -67,7 +66,9 @@ function loadTool(toolId) {
     // Clear require cache so a re-published bundle is picked up — sandboxes
     // are per-session so cache reuse is fine within one session.
     delete require.cache[require.resolve(compiledPath)]
-    return require(compiledPath)
+    const mod = require(compiledPath)
+    // Same rule as the in-process pool (agent-shared/src/sandbox/sandbox-inprocess.ts).
+    return mod.default ?? mod
 }
 
 function buildContext(nonces) {

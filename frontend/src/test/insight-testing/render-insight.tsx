@@ -134,10 +134,18 @@ export function renderInsight(props: RenderInsightProps = {}): ReturnType<typeof
     return render(
         <InsightWrapper
             query={props.query ?? buildTrendsQuery()}
-            showFilters={props.showFilters ?? true}
+            showFilters={props.showFilters ?? false}
             context={props.context}
             inSharedMode={props.inSharedMode}
             embedded={props.embedded}
         />
     )
+}
+
+/** Render the full insight page including the filter editor UI (header, series
+ *  editor, breakdown, display config). Mounting all of that roughly doubles a
+ *  test's runtime versus the chart-only `renderInsight`, so reach for this only
+ *  when the test interacts with the filter controls themselves. */
+export function renderInsightPage(props: RenderInsightProps = {}): ReturnType<typeof render> {
+    return renderInsight({ ...props, showFilters: props.showFilters ?? true })
 }

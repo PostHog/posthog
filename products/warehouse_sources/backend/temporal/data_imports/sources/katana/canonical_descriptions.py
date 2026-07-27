@@ -1,0 +1,231 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+_DOCS = "https://developer.katanamrp.com/reference"
+
+# Descriptions sourced from Katana's official API reference. Partial coverage is fine — any table or
+# column not listed here falls back to LLM enrichment.
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "products": {
+        "description": "Sellable/producible items in the factory, each with one or more variants.",
+        "docs_url": f"{_DOCS}/getallproducts",
+        "columns": {
+            "id": "Unique identifier for the product.",
+            "name": "Product name.",
+            "uom": "Unit of measure for the product.",
+            "category_name": "Category the product belongs to.",
+            "is_sellable": "Whether the product can be sold.",
+            "is_producible": "Whether the product can be manufactured.",
+            "is_purchasable": "Whether the product can be purchased.",
+            "created_at": "Timestamp when the product was created.",
+            "updated_at": "Timestamp when the product was last updated.",
+        },
+    },
+    "materials": {
+        "description": "Raw materials and ingredients consumed by manufacturing orders.",
+        "docs_url": f"{_DOCS}/getallmaterials",
+        "columns": {
+            "id": "Unique identifier for the material.",
+            "name": "Material name.",
+            "uom": "Unit of measure for the material.",
+            "category_name": "Category the material belongs to.",
+            "default_supplier_id": "Default supplier for purchasing this material.",
+            "created_at": "Timestamp when the material was created.",
+            "updated_at": "Timestamp when the material was last updated.",
+        },
+    },
+    "variants": {
+        "description": "Individual SKUs of a product or material, carrying sales/purchase prices and barcodes.",
+        "docs_url": f"{_DOCS}/getallvariants",
+        "columns": {
+            "id": "Unique identifier for the variant.",
+            "product_id": "Parent product id (null for material variants).",
+            "material_id": "Parent material id (null for product variants).",
+            "sku": "Stock keeping unit.",
+            "sales_price": "Default sales price.",
+            "purchase_price": "Default purchase price.",
+            "created_at": "Timestamp when the variant was created.",
+            "updated_at": "Timestamp when the variant was last updated.",
+        },
+    },
+    "services": {
+        "description": "Sellable services offered alongside physical products.",
+        "docs_url": f"{_DOCS}/getallservices",
+        "columns": {
+            "id": "Unique identifier for the service.",
+            "name": "Service name.",
+            "uom": "Unit of measure for the service.",
+            "is_sellable": "Whether the service can be sold.",
+        },
+    },
+    "customers": {
+        "description": "Customers you sell to, including contact and billing details.",
+        "docs_url": f"{_DOCS}/list-all-customers",
+        "columns": {
+            "id": "Unique identifier for the customer.",
+            "name": "Customer display name.",
+            "email": "Primary email address.",
+            "phone": "Primary phone number.",
+            "currency": "Default currency for the customer.",
+            "reference_id": "External reference id for the customer.",
+            "created_at": "Timestamp when the customer was created.",
+            "updated_at": "Timestamp when the customer was last updated.",
+        },
+    },
+    "suppliers": {
+        "description": "Suppliers you purchase materials and products from.",
+        "docs_url": f"{_DOCS}/getallsuppliers",
+        "columns": {
+            "id": "Unique identifier for the supplier.",
+            "name": "Supplier display name.",
+            "email": "Primary email address.",
+            "phone": "Primary phone number.",
+            "created_at": "Timestamp when the supplier was created.",
+            "updated_at": "Timestamp when the supplier was last updated.",
+        },
+    },
+    "sales_orders": {
+        "description": "Customer sales orders, including status, fulfillment and invoicing state.",
+        "docs_url": f"{_DOCS}/getallsalesorders",
+        "columns": {
+            "id": "Unique identifier for the sales order.",
+            "order_no": "Human-readable sales order number.",
+            "customer_id": "Customer the order belongs to.",
+            "location_id": "Location fulfilling the order.",
+            "status": "Overall order status.",
+            "invoicing_status": "Invoicing status of the order.",
+            "currency": "Currency of the order.",
+            "created_at": "Timestamp when the order was created.",
+            "updated_at": "Timestamp when the order was last updated.",
+        },
+    },
+    "purchase_orders": {
+        "description": "Purchase orders raised to suppliers for materials and products.",
+        "docs_url": f"{_DOCS}/getallpurchaseorders",
+        "columns": {
+            "id": "Unique identifier for the purchase order.",
+            "order_no": "Human-readable purchase order number.",
+            "supplier_id": "Supplier the order is placed with.",
+            "location_id": "Location receiving the order.",
+            "status": "Overall purchase order status.",
+            "billing_status": "Billing status of the order.",
+            "currency": "Currency of the order.",
+            "created_at": "Timestamp when the order was created.",
+            "updated_at": "Timestamp when the order was last updated.",
+        },
+    },
+    "manufacturing_orders": {
+        "description": "Production orders that manufacture products from materials.",
+        "docs_url": f"{_DOCS}/getallmanufacturingorders",
+        "columns": {
+            "id": "Unique identifier for the manufacturing order.",
+            "order_no": "Human-readable manufacturing order number.",
+            "status": "Production status of the order.",
+            "location_id": "Location where production happens.",
+            "is_linked_to_sales_order": "Whether the order was created to fulfil a sales order.",
+            "created_at": "Timestamp when the order was created.",
+            "updated_at": "Timestamp when the order was last updated.",
+        },
+    },
+    "sales_returns": {
+        "description": "Returns raised against sales orders, with refund and restock status.",
+        "docs_url": f"{_DOCS}/getallsalesreturns",
+        "columns": {
+            "id": "Unique identifier for the sales return.",
+            "order_no": "Return order number.",
+            "sales_order_no": "Originating sales order number.",
+            "status": "Return status.",
+            "refund_status": "Refund status of the return.",
+            "return_location_id": "Location the goods are returned to.",
+        },
+    },
+    "stock_adjustments": {
+        "description": "Manual stock corrections that increase or decrease on-hand quantities.",
+        "docs_url": f"{_DOCS}/getallstockadjustments",
+        "columns": {
+            "id": "Unique identifier for the stock adjustment.",
+            "stock_adjustment_number": "Human-readable adjustment number.",
+            "location_id": "Location the adjustment applies to.",
+            "created_at": "Timestamp when the adjustment was created.",
+            "updated_at": "Timestamp when the adjustment was last updated.",
+        },
+    },
+    "stock_transfers": {
+        "description": "Movements of stock between two locations.",
+        "docs_url": f"{_DOCS}/getallstocktransfers",
+        "columns": {
+            "id": "Unique identifier for the stock transfer.",
+            "stock_transfer_number": "Human-readable transfer number.",
+            "source_location_id": "Location stock is transferred from.",
+            "target_location_id": "Location stock is transferred to.",
+            "created_at": "Timestamp when the transfer was created.",
+            "updated_at": "Timestamp when the transfer was last updated.",
+        },
+    },
+    "stocktakes": {
+        "description": "Physical inventory counts and the adjustments they produce.",
+        "docs_url": f"{_DOCS}/getallstocktakes",
+        "columns": {
+            "id": "Unique identifier for the stocktake.",
+            "stocktake_number": "Human-readable stocktake number.",
+            "status": "Stocktake status.",
+            "location_id": "Location being counted.",
+            "created_at": "Timestamp when the stocktake was created.",
+            "updated_at": "Timestamp when the stocktake was last updated.",
+        },
+    },
+    "inventory_movements": {
+        "description": "Append-only log of every inventory movement created by Katana resources.",
+        "docs_url": f"{_DOCS}/list-all-inventory-movements",
+        "columns": {
+            "id": "Unique identifier for the inventory movement.",
+            "variant_id": "Variant whose stock moved.",
+            "location_id": "Location where the movement occurred.",
+            "resource_type": "Type of resource that caused the movement.",
+            "resource_id": "Id of the resource that caused the movement.",
+            "created_at": "Timestamp when the movement was recorded.",
+        },
+    },
+    "inventory": {
+        "description": "Current on-hand, committed and expected stock per variant and location. Full refresh only.",
+        "docs_url": f"{_DOCS}/getinventories",
+        "columns": {
+            "variant_id": "Variant the stock balance is for.",
+            "location_id": "Location the stock balance is for.",
+            "quantity_in_stock": "Quantity currently in stock.",
+            "quantity_committed": "Quantity committed to orders.",
+            "quantity_expected": "Quantity expected from incoming orders.",
+        },
+    },
+    "price_lists": {
+        "description": "Named price lists used for customer-specific pricing. Full refresh only.",
+        "docs_url": f"{_DOCS}/getallpricelists",
+        "columns": {
+            "id": "Unique identifier for the price list.",
+            "name": "Price list name.",
+            "is_active": "Whether the price list is active.",
+        },
+    },
+    "locations": {
+        "description": "Warehouses and factories where stock is held and orders are fulfilled.",
+        "docs_url": f"{_DOCS}/list-all-locations",
+        "columns": {
+            "id": "Unique identifier for the location.",
+            "name": "Location name.",
+            "legal_name": "Legal name of the location.",
+            "is_primary": "Whether this is the primary location.",
+        },
+    },
+    "tax_rates": {
+        "description": "Tax rates applied to sales and purchase orders.",
+        "docs_url": f"{_DOCS}/getalltaxrates",
+        "columns": {
+            "id": "Unique identifier for the tax rate.",
+            "name": "Tax rate name.",
+            "rate": "Tax rate percentage.",
+            "is_default_sales": "Whether this is the default sales tax rate.",
+            "is_default_purchases": "Whether this is the default purchases tax rate.",
+        },
+    },
+}

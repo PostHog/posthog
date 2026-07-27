@@ -140,9 +140,6 @@ tools:
     integrations-google-conversion-actions-retrieve:
         operation: integrations_google_conversion_actions_retrieve
         enabled: false
-    integrations-google-search-console-sites-retrieve:
-        operation: integrations_google_search_console_sites_retrieve
-        enabled: false
     integrations-jira-projects-retrieve:
         operation: integrations_jira_projects_retrieve
         enabled: true
@@ -198,6 +195,7 @@ tools:
                 - id
                 - kind
                 - display_name
+                - errors
                 - created_at
                 - created_by
     integrations-request-access-create:

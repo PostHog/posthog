@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# coherence-uninstall — remove the coherence evaluation HARNESS, leaving the
+# production hardening it motivated fully intact.
+#
+# Why this exists: the adoption PR squash-merges into ONE commit on master that
+# mixes the harness (this tooling + the *.spec.md claims + per-root config) with
+# real chokepoint hardening (IDOR / owner-scoping / bug-class fixes in *.ts). So
+# `git revert <that commit>` is the WRONG tool — it would undo the hardening and
+# reopen those bug classes. This script removes ONLY the harness:
+#   - the CLI scripts (bin/coherence-*), docs, per-root coherence.config.json,
+#     every *.spec.md claim file, and the gitignored caches.
+# Every *.ts / *.test.ts change stays. A test that enumerates its domain is a
+# better test whether or not coherence reads it.
+#
+# It does NOT edit package.json (structured, shared — a blind edit risks
+# corrupting it). It prints the one line to remove, which is the gate's actual
+# on/off switch: until that line is gone, lint-staged will try to run the
+# now-deleted hook and error on every agent_platform commit.
+#
+# bash 3.2 compatible (stock macOS ships 3.2): no associative arrays, no mapfile.
+set -uo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+AP="$REPO_ROOT/products/agent_platform"
+BIN="$AP/bin"
+
+printf '\033[36m[coherence] teardown — removing the evaluation harness (hardening stays).\033[0m\n'
+
+# Derive the config + claim files (find, so this stays correct as specs are
+# added or removed; in agent_platform, *.spec.md is the coherence convention —
+# ordinary tests are *.test.ts). Plus the fixed CLI scripts and docs, and the
+# gitignored cache/output dirs.
+files="$(find "$AP" -type f \( -name coherence.config.json -o -name '*.spec.md' \) 2>/dev/null)
+$BIN/coherence-install
+$BIN/coherence-precommit
+$BIN/coherence-uninstall
+$AP/docs/coherence-onboarding.md
+$AP/docs/coherence-overview.md"
+
+dirs="$(find "$AP" -type d \( -name .coherence -o -name .coherence-out -o -name .coherence-tool \) 2>/dev/null)"
+
+removed=0
+OLDIFS="$IFS"
+IFS='
+'
+for p in $files $dirs; do
+    [ -n "$p" ] || continue
+    if [ -e "$p" ]; then
+        rm -rf "$p"
+        printf '  removed %s\n' "${p#$REPO_ROOT/}"
+        removed=$((removed + 1))
+    fi
+done
+IFS="$OLDIFS"
+
+printf '\n\033[36m[coherence] removed %s harness file(s)/dir(s).\033[0m\n\n' "$removed"
+
+printf 'ONE required manual step — the gate'\''s actual off switch:\n'
+printf '  Delete the coherence line from package.json (lint-staged), and drop the\n'
+printf '  trailing comma from the line above it so the JSON stays valid:\n'
+if grep -n 'coherence-precommit' "$REPO_ROOT/package.json" >/dev/null 2>&1; then
+    grep -n 'coherence-precommit' "$REPO_ROOT/package.json" | sed 's/^/    /'
+else
+    printf '    (already removed — nothing to do)\n'
+fi
+
+printf '\nOptional cleanup (harmless if left — they just ignore dirs that no longer exist):\n'
+printf '  .gitignore lines for .coherence-tool/ , .coherence-out/ , .coherence/\n'
+
+printf '\nKEPT on purpose (this is hardening, not harness):\n'
+printf '  every *.ts / *.test.ts change, the mcp_store facade, pyproject.toml / tach.toml edits.\n'
+printf '\n\033[33mDo NOT `git revert` the squashed adoption commit — it also carries the\n'
+printf 'hardening (IDOR / owner-scoping chokepoints); reverting reopens those bugs.\033[0m\n'

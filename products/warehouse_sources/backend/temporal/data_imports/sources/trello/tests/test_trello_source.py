@@ -129,5 +129,7 @@ class TestSourceForPipeline:
         assert kwargs["api_key"] == "key"
         assert kwargs["api_token"] == "token"
         assert kwargs["endpoint"] == schema_name
-        assert kwargs["should_use_incremental_field"] is incremental
+        assert kwargs["team_id"] == 1
+        assert kwargs["job_id"] == "job-id"
+        # The cursor value is plumbed only when the schema is synced incrementally.
         assert kwargs["db_incremental_field_last_value"] == expected_last_value

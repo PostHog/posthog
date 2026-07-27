@@ -3,9 +3,10 @@ import { useCallback, useMemo } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { llmAnalyticsParserRecipesCreate } from '../generated/api'
 import { parserRecipesLogic } from '../settings/parserRecipesLogic'
@@ -40,7 +41,6 @@ export function useCustomParserMaxTool({
     isLoading,
     isGeneration,
 }: CustomParserMaxToolOptions): (() => void) | null {
-    const customParsersEnabled = useFeatureFlag('LLM_ANALYTICS_CUSTOM_PARSERS')
     const { currentTeamId } = useValues(teamLogic)
     const { storedForMerge, customItems } = useValues(parserRecipesLogic)
     const { loadRecipes } = useActions(parserRecipesLogic)
@@ -53,7 +53,7 @@ export function useCustomParserMaxTool({
               : !outputRecognized
                 ? 'output'
                 : null
-    const active = customParsersEnabled && unrecognized !== null && !isLoading
+    const active = unrecognized !== null && !isLoading
 
     const context = useMemo(() => {
         if (!active) {
@@ -100,6 +100,24 @@ export function useCustomParserMaxTool({
                 },
             }),
         [eventId, storedForMerge, input, output, tools, inputRecognized, outputRecognized, currentTeamId, loadRecipes]
+    )
+
+    useAttachedContext(
+        active
+            ? [
+                  { type: 'llm_trace_event', key: eventId },
+                  {
+                      type: 'ai_trace_parser_context',
+                      value: JSON.stringify({
+                          event_type: isGeneration ? 'generation' : 'span',
+                          unrecognized,
+                          sample_input: sampleForContext(input),
+                          sample_output: sampleForContext(output),
+                      }),
+                      label: 'Trace event sample',
+                  },
+              ]
+            : null
     )
 
     const { openMax } = useMaxTool({

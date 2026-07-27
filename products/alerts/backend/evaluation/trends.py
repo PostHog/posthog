@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any, cast
 
 from posthog.schema import (
@@ -14,6 +15,7 @@ from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.event_usage import EventSource
+from posthog.hogql_queries.insights.utils.breakdowns import humanize_breakdown_label
 
 # These helpers also back the anomaly detector, so they remain in the tasks module for now.
 from posthog.tasks.alerts.trends import (
@@ -21,6 +23,7 @@ from posthog.tasks.alerts.trends import (
     _has_breakdown,
     _is_non_time_series_trend,
     _pick_series_result,
+    query_excludes_incomplete_periods,
 )
 
 from products.alerts.backend.evaluation.contract import (
@@ -30,6 +33,7 @@ from products.alerts.backend.evaluation.contract import (
     lookback_intervals_for,
     zero_sentinel_series,
 )
+from products.alerts.backend.evaluation.formatting import make_trends_value_formatter
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
 
@@ -62,9 +66,19 @@ class TrendsExtractor:
         if threshold.bounds is None:
             raise ValueError("TrendsExtractor requires threshold bounds — dispatcher invariant violated")
 
+        # Render breach values the way the insight displays them (currency, prefix/postfix, decimals).
+        value_formatter = make_trends_value_formatter(query.trendsFilter, alert.team.base_currency)
+
         is_non_time_series = _is_non_time_series_trend(query)
         has_breakdown = _has_breakdown(query)
         check_current_interval = bool(config.check_ongoing_interval)
+        # The query clips the ongoing interval, so the trailing point is complete.
+        already_complete = query_excludes_incomplete_periods(query)
+        if check_current_interval and already_complete:
+            raise ValueError(
+                "check_ongoing_interval is not supported when the insight excludes incomplete periods "
+                "(DateRange.excludeIncompletePeriods): the ongoing interval is clipped from the query results"
+            )
         lookback_intervals = lookback_intervals_for(condition)
         interval_type = None if is_non_time_series else query.interval
 
@@ -79,7 +93,11 @@ class TrendsExtractor:
                     else _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
                 )
                 calculation_result = self._calculate(alert, insight, execution_mode, filters_override)
-                if (empty := self._empty_result(calculation_result, alert, has_breakdown, interval_type)) is not None:
+                if (
+                    empty := self._empty_result(
+                        calculation_result, alert, has_breakdown, interval_type, value_formatter
+                    )
+                ) is not None:
                     return empty
                 if check_current_interval and threshold.bounds.upper is None:
                     raise ValueError(
@@ -94,7 +112,11 @@ class TrendsExtractor:
                 # against the one before it, so we need the extra lookback interval.
                 filters_override = _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
                 calculation_result = self._calculate(alert, insight, execution_mode, filters_override)
-                if (empty := self._empty_result(calculation_result, alert, has_breakdown, interval_type)) is not None:
+                if (
+                    empty := self._empty_result(
+                        calculation_result, alert, has_breakdown, interval_type, value_formatter
+                    )
+                ) is not None:
                     return empty
                 if check_current_interval and threshold.bounds.upper is None:
                     raise ValueError(
@@ -107,16 +129,34 @@ class TrendsExtractor:
                     raise ValueError("Relative alerts not supported for non time series trends")
                 filters_override = _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
                 calculation_result = self._calculate(alert, insight, execution_mode, filters_override)
-                if (empty := self._empty_result(calculation_result, alert, has_breakdown, interval_type)) is not None:
+                if (
+                    empty := self._empty_result(
+                        calculation_result, alert, has_breakdown, interval_type, value_formatter
+                    )
+                ) is not None:
                     return empty
                 anchor_is_current = False
 
             case _:
                 raise NotImplementedError(f"Unsupported alert condition type: {condition.type}")
 
-        series = self._to_series(config, calculation_result, has_breakdown, is_non_time_series, anchor_is_current)
+        # A clipped query's trailing point is complete: anchor on it instead of skipping back one
+        # more period, while keeping is_current_interval false so breach wording stays "previous".
+        series = self._to_series(
+            config,
+            calculation_result,
+            has_breakdown,
+            is_non_time_series,
+            anchor_last_point=anchor_is_current or already_complete,
+            is_current_interval=anchor_is_current,
+        )
         # subject/framed use the ExtractionResult defaults ("The insight value", framed).
-        return ExtractionResult(series=series, is_breakdown=has_breakdown, interval_type=interval_type)
+        return ExtractionResult(
+            series=series,
+            is_breakdown=has_breakdown,
+            interval_type=interval_type,
+            value_formatter=value_formatter,
+        )
 
     def _calculate(
         self,
@@ -142,6 +182,7 @@ class TrendsExtractor:
         alert: AlertConfiguration,
         has_breakdown: bool,
         interval_type: IntervalType | None,
+        value_formatter: Callable[[float], str],
     ) -> ExtractionResult | None:
         """A ``None`` result means the query layer swallowed an error — raise to avoid a misfire.
         An empty result means no data, treated as a 0 value compared against the threshold (this
@@ -154,6 +195,7 @@ class TrendsExtractor:
                 is_breakdown=has_breakdown,
                 interval_type=interval_type,
                 empty_query_result=True,
+                value_formatter=value_formatter,
             )
         return None
 
@@ -163,7 +205,9 @@ class TrendsExtractor:
         calculation_result: InsightResult,
         has_breakdown: bool,
         is_non_time_series: bool,
-        anchor_is_current: bool,
+        *,
+        anchor_last_point: bool,
+        is_current_interval: bool,
     ) -> list[ComparableSeries]:
         if has_breakdown:
             results = cast(list[dict[str, Any]], calculation_result.result)
@@ -179,16 +223,17 @@ class TrendsExtractor:
                 dates = result.get("dates") or result.get("days") or [None] * len(data)
                 points = [SeriesPoint(date=date, value=value) for date, value in zip(dates, data)]
 
-            # Anchor on the current (ongoing) interval, or the last complete one. On a series
-            # shorter than expected this can go negative and wrap, which the comparator then
-            # treats as having no previous point — acceptable for a degenerate sparse series.
-            current_index = len(points) - 1 if anchor_is_current else len(points) - 2
+            # Anchor on the last point (the ongoing interval, or the last complete one on a clipped
+            # query), or the second-to-last. On a series shorter than expected this can go negative
+            # and wrap, which the comparator then treats as having no previous point — acceptable
+            # for a degenerate sparse series.
+            current_index = len(points) - 1 if anchor_last_point else len(points) - 2
             series.append(
                 ComparableSeries(
-                    label=result["label"],
+                    label=humanize_breakdown_label(result["label"]),
                     points=points,
                     current_index=current_index,
-                    is_current_interval=anchor_is_current,
+                    is_current_interval=is_current_interval,
                 )
             )
         return series

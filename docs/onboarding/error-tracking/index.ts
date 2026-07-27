@@ -20,3 +20,11 @@ export { ReactNativeInstallation } from './react-native'
 export { RubyInstallation } from './ruby'
 export { RubyOnRailsInstallation } from './ruby-on-rails'
 export { SvelteInstallation } from './svelte'
+export { RustInstallation } from './rust'
+export { UnityInstallation } from './unity'
+export { RobloxInstallation } from './roblox'
+export {
+    ConvexErrorTrackingInstallation,
+    JavaErrorTrackingInstallation,
+    KMPErrorTrackingInstallation,
+} from './library-docs'

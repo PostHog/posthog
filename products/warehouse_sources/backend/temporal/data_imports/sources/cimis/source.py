@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CimisSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cimis import CimisSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -42,6 +42,7 @@ class CimisSource(SimpleSource[CimisSourceConfig]):
     # get_schemas iterates a static endpoint catalog with no I/O, so the table list is safe to surface
     # in public docs without credentials.
     lists_tables_without_credentials = True
+    api_docs_url = "https://et.water.ca.gov/Rest/Index"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -54,7 +55,6 @@ class CimisSource(SimpleSource[CimisSourceConfig]):
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="CIMIS",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Pull California weather and reference evapotranspiration (ETo) data from the [California Irrigation Management Information System (CIMIS)](https://cimis.water.ca.gov/) into the PostHog Data warehouse.
 
 CIMIS is a free service. Register for a free account and create a **web-services appKey** in your [CIMIS account](https://et.water.ca.gov/Account/Login), then paste it below.
@@ -117,6 +117,7 @@ To sync the **daily** and **hourly** weather tables, set **Targets** to a comma-
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = CIMIS_ENDPOINTS[endpoint]
@@ -136,7 +137,7 @@ To sync the **daily** and **hourly** weather tables, set **Targets** to a comma-
         return schemas
 
     def validate_credentials(
-        self, config: CimisSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: CimisSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         logger = structlog.get_logger(__name__)
         return validate_cimis_credentials(config.app_key, parse_targets(config.targets), logger)

@@ -1,0 +1,22 @@
+{
+    "chat": {
+        "run": "/run",
+        "send": "/send",
+        "cancel": "/cancel",
+        "listen": "/listen",
+        "client_tool_result": "/client_tool_result"
+    },
+    "slack": {
+        "events": "/slack/events",
+        "interactivity": "/slack/interactivity"
+    },
+    "cron": {},
+    "webhook": {
+        "post": "/webhook"
+    },
+    "mcp": {
+        "rpc": "/mcp",
+        "stream": "/mcp/stream",
+        "connect_info": "/mcp/connect-info"
+    }
+}

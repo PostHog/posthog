@@ -13,10 +13,10 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { COOKIELESS_SENTINEL_VALUE, CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { ok } from '~/ingestion/framework/results'
 import { TopHog } from '~/ingestion/framework/tophog'
-import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson } from '~/types'
 
@@ -320,7 +320,7 @@ describe('ErrorTrackingPipeline', () => {
             groupTypeManager: mockGroupTypeManager,
             cookielessManager: mockCookielessManager,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
-            overflowEnabled: false,
+            overflowMode: 'disabled',
             preservePartitionLocality: false,
             topHog: mockTopHog,
         }
@@ -590,7 +590,7 @@ describe('ErrorTrackingPipeline', () => {
             // Enable overflow for this test
             const configWithOverflow: ErrorTrackingPipelineConfig = {
                 ...pipelineConfig,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
             }
 
             const pipeline = createErrorTrackingPipeline(configWithOverflow)
@@ -1007,7 +1007,7 @@ describe('ErrorTrackingPipeline', () => {
             const flagging = createMockOverflowRedirectService(new Set([`test-token-123:${COOKIELESS_SENTINEL_VALUE}`]))
             const configWithOverflow: ErrorTrackingPipelineConfig = {
                 ...pipelineConfig,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 overflowRedirectService: flagging,
             }
 
@@ -1035,7 +1035,7 @@ describe('ErrorTrackingPipeline', () => {
             const flagging = createMockOverflowRedirectService(new Set(['test-token-123:hashed-distinct-id']))
             const configWithOverflow: ErrorTrackingPipelineConfig = {
                 ...pipelineConfig,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 overflowRedirectService: flagging,
             }
 

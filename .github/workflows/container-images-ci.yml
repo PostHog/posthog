@@ -6,7 +6,6 @@ on:
         # retroactively kick off a build. ci-hobby.yml omits `reopened`, so we
         # do too — otherwise reopens would build an image with no consumer.
         types: [opened, synchronize, labeled, unlabeled]
-    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -16,9 +15,6 @@ jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        # Runs on merge_group too so the lint job below (a required check) can consume
-        # its changed-Dockerfile list there. should_build is ignored on merge_group —
-        # posthog_build forces a build regardless via its own `if`.
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run Docker checks
         permissions:
@@ -41,8 +37,6 @@ jobs:
             dockerfiles_changed: ${{ steps.filter.outputs.dockerfiles }}
             dockerfiles_files: ${{ steps.filter.outputs.dockerfiles_files }}
         steps:
-            # paths-filter uses the GitHub API on pull_request, but falls back to git for
-            # merge_group — so the repo must be checked out for the merge-queue run.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -50,7 +44,7 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
@@ -86,7 +80,7 @@ jobs:
                       # by the `hobby:` filter — workflow self-edits, `.dockerignore`
                       # (silently changes the build context), and `pnpm-lock.yaml` so
                       # Renovate-style dep bumps are exercised on PR (otherwise they'd
-                      # only fail at merge_group / master push).
+                      # only fail after merging).
                       build_inputs:
                         - .github/workflows/container-images-ci.yml
                         - .github/actions/build-n-cache-image/**
@@ -108,8 +102,7 @@ jobs:
         name: Guard against dropped image files
         runs-on: ubuntu-24.04
         timeout-minutes: 10
-        # PR-time only (event == pull_request), so it's skipped on merge_group. Needs no secrets or
-        # docker login — unlike the image build below, it runs on fork PRs too.
+        # Needs no secrets or docker login, so unlike the image build below it runs on fork PRs too.
         if: github.event_name == 'pull_request' && needs.changes.outputs.dockerignore_changed == 'true'
         permissions:
             contents: read
@@ -125,13 +118,13 @@ jobs:
         needs: changes
         name: Build Docker image
         # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
-        runs-on: depot-ubuntu-latest-4
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
         # Only on PostHog/posthog, as there's no docker login on forks
-        if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name  == github.repository && needs.changes.outputs.should_build == 'true') || github.event_name == 'merge_group' }}
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.should_build == 'true'
 
         outputs:
             digest: ${{ steps.build.outputs.digest }}

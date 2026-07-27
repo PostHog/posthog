@@ -90,6 +90,9 @@ pub struct RecordingProperties {
     #[serde(rename = "$snapshot_source", skip_serializing_if = "Option::is_none")]
     pub snapshot_source: Option<Value>,
 
+    #[serde(rename = "$snapshot_host", skip_serializing_if = "Option::is_none")]
+    pub snapshot_host: Option<Value>,
+
     #[serde(rename = "$lib", skip_serializing_if = "Option::is_none")]
     pub lib: Option<String>,
 
@@ -275,6 +278,12 @@ pub async fn process_replay_events(
         .take()
         .unwrap_or(default_snapshot_source);
 
+    let snapshot_host = first_event
+        .properties
+        .snapshot_host
+        .take()
+        .filter(Value::is_string);
+
     let snapshot_library = first_event
         .properties
         .lib
@@ -374,6 +383,7 @@ pub async fn process_replay_events(
         &session_id,
         &window_id,
         &snapshot_source,
+        snapshot_host.as_ref(),
         &snapshot_items,
         &snapshot_library,
     );
@@ -411,6 +421,7 @@ pub async fn serialize_snapshot_data_async(
     session_id: Value,
     window_id: Value,
     snapshot_source: Value,
+    snapshot_host: Option<Value>,
     snapshot_items: Vec<Value>,
     snapshot_library: String,
 ) -> Result<String, CaptureError> {
@@ -420,6 +431,7 @@ pub async fn serialize_snapshot_data_async(
             &session_id,
             &window_id,
             &snapshot_source,
+            snapshot_host.as_ref(),
             &snapshot_items,
             &snapshot_library,
         )
@@ -438,10 +450,11 @@ pub fn serialize_snapshot_data_sync(
     session_id: &Value,
     window_id: &Value,
     snapshot_source: &Value,
+    snapshot_host: Option<&Value>,
     snapshot_items: &Vec<Value>,
     snapshot_library: &String,
 ) -> String {
-    json!({
+    let mut data = json!({
         "event": "$snapshot_items",
         "properties": {
             "distinct_id": distinct_id,
@@ -451,8 +464,11 @@ pub fn serialize_snapshot_data_sync(
             "$snapshot_items": snapshot_items,
             "$lib": snapshot_library,
         }
-    })
-    .to_string()
+    });
+    if let Some(host) = snapshot_host {
+        data["properties"]["$snapshot_host"] = host.clone();
+    }
+    data.to_string()
 }
 
 fn snapshot_library_fallback_from(user_agent: Option<&String>) -> Option<String> {
@@ -569,7 +585,6 @@ mod tests {
             is_mirror_deploy: false,
             chatty_debug_enabled: false,
             user_agent: None,
-            lib_version: None,
             path: "/s/".to_string(),
         }
     }
@@ -734,6 +749,39 @@ mod tests {
         assert!(!captured[0].metadata.force_overflow);
         assert!(!captured[0].metadata.skip_person_processing);
         assert!(!captured[0].metadata.redirect_to_dlq);
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_host_passes_through_to_the_serialized_message() {
+        // The ml-mirror anonymizer keys host classification on `properties.$snapshot_host`
+        // surviving this rebuild; capture silently dropping it would permanently disable
+        // classification downstream (the fallback there is also collapse-everything).
+        let cases: &[(Option<Value>, Option<&str>)] = &[
+            (Some(json!("app.example.com")), Some("app.example.com")),
+            (Some(json!(42)), None), // non-string stamps must not pass through
+            (None, None),
+        ];
+        for (stamp, expected) in cases {
+            let events_captured = Arc::new(Mutex::new(Vec::new()));
+            let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+                events: events_captured.clone(),
+            });
+            let mut recording = create_test_recording();
+            recording.properties.snapshot_host = stamp.clone();
+            let context = create_test_context();
+
+            process_replay_events(sink, None, None, vec![recording], &context)
+                .await
+                .unwrap();
+
+            let captured = events_captured.lock().unwrap();
+            let data: Value = serde_json::from_str(&captured[0].event.data).unwrap();
+            assert_eq!(
+                data["properties"].get("$snapshot_host"),
+                expected.map(|h| json!(h)).as_ref(),
+                "stamp={stamp:?}"
+            );
+        }
     }
 
     #[tokio::test]

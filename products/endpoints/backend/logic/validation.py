@@ -11,6 +11,7 @@ from typing import Optional
 
 from django.conf import settings
 
+from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import EndpointRequest, HogQLQuery, HogQLVariable
@@ -30,8 +31,14 @@ from products.endpoints.backend.constants import (
     ENDPOINT_NAME_REGEX,
     VALID_DATA_FRESHNESS_SECONDS,
 )
+from products.endpoints.backend.logic.strategies import BREAKDOWN_SUPPORTED_QUERY_TYPES
 from products.endpoints.backend.materialization_transforms import SUPPORTED_BUCKET_FUNCTIONS, VariablePlaceholderFinder
-from products.endpoints.backend.models import Endpoint, can_materialize_query
+from products.endpoints.backend.models import (
+    Endpoint,
+    EndpointVersion,
+    _breakdown_property_names,
+    can_materialize_query,
+)
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
@@ -220,6 +227,46 @@ def validate_variable_placeholders(node: ast.AST, variables: Optional[dict[str, 
             )
 
 
+def validate_optional_breakdown_properties(
+    optional_breakdown_properties: list[str] | None,
+    query: BaseModel | dict | None,
+) -> None:
+    """Reject optional_breakdown_properties when the query has no breakdownFilter, or when
+    any name isn't an actual breakdown property in the query.
+
+    ``query`` is any of ``EndpointRequest.query``'s pydantic models, or a stored version's
+    query dict — typed by contract so this doesn't chase the growing query-kind union.
+    """
+    if not optional_breakdown_properties:
+        return
+
+    query_dict = query.model_dump() if isinstance(query, BaseModel) else query
+    query_kind = query_dict.get("kind") if isinstance(query_dict, dict) else None
+    if query_kind not in BREAKDOWN_SUPPORTED_QUERY_TYPES:
+        raise ValidationError(
+            {
+                "optional_breakdown_properties": (
+                    f"Query kind {query_kind!r} does not support breakdowns. "
+                    f"Supported: {', '.join(sorted(BREAKDOWN_SUPPORTED_QUERY_TYPES))}."
+                )
+            }
+        )
+
+    breakdown_filter = (query_dict.get("breakdownFilter") if isinstance(query_dict, dict) else None) or {}
+    known = set(_breakdown_property_names(breakdown_filter))
+    unknown = [p for p in optional_breakdown_properties if p not in known]
+    if unknown:
+        raise ValidationError(
+            {
+                "optional_breakdown_properties": (
+                    f"Unknown breakdown propert{'y' if len(unknown) == 1 else 'ies'}: "
+                    f"{', '.join(repr(p) for p in unknown)}. "
+                    f"Known: {sorted(known) if known else '(none)'}."
+                )
+            }
+        )
+
+
 def validate_endpoint_request(data: EndpointRequest, team: Team, user: User, strict: bool = True) -> None:
     """Validate a create/update payload. With strict=True, name and query are required."""
     query = data.query
@@ -244,9 +291,16 @@ def validate_endpoint_request(data: EndpointRequest, team: Team, user: User, str
         validate_hogql_query(query, team, user)
 
     validate_data_freshness(data.data_freshness_seconds)
+    validate_optional_breakdown_properties(data.optional_breakdown_properties, query)
 
 
-def validate_update_request(data: EndpointRequest, team: Team, user: User, endpoint: Endpoint | None = None) -> None:
+def validate_update_request(
+    data: EndpointRequest,
+    team: Team,
+    user: User,
+    endpoint: Endpoint | None = None,
+    version_number: int | None = None,
+) -> None:
     """Validate an update payload against the endpoint's resulting state."""
     validate_data_freshness(data.data_freshness_seconds)
 
@@ -270,3 +324,16 @@ def validate_update_request(data: EndpointRequest, team: Team, user: User, endpo
     if data.query and isinstance(data.query, HogQLQuery) and data.query.query:
         sync_hogql_query_variables(data.query, team)
         validate_hogql_query(data.query, team, user)
+
+    # Validate optional_breakdown_properties against the post-update query when one is supplied,
+    # otherwise against the query of the version the update writes to (targeted or current).
+    if data.optional_breakdown_properties is not None:
+        if data.query is not None:
+            validate_optional_breakdown_properties(data.optional_breakdown_properties, data.query)
+        elif endpoint is not None:
+            try:
+                target_query = endpoint.get_version(version_number).query
+            except EndpointVersion.DoesNotExist:
+                target_query = None  # a nonexistent targeted version 404s in the update service
+            if target_query is not None:
+                validate_optional_breakdown_properties(data.optional_breakdown_properties, target_query)

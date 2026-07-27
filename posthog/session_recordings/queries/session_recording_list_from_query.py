@@ -21,7 +21,7 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
@@ -127,8 +127,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         extra_having_predicates: list[ast.Expr] | None = None,
         session_ids_to_exclude: list[str] | None = None,
         bypass_date_window_for_session_ids: bool = False,
+        user: User | None = None,
         **_,
     ):
+        self._user = user
         self._bypass_date_window_for_session_ids = bypass_date_window_for_session_ids
         # TRICKY: we need to make sure we init test account filters only once,
         # otherwise we'll end up with a lot of duplicated test account filters in the query
@@ -203,6 +205,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
                 query=cast(ast.SelectQuery, query),
                 team=self._team,
+                user=self._user,
                 query_type="SessionRecordingListQuery",
                 modifiers=self._hogql_query_modifiers,
                 settings=HogQLGlobalSettings(

@@ -1,7 +1,7 @@
 import { LemonTag, type LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
-import type { ZendeskTicketSignalExtra } from '~/queries/schema/schema-signals'
+import type { ZendeskTicketSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { ExternalSignalCard, type StatePill } from './ExternalSignalCard'
 import type { SignalCardEntry, SignalCardProps } from './types'
@@ -9,9 +9,11 @@ import type { SignalCardEntry, SignalCardProps } from './types'
 const MAX_VISIBLE_TAGS = 6
 
 /** Guard for Zendesk ticket extras. Keys on `status` + `tags` so it doesn't collide with Linear, which also carries `url` + `priority`. */
-export function isZendeskTicketExtra(
-    extra: Record<string, unknown>
-): extra is Record<string, unknown> & ZendeskTicketSignalExtra {
+export function isZendeskTicketExtra(value: unknown): value is Record<string, unknown> & ZendeskTicketSignalExtraApi {
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const extra = value as Record<string, unknown>
     return typeof extra.url === 'string' && 'status' in extra && 'tags' in extra
 }
 
@@ -58,7 +60,7 @@ function cleanZendeskUrl(url: string): string {
 }
 
 export function ZendeskTicketSignalCard({ signal }: SignalCardProps): JSX.Element {
-    const extra = signal.extra as Record<string, unknown> & ZendeskTicketSignalExtra
+    const extra = signal.extra as Record<string, unknown> & ZendeskTicketSignalExtraApi
 
     const statePill: StatePill = {
         label: sentenceCase(extra.status),

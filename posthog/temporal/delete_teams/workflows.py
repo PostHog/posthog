@@ -10,6 +10,7 @@ from posthog.temporal.delete_teams.activities import (
     delete_cohort_members_activity,
     delete_data_modeling_schedules_activity,
     delete_groups_activity,
+    delete_loop_trigger_schedules_activity,
     delete_misc_small_tables_activity,
     delete_organization_record_activity,
     delete_personless_distinct_ids_activity,
@@ -72,9 +73,8 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
     """Delete all child data and the team rows for a set of teams.
 
     The reusable core: composed as a child workflow by both ``DeleteProjectDataWorkflow``
-    and ``DeleteOrganizationWorkflow``. Mirrors the phase order of the legacy
-    ``_delete_teams_and_data`` Celery path, with each phase as an independently retryable,
-    heartbeating activity.
+    and ``DeleteOrganizationWorkflow``. Each deletion phase runs as an independently
+    retryable, heartbeating activity.
     """
 
     inputs_cls = DeleteTeamsDataWorkflowInputs
@@ -128,6 +128,23 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
             heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
             retry_policy=SIDE_EFFECT_RETRY_POLICY,
         )
+        # Gated with `patched` so in-flight deletions from before this deploy don't fail replay on a
+        # new command. Best-effort: a loop-schedule teardown failure must never wedge team deletion,
+        # the schedules it misses are a nuisance, not a blocker (reconciliation/one-off GC catch up).
+        if temporalio.workflow.patched("delete-loop-trigger-schedules"):
+            try:
+                await temporalio.workflow.execute_activity(
+                    delete_loop_trigger_schedules_activity,
+                    team_inputs,
+                    start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
+                    heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
+                    retry_policy=SIDE_EFFECT_RETRY_POLICY,
+                )
+            except temporalio.exceptions.ActivityError:
+                temporalio.workflow.logger.warning(
+                    "delete_loop_trigger_schedules_activity failed; continuing team deletion without it",
+                    exc_info=True,
+                )
 
         # The bulky children are gone, so the Team row delete is cheap, then hand off to ClickHouse.
         await temporalio.workflow.execute_activity(
@@ -156,7 +173,7 @@ async def _delete_teams_data_child(inputs: DeleteTeamsDataWorkflowInputs, workfl
 
 @temporalio.workflow.defn(name="delete-project-data")
 class DeleteProjectDataWorkflow(PostHogWorkflow):
-    """Replaces ``delete_project_data_and_notify_task`` — project or environment-only deletion."""
+    """Durable project or environment-only deletion."""
 
     inputs_cls = DeleteProjectDataWorkflowInputs
 
@@ -189,7 +206,7 @@ class DeleteProjectDataWorkflow(PostHogWorkflow):
 
 @temporalio.workflow.defn(name="delete-organization")
 class DeleteOrganizationWorkflow(PostHogWorkflow):
-    """Replaces ``delete_organization_data_and_notify_task``."""
+    """Durable organization deletion."""
 
     inputs_cls = DeleteOrganizationWorkflowInputs
 

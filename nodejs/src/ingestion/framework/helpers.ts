@@ -1,8 +1,8 @@
 import { Message } from 'node-rdkafka'
 
-import { BatchPipelineUnwrapper } from './batch-pipeline-unwrapper'
-import { BatchPipeline } from './batch-pipeline.interface'
-import { BatchPipelineBuilder, newBatchPipelineBuilder } from './builders'
+import { ChunkPipelineBuilder, newChunkPipelineBuilder } from './builders'
+import { ChunkPipelineUnwrapper } from './chunk-pipeline-unwrapper'
+import { ChunkPipeline } from './chunk-pipeline.interface'
 import { OkResultWithContext, PipelineWarning } from './pipeline.interface'
 import { PipelineResult, ok } from './results'
 import { StartPipeline } from './start-pipeline'
@@ -17,10 +17,10 @@ export function createNewPipeline<T = { message: Message }, C = DefaultContext>(
 }
 
 /**
- * Helper function to create a new batch processing pipeline starting with a root pipeline
+ * Helper function to create a new chunk processing pipeline starting with a root pipeline
  */
-export function createNewBatchPipeline<T = { message: Message }, C = DefaultContext>(): BatchPipelineBuilder<T, T, C> {
-    return newBatchPipelineBuilder<T, C>()
+export function createNewChunkPipeline<T = { message: Message }, C = DefaultContext>(): ChunkPipelineBuilder<T, T, C> {
+    return newChunkPipelineBuilder<T, C>()
 }
 
 /**
@@ -96,10 +96,10 @@ export function createOkContext<T, C extends Record<string, unknown> = Record<st
 }
 
 /**
- * Helper function to create a batch pipeline unwrapper
+ * Helper function to create a chunk pipeline unwrapper
  */
 export function createUnwrapper<TInput, TOutput, C, R extends string = never>(
-    batchPipeline: BatchPipeline<TInput, TOutput, C, C, R>
-): BatchPipelineUnwrapper<TInput, TOutput, C, R> {
-    return new BatchPipelineUnwrapper(batchPipeline)
+    chunkPipeline: ChunkPipeline<TInput, TOutput, C, C, R>
+): ChunkPipelineUnwrapper<TInput, TOutput, C, R> {
+    return new ChunkPipelineUnwrapper(chunkPipeline)
 }

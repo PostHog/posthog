@@ -15,6 +15,7 @@ import {
     S3BundleStore,
     ToolRefSchema,
     wipeTestPrefix,
+    writeToolSourceAndSchema,
 } from '@posthog/agent-shared'
 
 import { AgentToolDeps, buildAgentTools } from './build-agent-tools'
@@ -45,7 +46,8 @@ type ToolRefInput = z.input<typeof ToolRefSchema>
 function makeRev(
     toolRefs: ToolRefInput[],
     skills: AgentRevision['spec']['skills'] = [],
-    mcps: McpRef[] = []
+    mcps: McpRef[] = [],
+    identityProviders: AgentRevision['spec']['identity_providers'] = []
 ): AgentRevision {
     return {
         id: 'rev1',
@@ -56,7 +58,13 @@ function makeRev(
         state: 'live',
         bundle_uri: 's3://',
         bundle_sha256: null,
-        spec: AgentSpecSchema.parse({ model: 'test/x', tools: toolRefs, skills, mcps }),
+        spec: AgentSpecSchema.parse({
+            model: 'test/x',
+            tools: toolRefs,
+            skills,
+            mcps,
+            identity_providers: identityProviders,
+        }),
         encrypted_env: null,
     }
 }
@@ -201,14 +209,14 @@ describe('buildAgentTools', () => {
         expect(withSkills.tools.map((t) => t.label)).toContain('@posthog/load-skill')
     })
 
-    it('auto-includes @posthog/identity-connect when the agent has a linkable identity', async () => {
+    it('auto-includes @posthog/identity-connect only for declared linkable identities', async () => {
         // No identity surface → no connect tool (it would just error on use).
         const none = await buildAgentTools(makeRev([]), makeDeps(makeRev([])))
         expect(none.tools.map((t) => t.label)).not.toContain('@posthog/identity-connect')
 
-        // An MCP that authenticates through a provider makes connect available so
-        // the agent can hand the user a (re)link on demand.
-        const rev = makeRev(
+        // An MCP can use the implicit seed-only PostHog provider. It authenticates
+        // from the trigger bearer and deliberately has no OAuth connect flow.
+        const seedOnly = makeRev(
             [],
             [],
             [
@@ -222,8 +230,14 @@ describe('buildAgentTools', () => {
                 },
             ]
         )
-        const built = await buildAgentTools(rev, makeDeps(rev))
-        expect(built.tools.map((t) => t.label)).toContain('@posthog/identity-connect')
+        const seedOnlyBuilt = await buildAgentTools(seedOnly, makeDeps(seedOnly))
+        expect(seedOnlyBuilt.tools.map((t) => t.label)).not.toContain('@posthog/identity-connect')
+
+        const linkable = makeRev([], [], seedOnly.spec.mcps, [
+            { kind: 'posthog', id: 'posthog', scopes: ['user:read'], binding: 'principal' },
+        ])
+        const linkableBuilt = await buildAgentTools(linkable, makeDeps(linkable))
+        expect(linkableBuilt.tools.map((t) => t.label)).toContain('@posthog/identity-connect')
     })
 
     describe('@posthog/web-search gating', () => {
@@ -349,21 +363,27 @@ describe('buildAgentTools', () => {
         await expect(byId(built, 'fetch-acme').execute('c1', {})).rejects.toThrow(/requires a sandbox/)
     })
 
-    it('custom tool description + parameters load from schema.json in the bundle', async () => {
+    it('custom tool parameters survive the writeToolSourceAndSchema → loadCustomSchema round-trip', async () => {
+        // Author through the real writer (typed-bundle.ts writeToolSourceAndSchema)
+        // rather than a hand-written fixture — the janitor's typed pipeline is the
+        // sole production writer of schema.json and writes `{ description, args_schema }`,
+        // so the runner reads that key and nothing else.
         const bundle = makeBundle()
-        await bundle.write(
-            'rev1',
-            'tools/fetch-acme/schema.json',
-            JSON.stringify({
-                description: 'Fetch from Acme',
-                args: { type: 'object', properties: { name: { type: 'string' } } },
-            })
-        )
-        const rev = makeRev([{ kind: 'custom', id: 'fetch-acme', path: 'tools/fetch-acme/' }])
+        await writeToolSourceAndSchema('rev1', bundle, {
+            id: 'add-numbers',
+            description: 'Add two numbers',
+            args_schema: { type: 'object', properties: { n: { type: 'number' } }, required: ['n'] },
+            source: '// source',
+        })
+        const rev = makeRev([{ kind: 'custom', id: 'add-numbers', path: 'tools/add-numbers/' }])
         const built = await buildAgentTools(rev, makeDeps(rev, { bundle }))
-        const tool = byId(built, 'fetch-acme')
-        expect(tool.description).toBe('Fetch from Acme')
-        expect(tool.parameters).toEqual({ type: 'object', properties: { name: { type: 'string' } } })
+        const tool = byId(built, 'add-numbers')
+        expect(tool.description).toBe('Add two numbers')
+        expect(tool.parameters).toEqual({
+            type: 'object',
+            properties: { n: { type: 'number' } },
+            required: ['n'],
+        })
     })
 
     describe('mcp tools', () => {

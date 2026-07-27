@@ -14,7 +14,6 @@ import { HARNESS_BY_LABEL, harnessLogo } from './dashboard/harnessRegistry'
 import {
     type ActivityRow,
     type BucketRow,
-    buildBucketKeys,
     buildDailyActivity,
     buildKPIs,
     buildKpiWindow,
@@ -22,7 +21,6 @@ import {
     deltaPct,
     lastBucketIsInProgress,
     mcpDashboardOverviewLogic,
-    normalizeBucket,
     pickNotableSessions,
     type SessionRow,
     type ToolDailyRow,
@@ -67,6 +65,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'OpenAI Responses API',
             'OpenAI',
             'OpenAI Codex',
+            'Grok',
             'Cursor',
             'VS Code',
             'Windsurf',
@@ -180,32 +179,6 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
-    describe('buildBucketKeys', () => {
-        it('emits one key per day across the resolved window, including empty trailing days', () => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
-            try {
-                expect(buildBucketKeys({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')).toEqual([
-                    '2026-06-11 00:00:00',
-                    '2026-06-12 00:00:00',
-                    '2026-06-13 00:00:00',
-                    '2026-06-14 00:00:00',
-                    '2026-06-15 00:00:00',
-                    '2026-06-16 00:00:00',
-                    '2026-06-17 00:00:00',
-                    '2026-06-18 00:00:00',
-                ])
-            } finally {
-                jest.useRealTimers()
-            }
-        })
-
-        it('truncates weekly buckets to ISO Monday starts (matching ClickHouse dateTrunc)', () => {
-            // 2026-06-01 is a Monday; every key should land on a Monday.
-            const keys = buildBucketKeys({ dateFrom: '2026-06-01', dateTo: '2026-06-21' }, 'UTC', 'week')
-            expect(keys).toEqual(['2026-06-01 00:00:00', '2026-06-08 00:00:00', '2026-06-15 00:00:00'])
-        })
-    })
-
     describe('buildDailyActivity', () => {
         it('projects rows onto the bucket keys, defaulting missing buckets to zero', () => {
             const rows: ActivityRow[] = [
@@ -267,34 +240,6 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
-    describe('normalizeBucket', () => {
-        // The query API serializes dateTrunc buckets as ISO datetimes; they must come back in the
-        // same format buildBucketKeys emits, otherwise the zero-fill join misses every bucket.
-        it.each([
-            ['2026-06-19T00:00:00Z', 'UTC', '2026-06-19 00:00:00'],
-            ['2026-06-19T00:00:00+00:00', 'UTC', '2026-06-19 00:00:00'],
-            ['2026-06-19T11:30:00Z', 'UTC', '2026-06-19 11:30:00'],
-        ])('normalizes %s (%s) to %s', (raw, timezone, expected) => {
-            expect(normalizeBucket(raw, timezone)).toBe(expected)
-        })
-
-        it('returns empty string for missing values', () => {
-            expect(normalizeBucket(null, 'UTC')).toBe('')
-            expect(normalizeBucket('', 'UTC')).toBe('')
-        })
-
-        it('produces keys that match buildBucketKeys so the activity join lands', () => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
-            try {
-                const bucketKeys = buildBucketKeys({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')
-                const normalized = normalizeBucket('2026-06-18T00:00:00Z', 'UTC')
-                expect(bucketKeys).toContain(normalized)
-            } finally {
-                jest.useRealTimers()
-            }
-        })
-    })
-
     describe('buildKpiWindow', () => {
         it.each([
             ['2024-01-08', '2024-01-15', 'day', '2024-01-08 00:00:00', '2023-12-31'],
@@ -347,6 +292,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 previousValue: 5,
                 deltaPct: 500,
                 sparkline: [10, 20], // current sorted by bucket
+                sparklineLabels: ['2024-01-08', '2024-01-09'],
                 goodDirection: 'up',
             })
             expect(kpis.toolCalls).toMatchObject({
@@ -361,9 +307,12 @@ describe('mcpDashboardOverviewLogic', () => {
                 deltaPct: 100,
                 goodDirection: 'down',
             })
-            expect(kpis.errorRatePct.value).toBeCloseTo(6.667, 2)
-            expect(kpis.errorRatePct.previousValue).toBeCloseTo(10, 5)
-            expect(kpis.errorRatePct.goodDirection).toBe('down')
+            expect(kpis.errorRatePct).toMatchObject({
+                value: 7.5,
+                previousValue: 10,
+                deltaPct: -25,
+                goodDirection: 'down',
+            })
         })
 
         it('returns null deltas when there is no prior-period data', () => {
@@ -450,6 +399,30 @@ describe('mcpDashboardOverviewLogic', () => {
         // at the top level. This reads whichever shape a reload used.
         const filtersOf = (call: any): Record<string, any> => call.filters ?? call
 
+        // The users query returns a single [current_users, prior_users] row; loadUsers maps
+        // column 0 → value, column 1 → previousValue, and derives the delta. Pins that column
+        // mapping and the deltaPct wiring — a swap or a dropped delta would slip past the other
+        // tests, which only ever see empty results.
+        it('maps the users query columns to the current/prior metric', async () => {
+            mockApi.query.mockImplementation(async (node: any) =>
+                typeof node?.query === 'string' && node.query.includes('current_users')
+                    ? ({ results: [[42, 30]] } as any)
+                    : ({ results: [] } as any)
+            )
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.users).toEqual({
+                value: 42,
+                previousValue: 30,
+                deltaPct: 40,
+                sparkline: [],
+                sparklineLabels: [],
+                goodDirection: 'up',
+            })
+        })
+
         it('reloads every tile when the date filter changes', async () => {
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
@@ -461,15 +434,18 @@ describe('mcpDashboardOverviewLogic', () => {
             }).toFinishAllListeners()
 
             const reloads = reloadCallsSince(callsBefore)
-            // Six tiles: KPI + the five breakdown queries.
-            expect(reloads.length).toBe(6)
+            // Seven tiles: KPI + users + the five breakdown queries.
+            expect(reloads.length).toBe(7)
             // The five breakdowns pass the raw selected range straight through.
             const breakdowns = reloads.filter((call) => filtersOf(call).dateRange?.date_from === '-30d')
             expect(breakdowns).toHaveLength(5)
-            // The KPI tile widens to an absolute doubled window so it can compare against the prior period.
+            // The KPI and users tiles widen to an absolute doubled window so they can compare against the prior period.
             const kpi = reloads.find((call) => call.query?.includes('AS bucket'))
             expect(kpi?.filters.dateRange.date_from).not.toBe('-30d')
             expect(dayjs(kpi?.filters.dateRange.date_from).isValid()).toBe(true)
+            const usersTile = reloads.find((call) => call.query?.includes('current_users'))
+            expect(usersTile?.filters.dateRange.date_from).not.toBe('-30d')
+            expect(dayjs(usersTile?.filters.dateRange.date_from).isValid()).toBe(true)
         })
 
         it.each([[false], [true]])('passes filterTestAccounts=%s to every tile', async (enabled) => {
@@ -486,7 +462,7 @@ describe('mcpDashboardOverviewLogic', () => {
             }
 
             const reloads = reloadCallsSince(callsBefore)
-            expect(reloads.length).toBe(6)
+            expect(reloads.length).toBe(7)
             expect(reloads.every((call) => filtersOf(call).filterTestAccounts === enabled)).toBe(true)
         })
 
@@ -499,7 +475,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
             // No explicit toggle, yet every tile filters internal users because the team default is on.
             const reloads = mockApi.query.mock.calls.map((call) => call[0] as any)
-            expect(reloads.length).toBeGreaterThanOrEqual(6)
+            expect(reloads.length).toBeGreaterThanOrEqual(7)
             expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
         })
 
@@ -531,7 +507,7 @@ describe('mcpDashboardOverviewLogic', () => {
             }).toFinishAllListeners()
 
             const reloads = reloadCallsSince(callsBefore)
-            expect(reloads.length).toBe(6)
+            expect(reloads.length).toBe(7)
             expect(
                 reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([filter]))
             ).toBe(true)

@@ -10,11 +10,10 @@ import __trendsBarBreakdown from '../../mocks/fixtures/api/projects/team_id/insi
 import __trendsLine from '../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import __trendsLineBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
 import __trendsLineMulti from '../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
+import __trendsMetric from '../../mocks/fixtures/api/projects/team_id/insights/trendsMetric.json'
 import __trendsNumber from '../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
 import __trendsPie from '../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
-import __trendsPieBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'
 import __trendsTable from '../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
-import __trendsTableBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsTableBreakdown.json'
 import __trendsValue from '../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
 import __trendsValueBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json'
 import __trendsWorldMap from '../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
@@ -144,14 +143,21 @@ export const TrendsNumberInsight: Story = {
     tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
 }
 
-export const TrendsTableInsight: Story = {
-    args: { insight: __trendsTable as any },
+/** The Metric sparkline is SVG/canvas, so it captures cleanly and guards against the exported card
+ * collapsing to a fixed-height sparkline that floats mid-card instead of filling and hugging the bottom. */
+export const TrendsMetricInsight: Story = {
+    args: { insight: __trendsMetric as any },
+    parameters: {
+        mockDate: '2022-04-01',
+        testOptions: {
+            snapshotBrowsers: ['chromium'],
+            waitForSelector: '.Metric canvas',
+        },
+    },
 }
 
-export const TrendsTableBreakdownInsight: Story = {
-    args: {
-        insight: __trendsTableBreakdown as any,
-    },
+export const TrendsTableInsight: Story = {
+    args: { insight: __trendsTable as any },
 }
 
 export const TrendsPieInsight: Story = {
@@ -169,12 +175,6 @@ export const TrendsPieInsightDetailed: Story = {
     args: {
         insight: __trendsPie as any,
         detailed: true,
-    },
-}
-
-export const TrendsPieBreakdownInsight: Story = {
-    args: {
-        insight: __trendsPieBreakdown as any,
     },
 }
 

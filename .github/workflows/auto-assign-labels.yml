@@ -52,5 +52,6 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   PR_TITLE: ${{ github.event.pull_request.title }}
+                  PR_AUTHOR: ${{ github.event.pull_request.user.login }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
               run: node .github/scripts/label-pr-from-title.js

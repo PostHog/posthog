@@ -14,6 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex import (
+    BREX_API_VERSION_V1,
+    BREX_API_VERSION_V2,
     BrexResumeConfig,
     brex_source,
     validate_credentials as validate_brex_credentials,
@@ -25,14 +27,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BrexSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brex import BrexSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class BrexSource(ResumableSource[BrexSourceConfig, BrexResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://developer.brex.com/changelog"
+
+    supported_versions = (BREX_API_VERSION_V1, BREX_API_VERSION_V2)
+    default_version = BREX_API_VERSION_V2
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -87,27 +96,12 @@ Note: Brex tokens expire after 90 days without API activity, so a token that has
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = []
-        for endpoint in ENDPOINTS:
-            incremental_fields = INCREMENTAL_FIELDS.get(endpoint)
-            schemas.append(
-                SourceSchema(
-                    name=endpoint,
-                    supports_incremental=incremental_fields is not None,
-                    supports_append=incremental_fields is not None,
-                    incremental_fields=incremental_fields or [],
-                )
-            )
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: BrexSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: BrexSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_brex_credentials(config.api_key):
             return True, None
@@ -126,8 +120,10 @@ Note: Brex tokens expire after 90 days without API activity, so a token that has
         return brex_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

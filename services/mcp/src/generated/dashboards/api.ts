@@ -3,16 +3,62 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 18 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const DashboardTemplatesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DashboardTemplatesListQueryParams = /* @__PURE__ */ zod.object({
+    is_featured: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).'
+        ),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional. When not using `search`, results are sorted with featured templates first (`is_featured=true`), then by `template_name` (case-insensitive A–Z; `-template_name` for Z–A) or by `created_at` (`-created_at` for newest first). When `search` is set, order is featured first, then relevance rank, then case-insensitive name for ties.'
+        ),
+    scope: zod
+        .enum(['feature_flag', 'global', 'organization', 'team'])
+        .optional()
+        .describe(
+            "Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `organization`: templates shared across all projects in this organization. `feature_flag`: feature-flag dashboard templates only. Omit for official, organization, and this project's templates (default dashboard template picker behavior)."
+        ),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional. Full-text search across template name, tags, and description, ranked by relevance. Use it to find templates for a topic (e.g. `retention`, `revenue`, `product analytics`).'
+        ),
+})
+
+export const DashboardTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this dashboard template.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 export const DashboardsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -21,7 +67,7 @@ export const DashboardsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included."
+            "Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled\/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included."
         ),
     format: zod.enum(['json', 'txt']).optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
@@ -30,7 +76,7 @@ export const DashboardsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "Optional. Match against dashboard `name`, `description`, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error."
+            "Optional. Match against dashboard `name`, `description`, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Results are then ordered by relevance, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error."
         ),
 })
 
@@ -38,12 +84,18 @@ export const DashboardsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const DashboardsCreateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const dashboardsCreateBodyNameMax = 400
@@ -62,7 +114,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .union([zod.literal(21), zod.literal(37)])
             .optional()
             .describe(
-                '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
+                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
             ),
         quick_filter_ids: zod
             .array(zod.string())
@@ -85,7 +137,7 @@ export const DashboardsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -97,11 +149,17 @@ export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
             'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
         ),
     format: zod.enum(['json', 'txt']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
     variables_override: zod
         .string()
         .optional()
         .describe(
-            'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+            'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {\"<variable_id>\": {\"code_name\": \"<code_name>\", \"variableId\": \"<variable_id>\", \"value\": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
         ),
 })
 
@@ -110,18 +168,36 @@ export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const DashboardsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const dashboardsPartialUpdateBodyNameMax = 400
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault = 25
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitMax = 50
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemKeyMax = 400
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemLabelOneMax = 400
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneItemOneMax = 4000
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneMax = 100
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueTwoMax = 4000
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneMax = 20
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitDefault = 10
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitMax = 25
@@ -141,12 +217,15 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourLimitMax 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderByDefault = `created_at`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderDirectionDefault = `DESC`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourStatusDefault = `all`
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitDefault = 50
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitMax = 100
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitDefault = 10
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitMax = 25
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixOrderByDefault = `latest`
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixWrapLinesDefault = false
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixTimezoneDefault = `UTC`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenLimitDefault = 50
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenLimitMax = 100
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenOrderByDefault = `latest`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenWrapLinesDefault = false
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenTimezoneDefault = `UTC`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
 export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
@@ -166,7 +245,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                     .string()
                     .nullish()
                     .describe(
-                        "Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now."
+                        "Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null\/omitted means up to now."
                     ),
                 properties: zod
                     .unknown()
@@ -176,7 +255,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                     ),
             })
             .describe(
-                "OpenAPI-only shape for a dashboard's filters object (agents/MCP).\n\nDocuments the dashboard-level filters that act as the single source of truth for the\ndashboard's tiles. Runtime persistence reads the raw ``filters`` dict from the request body, so\nextra keys are accepted, but these are the ones agents should set."
+                "OpenAPI-only shape for a dashboard's filters object (agents\/MCP).\n\nDocuments the dashboard-level filters that act as the single source of truth for the\ndashboard's tiles. Runtime persistence reads the raw ``filters`` dict from the request body, so\nextra keys are accepted, but these are the ones agents should set."
             )
             .optional()
             .describe(
@@ -208,13 +287,14 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                     'experiments_list',
                                     'logs_list',
                                     'session_replay_list',
+                                    'survey_results',
                                 ])
                                 .describe(
-                                    '* `activity_events_list` - activity_events_list\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `session_replay_list` - session_replay_list'
+                                    '\* `activity_events_list` - activity_events_list\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
                                 )
                                 .optional()
                                 .describe(
-                                    'Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `session_replay_list` - session_replay_list'
+                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - activity_events_list\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
                                 ),
                             config: zod
                                 .union([
@@ -308,6 +388,102 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             .optional()
                                             .describe(
                                                 'Limit the feed to a single event name. Omit or null for all events.'
+                                            ),
+                                        properties: zod
+                                            .union([
+                                                zod
+                                                    .array(
+                                                        zod.object({
+                                                            key: zod
+                                                                .string()
+                                                                .min(1)
+                                                                .max(
+                                                                    dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemKeyMax
+                                                                ),
+                                                            label: zod
+                                                                .union([
+                                                                    zod
+                                                                        .string()
+                                                                        .max(
+                                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemLabelOneMax
+                                                                        ),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod.enum(['event', 'person']),
+                                                            value: zod
+                                                                .union([
+                                                                    zod
+                                                                        .array(
+                                                                            zod.union([
+                                                                                zod
+                                                                                    .string()
+                                                                                    .max(
+                                                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneItemOneMax
+                                                                                    ),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        )
+                                                                        .max(
+                                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneMax
+                                                                        ),
+                                                                    zod
+                                                                        .string()
+                                                                        .max(
+                                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueTwoMax
+                                                                        ),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    )
+                                                    .max(
+                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                'Event and person property filters, matching Activity > Explore events.'
                                             ),
                                     }),
                                     zod.object({
@@ -572,7 +748,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             )
                                             .describe('Sort direction for orderBy.'),
                                         status: zod
-                                            .enum(['draft', 'running', 'paused', 'stopped', 'all'])
+                                            .enum(['draft', 'running', 'paused', 'exposure_frozen', 'stopped', 'all'])
                                             .default(
                                                 dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourStatusDefault
                                             )
@@ -613,7 +789,14 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                 }),
                                                 zod.null(),
                                             ])
-                                            .optional(),
+                                            .optional()
+                                            .describe("Null or omitted means all time (the survey's full lifetime)."),
+                                        surveyId: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Survey to show performance stats and recent responses for. Null until the user picks one.'
+                                            ),
                                         limit: zod
                                             .number()
                                             .min(1)
@@ -621,11 +804,44 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             .default(
                                                 dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitDefault
                                             )
+                                            .describe('Maximum number of recent responses to return.'),
+                                    }),
+                                    zod.object({
+                                        dateRange: zod
+                                            .union([
+                                                zod.object({
+                                                    date_from: zod
+                                                        .union([
+                                                            zod.enum([
+                                                                '-1M',
+                                                                '-30M',
+                                                                '-1h',
+                                                                '-3h',
+                                                                '-24h',
+                                                                '-7d',
+                                                                '-14d',
+                                                                '-30d',
+                                                                '-90d',
+                                                            ]),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional(),
+                                        limit: zod
+                                            .number()
+                                            .min(1)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenLimitMax)
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenLimitDefault
+                                            )
                                             .describe('Maximum number of log lines to return.'),
                                         orderBy: zod
                                             .enum(['latest', 'earliest'])
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixOrderByDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenOrderByDefault
                                             )
                                             .describe('Sort by newest (latest) or oldest (earliest) first.'),
                                         severityLevels: zod
@@ -641,7 +857,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                         wrapLines: zod
                                             .boolean()
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixWrapLinesDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenWrapLinesDefault
                                             )
                                             .describe(
                                                 'Wrap long log lines instead of truncating them to a single row.'
@@ -649,7 +865,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                         timezone: zod
                                             .enum(['UTC', 'local'])
                                             .default(
-                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixTimezoneDefault
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenTimezoneDefault
                                             )
                                             .describe(
                                                 "Render log timestamps in UTC or in each viewer's local timezone."
@@ -691,7 +907,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('When deleting, also delete insights that are only on this dashboard.'),
     })
     .describe(
-        'OpenAPI-only PATCH body for dashboards (agents/MCP).\n\nMust be a superset of ``dashboard_patch_runtime_openapi_field_names()`` — ``extend_schema(request=...)``\nreplaces the inferred schema entirely. Contract: ``test_dashboard_openapi.py``.'
+        'OpenAPI-only PATCH body for dashboards (agents\/MCP).\n\nMust be a superset of ``dashboard_patch_runtime_openapi_field_names()`` — ``extend_schema(request=...)``\nreplaces the inferred schema entirely. Contract: ``test_dashboard_openapi.py``.'
     )
 
 /**
@@ -702,7 +918,7 @@ export const DashboardsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -718,7 +934,7 @@ export const DashboardsCopyTileCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -742,7 +958,7 @@ export const DashboardsCreateTextTileCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -806,7 +1022,7 @@ export const DashboardsDeleteTileParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -823,7 +1039,7 @@ export const DashboardsMoveTilePartialUpdateParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -846,7 +1062,7 @@ export const DashboardsReorderTilesCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -863,10 +1079,10 @@ export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
         .describe('Array of tile IDs in the desired display order (top to bottom, left to right).'),
     layout: zod
         .enum(['preserve', 'two_column', 'full_width'])
-        .describe('* `preserve` - preserve\n* `two_column` - two_column\n* `full_width` - full_width')
+        .describe('\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width')
         .default(dashboardsReorderTilesCreateBodyLayoutDefault)
         .describe(
-            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.\n\n* `preserve` - preserve\n* `two_column` - two_column\n* `full_width` - full_width"
+            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.\n\n\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width"
         ),
 })
 
@@ -878,7 +1094,7 @@ export const DashboardsRunInsightsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -906,7 +1122,7 @@ export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.obje
         .string()
         .optional()
         .describe(
-            'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+            'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {\"<variable_id>\": {\"code_name\": \"<code_name>\", \"variableId\": \"<variable_id>\", \"value\": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
         ),
 })
 
@@ -915,7 +1131,7 @@ export const DashboardsRunWidgetsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -932,7 +1148,7 @@ export const DashboardsUpdateTextTileCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -990,7 +1206,7 @@ export const DashboardsWidgetsBatchCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1002,6 +1218,18 @@ export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneNameMax = 400
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitDefault = 25
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitMax = 50
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax = 4000
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax = 100
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax = 4000
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneMax = 20
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoNameMax = 400
 
@@ -1030,12 +1258,17 @@ export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveNameMax = 400
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixNameMax = 400
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitDefault = 50
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitMax = 100
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitDefault = 10
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitMax = 25
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneOrderByDefault = `latest`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneWrapLinesDefault = false
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneTimezoneDefault = `UTC`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenNameMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitDefault = 50
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitMax = 100
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneOrderByDefault = `latest`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneWrapLinesDefault = false
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneTimezoneDefault = `UTC`
 export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
 
 export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
@@ -1189,6 +1422,100 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .union([zod.string().min(1), zod.null()])
                                     .optional()
                                     .describe('Limit the feed to a single event name. Omit or null for all events.'),
+                                properties: zod
+                                    .union([
+                                        zod
+                                            .array(
+                                                zod.object({
+                                                    key: zod
+                                                        .string()
+                                                        .min(1)
+                                                        .max(
+                                                            dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax
+                                                        ),
+                                                    label: zod
+                                                        .union([
+                                                            zod
+                                                                .string()
+                                                                .max(
+                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax
+                                                                ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                    operator: zod.enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'gte',
+                                                        'lt',
+                                                        'lte',
+                                                        'is_set',
+                                                        'is_not_set',
+                                                        'is_date_exact',
+                                                        'is_date_before',
+                                                        'is_date_after',
+                                                        'between',
+                                                        'not_between',
+                                                        'min',
+                                                        'max',
+                                                        'in',
+                                                        'not_in',
+                                                        'is_cleaned_path_exact',
+                                                        'flag_evaluates_to',
+                                                        'semver_eq',
+                                                        'semver_neq',
+                                                        'semver_gt',
+                                                        'semver_gte',
+                                                        'semver_lt',
+                                                        'semver_lte',
+                                                        'semver_tilde',
+                                                        'semver_caret',
+                                                        'semver_wildcard',
+                                                        'icontains_multi',
+                                                        'not_icontains_multi',
+                                                    ]),
+                                                    type: zod.enum(['event', 'person']),
+                                                    value: zod
+                                                        .union([
+                                                            zod
+                                                                .array(
+                                                                    zod.union([
+                                                                        zod
+                                                                            .string()
+                                                                            .max(
+                                                                                dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax
+                                                                            ),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                )
+                                                                .max(
+                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax
+                                                                ),
+                                                            zod
+                                                                .string()
+                                                                .max(
+                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax
+                                                                ),
+                                                            zod.number(),
+                                                            zod.boolean(),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                })
+                                            )
+                                            .max(
+                                                dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneMax
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Event and person property filters, matching Activity > Explore events.'),
                             })
                             .describe('Configuration for the recent events widget.'),
                     }),
@@ -1612,7 +1939,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     )
                                     .describe('Sort direction for orderBy.'),
                                 status: zod
-                                    .enum(['draft', 'running', 'paused', 'stopped', 'all'])
+                                    .enum(['draft', 'running', 'paused', 'exposure_frozen', 'stopped', 'all'])
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneStatusDefault)
                                     .describe('Experiment status filter.'),
                                 createdBy: zod
@@ -1748,6 +2075,105 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                             .boolean()
                             .optional()
                             .describe('Whether to show the description on the dashboard tile.'),
+                        widget_type: zod.enum(['survey_results']),
+                        config: zod
+                            .object({
+                                dateRange: zod
+                                    .union([
+                                        zod.object({
+                                            date_from: zod
+                                                .union([
+                                                    zod.enum([
+                                                        '-1M',
+                                                        '-30M',
+                                                        '-1h',
+                                                        '-3h',
+                                                        '-24h',
+                                                        '-7d',
+                                                        '-14d',
+                                                        '-30d',
+                                                        '-90d',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional(),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe("Null or omitted means all time (the survey's full lifetime)."),
+                                surveyId: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Survey to show performance stats and recent responses for. Null until the user picks one.'
+                                    ),
+                                limit: zod
+                                    .number()
+                                    .min(1)
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitDefault)
+                                    .describe('Maximum number of recent responses to return.'),
+                            })
+                            .describe('Configuration for the survey results widget.'),
+                    }),
+                    zod.object({
+                        name: zod
+                            .string()
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenNameMax)
+                            .nullish()
+                            .describe('Optional custom display name for the widget tile.'),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('Optional markdown description shown when show_description is enabled.'),
+                        layouts: zod
+                            .object({
+                                sm: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe(
+                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
+                                    ),
+                                xs: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                            })
+                            .optional()
+                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+                        show_description: zod
+                            .boolean()
+                            .optional()
+                            .describe('Whether to show the description on the dashboard tile.'),
                         widget_type: zod.enum(['logs_list']),
                         config: zod
                             .object({
@@ -1777,12 +2203,12 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitDefault)
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitDefault)
                                     .describe('Maximum number of log lines to return.'),
                                 orderBy: zod
                                     .enum(['latest', 'earliest'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneOrderByDefault)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneOrderByDefault)
                                     .describe('Sort by newest (latest) or oldest (earliest) first.'),
                                 severityLevels: zod
                                     .array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']))
@@ -1794,11 +2220,11 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .describe('Only show logs from these services. Empty shows all services.'),
                                 wrapLines: zod
                                     .boolean()
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneWrapLinesDefault)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneWrapLinesDefault)
                                     .describe('Wrap long log lines instead of truncating them to a single row.'),
                                 timezone: zod
                                     .enum(['UTC', 'local'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneTimezoneDefault)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneTimezoneDefault)
                                     .describe("Render log timestamps in UTC or in each viewer's local timezone."),
                                 savedViewId: zod
                                     .union([zod.string(), zod.null()])
@@ -1814,7 +2240,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
             .min(1)
             .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
             .describe(
-                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
+                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
             ),
     })
     .describe('OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.')
@@ -1833,7 +2259,7 @@ export const DashboardsUpdateWidgetsBatchParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1845,6 +2271,18 @@ export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneNameMax = 400
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitDefault = 25
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitMax = 50
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax = 400
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax = 400
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax = 4000
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax = 100
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax = 4000
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneMax = 20
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoNameMax = 400
 
@@ -1873,12 +2311,17 @@ export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveNameMax = 400
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixNameMax = 400
 
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitDefault = 50
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitMax = 100
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitDefault = 10
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitMax = 25
 
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneOrderByDefault = `latest`
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneWrapLinesDefault = false
-export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneTimezoneDefault = `UTC`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenNameMax = 400
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitDefault = 50
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitMax = 100
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneOrderByDefault = `latest`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneWrapLinesDefault = false
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneTimezoneDefault = `UTC`
 export const dashboardsUpdateWidgetsBatchBodyWidgetsMax = 10
 
 export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
@@ -1990,6 +2433,100 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .union([zod.string().min(1), zod.null()])
                                     .optional()
                                     .describe('Limit the feed to a single event name. Omit or null for all events.'),
+                                properties: zod
+                                    .union([
+                                        zod
+                                            .array(
+                                                zod.object({
+                                                    key: zod
+                                                        .string()
+                                                        .min(1)
+                                                        .max(
+                                                            dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax
+                                                        ),
+                                                    label: zod
+                                                        .union([
+                                                            zod
+                                                                .string()
+                                                                .max(
+                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax
+                                                                ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                    operator: zod.enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'gte',
+                                                        'lt',
+                                                        'lte',
+                                                        'is_set',
+                                                        'is_not_set',
+                                                        'is_date_exact',
+                                                        'is_date_before',
+                                                        'is_date_after',
+                                                        'between',
+                                                        'not_between',
+                                                        'min',
+                                                        'max',
+                                                        'in',
+                                                        'not_in',
+                                                        'is_cleaned_path_exact',
+                                                        'flag_evaluates_to',
+                                                        'semver_eq',
+                                                        'semver_neq',
+                                                        'semver_gt',
+                                                        'semver_gte',
+                                                        'semver_lt',
+                                                        'semver_lte',
+                                                        'semver_tilde',
+                                                        'semver_caret',
+                                                        'semver_wildcard',
+                                                        'icontains_multi',
+                                                        'not_icontains_multi',
+                                                    ]),
+                                                    type: zod.enum(['event', 'person']),
+                                                    value: zod
+                                                        .union([
+                                                            zod
+                                                                .array(
+                                                                    zod.union([
+                                                                        zod
+                                                                            .string()
+                                                                            .max(
+                                                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax
+                                                                            ),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                )
+                                                                .max(
+                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax
+                                                                ),
+                                                            zod
+                                                                .string()
+                                                                .max(
+                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax
+                                                                ),
+                                                            zod.number(),
+                                                            zod.boolean(),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                })
+                                            )
+                                            .max(
+                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneMax
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Event and person property filters, matching Activity > Explore events.'),
                             })
                             .optional()
                             .describe('New configuration for the recent events widget. Omit to leave unchanged.'),
@@ -2290,7 +2827,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     )
                                     .describe('Sort direction for orderBy.'),
                                 status: zod
-                                    .enum(['draft', 'running', 'paused', 'stopped', 'all'])
+                                    .enum(['draft', 'running', 'paused', 'exposure_frozen', 'stopped', 'all'])
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneStatusDefault)
                                     .describe('Experiment status filter.'),
                                 createdBy: zod
@@ -2344,6 +2881,64 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                             .string()
                             .optional()
                             .describe('New markdown description for the widget. Omit to leave unchanged.'),
+                        widget_type: zod.enum(['survey_results']),
+                        config: zod
+                            .object({
+                                dateRange: zod
+                                    .union([
+                                        zod.object({
+                                            date_from: zod
+                                                .union([
+                                                    zod.enum([
+                                                        '-1M',
+                                                        '-30M',
+                                                        '-1h',
+                                                        '-3h',
+                                                        '-24h',
+                                                        '-7d',
+                                                        '-14d',
+                                                        '-30d',
+                                                        '-90d',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional(),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe("Null or omitted means all time (the survey's full lifetime)."),
+                                surveyId: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Survey to show performance stats and recent responses for. Null until the user picks one.'
+                                    ),
+                                limit: zod
+                                    .number()
+                                    .min(1)
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitDefault)
+                                    .describe('Maximum number of recent responses to return.'),
+                            })
+                            .optional()
+                            .describe('New configuration for the survey results widget. Omit to leave unchanged.'),
+                    }),
+                    zod.object({
+                        tile_id: zod
+                            .number()
+                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
+                        name: zod
+                            .string()
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenNameMax)
+                            .nullish()
+                            .describe(
+                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
+                            ),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
                         widget_type: zod.enum(['logs_list']),
                         config: zod
                             .object({
@@ -2373,12 +2968,12 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                 limit: zod
                                     .number()
                                     .min(1)
-                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitMax)
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitDefault)
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitDefault)
                                     .describe('Maximum number of log lines to return.'),
                                 orderBy: zod
                                     .enum(['latest', 'earliest'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneOrderByDefault)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneOrderByDefault)
                                     .describe('Sort by newest (latest) or oldest (earliest) first.'),
                                 severityLevels: zod
                                     .array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']))
@@ -2390,11 +2985,11 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .describe('Only show logs from these services. Empty shows all services.'),
                                 wrapLines: zod
                                     .boolean()
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneWrapLinesDefault)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneWrapLinesDefault)
                                     .describe('Wrap long log lines instead of truncating them to a single row.'),
                                 timezone: zod
                                     .enum(['UTC', 'local'])
-                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneTimezoneDefault)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneTimezoneDefault)
                                     .describe("Render log timestamps in UTC or in each viewer's local timezone."),
                                 savedViewId: zod
                                     .union([zod.string(), zod.null()])
@@ -2424,7 +3019,7 @@ export const DashboardsWidgetCatalogRetrieveParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { ToolContext } from '@posthog/agent-shared'
+import { COST_HINTS, type ToolContext } from '@posthog/agent-shared'
 
 import { listNativeTools, nativeToolsCatalogV1 } from '../registry'
 
@@ -15,7 +15,7 @@ describe('@posthog/agent-applications-native-tools-list', () => {
         expect(query).not.toBeUndefined()
         expect(typeof query!.description).toBe('string')
         expect(query!.requires.provider).toEqual({ id: 'posthog', scopes: ['query:read'] })
-        expect(['cheap', 'medium', 'expensive']).toContain(query!.cost_hint)
+        expect(COST_HINTS).toContain(query!.cost_hint)
         // The catalog tool lists itself — it's a real available tool.
         expect(byId.has('@posthog/agent-applications-native-tools-list')).toBe(true)
     })

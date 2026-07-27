@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 from temporalio.exceptions import ApplicationError
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
-from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerProvider, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
@@ -26,8 +26,9 @@ class ScannerSnapshot(BaseModel, frozen=True):
     name: str
     scanner_type: ScannerType
     scanner_version: int = Field(ge=1)
-    model: ScannerModel
-    provider: ScannerProvider
+    # Plain strings, not live enums: retiring a ScannerModel/ScannerProvider member must not break old-row loads.
+    model: str
+    provider: str
     emits_signals: bool
     scanner_config: dict[str, Any]
 
@@ -160,6 +161,17 @@ class SessionMetadata(BaseModel, frozen=True):
         return self.model_dump(mode="json", exclude_none=True)
 
 
+class NavigationEntry(BaseModel, frozen=True):
+    """One page-URL change in the session, precomputed for the prompt's navigation timeline."""
+
+    rec_t: int = Field(ge=0)
+    # Interned `window_N` token, matching what the events tool returns. None when the session has no window ids.
+    window: str | None = None
+    url: str
+    # First entry seen for a window token other than the session's initial one (a tab or window opening).
+    new_window: bool = False
+
+
 class ScannerLlmInputs(BaseModel, frozen=True):
     """Per-session analytics events + recording metadata, stashed in Redis between activities."""
 
@@ -170,6 +182,9 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     url_mapping: dict[str, str] = Field(default_factory=dict)
     window_mapping: dict[str, str] = Field(default_factory=dict)
     event_timestamps: dict[str, int] = Field(default_factory=dict)
+    # Chronological URL-change timeline rendered into the preamble. Defaults keep pre-existing Redis blobs loadable.
+    navigation: list[NavigationEntry] = Field(default_factory=list)
+    navigation_dropped: int = Field(default=0, ge=0)
     metadata: SessionMetadata
     # Carried for signal emission, not the prompt — kept off `SessionMetadata` so it never reaches the LLM.
     distinct_id: str | None = None
@@ -199,6 +214,8 @@ class CallScannerProviderInputs(BaseModel, frozen=True):
     observation_id: UUID  # locates the ScannerLlmInputs blob in Redis AND the scanner_snapshot on the row
     file_uri: str
     mime_type: str
+    # When set, replaces the observation row's snapshot (evaluations re-run rated sessions with the suggested prompt).
+    snapshot_override: ScannerSnapshot | None = None
 
 
 class ScannerCallOutput(BaseModel, frozen=True):
@@ -221,16 +238,6 @@ class EmbedObservationInputs(BaseModel, frozen=True):
     observation_id: UUID
     scanner_id: UUID
     model_output: AnyScannerOutput
-
-
-class EmbedSummarizerObservationInputs(BaseModel, frozen=True):
-    """Back-compat input for the pre-rename `embed_summarizer_observation_activity`. Kept only so summarizer
-    workflows already in flight when the activity was renamed can still resolve their scheduled activity."""
-
-    team_id: int
-    session_id: str
-    observation_id: UUID
-    summarizer_output: SummarizerOutput
 
 
 class EmitClassifierTagsInputs(BaseModel, frozen=True):

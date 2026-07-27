@@ -11,7 +11,7 @@ import { compactNumber } from 'lib/utils/numbers'
 import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { AxisSeries } from '../../dataVisualizationLogic'
+import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { LineGraphProps } from './LineGraph'
 import {
@@ -329,6 +329,15 @@ describe('sqlLineGraphAdapter', () => {
             expect(series.data).toEqual([1, NaN, 3])
         })
 
+        it('keeps percent-styled columns out of the tooltip total, leaving other columns summable', () => {
+            const [percent, plain] = buildSeries(
+                [ySeries('growth', [2.4], { formatting: { style: 'percent' } }), ySeries('count', [10])],
+                ChartDisplayType.ActionsLineGraph
+            )
+            expect(percent.visibility).toEqual({ total: false })
+            expect(plain.visibility).toBeUndefined()
+        })
+
         it('only pins an explicit color, leaving palette assignment to quill otherwise', () => {
             const [withColor, withoutColor] = buildSeries(
                 [ySeries('a', [1], { display: { color: '#abcdef' } }), ySeries('b', [2])],
@@ -483,6 +492,27 @@ describe('sqlLineGraphAdapter', () => {
         it('falls back to the raw value when formatting yields null', () => {
             expect(formatSqlSeriesValue(NaN)).toBe('NaN')
         })
+
+        it.each<[string, number, AxisSeriesSettings | undefined, string]>([
+            ['caps an unformatted float at 3 fraction digits', 22.222222222222, undefined, '22.222'],
+            ['keeps unformatted integers untouched', 1234567, undefined, '1234567'],
+            ['trims trailing zeros after capping', 0.30000000000000004, undefined, '0.3'],
+            [
+                'caps a prefix-only column too (prefix does not round)',
+                22.222222222222,
+                { formatting: { prefix: '$' } },
+                '$22.222',
+            ],
+            [
+                'leaves rounding to an explicit decimalPlaces',
+                22.222222222222,
+                { formatting: { decimalPlaces: 5 } },
+                '22.22222',
+            ],
+            ['honors an explicit zero decimalPlaces', 22.222222222222, { formatting: { decimalPlaces: 0 } }, '22'],
+        ])('%s', (_name, value, settings, expected) => {
+            expect(formatSqlSeriesValue(value, settings)).toBe(expected)
+        })
     })
 
     describe('hasAxisTickFormatting', () => {
@@ -534,6 +564,16 @@ describe('sqlLineGraphAdapter', () => {
             const formatTotal = config.totalFormatter!
             expect(formatTotal(5000)).toBe('$5000')
         })
+
+        it('formats the total with the first non-percent column, not a leading percent column', () => {
+            // A percent column is excluded from the total sum, so borrowing its style would render
+            // a sum of counts as e.g. "15,061.4%".
+            const config = buildSqlTooltipConfig({}, [
+                ySeries('growth', [2.4], { formatting: { style: 'percent' } }),
+                ySeries('revenue', [1], { formatting: { prefix: '$' } }),
+            ])
+            expect(config.totalFormatter!(15059)).toBe('$15059')
+        })
     })
 
     describe('buildLineChartConfig', () => {
@@ -573,6 +613,27 @@ describe('sqlLineGraphAdapter', () => {
             const ySeriesData = [ySeries('a', [1, 2]), ySeries('b', [3, 4])]
             const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', ySeriesData })
             expect(Array.isArray(config.yAxis)).toBe(false)
+        })
+
+        it.each([
+            ['leaves showAxisLines unset when both borders are on (app style default applies)', {}, undefined],
+            [
+                'turns off the x axis line when showXAxisBorder is off',
+                { showXAxisBorder: false },
+                { x: false, y: true },
+            ],
+            [
+                'turns off the y axis line when showYAxisBorder is off',
+                { showYAxisBorder: false },
+                { x: true, y: false },
+            ],
+        ])('%s', (_name, chartSettings, expected) => {
+            const config = buildLineChartConfig({
+                xData: dateXData,
+                chartSettings: chartSettings as ChartSettings,
+                timezone: 'UTC',
+            })
+            expect(config.showAxisLines).toEqual(expected)
         })
 
         it('emits a per-axis array honoring each column settings when a series targets the right axis', () => {
@@ -724,6 +785,31 @@ describe('sqlLineGraphAdapter', () => {
             expect((config.yAxis as YAxisConfig)?.scale).toBe('linear')
         })
 
+        it.each<[string, ChartDisplayType, ChartSettings, boolean]>([
+            [
+                'enables divergingStack for stacked bars so negatives render below zero',
+                ChartDisplayType.ActionsStackedBar,
+                {},
+                true,
+            ],
+            [
+                'disables divergingStack for percent-stacked bars',
+                ChartDisplayType.ActionsStackedBar,
+                { stackBars100: true },
+                false,
+            ],
+            ['disables divergingStack for grouped bars', ChartDisplayType.ActionsBar, {}, false],
+        ])('%s', (_name, visualizationType, chartSettings, expected) => {
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings,
+                timezone: 'UTC',
+                visualizationType,
+                ySeriesData: [ySeries('a', [1, -2])],
+            })
+            expect(config.divergingStack).toBe(expected)
+        })
+
         it('formats y-axis ticks with the first series column settings for plain bars', () => {
             const config = buildBarChartConfig({
                 xData: dateXData,
@@ -770,6 +856,28 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.trendLines).toEqual([])
         })
 
+        it('maps the axis-border toggles to per-edge showAxisLines for bars', () => {
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: { showXAxisBorder: false },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+            })
+            expect(config.showAxisLines).toEqual({ x: false, y: true })
+        })
+
+        it('builds the shared SQL tooltip so bars honor showTotalRow and per-column formatting', () => {
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: { showTotalRow: false },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+                ySeriesData: [ySeries('a', [1]), ySeries('b', [2])],
+            })
+            expect(config.tooltip).toMatchObject({ showTotal: false })
+            expect(config.tooltip!.valueFormatter).toBeInstanceOf(Function)
+        })
+
         it('emits a per-axis array with forceLinear threaded through both gutters when a series targets the right axis', () => {
             const ySeriesData = [ySeries('a', [1, 2]), ySeries('b', [3, 4], { display: { yAxisPosition: 'right' } })]
             const config = buildBarChartConfig({
@@ -805,6 +913,41 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType,
             })
             expect(config.barLayout).toBe(expected)
+        })
+
+        it.each<[string, ChartDisplayType, ChartSettings, boolean]>([
+            [
+                'enables divergingStack for stacked bars so negatives render below zero',
+                ChartDisplayType.ActionsStackedBar,
+                {},
+                true,
+            ],
+            [
+                'disables divergingStack for percent-stacked bars',
+                ChartDisplayType.ActionsStackedBar,
+                { stackBars100: true },
+                false,
+            ],
+            ['disables divergingStack for grouped bars', ChartDisplayType.ActionsBar, {}, false],
+        ])('%s', (_name, visualizationType, chartSettings, expected) => {
+            const config = buildComboChartConfig({
+                xData: dateXData,
+                chartSettings,
+                timezone: 'UTC',
+                visualizationType,
+                ySeriesData: [ySeries('a', [1, -2])],
+            })
+            expect(config.divergingStack).toBe(expected)
+        })
+
+        it('maps the axis-border toggles to per-edge showAxisLines for combo', () => {
+            const config = buildComboChartConfig({
+                xData: dateXData,
+                chartSettings: { showYAxisBorder: false },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+            })
+            expect(config.showAxisLines).toEqual({ x: true, y: false })
         })
 
         it('wires goal lines, legend, and a date x-axis formatter', () => {

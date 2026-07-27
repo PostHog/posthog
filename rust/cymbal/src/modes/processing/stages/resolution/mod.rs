@@ -4,18 +4,18 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 pub mod exception;
 pub mod frame;
-pub mod properties;
+pub mod legacy;
 pub mod remote;
 
 use crate::{
     app_context::AppContext,
     error::UnhandledError,
     metric_consts::RESOLUTION_STAGE,
-    stages::pipeline::ExceptionEventPipelineItem,
+    stages::pipeline::{ParsedPipelineItem, ResolvedPipelineItem},
     stages::resolution::{
         exception::ExceptionResolver,
         frame::FrameResolver,
-        properties::PropertiesResolver,
+        legacy::LegacyOrderResolver,
         remote::resolver::{resolve_batch, RemoteResolutionContext},
     },
     symbolication::symbol::SymbolResolver,
@@ -60,8 +60,8 @@ impl ResolutionStage {
 }
 
 impl Stage for ResolutionStage {
-    type Input = ExceptionEventPipelineItem;
-    type Output = ExceptionEventPipelineItem;
+    type Input = ParsedPipelineItem;
+    type Output = ResolvedPipelineItem;
 
     fn name(&self) -> &'static str {
         RESOLUTION_STAGE
@@ -72,22 +72,22 @@ impl Stage for ResolutionStage {
             // Remote mode: the stage owns orchestration across the incoming
             // batch, including deterministic rollout sampling. Sampled events
             // use grouped exception-level Resolve items, and unsampled events use
-            // the local exception/frame operators. PropertiesResolver still
-            // runs afterwards because it operates on the resolved exception
-            // list shape independently of how exception/frame resolution was
-            // performed.
-            return resolve_batch(batch, remote, self.clone())
+            // the local exception/frame operators. Both paths materialize the
+            // resolved event metadata before returning.
+            let resolved = resolve_batch(batch, remote, self.clone())
                 .await?
-                .apply_operator(PropertiesResolver, self.clone())
-                .await;
+                .apply_operator(LegacyOrderResolver, self.clone())
+                .await?;
+            return Ok(resolved.map(|item, ()| item.map(|event| event.into_resolved()), &mut ()));
         }
 
-        batch
+        let resolved = batch
             .apply_operator(ExceptionResolver, self.clone())
             .await?
             .apply_operator(FrameResolver, self.clone())
             .await?
-            .apply_operator(PropertiesResolver, self.clone())
-            .await
+            .apply_operator(LegacyOrderResolver, self.clone())
+            .await?;
+        Ok(resolved.map(|item, ()| item.map(|event| event.into_resolved()), &mut ()))
     }
 }

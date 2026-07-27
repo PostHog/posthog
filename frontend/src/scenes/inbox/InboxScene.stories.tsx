@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { mswDecorator } from '~/mocks/browser'
 
 import {
@@ -9,6 +11,7 @@ import {
     mockSignals,
     mockSourceConfigs,
     mockTask,
+    mockTeamConfig,
 } from './__mocks__/inboxMocks'
 import { InboxScene } from './InboxScene'
 
@@ -33,6 +36,7 @@ const sceneMocks = mswDecorator({
         ],
         '/api/projects/:id/tasks/:taskId': (req) => [200, mockTask(req.params.taskId as string)],
         '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
+        '/api/projects/:id/signals/config': () => [200, mockTeamConfig],
         '/api/projects/:id/signals/scout/configs': () => [200, []],
         '/api/projects/:id/signals/scout/runs': () => [200, []],
         '/api/projects/:id/external_data_sources': () => [200, { results: [], count: 0 }],
@@ -47,6 +51,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
+        featureFlags: [FEATURE_FLAGS.PRODUCT_AUTONOMY],
         // The scene shell keeps a loader element mounted past the VR wait window, so don't block on it.
         testOptions: { waitForLoadersToDisappear: false },
     },

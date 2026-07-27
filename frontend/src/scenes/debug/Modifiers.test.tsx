@@ -120,8 +120,8 @@ describe('Modifiers', () => {
         )
 
         expect(screen.getByText('Connection ID:')).toBeInTheDocument()
-        await screen.findByRole('option', { name: 'analytics-db (Postgres)' })
-        await screen.findByRole('option', { name: 'orders-db (MySQL)' })
+        await screen.findByText('analytics-db (Postgres)')
+        await screen.findByText('orders-db (MySQL)')
 
         await userEvent.selectOptions(screen.getByLabelText('Connection ID:'), 'postgres-connection-id')
 

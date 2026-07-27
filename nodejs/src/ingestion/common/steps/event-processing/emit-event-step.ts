@@ -6,8 +6,8 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { safeClickhouseString } from '~/common/utils/db/utils'
 import { castTimestampOrNow, castTimestampToClickhouseFormat } from '~/common/utils/utils'
-import { eventProcessedAndIngestedCounter } from '~/ingestion/common/event-pipeline/metrics'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
+import { eventProcessedAndIngestedCounter } from '~/ingestion/common/metrics'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders, ProcessedEvent, RawKafkaEvent, TimestampFormat } from '~/types'
@@ -90,9 +90,14 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                     // Some messages end up significantly larger than the original
                     // after plugin processing, person & group enrichment, etc.
                     if (error instanceof MessageSizeTooLarge) {
-                        await emitIngestionWarning(outputs, serialized.team_id, 'message_size_too_large', {
-                            eventUuid: serialized.uuid,
-                            distinctId: serialized.distinct_id,
+                        await emitIngestionWarning(outputs, serialized.team_id, {
+                            type: 'message_size_too_large',
+                            details: {
+                                eventUuid: serialized.uuid,
+                                distinctId: serialized.distinct_id,
+                                personId: serialized.person_id,
+                            },
+                            pipelineStep: 'emit-event',
                         })
                         // The event was not ingested, so there is no info to resolve with
                         return null

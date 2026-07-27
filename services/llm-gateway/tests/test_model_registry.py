@@ -134,6 +134,7 @@ def create_mock_settings(
     openrouter: bool = False,
     fireworks: bool = False,
     cloudflare: bool = False,
+    modal: bool = False,
 ) -> MagicMock:
     settings = MagicMock()
     settings.openai_api_key = "sk-test" if openai else None
@@ -144,6 +145,10 @@ def create_mock_settings(
     # auto-attributes don't silently enable Cloudflare model advertising.
     settings.cloudflare_api_key = "cf-test" if cloudflare else None
     settings.cloudflare_account_id = "acct-test" if cloudflare else None
+    # Modal needs all three; same MagicMock-truthiness hazard as CF above.
+    settings.modal_api_base = "https://modal.test/v1" if modal else None
+    settings.modal_key = "wk-test" if modal else None
+    settings.modal_secret = "ws-test" if modal else None
     return settings
 
 
@@ -350,6 +355,15 @@ class TestCloudflareModelAdvertising:
         ):
             assert self._cf_ids("posthog_code") == {"@cf/zai-org/glm-5.2"}
 
+    def test_modal_only_advertises_modal_served_models(self):
+        # If CF creds are ever pulled after the Modal migration, GLM must stay advertised (it has a
+        # Modal backend) while CF-only models like kimi drop off the listing.
+        with patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(cloudflare=False, modal=True),
+        ):
+            assert self._cf_ids("llm_gateway") == {"@cf/zai-org/glm-5.2"}
+
 
 class TestModelMatchesAllowlist:
     @pytest.mark.parametrize(
@@ -399,22 +413,28 @@ class TestIsModelAvailable:
         assert is_model_available(model_id, product) == expected
 
     @pytest.mark.parametrize(
-        "model_id,product,cloudflare,expected",
+        "model_id,product,cloudflare,modal,expected",
         [
             # CF creds present + model priced/allowed -> available.
-            ("@cf/zai-org/glm-5.2", "llm_gateway", True, True),
-            # Same model, but CF creds absent -> the runtime gate refuses it.
-            ("@cf/zai-org/glm-5.2", "llm_gateway", False, False),
+            ("@cf/zai-org/glm-5.2", "llm_gateway", True, False, True),
+            # Same model, but no backend configured -> the runtime gate refuses it.
+            ("@cf/zai-org/glm-5.2", "llm_gateway", False, False, False),
+            # No CF creds, but Modal serves GLM -> still available.
+            ("@cf/zai-org/glm-5.2", "llm_gateway", False, True, True),
+            # Modal alone can't serve models without a Modal-served equivalent.
+            ("@cf/moonshotai/kimi-k2.6", "llm_gateway", False, True, False),
             # CF configured but the product allowlist excludes this CF model -> unavailable.
-            ("@cf/moonshotai/kimi-k2.6", "posthog_code", True, False),
+            ("@cf/moonshotai/kimi-k2.6", "posthog_code", True, False, False),
             # CF configured and the product allowlist includes it -> available.
-            ("@cf/zai-org/glm-5.2", "posthog_code", True, True),
+            ("@cf/zai-org/glm-5.2", "posthog_code", True, False, True),
         ],
     )
-    def test_cf_model_availability_gated_on_creds(self, model_id: str, product: str, cloudflare: bool, expected: bool):
+    def test_cf_model_availability_gated_on_creds(
+        self, model_id: str, product: str, cloudflare: bool, modal: bool, expected: bool
+    ):
         with patch(
             "llm_gateway.services.model_registry.get_settings",
-            return_value=create_mock_settings(cloudflare=cloudflare),
+            return_value=create_mock_settings(cloudflare=cloudflare, modal=modal),
         ):
             assert is_model_available(model_id, product) is expected
 

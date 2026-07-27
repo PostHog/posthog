@@ -18,6 +18,8 @@ class ProcessTaskError(ApplicationError):
         if cause is not None and capture:
             capture_exception(cause, self.context)
 
+        # Retry policies match non_retryable_error_types against this type; the SDK omits it unless set.
+        kwargs.setdefault("type", type(self).__name__)
         super().__init__(message, self.context, **kwargs)
 
 
@@ -153,6 +155,18 @@ class GitHubAuthenticationError(ProcessTaskFatalError):
     """Failed to authenticate with GitHub."""
 
     pass
+
+
+class CredentialUnavailableError(ProcessTaskFatalError):
+    """A sandbox credential can never be resolved again for this run — the backing
+    integration row was deleted mid-run or the user must re-authorize.
+
+    Not retriable, and an expected customer-initiated state rather than a systemic
+    failure, so it is not captured to error tracking.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any], cause: Exception | None = None):
+        ProcessTaskError.__init__(self, message, context, cause, capture=False, non_retryable=True)
 
 
 class PersonalAPIKeyError(ProcessTaskTransientError):

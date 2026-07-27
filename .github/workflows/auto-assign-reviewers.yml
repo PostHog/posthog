@@ -48,6 +48,22 @@ jobs:
                   # Resolve the node-versions manifest on the app token, not the shared per-repo GITHUB_TOKEN bucket
                   token: ${{ steps.app-token.outputs.token || github.token }}
 
+            # The assigner shells out to the owners resolver
+            # (`python -m posthog_owners`) for ownership. That entrypoint
+            # only needs pyyaml, so set up python and install just that — no full
+            # project sync in this node-first workflow.
+            - name: Setup Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.13'
+
+            # Exact pin: this pull_request_target workflow runs with an app token,
+            # so a floating version must not be able to pull fresh code at run time.
+            # -I (isolated mode) keeps the checkout's CWD off sys.path, so a
+            # repo-root pip.py can never shadow the real pip here.
+            - name: Install resolver dependency
+              run: python -I -m pip install --quiet 'pyyaml==6.0.2'
+
             # Script runs from master branch (protected), but can diff against PR branch
             - name: Run reviewer assignment script
               env:

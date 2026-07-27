@@ -263,7 +263,7 @@ class SummarizeSessionsTool(MaxTool):
                 org_id=self._team.organization_id,
             ):
                 query_runner = SessionRecordingListFromQuery(
-                    team=self._team, query=replay_filters, hogql_query_modifiers=None
+                    team=self._team, query=replay_filters, hogql_query_modifiers=None, user=self._user
                 )
                 results = query_runner.run()
         except Exception as e:
@@ -457,10 +457,10 @@ class SummarizeSessionsTool(MaxTool):
         from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
         replay_events = SessionReplayEvents()
-        sessions_found, _, _ = replay_events.sessions_found_with_timestamps(
+        sessions_found = replay_events.sessions_found_with_timestamps(
             session_ids=session_ids,
             team=self._team,
-        )
+        ).session_ids
         if not sessions_found:
             return None
         # Preserve the original order, filtering out invalid sessions
