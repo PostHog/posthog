@@ -587,13 +587,35 @@ mod tests {
             "CAPTURE_ANALYTICS_AI_EVENTS_MODE".into(),
             "secondary_percentage".into(),
         );
-        env.insert("CAPTURE_ANALYTICS_AI_EVENTS_PERCENTAGE".into(), "25".into());
-        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
-        assert_eq!(
-            config.capture_analytics_ai_events_mode,
-            AiSinkMode::SecondaryPercentage
-        );
-        assert_eq!(config.capture_analytics_ai_events_percentage, Some(25));
+
+        // 150 parses here on purpose: the env layer only types the value, the
+        // 0-100 range check lives in setup so it can refuse to start.
+        for (raw, expected) in [("0", 0u8), ("25", 25), ("100", 100), ("150", 150)] {
+            env.insert("CAPTURE_ANALYTICS_AI_EVENTS_PERCENTAGE".into(), raw.into());
+            let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+            assert_eq!(
+                config.capture_analytics_ai_events_mode,
+                AiSinkMode::SecondaryPercentage
+            );
+            assert_eq!(
+                config.capture_analytics_ai_events_percentage,
+                Some(expected),
+                "raw={raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn capture_analytics_ai_events_percentage_rejects_malformed_values() {
+        // Locks the fail-fast contract: the field is a typed u8, so malformed
+        // env values abort startup. Loosening it (e.g. to a string parsed
+        // later) would let a broken rollout config through init silently.
+        for bad in ["", " 25 ", "abc", "-1", "25%", "12.5", "300"] {
+            let mut env = required_config_env();
+            env.insert("CAPTURE_ANALYTICS_AI_EVENTS_PERCENTAGE".into(), bad.into());
+            let result: Result<Config, _> = envconfig::Envconfig::init_from_hashmap(&env);
+            assert!(result.is_err(), "expected init to fail for {bad:?}");
+        }
     }
 
     #[test]
