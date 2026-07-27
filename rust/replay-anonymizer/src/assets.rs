@@ -7,7 +7,7 @@ use std::borrow::Cow;
 use simd_json::borrowed::{Object, Value};
 
 use crate::blur::is_image_data_uri;
-use crate::collect::is_image_ref;
+use crate::collect::is_image_ref_strict;
 use crate::context::Ctx;
 use crate::images::ImageFallback;
 use crate::json::{as_str, string_value};
@@ -59,12 +59,12 @@ pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object<'_>) -> bool {
         let Some(existing) = attrs.get(*key).and_then(as_str).map(str::to_string) else {
             continue;
         };
-        // A content ref from an earlier pass over already-mirrored output. It is opaque — it
-        // carries no content of its own, and the bytes behind it were scrubbed out of band — so
-        // there is nothing here left to scrub. Falling through would take the remote-URL branch,
-        // redact the ref into the placeholder, and strand that image beyond recovery. Skipping is
-        // what makes a re-scrub idempotent.
-        if is_image_ref(&existing) {
+        // A content ref from an earlier pass over already-mirrored output: opaque, carrying no
+        // content of its own, with its bytes scrubbed out of band. Re-scrubbing would redact it
+        // into the placeholder and strand that image beyond recovery, so a caller re-scrubbing
+        // mirrored output opts into keeping it. Gated on the caller's own assertion of
+        // provenance, never on the shape alone — the format is forgeable by a captured page.
+        if ctx.keeps_image_refs() && is_image_ref_strict(&existing) {
             continue;
         }
         acted = true;

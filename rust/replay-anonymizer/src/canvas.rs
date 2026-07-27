@@ -6,7 +6,7 @@ use base64::Engine;
 use simd_json::borrowed::{Object, Value};
 
 use crate::blur::{is_image_data_uri, split_data_uri, BLANK_PNG_BASE64};
-use crate::collect::{is_image_ref, normalize_collected_mime};
+use crate::collect::{is_image_ref, is_image_ref_strict, normalize_collected_mime};
 use crate::context::Ctx;
 use crate::images::ImageFallback;
 use crate::json::{
@@ -171,11 +171,10 @@ fn blur_blob_image(ctx: &Ctx<'_>, blob: &mut Object<'_>) -> bool {
         None => return false,
     };
     // A content ref left by an earlier pass. Reassembling it into `data:{mime};base64,image:...`
-    // below would produce a URI that cannot decode, and `scrub_image` would fail it safe to a
-    // blank pixel — destroying the join key and stranding the image. It is opaque and its bytes
-    // were scrubbed out of band, so leave the blob untouched; this is what makes a re-scrub of
-    // mirrored output idempotent.
-    if is_image_ref(&base64) {
+    // below yields a URI that cannot decode, which `scrub_image` fails safe to a blank pixel —
+    // destroying the join key and stranding the image. Left alone only on an explicitly trusted
+    // re-scrub, and only when fully well-formed: see `assets::apply_blur`.
+    if ctx.keeps_image_refs() && is_image_ref_strict(&base64) {
         return false;
     }
     let original = format!("data:{mime};base64,{base64}");

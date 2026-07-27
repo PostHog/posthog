@@ -15,7 +15,7 @@
 
 use crate::assets::{is_media_src_attr, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC};
 use crate::blur::is_image_data_uri;
-use crate::collect::is_image_ref;
+use crate::collect::is_image_ref_strict;
 use crate::context::Ctx;
 use crate::css;
 use crate::dom::{
@@ -898,10 +898,9 @@ impl<'c, 'a> Walker<'c, 'a> {
         }
         let end = scan::skip_string(bytes, vstart).ok()?;
         let existing = scan::unescape(bytes, (vstart, end)).ok()?;
-        // See `assets::apply_blur`: a ref from an earlier pass is opaque and its bytes were
-        // scrubbed out of band, so it copies through untouched (and does not mark the event
-        // changed) rather than being redacted into the placeholder.
-        if is_image_ref(&existing) {
+        // See `assets::apply_blur`: only on an explicitly trusted re-scrub, and only for a
+        // fully well-formed ref.
+        if self.ctx.keeps_image_refs() && is_image_ref_strict(&existing) {
             return self.copy_value(vstart, out);
         }
         if is_image_data_uri(&existing) {

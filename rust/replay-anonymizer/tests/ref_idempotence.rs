@@ -1,41 +1,77 @@
-//! Re-scrubbing already-mirrored output must preserve its image content refs.
+//! Re-scrubbing already-mirrored output must preserve its image content refs — but only when the
+//! caller vouches for where that input came from.
 //!
 //! The mirror replaces each inlined image with an `image:<pseudo_team>:<hash>` ref and ships the
-//! bytes out of band. Anything that scrubs that output a second time — the `prepare` CLI, offline
-//! tooling, a backfill — used to destroy those refs: a canvas blob's ref was reassembled into a
-//! data URI that cannot decode and failed safe to a blank pixel, and a ref in a media-source
-//! attribute took the remote-URL branch and was redacted into the placeholder. Either way the
-//! image behind it became unreachable, because the ref is the only join key back to the bytes.
+//! bytes out of band, so that ref is the only join key back to them. Scrubbing that output a second
+//! time used to destroy the key: a canvas blob's ref was reassembled into a data URI that cannot
+//! decode and failed safe to a blank pixel, and a ref in a media-source attribute took the
+//! remote-URL branch and was redacted into the placeholder.
 //!
-//! A ref carries no content of its own, so preserving it is safe; destroying it is not recoverable.
+//! The ref format is not a secret, though, so preserving anything `image:`-shaped found in a
+//! payload would hand a captured page a way to copy arbitrary text into anonymized output. Two
+//! things therefore have to hold, and both are pinned here: refs survive on a path the caller marks
+//! trusted, and a forged one never survives on the ingestion path that sees untrusted capture data.
 
 use posthog_replay_anonymizer::{
-    anonymize_kafka_payload_opts, compression, AllowLists, AnonymizeOpts, ImagePolicy,
+    anonymize_kafka_payload_opts, anonymize_line_with_ctx, AllowLists, AnonymizeOpts, Ctx,
+    ImagePolicy,
 };
 use serde_json::{json, Value};
 
 const TS0: f64 = 1_700_000_000_000.0;
 const REF: &str = "image:0123456789abcdef0123456789abcdef:AAAAAAAAAAAAAAAAAAAAAA";
 
-fn snapshot_message(items: Value) -> Value {
-    json!({
+fn img_line(value: &str, attr: &str) -> Value {
+    json!(["w", { "type": 3, "timestamp": TS0, "data": {
+        "source": 0, "adds": [{ "parentId": 1, "nextId": null, "node": {
+            "type": 2, "tagName": "img", "id": 42,
+            "attributes": { attr: value }, "childNodes": [] } }] } }])
+}
+
+fn canvas_line(value: &str) -> Value {
+    json!(["w", { "type": 3, "timestamp": TS0, "data": {
+        "source": 9, "id": 5, "type": 0, "commands": [{
+            "property": "drawImage",
+            "args": [{ "rr_type": "ImageBitmap", "args": [{
+                "rr_type": "Blob", "type": "image/png",
+                "data": [{ "rr_type": "ArrayBuffer", "base64": value }] }] }] }] } }])
+}
+
+/// What a caller of the line API actually writes out: the rewritten line, or the input verbatim
+/// when the scrub reports nothing changed (which is itself the idempotent outcome).
+fn scrub_line(line: &Value, trusted: bool) -> String {
+    let allow = AllowLists::default();
+    let ctx = if trusted {
+        Ctx::new(&allow).preserving_image_refs()
+    } else {
+        Ctx::new(&allow)
+    };
+    let original = line.to_string();
+    let mut bytes = original.clone().into_bytes();
+    anonymize_line_with_ctx(&ctx, &mut bytes)
+        .expect("anonymize should succeed")
+        .unwrap_or(original)
+}
+
+/// The offline re-scrub path (`prepare` and friends), which vouches for its input.
+fn scrub_trusted(line: &Value) -> String {
+    scrub_line(line, true)
+}
+
+/// The same path without the opt-in — what any caller gets by default.
+fn scrub_default(line: &Value) -> String {
+    scrub_line(line, false)
+}
+
+/// The production ingestion path, which sees untrusted capture input.
+fn scrub_ingestion(line: &Value, byte_walk: bool) -> String {
+    let inner = json!({
         "event": "$snapshot_items",
-        "properties": { "$session_id": "s", "$window_id": "w", "$snapshot_items": items },
-    })
-}
-
-fn cv_string(value: &Value) -> String {
-    compression::compress_cv(value.to_string().as_bytes())
-        .unwrap()
-        .iter()
-        .map(|&b| b as char)
-        .collect()
-}
-
-fn scrub(inner: &Value, byte_walk: bool) -> String {
+        "properties": { "$session_id": "s", "$window_id": "w", "$snapshot_items": [line[1]] },
+    });
     let payload = serde_json::to_string(&json!({
         "distinct_id": "d",
-        "data": serde_json::to_string(inner).unwrap(),
+        "data": serde_json::to_string(&inner).unwrap(),
     }))
     .unwrap();
     let mut bytes = payload.into_bytes();
@@ -49,130 +85,91 @@ fn scrub(inner: &Value, byte_walk: bool) -> String {
         None,
     )
     .expect("anonymize should succeed");
-    // Decode any cv payload so the ref is visible whether or not it was re-compressed.
-    let text = String::from_utf8_lossy(&out.lines).into_owned();
-    let mut found = text.clone();
-    for line in out.lines.split(|&b| b == b'\n') {
-        if line.is_empty() {
-            continue;
-        }
-        let Ok(parsed) = serde_json::from_slice::<Value>(line) else {
-            continue;
-        };
-        let event = parsed.get(1).cloned().unwrap_or(parsed);
-        let Some(data) = event.get("data") else {
-            continue;
-        };
-        let mut payloads: Vec<String> = Vec::new();
-        if let Some(s) = data.as_str() {
-            payloads.push(s.to_string());
-        } else if let Some(obj) = data.as_object() {
-            payloads.extend(obj.values().filter_map(|v| v.as_str()).map(str::to_string));
-        }
-        for p in payloads {
-            let raw: Vec<u8> = p.chars().map(|c| c as u32 as u8).collect();
-            if let Ok(plain) = compression::decompress_by_magic(&raw) {
-                found.push_str(&String::from_utf8_lossy(&plain));
-            }
-        }
-    }
-    found
+    String::from_utf8_lossy(&out.lines).into_owned()
 }
 
-/// Every shape the mirror can leave a ref in, across both walk engines.
 #[test]
-fn a_ref_survives_a_second_scrub() {
-    let canvas = json!([{
-        "type": 3, "timestamp": TS0,
-        "data": { "source": 9, "id": 5, "type": 0, "commands": [{
-            "property": "drawImage",
-            "args": [{ "rr_type": "ImageBitmap", "args": [{
-                "rr_type": "Blob", "type": "image/png",
-                "data": [{ "rr_type": "ArrayBuffer", "base64": REF }] }] }] }] }
-    }]);
-
-    let cases: Vec<(&str, Value)> = vec![
-        (
-            "img src, plain",
-            snapshot_message(json!([{ "type": 3, "timestamp": TS0, "data": {
-                "source": 0, "adds": [{ "parentId": 1, "nextId": null, "node": {
-                    "type": 2, "tagName": "img", "id": 42,
-                    "attributes": { "src": REF }, "childNodes": [] } }] } }])),
-        ),
-        (
-            "img xlink:href, plain",
-            snapshot_message(json!([{ "type": 3, "timestamp": TS0, "data": {
-                "source": 0, "adds": [{ "parentId": 1, "nextId": null, "node": {
-                    "type": 2, "tagName": "img", "id": 42,
-                    "attributes": { "xlink:href": REF }, "childNodes": [] } }] } }])),
-        ),
-        (
-            "img rr_dataURL, plain",
-            snapshot_message(json!([{ "type": 3, "timestamp": TS0, "data": {
-                "source": 0, "adds": [{ "parentId": 1, "nextId": null, "node": {
-                    "type": 2, "tagName": "img", "id": 42,
-                    "attributes": { "rr_dataURL": REF }, "childNodes": [] } }] } }])),
-        ),
-        (
-            "img src, cv mutation",
-            snapshot_message(
-                json!([{ "type": 3, "timestamp": TS0, "cv": "2024-10", "data": {
-                "source": 0, "adds": cv_string(&json!([{ "parentId": 1, "nextId": null, "node": {
-                    "type": 2, "tagName": "img", "id": 42,
-                    "attributes": { "src": REF }, "childNodes": [] } }])) } }]),
-            ),
-        ),
-        (
-            "img src, cv full snapshot",
-            snapshot_message(json!([{ "type": 2, "timestamp": TS0, "cv": "2024-10",
-                "data": cv_string(&json!({ "node": { "type": 0, "id": 1, "childNodes": [{
-                    "type": 2, "tagName": "img", "id": 42,
-                    "attributes": { "src": REF }, "childNodes": [] }] },
-                    "initialOffset": { "top": 0, "left": 0 } })) }])),
-        ),
-        ("canvas blob", snapshot_message(canvas)),
-    ];
-
-    let mut lost = Vec::new();
-    for (label, inner) in &cases {
-        for byte_walk in [true, false] {
-            if !scrub(inner, byte_walk).contains(REF) {
-                lost.push(format!("{label} (byte_walk={byte_walk})"));
-            }
-        }
+fn a_ref_survives_a_trusted_rescrub() {
+    for attr in ["src", "xlink:href", "rr_src", "poster", "rr_dataURL"] {
+        assert!(
+            scrub_trusted(&img_line(REF, attr)).contains(REF),
+            "ref destroyed in {attr}"
+        );
     }
     assert!(
-        lost.is_empty(),
-        "refs destroyed by a second scrub:\n  {}",
-        lost.join("\n  ")
+        scrub_trusted(&canvas_line(REF)).contains(REF),
+        "ref destroyed in a canvas blob"
     );
 }
 
-/// The ref must not merely survive — a media attribute holding one must come out untouched, with
-/// no placeholder and no `data-anon-original-*` stash invented for it.
 #[test]
-fn a_ref_attribute_is_left_exactly_as_it_was() {
-    let inner = snapshot_message(json!([{ "type": 3, "timestamp": TS0, "data": {
-        "source": 0, "adds": [{ "parentId": 1, "nextId": null, "node": {
-            "type": 2, "tagName": "img", "id": 42,
-            "attributes": { "src": REF }, "childNodes": [] } }] } }]));
+fn a_trusted_rescrub_leaves_a_ref_attribute_exactly_as_it_was() {
+    let out = scrub_trusted(&img_line(REF, "src"));
+    assert!(out.contains(REF));
+    assert!(
+        !out.contains("data-anon-original-src"),
+        "a stash was invented for a ref"
+    );
+    assert!(
+        !out.contains("data:image/svg+xml"),
+        "the ref was replaced by the placeholder"
+    );
+}
+
+/// The bypass this guard must not become: the ref format is forgeable, so a value that merely
+/// looks ref-ish must still be scrubbed on any path that has not opted in.
+#[test]
+fn a_forged_ref_is_scrubbed_on_the_untrusted_path() {
+    let forged = "image:this is a secret the page wants to smuggle out";
     for byte_walk in [true, false] {
-        let out = scrub(&inner, byte_walk);
-        assert!(out.contains(REF), "ref missing (byte_walk={byte_walk})");
+        let out = scrub_ingestion(&img_line(forged, "src"), byte_walk);
         assert!(
-            !out.contains("data-anon-original-src"),
-            "a stash was invented for a ref (byte_walk={byte_walk})"
+            !out.contains("secret the page wants"),
+            "attacker-controlled value survived ingestion (byte_walk={byte_walk})"
         );
+    }
+    assert!(
+        !scrub_default(&img_line(forged, "src")).contains("secret the page wants"),
+        "attacker-controlled value survived a default re-scrub"
+    );
+}
+
+/// Even a *well-formed* ref must not be preserved by a caller that has not vouched for its input:
+/// provenance is the caller's assertion, never inferred from the value.
+#[test]
+fn a_well_formed_ref_is_still_scrubbed_without_the_opt_in() {
+    for byte_walk in [true, false] {
         assert!(
-            !out.contains("data:image/svg+xml"),
-            "the ref was replaced by the placeholder (byte_walk={byte_walk})"
+            !scrub_ingestion(&img_line(REF, "src"), byte_walk).contains(REF),
+            "a ref was preserved on the ingestion path (byte_walk={byte_walk})"
         );
+    }
+    assert!(
+        !scrub_default(&img_line(REF, "src")).contains(REF),
+        "a ref was preserved without the opt-in"
+    );
+}
+
+/// Malformed refs are scrubbed even on the trusted path — the opt-in relaxes provenance, not shape.
+#[test]
+fn a_malformed_ref_is_scrubbed_even_when_trusted() {
+    let cases = [
+        "image:short:AAAAAAAAAAAAAAAAAAAAAA",
+        "image:0123456789ABCDEF0123456789ABCDEF:AAAAAAAAAAAAAAAAAAAAAA", // uppercase team
+        "image:0123456789abcdef0123456789abcdef:tooshort",
+        "image:0123456789abcdef0123456789abcdef:has spaces in the hash!",
+        "image:0123456789abcdef0123456789abcdef",
+        "image:",
+    ];
+    for case in cases {
+        let out = scrub_trusted(&img_line(case, "src"));
+        assert!(!out.contains(case), "malformed ref preserved: {case}");
     }
 }
 
-/// A real image alongside a ref must still be scrubbed — the guard must not become a bypass.
+/// A real image sitting next to a ref must still be scrubbed — the guard is not a bypass.
 #[test]
-fn the_ref_guard_does_not_let_a_real_image_through() {
+fn the_guard_does_not_let_a_real_image_through() {
     use base64::Engine;
     let png = base64::engine::general_purpose::STANDARD
         .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
@@ -181,35 +178,26 @@ fn the_ref_guard_does_not_let_a_real_image_through() {
         "data:image/png;base64,{}",
         base64::engine::general_purpose::STANDARD.encode(&png)
     );
-    let inner = snapshot_message(json!([{ "type": 3, "timestamp": TS0, "data": {
+    let line = json!(["w", { "type": 3, "timestamp": TS0, "data": {
         "source": 0, "adds": [
             { "parentId": 1, "nextId": null, "node": { "type": 2, "tagName": "img", "id": 42,
               "attributes": { "src": REF }, "childNodes": [] } },
             { "parentId": 1, "nextId": null, "node": { "type": 2, "tagName": "img", "id": 43,
-              "attributes": { "src": src }, "childNodes": [] } }] } }]));
-    for byte_walk in [true, false] {
-        let out = scrub(&inner, byte_walk);
-        assert!(out.contains(REF), "ref lost (byte_walk={byte_walk})");
-        assert!(
-            !out.contains(&src),
-            "the real image passed through unscrubbed (byte_walk={byte_walk})"
-        );
-    }
+              "attributes": { "src": src }, "childNodes": [] } }] } }]);
+    let out = scrub_trusted(&line);
+    assert!(out.contains(REF), "ref lost");
+    assert!(
+        !out.contains(&src),
+        "a real image passed through unscrubbed"
+    );
 }
 
-/// A string that merely starts with `image:` but is not a well-formed ref must not be trusted —
-/// the guard keys on the producer's own predicate, so this pins what that predicate admits.
+/// A remote URL is still placeholdered on every path.
 #[test]
 fn a_remote_url_is_still_placeholdered() {
-    let inner = snapshot_message(json!([{ "type": 3, "timestamp": TS0, "data": {
-        "source": 0, "adds": [{ "parentId": 1, "nextId": null, "node": {
-            "type": 2, "tagName": "img", "id": 42,
-            "attributes": { "src": "https://cdn.example.com/logo.png" }, "childNodes": [] } }] } }]));
+    let line = img_line("https://cdn.example.com/logo.png", "src");
+    assert!(scrub_trusted(&line).contains("data:image/svg+xml"));
     for byte_walk in [true, false] {
-        let out = scrub(&inner, byte_walk);
-        assert!(
-            out.contains("data:image/svg+xml"),
-            "a remote URL should still become the placeholder (byte_walk={byte_walk})"
-        );
+        assert!(scrub_ingestion(&line, byte_walk).contains("data:image/svg+xml"));
     }
 }
