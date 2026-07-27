@@ -106,6 +106,27 @@ jobs:
                         # CI config
                         - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'
+                        # The integration tests drive a running Django server over HTTP, so
+                        # a pytest module can't change the outcome, which means a PR touching
+                        # only those can skip the ~15-30 min backend boot. Two narrowings:
+                        #  - pytest modules only, not whole test/ and tests/ directories.
+                        #    Those hold helpers that runtime code does import (posthog/
+                        #    test/base.py via setup_test_environment, posthog/test/
+                        #    playwright_setup_functions.py via posthog/urls.py).
+                        #  - scoped to the Django trees, because an exclude vetoes the
+                        #    whole filter and services/mcp/tests/** is this suite's own code.
+                        - '!posthog/**/test_*.py'
+                        - '!posthog/**/*_test.py'
+                        - '!posthog/**/conftest.py'
+                        - '!ee/**/test_*.py'
+                        - '!ee/**/*_test.py'
+                        - '!ee/**/conftest.py'
+                        - '!common/**/test_*.py'
+                        - '!common/**/*_test.py'
+                        - '!common/**/conftest.py'
+                        - '!products/*/backend/**/test_*.py'
+                        - '!products/*/backend/**/*_test.py'
+                        - '!products/*/backend/**/conftest.py'
     build:
         name: Build Package
         runs-on: ubuntu-latest

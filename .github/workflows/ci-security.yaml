@@ -33,6 +33,9 @@ jobs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
             js: ${{ steps.filter.outputs.js || 'true' }}
             products-frontend: ${{ steps.filter.outputs.products-frontend || 'true' }}
+            general: ${{ steps.filter.outputs.general || 'true' }}
+            devex: ${{ steps.filter.outputs.devex || 'true' }}
+            test-rules: ${{ steps.filter.outputs.test-rules || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -69,9 +72,49 @@ jobs:
                         - 'services/stripe-app/**'
                         - '.semgrep/rules/security/**'
                         - '.github/workflows/ci-security.yaml'
+                      # prefer-codegen-api is `languages: [typescript, javascript]` and
+                      # scopes itself to `/products/*/frontend/` minus `**/generated/**`.
+                      # Mirror that scope: a backend-only product change has nothing here
+                      # to scan.
                       products-frontend:
-                        - 'products/**'
+                        - 'products/*/frontend/**/*.{ts,tsx,js,jsx}'
                         - '.semgrep/rules/security/prefer-codegen-api.yaml'
+                        - '.github/workflows/ci-security.yaml'
+                        - '!**/generated/**'
+                      # semgrep-general scans the repo root plus every directory the other
+                      # jobs don't cover, so this list must stay in sync with the job's
+                      # --exclude flags below.
+                      general:
+                        - '**'
+                        - '!cli/**'
+                        - '!common/**'
+                        - '!ee/**'
+                        - '!frontend/**'
+                        - '!livestream/**'
+                        - '!nodejs/**'
+                        - '!posthog/**'
+                        - '!products/**'
+                        - '!rust/**'
+                        - '!.semgrep/**'
+                        - '!docs/**'
+                        - '!services/**'
+                      # Mirrors the directory list semgrep-devex passes to semgrep. Its
+                      # rules span python/typescript/generic, so this can't narrow by
+                      # extension.
+                      devex:
+                        - 'bin/**'
+                        - 'common/**'
+                        - 'ee/**'
+                        - 'frontend/**'
+                        - 'packages/**'
+                        - 'posthog/**'
+                        - 'products/**'
+                        - '.semgrep/rules/devex/**'
+                        - '.github/workflows/ci-security.yaml'
+                      # `semgrep --test .semgrep/` only exercises the rules against their
+                      # own committed fixtures, so nothing outside .semgrep/ can change it.
+                      test-rules:
+                        - '.semgrep/**'
                         - '.github/workflows/ci-security.yaml'
 
     semgrep-python:
@@ -274,6 +317,8 @@ jobs:
 
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
+        needs: changes
+        if: needs.changes.outputs.general == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 20
 
@@ -332,6 +377,8 @@ jobs:
     #   - ERROR-severity rules fail the job on any finding (regression guards).
     # See `.semgrep/rules/devex/README.md`.
     semgrep-devex:
+        needs: changes
+        if: needs.changes.outputs.devex == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 20
 
@@ -383,6 +430,8 @@ jobs:
                       bin/ common/ ee/ frontend/ packages/ posthog/ products/
 
     semgrep-test-rules:
+        needs: changes
+        if: needs.changes.outputs.test-rules == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 10
 

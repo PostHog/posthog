@@ -68,8 +68,11 @@ jobs:
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
                         - 'posthog/plugins/**'
+                        # Compose files only, deliberately no Dockerfile globs: these jobs run
+                        # the suites from source via pnpm against the compose stack (whose
+                        # only build contexts are rust/), so no app image is built here.
+                        # Dockerfile.node is gated separately in ci-nodejs-container.yml.
                         - 'docker*.yml'
-                        - '*Dockerfile'
                       rust:
                         - 'rust/**'
                         - 'proto/**'

@@ -152,6 +152,20 @@ jobs:
                         # boot the whole stack.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                        # Same reasoning for Django's pytest modules: the suite drives the
+                        # app through a browser and never loads them. Deliberately narrow:
+                        #  - pytest modules only. posthog/test/ also holds live server code
+                        #    (playwright_setup_functions.py, served via posthog/urls.py at
+                        #    api/setup_test/) which must keep triggering a run.
+                        #  - scoped to the Python trees, because an exclude vetoes the whole
+                        #    filter and tools/test_playwright_spec_selection.py above must
+                        #    keep forcing a full run.
+                        - '!posthog/**/test_*.py'
+                        - '!posthog/**/*_test.py'
+                        - '!posthog/**/conftest.py'
+                        - '!ee/**/test_*.py'
+                        - '!ee/**/*_test.py'
+                        - '!ee/**/conftest.py'
 
             # Visual Review auto-commits a snapshot baseline after human review and CI
             # approval. Re-running the ~25-min E2E stack for that bot push is pure waste;
