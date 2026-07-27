@@ -2196,6 +2196,24 @@ export namespace Schemas {
       config?: ActivityEventsListWidgetConfig;
     }
 
+    /**
+     * * `awaiting_input` - awaiting_input
+     * * `completed` - completed
+     * * `mention` - mention
+     * * `message` - message
+     * * `created` - created
+     */
+    export type ActivityKindEnum = typeof ActivityKindEnum[keyof typeof ActivityKindEnum];
+
+
+    export const ActivityKindEnum = {
+      AwaitingInput: 'awaiting_input',
+      Completed: 'completed',
+      Mention: 'mention',
+      Message: 'message',
+      Created: 'created',
+    } as const;
+
     export interface ActivityLog {
       readonly id: string;
       user: UserBasic;
@@ -9824,9 +9842,25 @@ export namespace Schemas {
       customer_name: string | null;
     }
 
+    export interface AppSandboxContract {
+      status: string;
+      restart_count: number;
+      last_error: string;
+      /** @nullable */
+      started_at: string | null;
+      /** @nullable */
+      last_activity_at: string | null;
+      /** @nullable */
+      version_number: number | null;
+    }
+
     export interface AppContract {
       /** User who created this app. */
       created_by?: StreamlitAppUserInfo | null;
+      /** Currently active version, or null if none uploaded yet. */
+      active_version?: AppVersionContract | null;
+      /** Current sandbox state, or null if the app has never started. */
+      sandbox?: AppSandboxContract | null;
       id: string;
       short_id: string;
       name: string;
@@ -9852,6 +9886,20 @@ export namespace Schemas {
 
     export interface AppMetricsTotalsResponse {
       totals: AppMetricsTotalsResponseTotals;
+    }
+
+    export interface AppSummaryContract {
+      /** User who created this app. */
+      created_by?: StreamlitAppUserInfo | null;
+      id: string;
+      short_id: string;
+      name: string;
+      description: string;
+      cpu_cores: number;
+      memory_gb: number;
+      status: string;
+      created_at: string;
+      updated_at: string;
     }
 
     export interface AppfiguresReviewSignalExtra {
@@ -27000,6 +27048,7 @@ export namespace Schemas {
 
     /**
      * * `manual` - Manual
+     * * `agent_mcp` - Agent (MCP)
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
@@ -27013,6 +27062,7 @@ export namespace Schemas {
 
     export const TriggerEnum = {
       Manual: 'manual',
+      AgentMcp: 'agent_mcp',
       ColdRun: 'cold_run',
       StaleRefresh: 'stale_refresh',
       AutoRefresh: 'auto_refresh',
@@ -27097,6 +27147,7 @@ export namespace Schemas {
       /** What triggered this recalculation
        *
        * * `manual` - Manual
+       * * `agent_mcp` - Agent (MCP)
        * * `cold_run` - Cold Run
        * * `stale_refresh` - Stale Refresh
        * * `auto_refresh` - Auto Refresh
@@ -40860,13 +40911,13 @@ export namespace Schemas {
       results: Announcement[];
     }
 
-    export interface PaginatedAppContractList {
+    export interface PaginatedAppSummaryContractList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: AppContract[];
+      results: AppSummaryContract[];
     }
 
     export interface PaginatedApprovalPolicyList {
@@ -58856,6 +58907,7 @@ export namespace Schemas {
       /** What triggered this recalculation (manual is the default for user-initiated runs)
        *
        * * `manual` - Manual
+       * * `agent_mcp` - Agent (MCP)
        * * `cold_run` - Cold Run
        * * `stale_refresh` - Stale Refresh
        * * `auto_refresh` - Auto Refresh
@@ -67064,6 +67116,81 @@ export namespace Schemas {
       conditions?: TaggerCondition[];
       model_configuration?: TaggerModelConfigurationWrite | null;
       deleted?: boolean;
+    }
+
+    /**
+     * Response shape for one task in the requester's activity feed (one row per task).
+     */
+    export interface TaskActivityDTO {
+      id: string;
+      task_id: string;
+      task_title: string;
+      /** @nullable */
+      channel_id: string | null;
+      /** @nullable */
+      channel_name: string | null;
+      activity_at: string;
+      /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a thread reply (message), or their creating the task (created).
+       *
+       * * `awaiting_input` - awaiting_input
+       * * `completed` - completed
+       * * `mention` - mention
+       * * `message` - message
+       * * `created` - created */
+      activity_kind: ActivityKindEnum;
+      /** Content of the thread message tied to the latest activity; empty for task-creation rows. */
+      snippet: string;
+      /** Author of the thread message tied to the latest activity, when one applies. */
+      latest_author?: TaskUserBasicInfo | null;
+      /** @nullable */
+      latest_message_id?: string | null;
+      /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
+      is_unread: boolean;
+    }
+
+    export interface TaskActivityReadMarker {
+      /** Task whose displayed activity should be marked read. */
+      task_id: string;
+      /** Mark activity at or before this timestamp read without clearing newer activity. */
+      seen_before: string;
+    }
+
+    /**
+     * Request body for clearing the unread flag on specific tasks.
+     */
+    export interface TaskActivityMarkRead {
+      /**
+         * Displayed task activities to mark read if they have not changed.
+         * @maxItems 500
+         */
+      activities: TaskActivityReadMarker[];
+    }
+
+    export interface TaskActivityMarkReadResponse {
+      /** How many feed rows changed from unread to read. */
+      marked_read: number;
+      /** The requester's remaining unread total after the update. */
+      unread_count: number;
+    }
+
+    /**
+     * A page of the requester's activity feed, plus the unread total across the whole feed.
+     */
+    export interface TaskActivityPageDTO {
+      /** Tasks with activity, most recent first. */
+      results: TaskActivityDTO[];
+      /** Unread tasks across the requester's whole feed, not just this page. Backs the sidebar badge. */
+      unread_count: number;
+      /**
+         * Activity timestamp to pass as before for the next page, or null on the final page.
+         * @nullable
+         */
+      next_before?: string | null;
+      /**
+         * Activity ID to pass as before_id for the next page, or null on the final page.
+         * @nullable
+         */
+      next_before_id?: string | null;
     }
 
     /**
@@ -79888,6 +80015,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type TaskActivityListParams = {
+    /**
+     * Activity timestamp from the final row of the previous page.
+     */
+    before?: string;
+    /**
+     * Activity ID from the final row of the previous page.
+     */
+    before_id?: string;
+    /**
+     * Maximum number of tasks to return (most recent activity first).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
     };
 
     export type TaskAutomationsListParams = {
