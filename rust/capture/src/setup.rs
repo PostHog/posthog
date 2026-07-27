@@ -302,15 +302,21 @@ pub async fn build_components(
                 .await
                 .expect("failed to start AI secondary Kafka sink"),
         );
-        let routing = if config.ai_sink_mode == AiSinkMode::SecondaryAllowlist {
-            let allowlist = config
-                .ai_secondary_allowlist_tokens
-                .as_deref()
-                .map(parse_token_allowlist)
-                .unwrap_or_default();
-            AiRouting::SecondaryAllowlist(allowlist)
-        } else {
-            AiRouting::Secondary
+        let routing = match config.ai_sink_mode {
+            // build_secondary excludes Primary, so this arm cannot be reached.
+            AiSinkMode::Primary => AiRouting::Primary,
+            AiSinkMode::Secondary => AiRouting::Secondary,
+            AiSinkMode::SecondaryAllowlist => AiRouting::SecondaryAllowlist(
+                config
+                    .ai_secondary_allowlist_tokens
+                    .as_deref()
+                    .map(parse_token_allowlist)
+                    .unwrap_or_default(),
+            ),
+            AiSinkMode::SecondaryPercentage => AiRouting::SecondaryPercentage(require_percentage(
+                config.ai_secondary_percentage,
+                "AI_SECONDARY_PERCENTAGE",
+            )),
         };
         info!(mode = ?config.ai_sink_mode, "AI secondary sink enabled");
         Arc::new(SplitKafkaSink::new(primary_sink, secondary, routing))
@@ -386,6 +392,10 @@ pub async fn build_components(
                 .map(parse_token_allowlist)
                 .unwrap_or_default(),
         ),
+        AiSinkMode::SecondaryPercentage => AiRouting::SecondaryPercentage(require_percentage(
+            config.capture_analytics_ai_events_percentage,
+            "CAPTURE_ANALYTICS_AI_EVENTS_PERCENTAGE",
+        )),
     };
     assert!(
         config.capture_analytics_ai_events_mode == AiSinkMode::Primary
@@ -539,6 +549,24 @@ fn parse_token_allowlist(csv: &str) -> HashSet<String> {
         .filter(|s| !s.is_empty())
         .map(String::from)
         .collect()
+}
+
+/// Validate the percentage companion of a `secondary_percentage` routing mode.
+/// Unlike the allowlist (where unset defaults to an empty set that routes
+/// nothing), an unset percentage refuses to start: the mode being set with no
+/// percentage is almost certainly a misconfigured rollout, not an intent to
+/// route 0% of teams.
+fn require_percentage(value: Option<u8>, env_var: &str) -> u8 {
+    let percentage = value.unwrap_or_else(|| {
+        panic!(
+            "invalid configuration: {env_var} must be set when the AI routing mode is secondary_percentage"
+        )
+    });
+    assert!(
+        percentage <= 100,
+        "invalid configuration: {env_var} must be between 0 and 100 (got {percentage})"
+    );
+    percentage
 }
 
 /// Builds the v1 sink router. The dedicated `$ai_*` topics are
