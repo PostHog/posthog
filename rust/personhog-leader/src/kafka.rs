@@ -58,8 +58,8 @@ pub async fn produce_person_changelog(
         Ok(delivery_future) => match delivery_future.await {
             Ok(Ok((_, offset))) => {
                 counter!("personhog_leader_kafka_produces_total").increment(1);
-                histogram!("personhog_leader_kafka_produce_duration_seconds")
-                    .record(start.elapsed().as_secs_f64());
+                histogram!("personhog_leader_kafka_produce_duration_ms")
+                    .record(start.elapsed().as_secs_f64() * 1000.0);
                 Ok(offset)
             }
             Ok(Err((kafka_err, _))) => {

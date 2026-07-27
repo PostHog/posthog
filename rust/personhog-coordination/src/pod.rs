@@ -509,8 +509,8 @@ impl PodHandle {
                     tracing::info!(pod, partition, "converging to Serving: warming");
                     let start = Instant::now();
                     self.handler.warm_partition(partition).await?;
-                    histogram!("personhog_coordination_partition_warm_seconds", "trigger" => "restart")
-                        .record(start.elapsed().as_secs_f64());
+                    histogram!("personhog_coordination_partition_warm_ms", "trigger" => "restart")
+                        .record(start.elapsed().as_secs_f64() * 1000.0);
                     self.warmed_partitions.lock().await.insert(partition);
                 } else if self.fenced_partitions.lock().await.contains(&partition) {
                     tracing::info!(pod, partition, "converging to Serving: resuming writes");
@@ -535,8 +535,8 @@ impl PodHandle {
                     // Only the first convergence does a real drain wait;
                     // later re-convergences are no-ops that would bury the
                     // signal in near-zero samples.
-                    histogram!("personhog_coordination_partition_drain_seconds")
-                        .record(start.elapsed().as_secs_f64());
+                    histogram!("personhog_coordination_partition_drain_ms")
+                        .record(start.elapsed().as_secs_f64() * 1000.0);
                 }
                 self.fenced_partitions.lock().await.insert(partition);
                 if ack {
@@ -557,8 +557,8 @@ impl PodHandle {
                     tracing::info!(pod, partition, "converging to Acquiring: warming");
                     let start = Instant::now();
                     self.handler.warm_partition(partition).await?;
-                    histogram!("personhog_coordination_partition_warm_seconds", "trigger" => "handoff")
-                        .record(start.elapsed().as_secs_f64());
+                    histogram!("personhog_coordination_partition_warm_ms", "trigger" => "handoff")
+                        .record(start.elapsed().as_secs_f64() * 1000.0);
                     self.warmed_partitions.lock().await.insert(partition);
                 }
                 self.fenced_partitions.lock().await.remove(&partition);

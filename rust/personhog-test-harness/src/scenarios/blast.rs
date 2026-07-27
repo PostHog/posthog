@@ -127,8 +127,8 @@ pub async fn run_traffic(
                     Ok(resp) => {
                         collector.writes.record_success(start.elapsed());
                         counter!("personhog_traffic_writes_total", "outcome" => "ok").increment(1);
-                        histogram!("personhog_traffic_write_seconds")
-                            .record(start.elapsed().as_secs_f64());
+                        histogram!("personhog_traffic_write_duration_ms")
+                            .record(start.elapsed().as_secs_f64() * 1000.0);
                         let mut written = HashMap::new();
                         written.insert(key, serde_json::Value::String(value));
                         match resp.person {

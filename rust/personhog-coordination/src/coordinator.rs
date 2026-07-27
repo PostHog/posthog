@@ -843,7 +843,7 @@ fn phase_label(phase: HandoffPhase) -> &'static str {
 }
 
 /// Record a successful phase advance: a transition counter plus a
-/// histogram of seconds elapsed since the handoff was created.
+/// histogram of milliseconds elapsed since the handoff was created.
 /// `started_at` carries one-second resolution, so these timings exist to
 /// spot stalls (a handoff minutes into Freezing), not to micro-profile;
 /// the pod side's warm and drain histograms carry the precise
@@ -857,10 +857,10 @@ fn record_phase_advance(handoff: &HandoffState, to: HandoffPhase) {
     .increment(1);
     let elapsed = util::now_seconds().saturating_sub(handoff.started_at);
     histogram!(
-        "personhog_coordination_handoff_phase_reached_seconds",
+        "personhog_coordination_handoff_phase_reached_ms",
         "phase" => phase_label(to),
     )
-    .record(elapsed as f64);
+    .record((elapsed * 1000) as f64);
 }
 
 /// Refresh the coordinator's view-of-the-cluster gauges. Driven from the
