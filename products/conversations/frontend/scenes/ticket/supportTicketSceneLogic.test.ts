@@ -42,6 +42,19 @@ jest.mock('products/business_knowledge/frontend/generated/api', () => ({
     businessKnowledgeGapSuggestionsDismissCreate: jest.fn().mockResolvedValue(undefined),
 }))
 
+jest.mock('@posthog/lemon-ui', () => ({
+    ...jest.requireActual('@posthog/lemon-ui'),
+    lemonToast: {
+        success: jest.fn(),
+        error: jest.fn(),
+        info: jest.fn(),
+        warning: jest.fn(),
+        dismiss: jest.fn(),
+    },
+}))
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from '~/lib/api'
 
 const submitAiFeedbackMock = api.conversationsTickets.submitAiFeedback as jest.Mock
@@ -286,6 +299,8 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         commentsCreateMock.mockReset().mockResolvedValue(undefined)
         ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
         ticketUpdateMock.mockReset()
+        ;(lemonToast.error as jest.Mock).mockClear()
+        ;(lemonToast.dismiss as jest.Mock).mockClear()
         // A non-'new', dash-free id: sendMessage early-returns on 'new' and loadTicket
         // treats ids containing '-' as UUIDs to redirect.
         logic = supportTicketSceneLogic({ id: 42 })
@@ -348,6 +363,33 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         expect(ticketUpdateMock).toHaveBeenCalled()
         expect(logic.values.hasUnsavedChanges).toBe(true)
         expect(logic.values.ticketUpdating).toBe(false)
+    })
+
+    // After a failed save, editing a different field must carry the failed edit along rather than
+    // persisting only the newest one, and must clear the failure toast that never auto-closes.
+    it('recovers a failed edit through the next successful save', async () => {
+        ticketUpdateMock.mockRejectedValue(new Error('boom'))
+        await expectLogic(logic, () => {
+            logic.actions.setPriority('high')
+        })
+            .toDispatchActions(['updateTicket'])
+            .toFinishAllListeners()
+
+        const { toastId } = (lemonToast.error as jest.Mock).mock.calls[0][1]
+
+        ticketUpdateMock.mockReset().mockResolvedValue({ ...loadedTicket(), priority: 'high', tags: ['billing'] })
+        await expectLogic(logic, () => {
+            logic.actions.setTags(['billing'])
+        })
+            .toDispatchActions(['updateTicket', 'setTicket'])
+            .toFinishAllListeners()
+
+        expect(ticketUpdateMock).toHaveBeenCalledWith(
+            '42',
+            expect.objectContaining({ priority: 'high', tags: ['billing'] })
+        )
+        expect(logic.values.hasUnsavedChanges).toBe(false)
+        expect(lemonToast.dismiss).toHaveBeenCalledWith(toastId)
     })
 
     it('does not update the ticket when the send fails', async () => {

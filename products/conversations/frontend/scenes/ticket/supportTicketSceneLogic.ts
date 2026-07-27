@@ -60,6 +60,8 @@ import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
 // Collapse rapid successive field edits (and the send-and-set-status path) into a single PATCH.
 const AUTOSAVE_DEBOUNCE_MS = 500
+// Stable id so a later successful save can clear a failure toast that is still on screen.
+const TICKET_UPDATE_ERROR_TOAST_ID = 'conversations-ticket-update-error'
 
 function regionFromUrl(url?: string): Region | undefined {
     if (url) {
@@ -1019,6 +1021,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const ticket = await request
                 breakpoint()
                 actions.setTicket(ticket)
+                lemonToast.dismiss(TICKET_UPDATE_ERROR_TOAST_ID)
                 lemonToast.success('Ticket updated')
                 actions.loadTickets()
             } catch (error: any) {
@@ -1029,6 +1032,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 // The edit stays in local state (hasUnsavedChanges), so offer an explicit retry —
                 // without the removed Save button a failed autosave would otherwise have no way back.
                 lemonToast.error('Failed to update ticket', {
+                    toastId: TICKET_UPDATE_ERROR_TOAST_ID,
                     autoClose: false,
                     button: { label: 'Retry', action: () => actions.updateTicket() },
                 })
