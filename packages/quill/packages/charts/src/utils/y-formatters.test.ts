@@ -53,4 +53,10 @@ describe('buildYTickFormatter', () => {
         const fmt = buildYTickFormatter({ format })
         expect(ticks.map((tick) => fmt(tick))).toEqual(expected)
     })
+
+    // Adapters pass a nullable config field straight through, and null coerces to 0 in `Math.max`
+    it('floors precision at two decimals when minDecimalPlaces is null', () => {
+        const fmt = buildYTickFormatter({ format: 'numeric', minDecimalPlaces: null as unknown as number })
+        expect(fmt(1.2345)).toBe('1.23')
+    })
 })
