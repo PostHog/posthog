@@ -13,8 +13,8 @@ import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaM
 import { validateMetricName } from '../common'
 import { metricsLogic, NewMetricDefinitionType } from '../metricsLogic'
 
+// The Text (markdown) option is hidden until its editor UI is polished.
 const DEFINITION_TYPE_OPTIONS: { value: NewMetricDefinitionType; label: string }[] = [
-    { value: 'markdown', label: 'Markdown' },
     { value: 'sql', label: 'SQL' },
     { value: 'insight', label: 'Insight' },
 ]
@@ -88,7 +88,7 @@ export function NewMetricModal(): JSX.Element {
                     </LemonField.Pure>
 
                     {newMetricForm.definitionType === 'markdown' && (
-                        <LemonField.Pure label="Markdown">
+                        <LemonField.Pure label="Text">
                             <LemonTextAreaMarkdown
                                 value={newMetricForm.markdown}
                                 onChange={(markdown) => setNewMetricForm({ markdown })}

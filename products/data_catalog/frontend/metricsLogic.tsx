@@ -45,7 +45,7 @@ export const EMPTY_NEW_METRIC_FORM: NewMetricForm = {
     display_name: '',
     description: '',
     unit: '',
-    definitionType: 'markdown',
+    definitionType: 'sql',
     markdown: '',
     sourceInsightShortId: '',
 }

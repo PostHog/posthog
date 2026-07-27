@@ -97,7 +97,12 @@ describe('metricsLogic', () => {
         )
 
         logic.actions.openNewMetricModal()
-        logic.actions.setNewMetricForm({ name: 'monthly_active_users', description: 'Monthly active users' })
+        logic.actions.setNewMetricForm({
+            name: 'monthly_active_users',
+            description: 'Monthly active users',
+            definitionType: 'insight',
+            sourceInsightShortId: 'abc123',
+        })
 
         logic.actions.createMetric()
         logic.actions.createMetric()
