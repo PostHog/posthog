@@ -6,6 +6,10 @@
 //! surface the body's result *after* the schema drop. The `insert_*`/`*_pinned`/`*_condition`/
 //! `behavioral_filter` builders and the `ensure_lease_lost`/`planned_count` helpers are the shared
 //! fixtures each scenario composes the minimal state it needs from.
+//!
+//! Each integration test file is its own crate and pulls this in via `mod support;`, so a helper
+//! used by only some of them looks "dead" to the others — hence the crate-wide allow below.
+#![allow(dead_code)]
 
 use std::future::Future;
 use std::str::FromStr;

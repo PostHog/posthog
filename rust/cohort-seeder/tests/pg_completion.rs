@@ -197,7 +197,7 @@ async fn revert_clears_the_dispatch_record_and_returns_to_seeding() -> Result<()
         let claim = confirm_reconciling(&pool, run_id)
             .await?
             .context("run should be claimable")?;
-        claim.record(&pool, &full_hwms(), &empty_watch()).await?;
+        let _ = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
 
         let claim = confirm_reconciling(&pool, run_id)
             .await?
@@ -640,7 +640,7 @@ async fn discovery_classifies_each_phase_including_pre_b5_rows() -> Result<()> {
         let claim = confirm_reconciling(&pool, dispatched)
             .await?
             .context("dispatched run should be claimable")?;
-        claim.record(&pool, &full_hwms(), &empty_watch()).await?;
+        let _ = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
 
         // Pre-B5: reconciling with every new column NULL.
         let pre_b5 = insert_run(
