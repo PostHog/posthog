@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from requests import Response
 
@@ -97,7 +98,35 @@ def _flatten_dns_analytics_row(row: dict[str, Any]) -> dict[str, Any]:
     return flattened
 
 
-_DATA_MAPS = {"dns_analytics_report": _flatten_dns_analytics_row}
+# A logpush job's `destination_conf` is a URI whose query string can carry the
+# credentials a Cloudflare admin configured for the sink — an S3-compatible
+# `secret-access-key`, or auth tokens passed as `header_*` params on HTTP sinks.
+# Redact those values so a warehouse reader can't recover secrets they were never
+# granted, while keeping the destination shape (scheme, bucket, region) legible.
+def _is_secret_logpush_param(key: str) -> bool:
+    lowered = key.lower()
+    return lowered in ("secret-access-key", "access-key-id") or lowered.startswith("header_")
+
+
+def _redact_logpush_destination(row: dict[str, Any]) -> dict[str, Any]:
+    conf = row.get("destination_conf")
+    if not isinstance(conf, str):
+        return row
+    split = urlsplit(conf)
+    if not split.query:
+        return row
+    params = parse_qsl(split.query, keep_blank_values=True)
+    if not any(_is_secret_logpush_param(key) for key, _ in params):
+        return row
+    redacted = [(key, "REDACTED" if _is_secret_logpush_param(key) else value) for key, value in params]
+    row["destination_conf"] = urlunsplit(split._replace(query=urlencode(redacted)))
+    return row
+
+
+_DATA_MAPS = {
+    "dns_analytics_report": _flatten_dns_analytics_row,
+    "logpush_jobs": _redact_logpush_destination,
+}
 
 
 def _client_config(api_token: str) -> ClientConfig:

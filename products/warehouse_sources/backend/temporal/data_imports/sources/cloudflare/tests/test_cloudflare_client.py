@@ -10,6 +10,7 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import (
     PAGE_SIZE,
+    _redact_logpush_destination,
     cloudflare_source,
     validate_credentials,
 )
@@ -434,6 +435,48 @@ class TestDnsAnalyticsReport:
         ]
         assert snapshots[1]["params"]["metrics"] == "queryCount,uncachedCount"
         assert snapshots[1]["params"]["dimensions"] == "queryType,responseCode"
+
+
+class TestLogpushDestinationRedaction:
+    @pytest.mark.parametrize(
+        "conf,expected",
+        [
+            (
+                "s3://bucket/logs?region=us-east-1&access-key-id=AKIA&secret-access-key=shh",
+                "s3://bucket/logs?region=us-east-1&access-key-id=REDACTED&secret-access-key=REDACTED",
+            ),
+            (
+                "https://logs.example.com?header_Authorization=Bearer+tok&ddsource=cloudflare",
+                "https://logs.example.com?header_Authorization=REDACTED&ddsource=cloudflare",
+            ),
+            # No secret-bearing param — left byte-for-byte unchanged.
+            ("s3://bucket/logs?region=us-east-1", "s3://bucket/logs?region=us-east-1"),
+            ("gs://bucket/logs", "gs://bucket/logs"),
+        ],
+    )
+    def test_redacts_only_secret_query_params(self, conf, expected) -> None:
+        assert _redact_logpush_destination({"destination_conf": conf}) == {"destination_conf": expected}
+
+    def test_leaves_non_string_conf_untouched(self) -> None:
+        row = {"destination_conf": None, "id": "j1"}
+        assert _redact_logpush_destination(row) == row
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_secret_is_stripped_when_synced(self, MockSession) -> None:
+        # Guards that the redaction data_map is actually wired to the logpush_jobs resource.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "z1"}], total_pages=1),
+                _response([{"id": "j1", "destination_conf": "s3://b/logs?secret-access-key=SUPERSECRET"}]),
+            ],
+        )
+
+        rows = _rows(cloudflare_source("token", "logpush_jobs", team_id=1, job_id="j"))
+
+        assert "SUPERSECRET" not in rows[0]["destination_conf"]
+        assert rows[0]["destination_conf"] == "s3://b/logs?secret-access-key=REDACTED"
 
 
 class TestAuditLogsIncremental:
