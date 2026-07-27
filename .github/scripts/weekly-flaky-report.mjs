@@ -85,14 +85,17 @@ function endpointUrl(action, params = {}) {
 
 const AUTH_HEADERS = { Authorization: `Bearer ${API_KEY}` }
 
+function flakyTestsUrl() {
+    return endpointUrl('flaky_tests', {
+        date_from: '-7d',
+        limit: 100,
+        repo: GITHUB_REPOSITORY,
+        runner: 'pytest',
+    })
+}
+
 function fetchFlakyTests() {
-    return withRetry(() =>
-        request(
-            endpointUrl('flaky_tests', { date_from: '-7d', limit: 100, runner: 'pytest' }),
-            { headers: AUTH_HEADERS },
-            'flaky_tests'
-        )
-    )
+    return withRetry(() => request(flakyTestsUrl(), { headers: AUTH_HEADERS }, 'flaky_tests'))
 }
 
 // `values` bind through HogQL's {placeholder} syntax, escaped server-side — never
@@ -424,4 +427,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     })
 }
 
-export { buildBlocks, enrich, selectReportCandidates, tableRows }
+export { buildBlocks, enrich, flakyTestsUrl, selectReportCandidates, tableRows }

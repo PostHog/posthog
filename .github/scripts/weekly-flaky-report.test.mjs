@@ -1,9 +1,17 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { buildBlocks, enrich, selectReportCandidates, tableRows } from './weekly-flaky-report.mjs'
+import { buildBlocks, enrich, flakyTestsUrl, selectReportCandidates, tableRows } from './weekly-flaky-report.mjs'
 
 describe('weekly flaky report', () => {
+    it('requests pytest candidates for the current repository before the endpoint limit', () => {
+        const url = flakyTestsUrl()
+
+        assert.equal(url.searchParams.get('runner'), 'pytest')
+        assert.equal(url.searchParams.get('repo'), 'PostHog/posthog')
+        assert.equal(url.searchParams.get('limit'), '100')
+    })
+
     it('builds a Slack table with supported cells and structured links', () => {
         const rows = tableRows(
             [
