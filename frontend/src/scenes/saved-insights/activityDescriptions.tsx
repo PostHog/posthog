@@ -24,9 +24,14 @@ import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { InsightQueryNode, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
-import { isInsightQueryNode, hasBreakdownFilter } from '~/queries/utils'
+import { HogQLQuery, InsightQueryNode, QuerySchema } from '~/queries/schema/schema-general'
+import {
+    isDataTableNodeWithHogQLQuery,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isInsightVizNode,
+} from '~/queries/utils'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {
@@ -78,7 +83,11 @@ const insightActionsMapping: Record<
     filters: function onChangedFilter(change) {
         const filtersAfter = change?.after as Partial<FilterType>
 
-        return areObjectValuesEmpty(filtersAfter) ? null : summarizeChanges(filtersAfter)
+        return areObjectValuesEmpty(filtersAfter)
+            ? null
+            : summarizeQueryChanges(
+                  filtersToQueryNode(filtersAfter, { source: 'saved_insights_activity_descriptions' })
+              )
     },
     query: function onChangedQuery(change) {
         if (change?.action === 'deleted') {
@@ -87,9 +96,17 @@ const insightActionsMapping: Record<
         }
 
         const queryAfter = change?.after as QuerySchema
-        return isInsightQueryNode(queryAfter)
-            ? summarizeChanges(queryNodeToFilter(change?.after as InsightQueryNode))
-            : { description: ["cannot yet summarize changes to this insight's query: " + queryAfter?.kind] }
+        // saved insights store the actual query wrapped in an InsightVizNode (or in a
+        // DataVisualizationNode / DataTableNode for SQL insights), so summarize the source
+        const source =
+            isInsightVizNode(queryAfter) ||
+            isDataVisualizationNode(queryAfter) ||
+            isDataTableNodeWithHogQLQuery(queryAfter)
+                ? queryAfter.source
+                : queryAfter
+        return isInsightQueryNode(source) || isHogQLQuery(source)
+            ? summarizeQueryChanges(source)
+            : { description: ['changed the query'] }
     },
     deleted: function onSoftDelete(change, logItem, asNotification) {
         const isDeleted = detectBoolean(change?.after)
@@ -244,19 +261,14 @@ const insightActionsMapping: Record<
     filter_override_context: () => null,
 }
 
-function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {
-    const query = filtersToQueryNode(filtersAfter, {
-        source: 'saved_insights_activity_descriptions',
-    })
-    const trendsQuery = query as TrendsQuery
-
+function summarizeQueryChanges(query: InsightQueryNode | HogQLQuery): ChangeMapping {
     return {
         description: ['changed query definition'],
         extendedDescription: (
             <div className="ActivityDescription">
                 <SeriesSummary query={query} />
-                <PropertiesSummary properties={query.properties} />
-                {hasBreakdownFilter(trendsQuery?.breakdownFilter) && <InsightBreakdownSummary query={query} />}
+                <PropertiesSummary properties={isHogQLQuery(query) ? query.filters?.properties : query.properties} />
+                <InsightBreakdownSummary query={query} />
             </div>
         ),
     }

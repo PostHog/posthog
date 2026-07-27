@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from functools import cache
+from functools import cache, cached_property
 from time import perf_counter
 from types import UnionType
 from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
@@ -117,9 +117,11 @@ from posthog.hogql_queries.access_controlled_resources import queried_access_con
 from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
-from posthog.hogql_queries.query_cache import count_query_cache_hit
-from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
-from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
+from posthog.hogql_queries.query_failure_handling import (
+    budget_for_limit_context,
+    build_failure_exception,
+    classify_failure,
+)
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
 from posthog.hogql_queries.validation.validation import (
@@ -130,6 +132,14 @@ from posthog.hogql_queries.validation.validation import (
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
+from posthog.query_cache import QueryCache, count_query_cache_hit
+from posthog.query_cache.failures import (
+    BUDGET_EXTENDED,
+    QUERY_FAILURE_CACHE_COUNTER,
+    QUERY_FAILURE_CACHING_FLAG,
+    Budget,
+    QueryFailureRecord,
+)
 from posthog.rbac.user_access_control import WAREHOUSE_ACCESS_SCOPES, UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
@@ -1293,6 +1303,19 @@ R = TypeVar("R", bound=BaseModel)
 CR = TypeVar("CR", bound=GenericCachedQueryResponse)
 
 
+def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None:
+    # A series' display override for legends and tooltips. `custom_name` is set by the in-app
+    # "Rename graph series" modal; a `name` that differs from the raw event/action label is a rename
+    # applied via the query editor or API. Either should win over the raw event name.
+    custom_name = getattr(series, "custom_name", None)
+    if custom_name:
+        return custom_name
+    name = getattr(series, "name", None)
+    if name and name != raw_label:
+        return name
+    return None
+
+
 class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
     response: R
@@ -1412,7 +1435,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def enqueue_async_calculation(
         self,
         *,
-        cache_manager: QueryCacheManagerBase,
+        cache_manager: QueryCache,
         refresh_requested: bool = False,
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
@@ -1458,7 +1481,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def handle_cache_and_async_logic(
         self,
         execution_mode: ExecutionMode,
-        cache_manager: QueryCacheManagerBase,
+        cache_manager: QueryCache,
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> Optional[CR | CacheMissResponse]:
@@ -1467,6 +1490,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cached_response_candidate: Optional[dict]
         self.raw_cached_results_bytes = None
         raw_results: Optional[bytes] = None
+        # The breaker record is only needed here to gate async dispatch; blocking execution is
+        # gated once, inside _execute_and_cache_blocking.
+        include_failure = self._query_failure_caching_enabled and execution_mode in (
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+            ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+        )
+        lookup = cache_manager.lookup(include_failure=include_failure)
+        entry = lookup.entry
         if self.serve_raw_cached_results:
             # Serving results as raw bytes skips parsing (and later re-serializing) the results
             # payload. Only safe when the caller opted in AND validation of the parsed results
@@ -1475,7 +1507,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # the schema-drift check that triggers recomputation) AND neither the query nor
             # the cached results carry custom series names — otherwise
             # apply_series_custom_names below must be able to patch the parsed results.
-            split_candidate = cache_manager.get_cache_data_split()
+            split_candidate = entry
             if split_candidate is None:
                 cached_response_candidate = None
             else:
@@ -1490,7 +1522,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     else:
                         raw_results = split_candidate.results_bytes
         else:
-            cached_response_candidate = cache_manager.get_cache_data()
+            cached_response_candidate = entry.as_full_response() if entry else None
 
         if self.is_cached_response(cached_response_candidate):
             assert cached_response_candidate is not None
@@ -1523,7 +1555,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             if custom_names_modified:
                 # Update cache with patched response so subsequent requests get the updated names
-                cache_manager.set_cache_data(
+                cache_manager.store_result(
                     response=cached_response.model_dump(),
                     target_age=cached_response.cache_target_age,
                 )
@@ -1540,10 +1572,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
-            elif execution_mode in (
+
+            # An open breaker forbids pointless recalculation: async dispatch is gated here,
+            # blocking recalculation is gated in _execute_and_cache_blocking.
+            failure = lookup.failure
+
+            if execution_mode in (
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
             ):
+                self._raise_if_failure_fresh_for(failure, BUDGET_EXTENDED)
                 # We're allowed to calculate, but we'll do it asynchronously and attach the query status
                 cached_response.query_status = self.enqueue_async_calculation(
                     cache_manager=cache_manager, user=user, refresh_requested=True, analytics_props=analytics_props
@@ -1553,6 +1591,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
                 if self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
+                    self._raise_if_failure_fresh_for(failure, BUDGET_EXTENDED)
                     cached_response.query_status = self.enqueue_async_calculation(
                         cache_manager=cache_manager, user=user, analytics_props=analytics_props
                     )
@@ -1565,10 +1604,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
-            elif execution_mode in (
+
+            failure = lookup.failure
+
+            if execution_mode in (
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
                 ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
             ):
+                self._raise_if_failure_fresh_for(failure, BUDGET_EXTENDED)
                 # We're allowed to calculate, but we'll do it asynchronously
                 cached_response.query_status = self.enqueue_async_calculation(
                     cache_manager=cache_manager, user=user, analytics_props=analytics_props
@@ -1579,6 +1622,38 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # cached raw results (if any) must not leak onto the fresh response.
         self.raw_cached_results_bytes = None
         return None
+
+    @cached_property
+    def _query_failure_caching_enabled(self) -> bool:
+        # only_evaluate_locally keeps this flag check off the network - this runs on the query
+        # hot path, so an inconclusive local evaluation must mean "off", never an HTTP call.
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    QUERY_FAILURE_CACHING_FLAG,
+                    str(self.team.uuid),
+                    groups={
+                        "organization": str(self.team.organization_id),
+                        "project": str(self.team.pk),
+                    },
+                    group_properties={
+                        "organization": {"id": str(self.team.organization_id)},
+                        "project": {"id": str(self.team.pk)},
+                    },
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            return False
+
+    def _raise_if_failure_fresh_for(self, failure: Optional[QueryFailureRecord], budget: Budget) -> None:
+        """The one breaker rule: a failure outcome that is fresh for the given execution budget
+        substitutes for the execution it would forbid."""
+        if failure is None or not failure.forbids(budget):
+            return
+        QUERY_FAILURE_CACHE_COUNTER.labels(action="served_error", kind=failure.kind).inc()
+        raise build_failure_exception(failure)
 
     def _call_with_rate_limits(self, *, dashboard_id: Optional[int]) -> tuple[R, float]:
         """Execute calculate() with all rate limiters applied.
@@ -1750,14 +1825,19 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     trigger: str | None = get_query_tag_value("trigger")
 
                     CachedResponse: type[CR] = self.cached_response_type
-                    cache_manager = get_query_cache_manager(
-                        team=self.team,
+                    cache_manager = QueryCache(
+                        team_id=self.team.pk,
                         cache_key=cache_key,
                         insight_id=insight_id,
                         dashboard_id=dashboard_id,
                     )
 
                     if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
+                        # The forced dispatch skips the result cache, but not the breaker: the
+                        # enqueued job runs under the async budget, so only failures that cover
+                        # that budget forbid it.
+                        if self._query_failure_caching_enabled:
+                            self._raise_if_failure_fresh_for(cache_manager.open_failure(), BUDGET_EXTENDED)
                         # We should always kick off async calculation and disregard the cache.
                         # cache_hit is left unset on this path because the cache wasn't consulted.
                         slo.tag(execution_path="async_dispatched")
@@ -1841,6 +1921,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         analytics_props=analytics_props,
                     )
                 except Exception as exc:
+                    if getattr(exc, "served_from_query_failure_cache", False):
+                        # ClickHouse was never touched; the original failure was already
+                        # classified and captured when it happened.
+                        slo.succeed(error_category="query_failure_cache")
+                        raise
                     # Don't pass execution_path here: whichever branch tag was set before the raise
                     # (cache_hit / cache_miss / blocking / async_dispatched) stays intact so
                     # dashboards can attribute errors to the path they happened in. Errors that fire
@@ -1857,13 +1942,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         # QUERY_PERFORMANCE_ERROR is FAILURE (so captured) even though a minority of
                         # those are user-input limits — see _classify_error_for_slo.
                         capture_exception(exc)
+                    if self._query_failure_caching_enabled:
+                        # Transient error classes classify to None and are never recorded.
+                        failure_kind = classify_failure(exc)
+                        if failure_kind is not None:
+                            QueryCache(team_id=self.team.pk, cache_key=cache_key).record_failure(
+                                failure_kind, str(exc), budget=budget_for_limit_context(self.limit_context)
+                            )
                     raise
 
     def _execute_and_cache_blocking(
         self,
         *,
         cache_key: str,
-        cache_manager: QueryCacheManagerBase,
+        cache_manager: QueryCache,
         execution_mode: ExecutionMode,
         insight_id: Optional[int],
         dashboard_id: Optional[int],
@@ -1872,6 +1964,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         start_time: float,
         analytics_props: Optional["AnalyticsProps"] = None,
     ) -> CR:
+        # The single gate for all blocking execution, forced refreshes included: an open
+        # breaker that covers this run's execution budget forbids touching ClickHouse.
+        if self._query_failure_caching_enabled:
+            self._raise_if_failure_fresh_for(cache_manager.open_failure(), budget_for_limit_context(self.limit_context))
+
         CachedResponse: type[CR] = self.cached_response_type
 
         last_refresh = datetime.now(UTC)
@@ -1956,7 +2053,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Guard against response classes that don't carry the field: every analytics response
             # inherits `warnings` from AnalyticsQueryResponseBase, and several standalone classes
             # add it explicitly — but a future response class that omits it would otherwise crash
-            # pydantic validation on the extra key (and poison the cache, which set_cache_data has
+            # pydantic validation on the extra key (and poison the cache, which store_result has
             # already written by the time CachedResponse(**dict) raises).
             if warnings_accumulator and "warnings" in CachedResponse.model_fields:
                 # The accumulator is authoritative for sync warnings (it collects across every inner
@@ -1975,13 +2072,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             errors: Optional[list[Any]] = fresh_response_dict.get("error", None)
             has_error = errors is not None and len(errors) > 0
             if not has_error and self.limit_context != LimitContext.EXPORT:
-                cache_manager.set_cache_data(
+                cache_manager.store_result(
                     response=fresh_response_dict,
                     # This would be a possible place to decide to not ever keep this cache warm
                     # Example: Not for super quickly calculated insights
                     # Set target_age to None in that case
                     target_age=target_age,
                 )
+
+            if not has_error and self._query_failure_caching_enabled:
+                # Deliberately outside the cache-write condition above: a successful export or
+                # debug run doesn't cache its result but must still close the failure breaker.
+                cache_manager.clear_failure()
 
             query_executed_props = {
                 "insight_id": insight_id,
@@ -2135,10 +2237,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if not results or not isinstance(results, list):
             return cached_response, False
 
-        custom_names_by_order: dict[int, str | None] = {}
-        for i, s in enumerate(series):
-            custom_name = getattr(s, "custom_name", None)
-            custom_names_by_order[i] = custom_name
+        series_by_order = dict(enumerate(series))
+        # Only TrendsQuery surfaces a `name`-based rename into custom_name on the fresh path (see
+        # TrendsQueryRunner's use of resolve_series_custom_name). Stickiness/lifecycle use custom_name
+        # only, so honoring `name` here would desync their cached responses from a fresh computation.
+        honor_name = isinstance(self.query, TrendsQuery)
 
         was_modified = False
         for result in results:
@@ -2148,11 +2251,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if not isinstance(action, dict):
                 continue
             order = action.get("order")
-            if order is not None and order in custom_names_by_order:
-                new_name = custom_names_by_order[order]
-                if action.get("custom_name") != new_name:
-                    action["custom_name"] = new_name
-                    was_modified = True
+            if order is None or order not in series_by_order:
+                continue
+            s = series_by_order[order]
+            if honor_name:
+                # The cached action's `name` holds the raw event/action label (`series_label or "All events"`).
+                new_name = resolve_series_custom_name(s, action.get("name"))
+            else:
+                new_name = getattr(s, "custom_name", None)
+            if action.get("custom_name") != new_name:
+                action["custom_name"] = new_name
+                was_modified = True
 
         return cached_response, was_modified
 

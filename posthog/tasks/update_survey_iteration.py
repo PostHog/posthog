@@ -1,10 +1,11 @@
 from datetime import date, timedelta
-from typing import Any
 
 from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
+from products.feature_flags.backend.facade.api import create_flag, update_flag
+from products.feature_flags.backend.facade.filters import replace_release_conditions
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
@@ -68,47 +69,64 @@ def _has_final_iteration_ended(survey: Survey) -> bool:
     return date.today() > final_iteration_end
 
 
-def _get_targeting_flag(survey: Survey) -> FeatureFlag | Any:
+def _get_targeting_flag(survey: Survey) -> FeatureFlag:
     existing_targeting_flag: FeatureFlag | None = survey.internal_targeting_flag
-    user_submitted_dismissed_filter = {
-        "groups": [
-            {
-                "variant": "",
-                "rollout_percentage": 100,
-                "properties": [
-                    {
-                        "key": f"$survey_dismissed/{survey.id}/{survey.current_iteration}",
-                        "value": "is_not_set",
-                        "operator": "is_not_set",
-                        "type": "person",
-                    },
-                    {
-                        "key": f"$survey_responded/{survey.id}/{survey.current_iteration}",
-                        "value": "is_not_set",
-                        "operator": "is_not_set",
-                        "type": "person",
-                    },
-                ],
-            }
-        ]
-    }
+    user_submitted_dismissed_groups = [
+        {
+            "variant": "",
+            "rollout_percentage": 100,
+            "properties": [
+                {
+                    "key": f"$survey_dismissed/{survey.id}/{survey.current_iteration}",
+                    "value": "is_not_set",
+                    "operator": "is_not_set",
+                    "type": "person",
+                },
+                {
+                    "key": f"$survey_responded/{survey.id}/{survey.current_iteration}",
+                    "value": "is_not_set",
+                    "operator": "is_not_set",
+                    "type": "person",
+                },
+            ],
+        }
+    ]
 
     if existing_targeting_flag is not None:
-        # Note: new filters must come LAST to overwrite old iteration-unaware properties
-        serialized_data_filters = {**existing_targeting_flag.filters, **user_submitted_dismissed_filter}
-        existing_targeting_flag.filters = serialized_data_filters
-        existing_targeting_flag.save()
-        return existing_targeting_flag
-    else:
-        new_flag = FeatureFlag.objects.create(
+        # Note: groups are replaced wholesale so old iteration-unaware properties don't survive
+        return update_flag(
+            existing_targeting_flag,
+            {
+                "filters": replace_release_conditions(
+                    existing_targeting_flag.get_filters(), user_submitted_dismissed_groups
+                )
+            },
             team=survey.team,
-            created_by=survey.created_by,
-            active=True,
-            key=str(survey.id),
-            filters=user_submitted_dismissed_filter,
+            # system write: skips the approval gate, same as the create_flag call below
+            user=None,
         )
-        new_flag.save()
-        return new_flag
+    # user=None: this is beat-task maintenance, so it must take the system-write
+    # path — a user-bearing write would engage the approval gate, and this task
+    # cannot surface an ApprovalRequired change request.
+    flag = create_flag(
+        {
+            "key": str(survey.id),
+            "active": True,
+            "filters": {"groups": user_submitted_dismissed_groups},
+            "creation_context": "surveys",
+            "_should_create_usage_dashboard": False,
+        },
+        team=survey.team,
+        user=None,
+    )
+    # The system write nulls created_by, which would cost the survey's creator their
+    # guaranteed access to the flag. Restore attribution with a raw column update:
+    # QuerySet.update() bypasses save()/signals, so the write stays system-attributed
+    # (is_system activity log, null last_modified_by) and cannot engage the gate.
+    if survey.created_by is not None:
+        FeatureFlag.objects.filter(pk=flag.pk).update(created_by=survey.created_by)
+        flag.created_by = survey.created_by
+    return flag
 
 
 def _get_current_iteration(survey: Survey) -> int:

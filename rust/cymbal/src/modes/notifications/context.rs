@@ -9,7 +9,9 @@ use crate::core::config::build_pg_pool;
 use crate::core::error::UnhandledError;
 use crate::modes::notifications::config::NotificationsConfig;
 use crate::modes::notifications::signals::{MaybeSignalClient, SignalClient};
-use crate::modes::notifications::temporal::MaybeIssueCreatedWorkflowStarter;
+use crate::modes::notifications::temporal::{
+    build_issue_lifecycle_temporal_client, IssueLifecycleWorkflowStarters,
+};
 
 #[derive(Clone)]
 pub struct NotificationsContext {
@@ -19,7 +21,7 @@ pub struct NotificationsContext {
     pub signal_client: MaybeSignalClient,
     pub embedding_worker_topic: String,
     pub internal_events_topic: String,
-    pub issue_created_workflow_starter: MaybeIssueCreatedWorkflowStarter,
+    pub issue_lifecycle_workflow_starters: IssueLifecycleWorkflowStarters,
 }
 
 impl NotificationsContext {
@@ -30,6 +32,7 @@ impl NotificationsContext {
             "cymbal_notifications",
         )?;
         let immediate_producer = build_immediate_producer(config).await?;
+        let lifecycle_temporal_client = build_issue_lifecycle_temporal_client(config).await?;
 
         Ok(Self {
             posthog_pool,
@@ -38,8 +41,10 @@ impl NotificationsContext {
             signal_client: build_signal_client(config),
             embedding_worker_topic: config.embedding_worker_topic.clone(),
             internal_events_topic: config.internal_events_topic.clone(),
-            issue_created_workflow_starter: MaybeIssueCreatedWorkflowStarter::from_config(config)
-                .await?,
+            issue_lifecycle_workflow_starters: IssueLifecycleWorkflowStarters::from_config(
+                config,
+                lifecycle_temporal_client.as_ref(),
+            )?,
         })
     }
 }
