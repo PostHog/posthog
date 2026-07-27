@@ -28,6 +28,8 @@ from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.constants import (
     MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS,
     OUTBOUND_RETRY_BACKOFF,
+    PENDING_MESSAGE_CONFIRM_DELAY,
+    PENDING_MESSAGE_CONFIRM_MAX_ATTEMPTS,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
     SEND_STEER_SIGNAL,
@@ -53,7 +55,10 @@ from products.tasks.backend.temporal.process_task.activities.emit_progress_activ
     EmitProgressInput,
     emit_progress_activity,
 )
-from products.tasks.backend.temporal.process_task.activities.forward_pending_message import forward_pending_user_message
+from products.tasks.backend.temporal.process_task.activities.forward_pending_message import (
+    FORWARD_OUTCOME_TURN_IN_FLIGHT,
+    forward_pending_user_message,
+)
 from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository import (
     GetSandboxForRepositoryOutput,
 )
@@ -222,6 +227,10 @@ class SandboxEvent(StrEnum):
 _PATCH_ID_CONCURRENT_FOLLOWUP_STEERING = "tasks-execute-sandbox-concurrent-followup-steering"
 _PATCH_ID_ORDERED_OUTBOUND_DELIVERY = "tasks-execute-sandbox-ordered-outbound-delivery"
 _PATCH_ID_BOUNDED_FINAL_OUTBOUND_DELIVERY = "tasks-execute-sandbox-bounded-final-outbound-delivery"
+# Gates the re-forward loop that confirms an unacknowledged initial-prompt
+# delivery. Pre-rollout histories recorded neither its timers nor its repeat
+# `forward_pending_user_message` calls.
+_PATCH_ID_CONFIRM_PENDING_MESSAGE_DELIVERY = "tasks-execute-sandbox-confirm-pending-message-delivery"
 _PARENT_SIGNAL_TERMINAL_ERROR_TYPES = {
     "ExternalWorkflowExecutionNotFound",
     "NamespaceNotFound",
@@ -286,8 +295,16 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         self._sandbox_gone: bool = False
 
         self._heartbeat_received: bool = False
+        # Monotonic count of heartbeats reporting the agent streaming. The main
+        # loop consumes `_heartbeat_received` on every pass, so anything that
+        # needs to compare agent liveness across a window watches this instead.
+        self._agent_activity_count: int = 0
         self._pending_followups: list[PendingFollowup] = []
         self._next_followup_sequence: int = 0
+        # Monotonic count of follow-ups actually sent to the sandbox. Agent
+        # activity is only attributable to a specific message while this has not
+        # moved, since a follow-up drives the agent on its own.
+        self._followup_dispatch_count: int = 0
         self._pending_outbound: list[OutboundSignal] = []
         self._ordered_outbound_delivery: bool = True
         self._parent_signal_delivery_closed: bool = False
@@ -450,6 +467,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         self._slack_thread_context = input.slack_thread_context
         self._sandbox_id_for_cleanup = None
         credential_refresh_task: asyncio.Task[None] | None = None
+        confirm_pending_message_task: asyncio.Task[None] | None = None
 
         try:
             # Reap any orphaned sandbox left by a prior execution under this
@@ -503,7 +521,13 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 )
 
             if self._should_forward_pending_user_message():
-                await self._forward_pending_user_message()
+                forward_outcome = await self._forward_pending_user_message()
+                # Histories predating the activity's return value decode it to
+                # None, so the outcome check also keeps replays off the patch.
+                if forward_outcome == FORWARD_OUTCOME_TURN_IN_FLIGHT and workflow.patched(
+                    _PATCH_ID_CONFIRM_PENDING_MESSAGE_DELIVERY
+                ):
+                    confirm_pending_message_task = asyncio.ensure_future(self._confirm_pending_user_message_delivery())
 
             # Main loop: hand control between signal-driven work and the
             # inactivity timer. The timer is the only natural end of the
@@ -542,6 +566,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                         raise ValueError(f"Unknown sandbox event: {event}")
 
             await self._finish_active_followup()
+            if confirm_pending_message_task is not None:
+                await self._cancel_relay(confirm_pending_message_task)
+                confirm_pending_message_task = None
             await self._cancel_relay(relay_task)
             # Drain any outbound signals that landed during shutdown so the
             # parent never waits on a signal we silently dropped.
@@ -643,6 +670,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             if self._active_followup_task is not None:
                 await self._cancel_relay(self._active_followup_task)
                 self._active_followup_task = None
+
+            if confirm_pending_message_task is not None:
+                await self._cancel_relay(confirm_pending_message_task)
 
             if credential_refresh_task is not None:
                 await self._cancel_relay(credential_refresh_task)
@@ -851,6 +881,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         expected to debounce on its side.
         """
         self._heartbeat_received = True
+        if agent_active:
+            self._agent_activity_count += 1
         self._pending_outbound.append(OutboundSignal(target_signal=PARENT_HEARTBEAT_SIGNAL, args=[agent_active]))
 
     # ------------------------------------------------------------------
@@ -879,6 +911,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 return
 
             try:
+                self._followup_dispatch_count += 1
                 outcome = await self._send_followup_to_sandbox(
                     message=followup.message,
                     artifact_ids=followup.artifact_ids,
@@ -1223,13 +1256,117 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-    async def _forward_pending_user_message(self) -> None:
-        await workflow.execute_activity(
+    async def _forward_pending_user_message(self) -> str | None:
+        return await workflow.execute_activity(
             forward_pending_user_message,
             self.context.run_id,
             start_to_close_timeout=timedelta(seconds=PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
+
+    async def _confirm_pending_user_message_delivery(self) -> None:
+        """Re-forward the initial prompt until the agent server acknowledges it.
+
+        A turn-in-flight forward leaves delivery unconfirmed: the request
+        reached the sandbox but nothing came back, so the prompt may have been
+        dropped instead of queued. Each re-forward carries the same message_id,
+        which the agent server drops as a duplicate once it has accepted that
+        id, so an acknowledged attempt confirms delivery either way. Runs
+        alongside the main loop so a run that finishes on its own is never held
+        up by the confirmation cadence.
+
+        Agent activity outranks the forward outcome. A turn in flight is the
+        ordinary result for any first turn that outlives the activity's
+        synchronous timeout, so an unacknowledged forward on its own says
+        nothing about the agent's health; a heartbeat reporting the agent
+        streaming while the prompt is the only thing that was sent says the
+        prompt landed. The loop stops on the first such heartbeat, which keeps
+        a healthy long turn from collecting duplicate re-forwards. Activity
+        that a concurrently dispatched follow-up could account for confirms
+        nothing, so re-forwarding continues, but it still bars the exhaustion
+        failure: a streaming agent is never a run to terminalize here.
+        """
+        agent_activity_before = self._agent_activity_count
+        followup_dispatches_before = self._followup_dispatch_count
+        for attempt in range(1, PENDING_MESSAGE_CONFIRM_MAX_ATTEMPTS + 1):
+            await workflow.sleep(PENDING_MESSAGE_CONFIRM_DELAY.total_seconds())
+            if self._task_completed or self._sandbox_gone:
+                return
+            if self._agent_is_working_on_the_prompt(agent_activity_before, followup_dispatches_before, attempt):
+                return
+            try:
+                outcome = await self._forward_pending_user_message()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                cause_message = self._activity_error_properties(e).get("cause_error_message")
+                self._fail_run_for_undelivered_prompt(truncate_error_message(str(cause_message or e)))
+                return
+            if outcome != FORWARD_OUTCOME_TURN_IN_FLIGHT:
+                workflow.logger.info(
+                    "execute_sandbox_pending_message_delivery_confirmed",
+                    run_id=self.context.run_id,
+                    attempt=attempt,
+                )
+                return
+            workflow.logger.warning(
+                "execute_sandbox_pending_message_delivery_still_unconfirmed",
+                run_id=self.context.run_id,
+                attempt=attempt,
+            )
+        # The last forward can run for minutes; re-check before terminalizing so
+        # an agent that came alive during it is not killed on a stale reading.
+        if self._agent_is_working_on_the_prompt(
+            agent_activity_before, followup_dispatches_before, PENDING_MESSAGE_CONFIRM_MAX_ATTEMPTS
+        ):
+            return
+        if self._agent_activity_count > agent_activity_before:
+            # A follow-up dispatched during the window can account for the
+            # activity, so the prompt stays unconfirmed, but an agent that is
+            # visibly streaming is not a run to fail.
+            workflow.logger.warning(
+                "execute_sandbox_pending_message_delivery_unconfirmed_agent_active",
+                run_id=self.context.run_id,
+            )
+            return
+        self._fail_run_for_undelivered_prompt(
+            f"the agent never acknowledged it across {PENDING_MESSAGE_CONFIRM_MAX_ATTEMPTS} re-deliveries"
+        )
+
+    def _agent_is_working_on_the_prompt(
+        self, agent_activity_before: int, followup_dispatches_before: int, attempt: int
+    ) -> bool:
+        """True once a heartbeat has reported the agent streaming on the prompt since the loop began.
+
+        The heartbeat counter is workflow-wide, so it only attributes activity
+        to the prompt while the prompt is the only thing that was sent. A
+        follow-up dispatched during the window drives the agent on its own, and
+        its heartbeats say nothing about whether the prompt was ever ingested.
+        """
+        if self._agent_activity_count <= agent_activity_before:
+            return False
+        if self._followup_dispatch_count > followup_dispatches_before:
+            return False
+        workflow.logger.info(
+            "execute_sandbox_pending_message_delivery_confirmed_by_agent_activity",
+            run_id=self.context.run_id,
+            attempt=attempt,
+        )
+        return True
+
+    def _fail_run_for_undelivered_prompt(self, reason: str) -> None:
+        # Terminalize through the completion path rather than by raising: the
+        # main loop is parked on its event wait, so raising here would sit in an
+        # unawaited task until the inactivity timeout fired.
+        workflow.logger.warning(
+            "execute_sandbox_pending_message_delivery_failed",
+            run_id=self.context.run_id,
+            reason=reason,
+        )
+        self._completion_status = "failed"
+        self._completion_error = f"Could not deliver the initial prompt to the agent: {reason}"
+        self._completion_error_type = "pending_message_delivery_failed"
+        self._task_completed = True
 
     def _should_forward_pending_user_message(self) -> bool:
         if not self._context:

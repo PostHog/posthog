@@ -139,6 +139,167 @@ class TestShouldForwardPendingUserMessage:
         assert workflow._should_forward_pending_user_message() is False
 
 
+class TestConfirmPendingUserMessageDelivery:
+    """Mirrors the ProcessTaskWorkflow suite — the two copies of this loop must
+    not drift, and this one is the copy that reports terminal status to the
+    orchestrator."""
+
+    async def test_stops_once_a_forward_is_acknowledged(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        forward_mock = AsyncMock(
+            side_effect=[
+                execute_sandbox_workflow_module.FORWARD_OUTCOME_TURN_IN_FLIGHT,
+                "delivered",
+            ]
+        )
+
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "sleep", AsyncMock())
+        monkeypatch.setattr(workflow, "_forward_pending_user_message", forward_mock)
+
+        await workflow._confirm_pending_user_message_delivery()
+
+        assert forward_mock.await_count == 2
+        assert workflow._task_completed is False
+        assert workflow._completion_status == "completed"
+
+    async def test_fails_the_run_once_attempts_are_exhausted(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        forward_mock = AsyncMock(return_value=execute_sandbox_workflow_module.FORWARD_OUTCOME_TURN_IN_FLIGHT)
+
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "sleep", AsyncMock())
+        monkeypatch.setattr(workflow, "_forward_pending_user_message", forward_mock)
+
+        await workflow._confirm_pending_user_message_delivery()
+
+        assert forward_mock.await_count == execute_sandbox_workflow_module.PENDING_MESSAGE_CONFIRM_MAX_ATTEMPTS
+        assert workflow._task_completed is True
+        assert workflow._completion_status == "failed"
+        assert workflow._completion_error_type == "pending_message_delivery_failed"
+        assert "Could not deliver the initial prompt" in (workflow._completion_error or "")
+
+    async def test_fails_the_run_on_a_forward_error(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        forward_error = ActivityError(
+            "Activity task failed",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="worker-1",
+            activity_type="forward_pending_user_message",
+            activity_id="activity-1",
+            retry_state=RetryState.NON_RETRYABLE_FAILURE,
+        )
+        forward_error.__cause__ = ApplicationError("forward pending message failed: Sandbox returned 401")
+        forward_mock = AsyncMock(side_effect=forward_error)
+
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "sleep", AsyncMock())
+        monkeypatch.setattr(workflow, "_forward_pending_user_message", forward_mock)
+
+        await workflow._confirm_pending_user_message_delivery()
+
+        forward_mock.assert_awaited_once()
+        assert workflow._task_completed is True
+        assert workflow._completion_status == "failed"
+        assert "Sandbox returned 401" in (workflow._completion_error or "")
+
+    async def test_stops_when_the_run_is_no_longer_active(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        forward_mock = AsyncMock()
+
+        async def complete_the_run(_duration):
+            workflow._task_completed = True
+
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "sleep", complete_the_run)
+        monkeypatch.setattr(workflow, "_forward_pending_user_message", forward_mock)
+
+        await workflow._confirm_pending_user_message_delivery()
+
+        forward_mock.assert_not_awaited()
+        assert workflow._completion_status == "completed"
+
+    async def test_stops_once_the_agent_starts_streaming(self, monkeypatch, silent_workflow_logger):
+        # turn_in_flight is the ordinary outcome for a first turn longer than the
+        # activity's synchronous timeout. A heartbeat reporting the agent active
+        # proves the prompt landed, so the loop must stop re-forwarding instead of
+        # piling duplicates onto a healthy run.
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        forward_mock = AsyncMock(return_value=execute_sandbox_workflow_module.FORWARD_OUTCOME_TURN_IN_FLIGHT)
+
+        async def agent_starts_streaming(_duration):
+            await workflow.heartbeat(agent_active=True)
+
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "sleep", agent_starts_streaming)
+        monkeypatch.setattr(workflow, "_forward_pending_user_message", forward_mock)
+
+        await workflow._confirm_pending_user_message_delivery()
+
+        forward_mock.assert_not_awaited()
+        assert workflow._task_completed is False
+        assert workflow._completion_status == "completed"
+
+    async def test_ignores_activity_a_concurrent_followup_can_explain(self, monkeypatch, silent_workflow_logger):
+        # The heartbeat counter is workflow-wide. A follow-up dispatched during the
+        # window drives the agent on its own, so its heartbeats say nothing about
+        # whether the prompt was ingested: re-forwarding has to continue, and the
+        # exhausted loop must still not fail a run whose agent is streaming.
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        forward_mock = AsyncMock(return_value=execute_sandbox_workflow_module.FORWARD_OUTCOME_TURN_IN_FLIGHT)
+
+        async def followup_starts_streaming(_duration):
+            if workflow._followup_dispatch_count:
+                return
+            await workflow._handle_followup(
+                execute_sandbox_workflow_module.PendingFollowup(
+                    message="anything else", artifact_ids=[], ack_id="ack-1"
+                )
+            )
+            await workflow.heartbeat(agent_active=True)
+
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "sleep", followup_starts_streaming)
+        monkeypatch.setattr(workflow, "_forward_pending_user_message", forward_mock)
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", AsyncMock(return_value=None))
+
+        await workflow._confirm_pending_user_message_delivery()
+
+        assert forward_mock.await_count == execute_sandbox_workflow_module.PENDING_MESSAGE_CONFIRM_MAX_ATTEMPTS
+        assert workflow._task_completed is False
+        assert workflow._completion_status == "completed"
+
+    async def test_does_not_fail_a_run_that_woke_during_the_last_forward(self, monkeypatch, silent_workflow_logger):
+        # The final forward can take minutes. An agent that came alive while it was
+        # in flight must not be killed on the pre-forward reading.
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+
+        async def forward_and_wake_on_the_last_attempt():
+            if forward_mock.await_count == execute_sandbox_workflow_module.PENDING_MESSAGE_CONFIRM_MAX_ATTEMPTS:
+                await workflow.heartbeat(agent_active=True)
+            return execute_sandbox_workflow_module.FORWARD_OUTCOME_TURN_IN_FLIGHT
+
+        forward_mock = AsyncMock(side_effect=forward_and_wake_on_the_last_attempt)
+
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "sleep", AsyncMock())
+        monkeypatch.setattr(workflow, "_forward_pending_user_message", forward_mock)
+
+        await workflow._confirm_pending_user_message_delivery()
+
+        assert forward_mock.await_count == execute_sandbox_workflow_module.PENDING_MESSAGE_CONFIRM_MAX_ATTEMPTS
+        assert workflow._task_completed is False
+        assert workflow._completion_status == "completed"
+
+    async def test_an_idle_heartbeat_does_not_count_as_agent_activity(self, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        await workflow.heartbeat(agent_active=False)
+        assert workflow._agent_activity_count == 0
+        await workflow.heartbeat(agent_active=True)
+        assert workflow._agent_activity_count == 1
+
+
 class TestParseInputs:
     def test_parses_required_and_optional_fields(self):
         raw = (
@@ -847,6 +1008,83 @@ class TestRun:
             create_resume_snapshot_mock.assert_awaited_once_with("sandbox-123")
         else:
             create_resume_snapshot_mock.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        "forward_outcome,patch_recorded,expect_confirmation",
+        [
+            # Histories recorded before the activity returned anything decode to
+            # None, so replaying one must not reach the patch or its new commands.
+            (None, True, False),
+            ("delivered", True, False),
+            (execute_sandbox_workflow_module.FORWARD_OUTCOME_TURN_IN_FLIGHT, True, True),
+            (execute_sandbox_workflow_module.FORWARD_OUTCOME_TURN_IN_FLIGHT, False, False),
+        ],
+    )
+    async def test_run_confirms_delivery_only_for_a_patched_turn_in_flight_forward(
+        self, monkeypatch, silent_workflow_logger, forward_outcome, patch_recorded, expect_confirmation
+    ):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._task_completed = True  # skip the main loop; only the wiring is under test
+        confirm_mock = AsyncMock()
+        patched_mock = Mock(return_value=patch_recorded)
+
+        monkeypatch.setattr(workflow, "_reap_orphaned_sandbox", AsyncMock())
+        monkeypatch.setattr(workflow, "_get_task_processing_context", AsyncMock(return_value=_build_context()))
+        monkeypatch.setattr(workflow, "_update_task_run_status", AsyncMock())
+        monkeypatch.setattr(workflow, "_emit_progress", AsyncMock())
+        monkeypatch.setattr(workflow, "_track_workflow_event", AsyncMock())
+        monkeypatch.setattr(workflow, "_persist_sandbox_id", AsyncMock())
+        monkeypatch.setattr(workflow, "_read_sandbox_logs", AsyncMock())
+        monkeypatch.setattr(workflow, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(workflow, "_create_resume_snapshot", AsyncMock())
+        monkeypatch.setattr(workflow, "_clear_persisted_sandbox_id", AsyncMock())
+        monkeypatch.setattr(workflow, "_flush_pending_outbound", AsyncMock())
+        monkeypatch.setattr(workflow, "_flush_all_pending_outbound", AsyncMock())
+        monkeypatch.setattr(workflow, "_finish_active_followup", AsyncMock())
+        monkeypatch.setattr(workflow, "_maybe_record_terminal_status", AsyncMock())
+        monkeypatch.setattr(workflow, "_relay_sandbox_events", AsyncMock())
+        monkeypatch.setattr(workflow, "_run_credential_refresh_until_sandbox_gone", AsyncMock())
+        monkeypatch.setattr(
+            workflow,
+            "_get_sandbox_for_repository",
+            AsyncMock(
+                return_value=GetSandboxForRepositoryOutput(
+                    sandbox_id="sandbox-123",
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                    used_snapshot=False,
+                    should_create_snapshot=False,
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            workflow,
+            "_start_agent_server",
+            AsyncMock(
+                return_value=StartAgentServerOutput(
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                )
+            ),
+        )
+        monkeypatch.setattr(workflow, "_should_forward_pending_user_message", Mock(return_value=True))
+        monkeypatch.setattr(workflow, "_forward_pending_user_message", AsyncMock(return_value=forward_outcome))
+        monkeypatch.setattr(workflow, "_confirm_pending_user_message_delivery", confirm_mock)
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "patched", patched_mock)
+
+        result = await workflow.run(ExecuteSandboxInput(run_id="run-id", parent_workflow_id="parent-wf-id"))
+
+        assert result.success is True
+        # call_count, not await_count: the loop is scheduled as a background task
+        # and the shutdown path may cancel it before it takes its first step.
+        assert confirm_mock.call_count == (1 if expect_confirmation else 0)
+        confirmation_patch_checked = any(
+            call.args and call.args[0] == execute_sandbox_workflow_module._PATCH_ID_CONFIRM_PENDING_MESSAGE_DELIVERY
+            for call in patched_mock.call_args_list
+        )
+        assert confirmation_patch_checked is (
+            forward_outcome == execute_sandbox_workflow_module.FORWARD_OUTCOME_TURN_IN_FLIGHT
+        )
 
     async def test_context_load_failure_marks_run_failed(self, monkeypatch, silent_workflow_logger):
         workflow = ExecuteSandboxWorkflow()

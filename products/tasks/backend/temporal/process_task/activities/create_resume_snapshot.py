@@ -24,6 +24,7 @@ PENDING_USER_STATE_KEYS = [
     "pending_user_artifact_ids",
     "pending_user_message_id",
     "pending_user_message_ts",
+    "pending_user_message_delivery_unconfirmed",
 ]
 
 

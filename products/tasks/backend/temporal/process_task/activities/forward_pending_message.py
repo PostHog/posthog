@@ -21,6 +21,16 @@ logger = get_logger(__name__)
 
 PENDING_MESSAGE_TIMEOUT_SECONDS = 90
 
+# Delivery outcomes the workflow branches on. DELIVERED means the pending
+# message state is settled (acknowledged, or there was nothing to deliver);
+# TURN_IN_FLIGHT means the request reached the sandbox but the agent server
+# never acknowledged ingesting it, so the workflow re-forwards until it does.
+# The declared return type stays optional because histories recorded before
+# this activity returned anything decode to None, which callers read as
+# DELIVERED.
+FORWARD_OUTCOME_DELIVERED = "delivered"
+FORWARD_OUTCOME_TURN_IN_FLIGHT = "turn_in_flight"
+
 
 def _task_run_log_context(task_run: Any) -> dict[str, Any]:
     task = task_run.task
@@ -52,13 +62,18 @@ def _task_run_log_context(task_run: Any) -> dict[str, Any]:
 
 @activity.defn
 @close_db_connections
-def forward_pending_user_message(run_id: str) -> None:
+def forward_pending_user_message(run_id: str) -> str | None:
     """Forward a pending user message stored in task run state to the sandbox agent.
 
     Called after the agent server is ready. Clears the message from state on
-    successful delivery. Keeps it in state and raises on any delivery failure,
-    so the workflow fails the run instead of continuing with an agent that
-    never received its prompt.
+    acknowledged delivery. Keeps it in state and raises on any delivery
+    failure, so the workflow fails the run instead of continuing with an agent
+    that never received its prompt. When the synchronous ack times out with a
+    turn in flight, keeps the message (and its message_id) in state marked as
+    delivery-unconfirmed and returns ``FORWARD_OUTCOME_TURN_IN_FLIGHT`` so the
+    workflow can re-forward; the agent server drops a redelivery carrying an id
+    it already accepted, so re-forwarding is idempotent when the queued copy was
+    in fact consumed.
     """
     from products.tasks.backend.logic.services.agent_command import send_user_message, user_facing_agent_error
     from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
@@ -70,7 +85,7 @@ def forward_pending_user_message(run_id: str) -> None:
         task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
     except TaskRun.DoesNotExist:
         logger.warning("forward_pending_message_run_not_found", run_id=run_id)
-        return
+        return FORWARD_OUTCOME_DELIVERED
 
     retryable_delivery_error: str | None = None
 
@@ -96,7 +111,7 @@ def forward_pending_user_message(run_id: str) -> None:
         pending_message = state.get("pending_user_message")
         pending_user_artifact_ids = state.get("pending_user_artifact_ids") or []
         if not pending_message and not pending_user_artifact_ids:
-            return
+            return FORWARD_OUTCOME_DELIVERED
 
         pending_message_id = state.get("pending_user_message_id")
         assert isinstance(pending_message_id, str) and pending_message_id
@@ -183,19 +198,6 @@ def forward_pending_user_message(run_id: str) -> None:
                 non_retryable=True,
             )
 
-        if state.get("interaction_origin") == "slack" and result.success:
-            _enqueue_pending_reply_relay(task_run, pending_message_ts, result.data)
-
-        TaskRun.update_state_atomic(
-            run_id,
-            remove_keys=[
-                "pending_user_message",
-                "pending_user_artifact_ids",
-                "pending_user_message_id",
-                "pending_user_message_ts",
-            ],
-        )
-
         # Attribution stamp for the sandbox usage ledger: the initial prompt is a
         # user message, so its delivery starts the user-attributable window even
         # when the run state carried a warm marker at provision time. A turn in
@@ -205,7 +207,37 @@ def forward_pending_user_message(run_id: str) -> None:
         )
 
         record_task_run_user_activity(run_id, task_run.team_id)
+
+        if result.turn_in_flight:
+            # Without an ack the sandbox may have dropped the message rather
+            # than queued it, so keep it and its id: the workflow re-forwards
+            # the same id until an attempt comes back acknowledged.
+            TaskRun.update_state_atomic(
+                run_id,
+                updates={"pending_user_message_delivery_unconfirmed": True},
+            )
+            logger.info("forward_pending_message_delivery_unconfirmed", run_id=run_id)
+            return FORWARD_OUTCOME_TURN_IN_FLIGHT
+
+        # A duplicate ack answers a re-forward whose earlier copy the agent had
+        # already consumed, so the turn it belongs to is not this call's and
+        # carries no reply for this call to relay.
+        if state.get("interaction_origin") == "slack" and not _is_duplicate_delivery(result.data):
+            _enqueue_pending_reply_relay(task_run, pending_message_ts, result.data)
+
+        TaskRun.update_state_atomic(
+            run_id,
+            remove_keys=[
+                "pending_user_message",
+                "pending_user_artifact_ids",
+                "pending_user_message_id",
+                "pending_user_message_ts",
+                "pending_user_message_delivery_unconfirmed",
+            ],
+        )
+
         logger.info("forward_pending_message_delivered", run_id=run_id)
+        return FORWARD_OUTCOME_DELIVERED
 
 
 def _enqueue_pending_delivery_failure_relay(task_run: Any, user_message_ts: str | None, error: str | None) -> None:
@@ -249,6 +281,13 @@ def _enqueue_pending_reply_relay(task_run: Any, user_message_ts: str | None, com
         )
     except Exception:
         logger.exception("forward_pending_message_relay_enqueue_failed", run_id=str(task_run.id))
+
+
+def _is_duplicate_delivery(result_data: Any) -> bool:
+    if not isinstance(result_data, dict):
+        return False
+    result = result_data.get("result")
+    return isinstance(result, dict) and result.get("duplicate") is True
 
 
 def _extract_assistant_text_from_command_result(command_result_data: Any) -> str | None:

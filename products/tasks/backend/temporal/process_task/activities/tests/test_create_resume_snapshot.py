@@ -44,6 +44,7 @@ def test_create_directory_resume_snapshot_uses_tmp_mount_path(activity_environme
             "pending_user_artifact_ids",
             "pending_user_message_id",
             "pending_user_message_ts",
+            "pending_user_message_delivery_unconfirmed",
         ],
     )
     assert output.external_id == "im-dir"

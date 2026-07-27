@@ -40,7 +40,7 @@ from .activities.feature_flags import (
     IsSlackAppAgentDesignEnabledForTaskActivityInput,
     is_slack_app_agent_design_enabled_for_task_activity,
 )
-from .activities.forward_pending_message import forward_pending_user_message
+from .activities.forward_pending_message import FORWARD_OUTCOME_TURN_IN_FLIGHT, forward_pending_user_message
 from .activities.get_sandbox_for_repository import GetSandboxForRepositoryOutput
 from .activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
@@ -189,6 +189,8 @@ from products.tasks.backend.temporal.constants import (  # noqa: E402
     DEFAULT_CI_MESSAGE,
     INACTIVITY_TIMEOUT,
     MAX_CI_REPETITIONS,
+    PENDING_MESSAGE_CONFIRM_DELAY,
+    PENDING_MESSAGE_CONFIRM_MAX_ATTEMPTS,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
     SEND_STEER_SIGNAL,
@@ -249,6 +251,12 @@ _PATCH_ID_SKIP_LOCAL_ENVIRONMENT_RUNS = "tasks-skip-local-environment-runs"
 _PATCH_ID_DEFER_RUN_STREAM_COMPLETION = "tasks-defer-run-stream-completion"
 _PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE = "tasks-complete-stream-after-cleanup-failure"
 
+# Gates the re-forward loop that confirms an unacknowledged initial-prompt
+# delivery. Pre-rollout histories recorded neither its timers nor its repeat
+# `forward_pending_user_message` calls, so the loop's commands can only fire for
+# executions that recorded the marker. Same two-step cleanup lifecycle as above.
+_PATCH_ID_CONFIRM_PENDING_MESSAGE_DELIVERY = "tasks-confirm-pending-message-delivery"
+
 
 def _deprecate_ci_follow_up_pr_context_patch() -> None:
     workflow.deprecate_patch(_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT)
@@ -281,12 +289,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._completion_error: Optional[str] = None
         self._completion_error_type: Optional[str] = None
         self._heartbeat_received: bool = False
+        # Monotonic count of heartbeats reporting the agent streaming. The main
+        # loop consumes `_heartbeat_received` on every pass, so anything that
+        # needs to compare agent liveness across a window watches this instead.
+        self._agent_activity_count: int = 0
         self._prewarmed: bool = False
         self._first_user_message_received: bool = False
         self._sandbox_gone: bool = False
         self._pending_followup: PendingFollowup | None = None
         self._pending_followups: list[PendingFollowup] = []
         self._next_followup_sequence: int = 0
+        # Monotonic count of follow-ups actually sent to the sandbox. Agent
+        # activity is only attributable to a specific message while this has not
+        # moved, since a follow-up drives the agent on its own.
+        self._followup_dispatch_count: int = 0
         self._active_followup_task: asyncio.Task[None] | None = None
         self._shutting_down: bool = False
         self._pending_permission_responses: list[PendingPermissionResponse] = []
@@ -398,6 +414,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": self.context.run_id},
             )
             return
+        self._followup_dispatch_count += 1
         outcome = await self._send_followup_to_sandbox(
             message=followup.message,
             artifact_ids=followup.artifact_ids,
@@ -668,6 +685,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._prewarmed = input.prewarmed
         credential_refresh_task: asyncio.Task[None] | None = None
         permission_response_task: asyncio.Task[None] | None = None
+        confirm_pending_message_task: asyncio.Task[None] | None = None
         try:
             self._context = await self._get_task_processing_context(input)
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
@@ -726,7 +744,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             # A continuation already delivered the first user message in a prior execution.
             if input.resumed_sandbox is None and self._should_forward_pending_user_message():
-                await self._forward_pending_user_message()
+                forward_outcome = await self._forward_pending_user_message()
+                # Histories predating the activity's return value decode it to
+                # None, so the outcome check also keeps replays off the patch.
+                if forward_outcome == FORWARD_OUTCOME_TURN_IN_FLIGHT and workflow.patched(
+                    _PATCH_ID_CONFIRM_PENDING_MESSAGE_DELIVERY
+                ):
+                    confirm_pending_message_task = asyncio.ensure_future(self._confirm_pending_user_message_delivery())
 
             # Wait for completion signal or inactivity timeout.
             # Heartbeat signals reset the inactivity timer, keeping the workflow alive
@@ -744,7 +768,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         },
                     )
                     # Stop the background loops but leave the sandbox for the next execution.
-                    for task in (relay_task, credential_refresh_task, permission_response_task):
+                    for task in (
+                        relay_task,
+                        credential_refresh_task,
+                        permission_response_task,
+                        confirm_pending_message_task,
+                    ):
                         if task is not None:
                             await self._cancel_relay(task)
                     workflow.continue_as_new(self._build_resumed_input(input, sandbox_id))
@@ -829,6 +858,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._finish_active_followup()
             if relay_task is not None:
                 await self._cancel_relay(relay_task)
+            if confirm_pending_message_task is not None:
+                await self._cancel_relay(confirm_pending_message_task)
+                confirm_pending_message_task = None
             if credential_refresh_task is not None:
                 await self._cancel_relay(credential_refresh_task)
                 credential_refresh_task = None
@@ -957,6 +989,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 if self._active_followup_task is not None:
                     await self._cancel_relay(self._active_followup_task)
                     self._active_followup_task = None
+                if confirm_pending_message_task is not None:
+                    await self._cancel_relay(confirm_pending_message_task)
                 if credential_refresh_task is not None:
                     await self._cancel_relay(credential_refresh_task)
                 if permission_response_task is not None:
@@ -1446,13 +1480,113 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-    async def _forward_pending_user_message(self) -> None:
-        await workflow.execute_activity(
+    async def _forward_pending_user_message(self) -> str | None:
+        return await workflow.execute_activity(
             forward_pending_user_message,
             self.context.run_id,
             start_to_close_timeout=timedelta(seconds=PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
+
+    async def _confirm_pending_user_message_delivery(self) -> None:
+        """Re-forward the initial prompt until the agent server acknowledges it.
+
+        A turn-in-flight forward leaves delivery unconfirmed: the request
+        reached the sandbox but nothing came back, so the prompt may have been
+        dropped instead of queued. Each re-forward carries the same message_id,
+        which the agent server drops as a duplicate once it has accepted that
+        id, so an acknowledged attempt confirms delivery either way. Runs
+        alongside the main loop so a run that finishes on its own is never held
+        up by the confirmation cadence.
+
+        Agent activity outranks the forward outcome. A turn in flight is the
+        ordinary result for any first turn that outlives the activity's
+        synchronous timeout, so an unacknowledged forward on its own says
+        nothing about the agent's health; a heartbeat reporting the agent
+        streaming while the prompt is the only thing that was sent says the
+        prompt landed. The loop stops on the first such heartbeat, which keeps
+        a healthy long turn from collecting duplicate re-forwards. Activity
+        that a concurrently dispatched follow-up could account for confirms
+        nothing, so re-forwarding continues, but it still bars the exhaustion
+        failure: a streaming agent is never a run to terminalize here.
+        """
+        agent_activity_before = self._agent_activity_count
+        followup_dispatches_before = self._followup_dispatch_count
+        for attempt in range(1, PENDING_MESSAGE_CONFIRM_MAX_ATTEMPTS + 1):
+            await workflow.sleep(PENDING_MESSAGE_CONFIRM_DELAY.total_seconds())
+            if self._task_completed or self._sandbox_gone:
+                return
+            if self._agent_is_working_on_the_prompt(agent_activity_before, followup_dispatches_before, attempt):
+                return
+            try:
+                outcome = await self._forward_pending_user_message()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                cause_message = self._activity_error_properties(e).get("cause_error_message")
+                self._fail_run_for_undelivered_prompt(truncate_error_message(str(cause_message or e)))
+                return
+            if outcome != FORWARD_OUTCOME_TURN_IN_FLIGHT:
+                workflow.logger.info(
+                    "pending_user_message_delivery_confirmed",
+                    extra={"run_id": self.context.run_id, "attempt": attempt},
+                )
+                return
+            workflow.logger.warning(
+                "pending_user_message_delivery_still_unconfirmed",
+                extra={"run_id": self.context.run_id, "attempt": attempt},
+            )
+        # The last forward can run for minutes; re-check before terminalizing so
+        # an agent that came alive during it is not killed on a stale reading.
+        if self._agent_is_working_on_the_prompt(
+            agent_activity_before, followup_dispatches_before, PENDING_MESSAGE_CONFIRM_MAX_ATTEMPTS
+        ):
+            return
+        if self._agent_activity_count > agent_activity_before:
+            # A follow-up dispatched during the window can account for the
+            # activity, so the prompt stays unconfirmed, but an agent that is
+            # visibly streaming is not a run to fail.
+            workflow.logger.warning(
+                "pending_user_message_delivery_unconfirmed_agent_active",
+                extra={"run_id": self.context.run_id},
+            )
+            return
+        self._fail_run_for_undelivered_prompt(
+            f"the agent never acknowledged it across {PENDING_MESSAGE_CONFIRM_MAX_ATTEMPTS} re-deliveries"
+        )
+
+    def _agent_is_working_on_the_prompt(
+        self, agent_activity_before: int, followup_dispatches_before: int, attempt: int
+    ) -> bool:
+        """True once a heartbeat has reported the agent streaming on the prompt since the loop began.
+
+        The heartbeat counter is workflow-wide, so it only attributes activity
+        to the prompt while the prompt is the only thing that was sent. A
+        follow-up dispatched during the window drives the agent on its own, and
+        its heartbeats say nothing about whether the prompt was ever ingested.
+        """
+        if self._agent_activity_count <= agent_activity_before:
+            return False
+        if self._followup_dispatch_count > followup_dispatches_before:
+            return False
+        workflow.logger.info(
+            "pending_user_message_delivery_confirmed_by_agent_activity",
+            extra={"run_id": self.context.run_id, "attempt": attempt},
+        )
+        return True
+
+    def _fail_run_for_undelivered_prompt(self, reason: str) -> None:
+        # Terminalize through the completion path rather than by raising: the
+        # main loop is parked on its event wait, so raising here would sit in an
+        # unawaited task until the inactivity timeout fired.
+        workflow.logger.warning(
+            "pending_user_message_delivery_failed",
+            extra={"run_id": self.context.run_id, "reason": reason},
+        )
+        self._completion_status = "failed"
+        self._completion_error = f"Could not deliver the initial prompt to the agent: {reason}"
+        self._completion_error_type = "pending_message_delivery_failed"
+        self._task_completed = True
 
     async def _deliver_pending_permission_responses(self) -> None:
         """Drain queued human permission responses, concurrently with the main loop.
@@ -1932,6 +2066,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if not agent_active:
             return
         self._heartbeat_received = True
+        self._agent_activity_count += 1
         self._last_active_time = workflow.now()
 
     @temporalio.workflow.signal

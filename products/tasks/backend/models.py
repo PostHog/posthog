@@ -1592,6 +1592,7 @@ class TaskRun(models.Model):
         state.pop("pending_user_message", None)
         state.pop("pending_user_message_id", None)
         state.pop("pending_user_message_ts", None)
+        state.pop("pending_user_message_delivery_unconfirmed", None)
         self.state = state
 
         logger.info(

@@ -89,6 +89,14 @@ CREDENTIAL_REFRESH_INITIAL_DELAY = timedelta(seconds=settings.TASKS_CREDENTIAL_R
 # format).
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 
+# A turn-in-flight forward leaves the initial prompt unacknowledged. The
+# workflow then re-forwards the same message_id on this cadence, for at most
+# this many re-forwards, before failing the run. The agent server drops a
+# redelivery it already accepted, so a re-forward costs nothing when the queued
+# copy was in fact consumed.
+PENDING_MESSAGE_CONFIRM_DELAY = timedelta(seconds=120)
+PENDING_MESSAGE_CONFIRM_MAX_ATTEMPTS = 5
+
 # Debounce window for child-forwarded heartbeats reaching the orchestrator.
 # The relay emits these every ~30 seconds while the agent is active; the
 # orchestrator doesn't need finer resolution for CI timing decisions.

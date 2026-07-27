@@ -23,6 +23,8 @@ from products.tasks.backend.models import SandboxSession, Task, TaskRun
 _module = importlib.import_module("products.tasks.backend.temporal.process_task.activities.forward_pending_message")
 
 forward_pending_user_message = _module.forward_pending_user_message
+FORWARD_OUTCOME_DELIVERED = _module.FORWARD_OUTCOME_DELIVERED
+FORWARD_OUTCOME_TURN_IN_FLIGHT = _module.FORWARD_OUTCOME_TURN_IN_FLIGHT
 
 
 def _command_result(**kwargs):
@@ -85,7 +87,7 @@ class TestForwardPendingUserMessage(TestCase):
 
     def test_no_pending_message_is_noop(self):
         run = self._make_run(state={"mode": "background"})
-        forward_pending_user_message(str(run.id))
+        assert forward_pending_user_message(str(run.id)) == FORWARD_OUTCOME_DELIVERED
         run.refresh_from_db()
         assert run.state == {"mode": "background"}
 
@@ -100,7 +102,7 @@ class TestForwardPendingUserMessage(TestCase):
         )
         mock_send.return_value = _command_result(success=True, status_code=200)
 
-        forward_pending_user_message(str(run.id))
+        assert forward_pending_user_message(str(run.id)) == FORWARD_OUTCOME_DELIVERED
 
         mock_send.assert_called_once()
         assert mock_send.call_args[0][1] == "fix the tests"
@@ -162,7 +164,7 @@ class TestForwardPendingUserMessage(TestCase):
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
-    def test_read_timeout_keeps_running_turn_alive(self, mock_send, mock_token):
+    def test_turn_in_flight_keeps_message_for_re_forwarding(self, mock_send, mock_token):
         run = self._make_run(
             state={
                 "pending_user_message": "fix the tests",
@@ -177,12 +179,63 @@ class TestForwardPendingUserMessage(TestCase):
             turn_in_flight=True,
         )
 
-        forward_pending_user_message(str(run.id))
+        assert forward_pending_user_message(str(run.id)) == FORWARD_OUTCOME_TURN_IN_FLIGHT
 
         mock_send.assert_called_once()
         run.refresh_from_db()
+        assert run.state.get("pending_user_message") == "fix the tests"
+        assert run.state.get("pending_user_message_id")
+        assert run.state.get("pending_user_message_delivery_unconfirmed") is True
+
+    @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    def test_re_forward_reuses_message_id_and_settles_state_on_duplicate_ack(self, mock_send, mock_token):
+        run = self._make_run(
+            state={
+                "pending_user_message": "fix the tests",
+                "pending_user_message_id": "message-abc",
+                "pending_user_message_delivery_unconfirmed": True,
+                "sandbox_url": "https://sandbox.example.com/rpc",
+            }
+        )
+        mock_send.return_value = _command_result(
+            success=True,
+            status_code=200,
+            data={"result": {"duplicate": True}},
+        )
+
+        assert forward_pending_user_message(str(run.id)) == FORWARD_OUTCOME_DELIVERED
+
+        assert mock_send.call_args.kwargs["message_id"] == "message-abc"
+        run.refresh_from_db()
         assert "pending_user_message" not in run.state
         assert "pending_user_message_id" not in run.state
+        assert "pending_user_message_delivery_unconfirmed" not in run.state
+
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
+    @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    def test_duplicate_ack_skips_slack_reply_relay(self, mock_send, mock_token, mock_enqueue_relay):
+        run = self._make_run(
+            state={
+                "pending_user_message": "fix the tests",
+                "pending_user_message_id": "message-abc",
+                "pending_user_message_ts": "1234.5",
+                "pending_user_message_delivery_unconfirmed": True,
+                "interaction_origin": "slack",
+                "slack_actor_user_id": self.user.id,
+                "sandbox_url": "https://sandbox.example.com/rpc",
+            }
+        )
+        mock_send.return_value = _command_result(
+            success=True,
+            status_code=200,
+            data={"result": {"duplicate": True, "assistant_message": "already answered"}},
+        )
+
+        assert forward_pending_user_message(str(run.id)) == FORWARD_OUTCOME_DELIVERED
+
+        mock_enqueue_relay.assert_not_called()
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
