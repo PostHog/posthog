@@ -4,7 +4,6 @@ import structlog
 from celery import shared_task
 from prometheus_client import Counter
 
-from posthog.ducklake.models import DuckgresServerTeam
 from posthog.redis import get_client, redis
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -101,14 +100,21 @@ def schedule_soft_delete_managed_warehouse_sources(*, organization_id: str | UUI
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_all_managed_warehouse_tables")
 @skip_team_scope_audit
 def reconcile_all_managed_warehouse_tables_task() -> None:
-    memberships = (
-        DuckgresServerTeam.objects.filter(backfill_enabled=True, table_suffix__isnull=False)
-        .exclude(table_suffix="")
-        .values_list("team_id", "server__organization_id")
-        .iterator()
-    )
-    for team_id, organization_id in memberships:
-        schedule_managed_warehouse_tables_reconcile(team_id=team_id, organization_id=organization_id)
+    # Deferred: ducklake pulls duckdb in via common, and that must not load while Celery
+    # imports task modules — keep it off this module's import path.
+    from posthog.ducklake import cp_teams, team_state  # noqa: PLC0415
+
+    rows = cp_teams.list_enabled_backfills()
+    if rows is None:
+        # Periodic sweep: an unreachable control plane just skips this run — the next
+        # scheduled sweep retries.
+        logger.warning("Managed warehouse reconcile sweep skipped: control plane unreachable")
+        return
+    for row in rows:
+        if team_state.cp_table_suffix(row) is None:
+            # Legacy shared tables can't be exposed as a per-project query connection.
+            continue
+        schedule_managed_warehouse_tables_reconcile(team_id=row.team_id, organization_id=row.organization_id)
 
 
 def schedule_external_data_failure_digest(team_id: int, *, trigger: str = "inline") -> None:
@@ -144,45 +150,48 @@ def send_external_data_failure_digest_task(team_id: int) -> None:
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.sync_team_earliest_event_date")
-@skip_team_scope_audit  # DuckgresServerTeam is on the default Django manager
+@skip_team_scope_audit  # reads the duckgres control plane, not team-scoped Django models
 def sync_team_earliest_event_date(team_id: int) -> None:
-    """Resolve, cache, and mirror a team's earliest event date after provision/onboard.
+    """Resolve and persist a team's earliest event date after provision/onboard.
 
-    Dual-write: the clamped earliest event date is stored on the Django
-    ``DuckgresServerTeam`` row — the full-backfill sensor's read source — and mirrored to
-    the team's duckgres control-plane row.
-    Idempotent: an already-cached date is never recomputed, and both writes are upserts.
-    Best-effort on the control-plane side: a failed push is logged and dropped — the
-    sensor's reconciliation pass re-pushes it on a later tick.
+    The clamped earliest event date is stored on the team's duckgres control-plane row —
+    the full-backfill sensor's read source. Idempotent: an already-cached date is never
+    recomputed. Best-effort: a failed push (or an unreachable control plane) is logged
+    and dropped — the full-backfill sensor resolves and persists the date lazily on a
+    later tick regardless.
 
-    A team with no events yet is left unresolved (NULL), NOT cached as the no-history
-    sentinel: this task runs seconds after provision/onboard, when a brand-new project
-    plausibly hasn't ingested its first events. A cached date is final (nothing
+    A team with no events yet is left unresolved (nothing stored), NOT cached as the
+    no-history sentinel: this task runs seconds after provision/onboard, when a brand-new
+    project plausibly hasn't ingested its first events. A cached date is final (nothing
     re-resolves a non-NULL value), so persisting the sentinel here would permanently
     exclude the team from historical backfill. The full-backfill sensor resolves it
     later, when "no events" is a meaningful answer.
     """
-    # Deferred: ducklake.common pulls duckdb in, and posthog.models must not load while
-    # Celery imports task modules — keep both off this module's import path.
-    from posthog.ducklake.common import NO_HISTORY_SENTINEL, resolve_team_earliest_event_date  # noqa: PLC0415
-    from posthog.ducklake.models import DuckgresServerTeam  # noqa: PLC0415
+    # Deferred: ducklake pulls duckdb in via common, and posthog.models must not load
+    # while Celery imports task modules — keep both off this module's import path.
+    from posthog.ducklake import cp_teams  # noqa: PLC0415
+    from posthog.ducklake.common import (  # noqa: PLC0415
+        NO_HISTORY_SENTINEL,
+        _get_org_id_for_team,
+        resolve_team_earliest_event_date,
+    )
 
     from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
         push_team_earliest_event_date,
     )
 
-    bf = DuckgresServerTeam.objects.select_related("server").filter(team_id=team_id).first()
-    if bf is None:
-        logger.info("No duckling membership row for team; skipping earliest event date sync", team_id=team_id)
+    organization_id = _get_org_id_for_team(team_id)
+    row = cp_teams.get_team(organization_id, team_id)
+    if row is None:
+        logger.info("No duckling team row for team; skipping earliest event date sync", team_id=team_id)
         return
-    if bf.earliest_event_date is None:
-        resolved = resolve_team_earliest_event_date(team_id)
-        if resolved == NO_HISTORY_SENTINEL:
-            logger.info("No events for team yet; leaving earliest event date unresolved", team_id=team_id)
-            return
-        bf.earliest_event_date = resolved
-        bf.save(update_fields=["earliest_event_date"])
-    push_team_earliest_event_date(bf.server.organization_id, team_id, bf.earliest_event_date)
+    if row.earliest_event_date is not None:
+        return
+    resolved = resolve_team_earliest_event_date(team_id)
+    if resolved == NO_HISTORY_SENTINEL:
+        logger.info("No events for team yet; leaving earliest event date unresolved", team_id=team_id)
+        return
+    push_team_earliest_event_date(organization_id, team_id, resolved)
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.send_external_data_failure_digest_catchup")

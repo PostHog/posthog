@@ -167,22 +167,57 @@
             "type": "string"
         },
         "target": {
-            "description": "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.\n\n* `generation` - Generation\n* `trace` - Trace",
+            "description": "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.\n\n* `generation` - Generation\n* `trace` - Trace",
             "enum": ["generation", "trace"],
             "type": "string"
         },
         "target_config": {
-            "description": "Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.",
-            "properties": {
-                "window_seconds": {
-                    "default": 1800,
-                    "description": "For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.",
-                    "maximum": 7200,
-                    "minimum": 10,
-                    "type": "number"
+            "anyOf": [
+                {
+                    "properties": {
+                        "strategy": {
+                            "default": "fixed_window",
+                            "description": "Wait a fixed window after the first matching generation, then evaluate.",
+                            "enum": ["fixed_window"],
+                            "type": "string"
+                        },
+                        "window_seconds": {
+                            "default": 1800,
+                            "description": "Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.",
+                            "maximum": 7200,
+                            "minimum": 10,
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "max_age_seconds": {
+                            "default": 7200,
+                            "description": "Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.",
+                            "maximum": 7200,
+                            "minimum": 60,
+                            "type": "number"
+                        },
+                        "quiet_period_seconds": {
+                            "default": 300,
+                            "description": "Seconds without new trace activity before the trace counts as settled.",
+                            "maximum": 1800,
+                            "minimum": 10,
+                            "type": "number"
+                        },
+                        "strategy": {
+                            "description": "Evaluate once the trace has had no new activity for the quiet period.",
+                            "enum": ["inactivity"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["strategy"],
+                    "type": "object"
                 }
-            },
-            "type": "object"
+            ],
+            "description": "Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'."
         }
     },
     "required": ["name", "evaluation_type", "output_type"],

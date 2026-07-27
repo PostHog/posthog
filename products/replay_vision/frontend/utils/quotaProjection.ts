@@ -145,3 +145,26 @@ export function quotaBannerState(
     }
     return { kind: null }
 }
+
+/** "You'll hit your limit around Jul 24": null when uncapped, unused, exhausted, or safely within budget. */
+export function exhaustionForecast(
+    creditsUsed: number,
+    creditLimit: number | null,
+    periodStart: string,
+    periodEnd: string
+): string | null {
+    if (creditLimit === null || creditsUsed <= 0 || creditsUsed >= creditLimit) {
+        return null
+    }
+    const elapsedMs = Date.now() - dayjs(periodStart).valueOf()
+    if (elapsedMs <= 0) {
+        return null
+    }
+    const burnPerMs = creditsUsed / elapsedMs
+    const msToLimit = (creditLimit - creditsUsed) / burnPerMs
+    const exhaustAt = dayjs(Date.now() + msToLimit)
+    if (exhaustAt.isAfter(dayjs(periodEnd))) {
+        return null
+    }
+    return exhaustAt.format('MMM D')
+}

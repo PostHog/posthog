@@ -46,6 +46,7 @@ import { AISection } from 'products/conversations/frontend/scenes/settings/AISec
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
+import { CustomerAnalyticsEventStream } from 'products/customer_analytics/frontend/components/EventStream/CustomerAnalyticsEventStream'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
 import {
     WarehouseGroupPropertiesSetting,
@@ -58,6 +59,7 @@ import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlert
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
+import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
@@ -442,6 +444,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CustomerAnalyticsAccountConfig />,
                 flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['accounts', 'group', 'b2b'],
+            },
+            {
+                id: 'customer-analytics-event-stream',
+                title: 'Event stream',
+                description:
+                    "Stream selected customers' events to a Slack channel of your choice in real time. Each team member configures their own stream: pick your events and channel here, then add customers from their account profiles.",
+                component: <CustomerAnalyticsEventStream />,
+                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
+                keywords: ['event', 'stream', 'live', 'slack', 'accounts'],
             },
             {
                 id: 'customer-analytics-person-properties',
@@ -1346,7 +1357,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'workflows-engagement-events',
                 title: 'Engagement events',
                 description:
-                    'When enabled, email engagement activity (sent, delivered, opened, link clicked, bounced, blocked, failed) is captured as standard PostHog events alongside the existing workflow metrics. This lets you build insights, funnels, and dashboards from workflows data. These events count toward your event usage and are billed like any other event.',
+                    'When enabled, email engagement activity (sent, delivered, opened, link clicked, bounced, blocked, failed) is captured as standard PostHog events alongside the existing workflow metrics. This lets you build insights, funnels, and dashboards from workflows data. These events count toward your event usage and are billed like any other event. This setting only controls event capture: it does not disable open and click tracking itself. To stop tracking opens and clicks for an email, turn off "Track opens and link clicks" on that email step.',
                 docsUrl: 'https://posthog.com/docs/workflows/engagement-events',
                 component: <WorkflowsEngagementEventsSettings />,
                 keywords: [
@@ -1363,6 +1374,25 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'bounced',
                     'blocked',
                     'failed',
+                ],
+            },
+            {
+                id: 'workflows-email-tracking-consent',
+                title: 'Email tracking consent',
+                description:
+                    'Controls whether open and click tracking on marketing workflow emails requires recipient consent. Untracked emails contain no tracking pixel and no rewritten links, and never record opens or clicks. Transactional emails are exempt. Delivery, bounce, and unsubscribe events are always recorded.',
+                component: <WorkflowsEmailTrackingConsentSettings />,
+                keywords: [
+                    'workflows',
+                    'email',
+                    'tracking',
+                    'consent',
+                    'pixel',
+                    'cnil',
+                    'gdpr',
+                    'privacy',
+                    'opt-in',
+                    'opt-out',
                 ],
             },
         ],

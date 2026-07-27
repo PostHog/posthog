@@ -152,14 +152,18 @@ def code_access_required_response(user) -> Response | None:
     )
 
 
-def cloud_usage_limit_response(user, team_id: int) -> Response | None:
+def cloud_usage_limit_response(user, team_id: int, *, require_tasks_access: bool = True) -> Response | None:
     """Return a blocking response when Desktop access or usage limits deny a cloud run, else None.
 
     Entitlement checks fail closed. Usage checks fail open when the gateway can't be reached.
     Every usage check is counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`)
     so a degraded gateway silently removing this cost backstop is visible, not just logged.
+
+    ``require_tasks_access`` lets callers whose run is entitled through another product skip the
+    PostHog Code (`tasks`) entitlement check while still applying the usage-limit cost backstop —
+    e.g. running a self-driving report task from the Inbox (see ``is_signal_report_task``).
     """
-    if response := code_access_required_response(user):
+    if require_tasks_access and (response := code_access_required_response(user)):
         return response
 
     usage = get_posthog_code_usage(user, team_id)

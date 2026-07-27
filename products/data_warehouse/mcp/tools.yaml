@@ -246,6 +246,7 @@ tools:
             - columns
             - last_run_at
             - managed_viewset_kind
+            - sync_frequency_managed_by_dag
             - latest_history_id
         param_overrides:
             name:
@@ -390,6 +391,7 @@ tools:
             - columns
             - last_run_at
             - managed_viewset_kind
+            - sync_frequency_managed_by_dag
             - latest_history_id
         param_overrides:
             name:
@@ -484,6 +486,9 @@ tools:
         enabled: false
     warehouse-saved-queries-descendants-create:
         operation: warehouse_saved_queries_descendants_create
+        enabled: false
+    warehouse-saved-queries-resume-create:
+        operation: warehouse_saved_queries_resume_create
         enabled: false
     warehouse-saved-queries-resume-schedules-create:
         operation: warehouse_saved_queries_resume_schedules_create
