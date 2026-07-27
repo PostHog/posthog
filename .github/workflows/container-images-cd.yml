@@ -16,6 +16,10 @@ on:
         paths-ignore:
             - 'rust/**'
             - 'livestream/**'
+    # Break-glass: a manual dispatch must run from master. The ECR publish role
+    # (AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE) is OIDC-trusted only for
+    # refs/heads/master, so a dispatch from any other branch is denied at
+    # AssumeRoleWithWebIdentity — deliberate, so prod images only ship from master.
     workflow_dispatch:
 
 # Serialize runs for the same commit so a push racing a manual re-run/dispatch can't both
@@ -63,7 +67,7 @@ jobs:
                   # PUBLIC_IMAGE_PUSH_PAUSED is set (deploy is unaffected — ECR still pushes).
                   push-to-dockerhub: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
                   push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
-                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -136,7 +140,7 @@ jobs:
               if: steps.build.outcome == 'failure'
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
-                  role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
 
             - name: Re-login to Amazon ECR (retry)
