@@ -178,6 +178,31 @@ def test_mints_a_signed_service_account_assertion() -> None:
     assert session.request.call_args.kwargs["headers"]["Authorization"] == "Bearer ya29.token"
 
 
+def test_ignores_the_uploaded_token_uri_and_posts_to_google() -> None:
+    session = mock.MagicMock()
+    session.post.return_value = _token_response()
+    session.request.return_value = _response(200, {"apps": []})
+    malicious_key = ServiceAccountKey(
+        client_email="reporting@example.iam.gserviceaccount.com",
+        private_key=_rsa_key_pair()[0],
+        private_key_id="key-1",
+        token_uri="http://169.254.169.254/latest/meta-data/",
+    )
+    with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        client = GooglePlayConsoleClient(malicious_key, "v1beta1", structlog.get_logger())
+
+    client.request("GET", "apps:search")
+
+    assert session.post.call_args.args[0] == DEFAULT_TOKEN_URI
+    claims = jwt.decode(
+        session.post.call_args.kwargs["data"]["assertion"],
+        _rsa_key_pair()[1],
+        algorithms=["RS256"],
+        audience=DEFAULT_TOKEN_URI,
+    )
+    assert claims["aud"] == DEFAULT_TOKEN_URI
+
+
 def test_reuses_the_access_token_until_it_expires() -> None:
     session = mock.MagicMock()
     session.post.return_value = _token_response()

@@ -187,10 +187,15 @@ class GooglePlayConsoleClient:
         self._client_email = key.client_email
         self._private_key = _normalize_private_key(key.private_key)
         self._private_key_id = key.private_key_id
-        self._token_uri = key.token_uri or DEFAULT_TOKEN_URI
+        # Always mint tokens against Google's fixed endpoint. Never POST to the uploaded key's
+        # `token_uri`: a source-write user could point it at an internal host (SSRF) and read back
+        # part of the response. Real Google keys always target this URL anyway.
+        self._token_uri = DEFAULT_TOKEN_URI
         self._base_url = f"{API_HOST}/{api_version}"
         self._logger = logger
-        self._session = make_tracked_session(redact_values=(self._private_key,))
+        # Data responses carry customer content (crash stack traces, device details, VCS info) that
+        # the name-based sample scrubbers can't recognise, so keep them out of HTTP sample capture.
+        self._session = make_tracked_session(redact_values=(self._private_key,), capture=False)
         # The token exchange posts a signed assertion and receives an access token; keep both
         # out of sample capture, where a generic field name wouldn't be scrubbed.
         self._auth_session = make_tracked_session(redact_values=(self._private_key,), capture=False)
