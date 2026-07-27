@@ -84,6 +84,12 @@ describe('formatAggregationAxisValue', () => {
         { candidate: 0.8709423, filters: { decimalPlaces: 3 }, expected: '0.871' },
         { candidate: 0.8709423, filters: { decimal_places: 9 }, expected: '0.8709423' },
         { candidate: 0.8709423, filters: { decimal_places: -1 }, expected: '0.87' }, // Fall back to default for unsupported values
+        { candidate: 0.012, filters: {}, expected: '0.012' },
+        { candidate: 0.002, filters: {}, expected: '0.002' },
+        { candidate: 0.00012345, filters: {}, expected: '0.00012' },
+        { candidate: 0.012, filters: { decimal_places: 2 }, expected: '0.01' },
+        { candidate: 0.005, filters: { aggregation_axis_format: 'percentage' }, expected: '0.005%' },
+        { candidate: 0.0123456, filters: { aggregation_axis_format: 'percentage_scaled' }, expected: '1.23%' },
     ]
 
     formatTestcases.forEach((testcase) => {
