@@ -77,10 +77,12 @@ export interface communitySkillsLogicValues {
 export interface communitySkillsLogicActions {
     installSkill: (
         slug: string,
-        newName?: string
+        newName?: string,
+        variables?: Record<string, string>
     ) => {
         newName: string | undefined
         slug: string
+        variables: Record<string, string> | undefined
     }
     installSkillFailure: (slug: string) => {
         slug: string
