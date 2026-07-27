@@ -87,7 +87,11 @@ const AUTH_HEADERS = { Authorization: `Bearer ${API_KEY}` }
 
 function fetchFlakyTests() {
     return withRetry(() =>
-        request(endpointUrl('flaky_tests', { date_from: '-7d', limit: 100 }), { headers: AUTH_HEADERS }, 'flaky_tests')
+        request(
+            endpointUrl('flaky_tests', { date_from: '-7d', limit: 100, runner: 'pytest' }),
+            { headers: AUTH_HEADERS },
+            'flaky_tests'
+        )
     )
 }
 

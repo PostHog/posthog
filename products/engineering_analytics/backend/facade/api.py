@@ -29,6 +29,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIFailureLogs,
     CISignalsConfig,
+    CITestRunner,
     CurrentBranchHealth,
     FlakyTestList,
     GitHubSource,
@@ -331,6 +332,7 @@ def list_flaky_tests(
     date_to: str | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
+    runner: CITestRunner | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -341,6 +343,7 @@ def list_flaky_tests(
         date_to=date_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+        runner=runner,
     )
 
 
