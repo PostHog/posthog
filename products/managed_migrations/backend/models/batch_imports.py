@@ -249,6 +249,9 @@ class BatchImportConfigBuilder:
         if endpoint_url:
             source["endpoint_url"] = endpoint_url
             if settings.DEBUG:
+                # Local dev: let custom endpoints point at the dev stack
+                # (SeaweedFS on localhost) — the worker's SSRF guard blocks
+                # non-public IPs otherwise. Never set outside DEBUG.
                 source["allow_internal_ips"] = True
         self.batch_import.import_config["source"] = source
         return self

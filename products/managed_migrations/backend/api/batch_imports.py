@@ -2,7 +2,7 @@ import json
 import uuid
 from copy import deepcopy
 from datetime import timedelta
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -34,9 +34,26 @@ from products.managed_migrations.backend.models.batch_imports import (
     get_aws_external_id,
 )
 
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
 logger = structlog.get_logger(__name__)
 
 S3_ROLE_ARN_REGEX = r"^arn:aws:iam::\d{12}:role\/[\w+=,.@\/-]+$"
+
+
+def _is_iam_role_auth_enabled(user: User, team: "Team") -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            "managed-migrations-iam-role-auth",
+            str(user.distinct_id),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    )
+
 
 TRIAL_RECORD_LIMIT_DEFAULT = 1_000
 TRIAL_RECORD_LIMIT_MAX = 50_000
@@ -238,18 +255,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportTrialOptionsMixin, BatchImp
         ]
 
     def _is_iam_role_enabled(self) -> bool:
-        team = self.context["get_team"]()
-        user = self.context["request"].user
-        return bool(
-            posthoganalytics.feature_enabled(
-                "managed-migrations-iam-role-auth",
-                str(user.distinct_id),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={"organization": {"id": str(team.organization_id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
+        return _is_iam_role_auth_enabled(self.context["request"].user, self.context["get_team"]())
 
     def validate(self, data: dict) -> dict:
         data = super().validate(data)
@@ -771,18 +777,7 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
     def _is_iam_role_enabled_for_team(self) -> bool:
-        user = cast(User, self.request.user)
-        team = self.team
-        return bool(
-            posthoganalytics.feature_enabled(
-                "managed-migrations-iam-role-auth",
-                str(user.distinct_id),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={"organization": {"id": str(team.organization_id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
+        return _is_iam_role_auth_enabled(cast(User, self.request.user), self.team)
 
     @extend_schema(
         responses={200: BatchImportAWSIAMSetupSerializer},
