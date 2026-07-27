@@ -2842,7 +2842,11 @@ def create_task_run_stream_read_token(run_id: str | UUID, task_id: str | UUID, t
     return _create(task_run=run)
 
 
-def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID) -> str | None:
+def task_uses_pi_runtime(task_id: str | UUID, team_id: int) -> bool:
+    return Task.objects.filter(id=task_id, team_id=team_id, runtime=Task.Runtime.PI).exists()
+
+
+def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID, force_proxy: bool = False) -> str | None:
     """Agent-proxy base URL for the read leg, or ``None`` to read from Django directly.
 
     Returns the configured agent-proxy URL only when it is set for this environment AND the
@@ -2856,7 +2860,7 @@ def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID) ->
         return None
     # Local dev disables the analytics SDK, so the rollout flag never evaluates; the URL setting
     # is the opt-in there. Prod (DEBUG off) still gates on the flag below.
-    if settings.DEBUG:
+    if settings.DEBUG or force_proxy:
         return proxy_url
     try:
         enabled = bool(

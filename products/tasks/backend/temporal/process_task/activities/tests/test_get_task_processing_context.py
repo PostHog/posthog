@@ -361,6 +361,39 @@ class TestGetTaskProcessingContextActivity:
         assert sandbox_args[0] == SANDBOX_EVENT_INGEST_FEATURE_FLAG
 
     @pytest.mark.django_db(transaction=True)
+    def test_pi_runtime_enables_persistent_event_streaming_without_rollout_flags(self, activity_environment, test_task):
+        test_task.runtime = Task.Runtime.PI
+        test_task.save(update_fields=["runtime"])
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_event_ingest_enabled is True
+        assert result.agent_proxy_keep_stream_open is True
+
+    @pytest.mark.django_db(transaction=True)
+    def test_pi_runtime_respects_persistent_event_streaming_kill_switches(self, activity_environment, test_task):
+        test_task.runtime = Task.Runtime.PI
+        test_task.save(update_fields=["runtime"])
+        task_run = test_task.create_run(
+            extra_state={
+                "sandbox_event_ingest_enabled": False,
+                "agent_proxy_keep_stream_open": False,
+            }
+        )
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_event_ingest_enabled is False
+        assert result.agent_proxy_keep_stream_open is False
+
+    @pytest.mark.django_db(transaction=True)
     def test_pr_loop_enabled_for_signal_report_origin_ignores_flag(self, activity_environment, test_task):
         # Signals implementation PRs are bot-authored and always opt into the PR
         # follow-up loop ("babysitting"), independent of the org-level `tasks-pr-loop`

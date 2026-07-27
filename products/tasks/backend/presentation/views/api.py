@@ -1604,7 +1604,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if token is None:
             raise NotFound()
         stream_base_url = tasks_facade.resolve_stream_base_url(
-            distinct_id=request.user.distinct_id, organization_id=self.team.organization_id
+            distinct_id=request.user.distinct_id,
+            organization_id=self.team.organization_id,
+            force_proxy=tasks_facade.task_uses_pi_runtime(task_id, self.team_id),
         )
         return Response(StreamReadTokenResponseSerializer({"token": token, "stream_base_url": stream_base_url}).data)
 

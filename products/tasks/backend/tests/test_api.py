@@ -6623,6 +6623,25 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.json()["stream_base_url"])
 
+    def test_stream_token_returns_proxy_url_for_pi_when_flag_disabled(self):
+        task = self.create_task(runtime=Task.Runtime.PI)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        def flag_enabled(key, *args, **kwargs):
+            return key != "tasks-stream-via-proxy"
+
+        with (
+            self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com", DEBUG=False),
+            patch(
+                "products.tasks.backend.facade.api.posthoganalytics.feature_enabled",
+                side_effect=flag_enabled,
+            ),
+        ):
+            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["stream_base_url"], "https://agent-proxy.example.com")
+
     def test_stream_token_returns_proxy_url_in_debug_without_flag(self):
         # Local dev (DEBUG) disables the analytics SDK, so the URL setting alone opts in.
         task = self.create_task()

@@ -785,12 +785,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         or False
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
-    sandbox_event_ingest_enabled = _is_sandbox_event_ingest_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
+    pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
+    sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
+    if pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool):
+        sandbox_event_ingest_enabled = True
+    else:
+        sandbox_event_ingest_enabled = _is_sandbox_event_ingest_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+            state=state,
+        )
     emit_agent_log(
         run_id,
         "debug",
@@ -869,12 +874,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"use_modal_directory_resume_snapshots: {use_modal_directory_resume_snapshots} for this task run",
     )
-    agent_proxy_keep_stream_open = _is_agent_proxy_keep_stream_open_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
+    keep_stream_open_override = state.get("agent_proxy_keep_stream_open")
+    if pi_persistent_streaming and not isinstance(keep_stream_open_override, bool):
+        agent_proxy_keep_stream_open = True
+    else:
+        agent_proxy_keep_stream_open = _is_agent_proxy_keep_stream_open_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+            state=state,
+        )
     emit_agent_log(
         run_id,
         "debug",
