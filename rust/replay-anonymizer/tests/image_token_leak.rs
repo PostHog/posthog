@@ -13,12 +13,12 @@ use posthog_replay_anonymizer::{
     anonymize_kafka_payload_opts, compression, AllowLists, AnonymizeOpts, ImageCollection,
     ImagePolicy,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 
 const TS0: f64 = 1_700_000_000_000.0;
 
-/// Any `xph` run shaped like a token; the marker itself is private and per-process.
-fn leaked_tokens(bytes: &[u8]) -> Vec<String> {
+/// Any `xph` run shaped like a token, in a plain byte buffer.
+fn tokens_in(bytes: &[u8]) -> Vec<String> {
     let text = String::from_utf8_lossy(bytes);
     let mut found = Vec::new();
     for (i, _) in text.match_indices("xph") {
@@ -28,6 +28,45 @@ fn leaked_tokens(bytes: &[u8]) -> Vec<String> {
             && matches!(tail.as_bytes()[43], b'b' | b'p')
         {
             found.push(tail);
+        }
+    }
+    found
+}
+
+/// A latin-1 JSON string back to the bytes it carries (the cv wire encoding).
+fn latin1_bytes(s: &str) -> Vec<u8> {
+    s.chars().map(|c| c as u32 as u8).collect()
+}
+
+/// Tokens anywhere in the output, **including inside compressed cv payloads**.
+///
+/// Scanning the raw lines is not enough and quietly misses the real bug: a token sealed into a
+/// zstd frame does not appear verbatim (its repeated id digits fold into the frame's sequences),
+/// so the payloads have to be decompressed before the scan.
+fn leaked_tokens(lines: &[u8]) -> Vec<String> {
+    let mut found = tokens_in(lines);
+    for line in lines.split(|&b| b == b'\n') {
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(parsed) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        let event = parsed.get(1).unwrap_or(&parsed);
+        let Some(data) = event.get("data") else {
+            continue;
+        };
+        let mut payloads: Vec<&str> = Vec::new();
+        if let Some(s) = data.as_str() {
+            payloads.push(s);
+        } else if let Some(obj) = data.as_object() {
+            payloads.extend(obj.values().filter_map(|v| v.as_str()));
+        }
+        for payload in payloads {
+            let raw = latin1_bytes(payload);
+            if let Ok(plain) = compression::decompress_by_magic(&raw) {
+                found.extend(tokens_in(&plain));
+            }
         }
     }
     found

@@ -326,6 +326,18 @@ fn parse_hex_id(bytes: &[u8]) -> Option<u32> {
     u32::from_str_radix(s, 16).ok()
 }
 
+/// True if `buf` still carries this process's token marker.
+///
+/// The barrier check. `patch` can only fix what it is handed, so every point where scrubbed bytes
+/// stop being patchable — a cv payload about to compress, the finished block lines — asserts this
+/// is false before letting them past. A hit means some serialization path reached that point
+/// without patching, which is silent, unrecoverable data loss if it ships (the marker is random
+/// per process, so no reader can ever resolve the token back to an image). Cheap: one memmem over
+/// bytes that are about to be compressed or written anyway.
+pub(crate) fn contains_token(buf: &[u8]) -> bool {
+    memchr::memmem::find(buf, TOKEN_MARKER.as_bytes()).is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

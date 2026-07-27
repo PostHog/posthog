@@ -231,7 +231,9 @@ fn scrub_cv_snapshot_value(
         return Some(false);
     }
     let content = if changed { &walked } else { &decompressed };
-    let zs = crate::compression::compress_cv(content).ok()?;
+    // Through `cv::compress_scrubbed`, never the raw codec: the walk may have substituted deferred
+    // image tokens into `walked`, and compression is the last moment they can still be resolved.
+    let zs = crate::cv::compress_scrubbed(ctx, content).ok()?;
     write_latin1_json_string(&zs, out);
     Some(true)
 }
@@ -995,7 +997,8 @@ impl<'c, 'a> Walker<'c, 'a> {
                     return Some(send);
                 }
                 let content = if changed { &walked } else { &decompressed };
-                let zs = crate::compression::compress_cv(content).ok()?;
+                // See `scrub_cv_snapshot_value`: the barrier, not the raw codec.
+                let zs = crate::cv::compress_scrubbed(self.ctx, content).ok()?;
                 write_latin1_json_string(&zs, out);
                 self.changed = true;
                 Some(send)
