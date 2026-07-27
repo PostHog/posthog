@@ -89,13 +89,21 @@ class TestQueriedAccessControlledResources(BaseTest):
 
     def test_structured_query_with_data_warehouse_series(self):
         query = TrendsQuery(series=[EventsNode(event="$pageview"), self._dw_node()])
-        assert queried_access_controlled_resources(query, self.team) == {"warehouse_table", "warehouse_view"}
+        assert queried_access_controlled_resources(query, self.team) == {
+            "external_data_source",
+            "warehouse_table",
+            "warehouse_view",
+        }
 
     def test_nested_data_warehouse_node_is_detected(self):
         # The node is two levels deep (actors query -> source insight -> series), so a shallow
         # series-only check would miss it; the recursive walk must catch it (else the cache leaks).
         query = InsightActorsQuery(source=TrendsQuery(series=[self._dw_node()]))
-        assert queried_access_controlled_resources(query, self.team) == {"warehouse_table", "warehouse_view"}
+        assert queried_access_controlled_resources(query, self.team) == {
+            "external_data_source",
+            "warehouse_table",
+            "warehouse_view",
+        }
 
     def test_references_data_warehouse_covers_all_variants_and_nesting(self):
         variants = [
@@ -117,7 +125,7 @@ class TestQueriedAccessControlledResources(BaseTest):
     def test_warehouse_table_scope(self):
         self._create_warehouse_table("my_warehouse_table")
         result = queried_access_controlled_resources(HogQLQuery(query="select * from my_warehouse_table"), self.team)
-        assert result == {"warehouse_table"}
+        assert result == {"external_data_source", "warehouse_table"}
 
     def test_external_warehouse_table_matched_by_raw_name(self):
         # External tables are queryable under BOTH their raw name and the prefixed
@@ -139,7 +147,7 @@ class TestQueriedAccessControlledResources(BaseTest):
         assert get_data_warehouse_table_name(source, table.name) != table.name
 
         result = queried_access_controlled_resources(HogQLQuery(query="select * from stripe_customers"), self.team)
-        assert result == {"warehouse_table"}
+        assert result == {"external_data_source", "warehouse_table"}
 
     def test_warehouse_view_scope(self):
         DataWarehouseSavedQuery.objects.create(
@@ -148,14 +156,14 @@ class TestQueriedAccessControlledResources(BaseTest):
         result = queried_access_controlled_resources(HogQLQuery(query="select * from my_warehouse_view"), self.team)
         # warehouse_table is included too: a non-materialized view reads underlying tables, and a cache
         # hit skips that resolution, so the user's table denials must partition the key.
-        assert result == {"warehouse_view", "warehouse_table"}
+        assert result == {"external_data_source", "warehouse_table", "warehouse_view"}
 
     def test_warehouse_and_system_scopes_combined(self):
         self._create_warehouse_table("my_warehouse_table")
         result = queried_access_controlled_resources(
             HogQLQuery(query="select 1 from my_warehouse_table, system.notebooks"), self.team
         )
-        assert result == {"warehouse_table", "notebook"}
+        assert result == {"external_data_source", "warehouse_table", "notebook"}
 
     def test_catalog_fetch_loads_only_name_fields(self):
         source = ExternalDataSource.objects.create(
@@ -175,7 +183,7 @@ class TestQueriedAccessControlledResources(BaseTest):
         # longer covers what get_data_warehouse_table_name reads (rows silently defer-load per
         # row) or the default manager's externaldataschema_set prefetch leaked back in.
         with self.assertNumQueries(2):
-            assert queried_access_controlled_resources(query, self.team) == {"warehouse_table"}
+            assert queried_access_controlled_resources(query, self.team) == {"external_data_source", "warehouse_table"}
 
     def test_warehouse_table_of_another_team_not_matched(self):
         from posthog.models import Team

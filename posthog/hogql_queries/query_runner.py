@@ -2549,12 +2549,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
             return None
         blocked = user_access_control.blocked_resource_ids_by_scope
         if queried_resources is not None:
-            implicated = set(queried_resources)
-            # A restricted source denies its unruled tables at build time (_is_warehouse_table_denied),
-            # and a cache hit skips that build — so warehouse reads must partition on blocked sources too.
-            if implicated & WAREHOUSE_ACCESS_SCOPES:
-                implicated.add("external_data_source")
-            blocked = {resource: ids for resource, ids in blocked.items() if resource in implicated}
+            blocked = {resource: ids for resource, ids in blocked.items() if resource in queried_resources}
         if not blocked:
             return None
         return {resource: sorted(ids) for resource, ids in sorted(blocked.items())}

@@ -112,11 +112,16 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
                 # otherwise a user denied an underlying table could be served a cached view result.
                 scopes.add("warehouse_table")
 
+        # A source's access gates querying its tables (Database._is_warehouse_table_denied), so a
+        # source denial must partition the cache key too - a cache hit skips the build-time gate.
+        if "warehouse_table" in scopes:
+            scopes.add("external_data_source")
+
         return scopes
 
     # Structured insight queries (Trends/Funnels/Lifecycle/...) read warehouse data via a
     # DataWarehouseNode in their tree rather than by table name.
-    return {"warehouse_table", "warehouse_view"} if _references_data_warehouse(query) else set()
+    return {"warehouse_table", "warehouse_view", "external_data_source"} if _references_data_warehouse(query) else set()
 
 
 def _references_data_warehouse(value) -> bool:
