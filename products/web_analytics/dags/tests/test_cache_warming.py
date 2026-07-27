@@ -178,10 +178,12 @@ class TestFleetQuerySelection(BaseTest):
     @patch("products.web_analytics.dags.cache_warming.sync_execute")
     def test_parses_fleet_rows_into_query_infos(self, mock_exec: MagicMock) -> None:
         # Guards the row-shape contract with the selection SQL: a column reorder
-        # or JSON handling change would make the warmer warm nothing or crash.
+        # or JSON handling change would make the warmer warm nothing or crash. The
+        # summed and representative counts are distinct columns — the raw guard
+        # keys on the representative, so they must not be swapped.
         mock_exec.return_value = [
-            (101, '{"kind": "WebOverviewQuery"}', 50, "hash-a"),
-            (202, '{"kind": "WebStatsTableQuery"}', 12, "hash-b"),
+            (101, '{"kind": "WebOverviewQuery"}', 50, 8, "hash-a"),
+            (202, '{"kind": "WebStatsTableQuery"}', 12, 12, "hash-b"),
         ]
         result = queries_to_keep_fresh(dagster.build_op_context(), days=7, minimum_query_count=10, max_shapes=100)
 
@@ -192,12 +194,14 @@ class TestFleetQuerySelection(BaseTest):
                     "team_id": 101,
                     "query_json": {"kind": "WebOverviewQuery"},
                     "query_count": 50,
+                    "representative_query_count": 8,
                     "normalized_query_hash": "hash-a",
                 },
                 {
                     "team_id": 202,
                     "query_json": {"kind": "WebStatsTableQuery"},
                     "query_count": 12,
+                    "representative_query_count": 12,
                     "normalized_query_hash": "hash-b",
                 },
             ],
@@ -247,7 +251,7 @@ class TestWarmableQueriesCaching(BaseTest):
         # The whole reason this cache exists: the fleet-wide query_log scan is
         # terabytes. If the cache read regresses, the scan runs every warming run
         # again — this fails when the second run re-hits ClickHouse.
-        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 123)]
+        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 50, 123)]
 
         first = get_warmable_queries_op(dagster.build_op_context())
         second = get_warmable_queries_op(dagster.build_op_context())
@@ -261,7 +265,7 @@ class TestWarmableQueriesCaching(BaseTest):
     def test_storage_failure_falls_back_to_scan(self, mock_exec: MagicMock, mock_storage: MagicMock) -> None:
         # Object storage being unavailable must degrade to a fresh scan, not break warming.
         mock_storage.read_bytes.side_effect = Exception("storage unavailable")
-        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 123)]
+        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 50, 123)]
 
         result = get_warmable_queries_op(dagster.build_op_context())
 
@@ -274,7 +278,7 @@ class TestWarmableQueriesCaching(BaseTest):
         # A decodable-but-malformed blob (missing the expected fields) must miss
         # and trigger a fresh scan, not raise out of the op and skip warming.
         mock_storage.read_bytes.return_value = gzip.compress(json.dumps({"unexpected": "shape"}).encode())
-        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 123)]
+        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 50, 123)]
 
         result = get_warmable_queries_op(dagster.build_op_context())
 
@@ -285,17 +289,16 @@ class TestWarmableQueriesCaching(BaseTest):
 class TestWarmQueriesOp(BaseTest):
     @parameterized.expand(
         [
-            # A raw-path (not lazy-eligible) shape below the pre-widening demand
-            # bar must not replay: with the min-2 selection floor, two runs of an
-            # expensive ineligible shape would otherwise become hourly background
-            # scans outside the tenant's request throttles.
+            # A raw-path (not lazy-eligible) shape below the demand bar must not
+            # replay: an expensive ineligible shape would otherwise become an
+            # hourly background scan outside the tenant's request throttles.
             ("raw_low_demand_skipped", False, 2, 0),
             ("raw_high_demand_warms", False, 10, 1),
             ("lazy_low_demand_warms", True, 2, 1),
         ]
     )
     def test_raw_replays_keep_higher_demand_bar(
-        self, _name: str, lazy_eligible: bool, query_count: int, expected_runs: int
+        self, _name: str, lazy_eligible: bool, representative_query_count: int, expected_runs: int
     ) -> None:
         runner = MagicMock()
         runner.get_cache_key.return_value = f"key-{_name}"
@@ -313,7 +316,11 @@ class TestWarmQueriesOp(BaseTest):
                     {
                         "team_id": self.team.pk,
                         "query_json": {"kind": "WebOverviewQuery", "properties": []},
-                        "query_count": query_count,
+                        # Shape-wide sum is deliberately high: the raw guard must
+                        # read the representative's own count, so a high sum can't
+                        # promote a rarely-run expensive variant.
+                        "query_count": 999,
+                        "representative_query_count": representative_query_count,
                         "normalized_query_hash": "h",
                     }
                 ],
