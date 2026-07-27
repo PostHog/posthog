@@ -36,6 +36,7 @@
         "generate-mcp-types": "node scripts/generate-mcp-types.mjs",
         "generate-orval-schemas": "node scripts/generate-orval-schemas.mjs",
         "generate-tools": "tsx scripts/generate-tools.ts",
+        "generate-exec-docs": "tsx scripts/generate-exec-docs.ts",
         "generate-cli-agent-scopes": "tsx scripts/build-cli-agent-scopes.ts",
         "scaffold-yaml": "tsx scripts/scaffold-yaml.ts",
         "lint-tool-names": "tsx scripts/lint-tool-names.ts",
