@@ -371,12 +371,19 @@ describe('savedInsightsLogic', () => {
             await expectLogic(logic).toMatchValues({ draftInsightRow: null })
             logic.actions.setSavedInsightsFilters({ search: '' })
             await expectLogic(logic).toMatchValues({ draftInsightRow: partial({ id: -1 }) })
+            // Clearing the tag filter sends an empty array, which must read as "no filter"
+            logic.actions.setSavedInsightsFilters({ tags: ['marketing'] })
+            await expectLogic(logic).toMatchValues({ draftInsightRow: null })
+            logic.actions.setSavedInsightsFilters({ tags: [] })
+            await expectLogic(logic).toMatchValues({ draftInsightRow: partial({ id: -1 }) })
         })
 
         it.each<[string, Partial<SavedInsightFilters>]>([
             ['the tab', { tab: SavedInsightsTabs.Yours }],
             ['the page', { page: 2 }],
             ['the sort order', { order: 'name' }],
+            ['a cleared tag filter', { tags: [] }],
+            ['a cleared created-by filter', { createdBy: [] }],
         ])('does not count %s as a narrowing filter', (_label, overrides) => {
             expect(hasNarrowingFilters(cleanFilters(overrides))).toBe(false)
         })
