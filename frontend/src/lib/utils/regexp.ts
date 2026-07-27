@@ -36,6 +36,15 @@ export function isValidRegexPattern(s: string): boolean {
     return isLikelyRegex(s) && isValidRegexp(s)
 }
 
+// Escaped regex metacharacters (e.g. `\.`, `\+`, `\(`) signal a regular expression typed into a
+// plain-substring filter. Narrowed to punctuation escapes so real values like Windows paths
+// (`C:\Users`) don't trip it.
+const REGEX_ESCAPE_PATTERN = /\\[.+*?()[\]{}|^$]/
+
+export function hasRegexEscape(value: string): boolean {
+    return REGEX_ESCAPE_PATTERN.test(value)
+}
+
 export const RE2_DOCS_LINK = 'https://github.com/google/re2/wiki/Syntax'
 
 const HELP_TEXT: Record<string, string> = {

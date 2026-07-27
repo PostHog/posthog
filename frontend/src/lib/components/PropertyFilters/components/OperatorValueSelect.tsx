@@ -13,6 +13,7 @@ import {
     allOperatorsMapping,
     chooseOperatorMap,
     isOperatorCohort,
+    isOperatorContains,
     isOperatorDate,
     isOperatorFlag,
     isOperatorMulti,
@@ -20,7 +21,7 @@ import {
     isOperatorRegex,
     isOperatorSemver,
 } from 'lib/utils/operators'
-import { RE2_DOCS_LINK, formatRE2Error } from 'lib/utils/regexp'
+import { RE2_DOCS_LINK, formatRE2Error, hasRegexEscape } from 'lib/utils/regexp'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
@@ -157,10 +158,28 @@ function getRegexValidationError(operator: PropertyOperator, value: any): string
     return null
 }
 
+function getContainsRegexWarning(operator: PropertyOperator, value: any): string | null {
+    // "contains" / "does not contain" match plain text, so an escaped regex metacharacter is taken
+    // literally: the backslash makes the filter match nothing (or, negated, everything). Warn so the
+    // user drops the backslash or moves to a regex operator, rather than hitting a silent no-op.
+    if (!isOperatorContains(operator)) {
+        return null
+    }
+    const values = Array.isArray(value) ? value : [value]
+    if (values.some((v) => typeof v === 'string' && hasRegexEscape(v))) {
+        return "This looks like a regular expression, but contains and doesn't contain filters match plain text. The backslash is matched literally, so this filter won't do what you expect. Remove the backslash, or switch to a 'matches regex' operator."
+    }
+    return null
+}
+
 function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
     const regexErrorMessage = getRegexValidationError(operator, value)
     if (regexErrorMessage != null) {
         return regexErrorMessage
+    }
+    const containsRegexWarning = getContainsRegexWarning(operator, value)
+    if (containsRegexWarning != null) {
+        return containsRegexWarning
     }
     if (isOperatorRange(operator) && isNaN(value)) {
         let message = `Range operators only work with numeric values`

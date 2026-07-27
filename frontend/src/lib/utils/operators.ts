@@ -185,6 +185,15 @@ export function isOperatorRegex(operator: PropertyOperator): boolean {
     return [PropertyOperator.Regex, PropertyOperator.NotRegex].includes(operator)
 }
 
+export function isOperatorContains(operator: PropertyOperator): boolean {
+    return [
+        PropertyOperator.IContains,
+        PropertyOperator.NotIContains,
+        PropertyOperator.IContainsMulti,
+        PropertyOperator.NotIContainsMulti,
+    ].includes(operator)
+}
+
 export function isOperatorSemver(operator: PropertyOperator): boolean {
     return [
         PropertyOperator.SemverEq,
