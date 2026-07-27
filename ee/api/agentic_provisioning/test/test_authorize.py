@@ -10,7 +10,7 @@ from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
 
-from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
+from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase
 
 PARTNER_CALLBACK = "https://partner.example.com/callback"
@@ -206,7 +206,7 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         self._confirm("state_consume", self.team.id)
         assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_consume") is None
 
-    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    @patch("ee.api.agentic_provisioning.views.authorize.capture_provisioning_event")
     def test_confirm_success_attributes_partner(self, mock_capture_event):
         partner = OAuthApplication.objects.create(
             client_id="confirm-attribution-partner",

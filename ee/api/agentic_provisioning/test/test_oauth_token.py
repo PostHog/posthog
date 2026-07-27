@@ -8,7 +8,7 @@ from parameterized import parameterized
 
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
-from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
+from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase
 
 TOKEN_URL = "/api/agentic/oauth/token"

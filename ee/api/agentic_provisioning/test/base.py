@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from rest_framework.test import APIClient
 
-from ee.api.agentic_provisioning.views import AUTH_CODE_CACHE_PREFIX
+from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
 
 TEST_PARTNER_CLIENT_ID = "test_partner_client_id"
 
