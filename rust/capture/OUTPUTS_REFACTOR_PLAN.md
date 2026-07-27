@@ -317,7 +317,7 @@ No `--no-verify` — pre-commit hooks must pass.
 | Step | Status | Commit subject |
 | --- | --- | --- |
 | 0 · This plan doc | done | `docs(capture): outputs refactor plan and progress tracker` |
-| 1 · Routing golden oracle | pending | `test(capture): consolidate routing golden oracle with headers and counters` |
+| 1 · Routing golden oracle | done | `test(capture): consolidate routing golden oracle with headers and counters` |
 | 2 · Pure `route()` | pending | `refactor(capture): extract pure route() from prepare_record` |
 | 3 · `OutputRegistry` + completeness | pending | `refactor(capture): output registry with startup completeness check` |
 | 4 · Serialization layer | pending | `refactor(capture): serialization layer — format and envelope behind one seam` |
