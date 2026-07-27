@@ -347,7 +347,7 @@ const Settings = ({
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, isInterrupting, operationBlockReason, activeRunLane } = useValues(dataLogic)
+    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
     const { runQuery, interruptRun } = useActions(dataLogic)
 
     return (
@@ -361,9 +361,7 @@ const Settings = ({
             runQueryLoading={isRunning}
             runQueryDisabledReason={operationBlockReason ?? undefined}
             runQueryTooltip="Run SQL query"
-            // Direct (no-sandbox) runs cannot be cancelled — there is no kernel to signal;
-            // they finish on their own bounded schedule. Stop applies to kernel-lane runs only.
-            onCancelQuery={activeRunLane === 'kernel' ? interruptRun : undefined}
+            onCancelQuery={interruptRun}
             cancelQueryLoading={isInterrupting}
         />
     )
