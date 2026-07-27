@@ -884,6 +884,9 @@ def databricks_default_fields() -> list[BatchExportField]:
     concerned about supporting legacy fields for backwards compatibility.
     """
     batch_export_fields = events_model_default_fields()
+    # `elements_chain` is its own ClickHouse column (not a key inside `properties`), so it has to be
+    # selected explicitly or autocapture element data is dropped entirely from the export.
+    batch_export_fields.append({"expression": "elements_chain", "alias": "elements_chain"})
     # add a metadata field for the ingested timestamp to aid with debugging
     # (this is not strictly the time the data is ingested into Databricks but rather the time we query it from ClickHouse)
     batch_export_fields.append({"expression": "NOW64()", "alias": "databricks_ingested_timestamp"})
@@ -967,7 +970,9 @@ def _get_databricks_table_settings(
     For the events model, we actually export a reduced set of fields compared to other destinations for a number of reasons:
     - we do not need to support legacy fields, such as `set` and `set_once`
     - some fields, such as `ip` and `site_url`, are also present in `properties` so we can ignore these for efficiency
-    - `elements` is not particularly useful in its current form (it is in a custom serialized format)
+
+    We keep `elements_chain` as a plain STRING (it is in a custom serialized format, not JSON) so autocapture
+    element data is available downstream.
     """
     # we don't export the _inserted_at field
     record_batch_schema = pa.schema(
@@ -986,6 +991,7 @@ def _get_databricks_table_settings(
             ("uuid", "STRING"),
             ("event", "STRING"),
             ("properties", json_type),
+            ("elements_chain", "STRING"),
             ("distinct_id", "STRING"),
             ("team_id", "BIGINT"),
             ("timestamp", "TIMESTAMP"),
