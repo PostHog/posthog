@@ -565,7 +565,7 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         self.assertEqual(
-            TaskThreadMessage.objects.filter(task=self.task, content="still persisted").count(),
+            TaskThreadMessage.objects.for_team(self.team.id).filter(task=self.task, content="still persisted").count(),
             1,
         )
 
