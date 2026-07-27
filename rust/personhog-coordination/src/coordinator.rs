@@ -420,12 +420,25 @@ impl Coordinator {
                 _ = cancel.cancelled() => return Ok(()),
                 _ = tick.tick() => {
                     let handoffs = store.list_handoffs().await?;
-                    let pods = store.list_pods().await?;
-                    let routers = store.list_routers().await?;
-                    record_cluster_gauges(&handoffs, &pods, routers.len());
-                    for handoff in handoffs {
-                        Self::handle_handoff_update_static(&store, &handoff).await?;
+                    for handoff in &handoffs {
+                        Self::handle_handoff_update_static(&store, handoff).await?;
                         Self::check_phase_advance(&store, handoff.partition).await?;
+                    }
+                    // The gauge refresh is best-effort and runs after the
+                    // reconcile pass: its reads exist only for metrics and
+                    // must never delay or interrupt handoff advancement —
+                    // this tick is the liveness backstop for router
+                    // departures, which fire no watched event. A skipped
+                    // refresh is repaired by the next tick.
+                    let pods = store.list_pods().await;
+                    let routers = store.list_routers().await;
+                    match (pods, routers) {
+                        (Ok(pods), Ok(routers)) => {
+                            record_cluster_gauges(&handoffs, &pods, routers.len());
+                        }
+                        (Err(e), _) | (_, Err(e)) => {
+                            tracing::debug!(error = %e, "skipping cluster gauge refresh");
+                        }
                     }
                 }
             }
