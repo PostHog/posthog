@@ -747,13 +747,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         templateVariables: [
             (s) => [s.ticket, s.person, s.user],
             (ticket: Ticket | null, person: PersonType | null, user: UserType | null): TemplateVariableValues => {
-                // Mirror the customer-name resolution used for message display: prefer the loaded
-                // person, fall back to the ticket's own person, then anonymous traits, then email.
+                // Prefer the ticket's embedded person, which is present synchronously on load and is
+                // not nulled when the separate person lookup errors, then fall back to that loader,
+                // anonymous traits, and the sender email. Mirrors the message-display resolution below.
                 const customerName =
-                    person?.properties?.name ||
-                    person?.properties?.email ||
                     ticket?.person?.properties?.name ||
+                    person?.properties?.name ||
                     ticket?.person?.properties?.email ||
+                    person?.properties?.email ||
                     ticket?.anonymous_traits?.name ||
                     ticket?.anonymous_traits?.email ||
                     ticket?.email_from ||
