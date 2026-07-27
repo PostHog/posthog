@@ -1102,14 +1102,16 @@ class BatchQueue:
         working the group (making progress, or the recovery sweep reclaims it on lease expiry), so those
         are excluded. Runs with a ``failed`` batch are excluded — ``get_failed_runs`` owns those.
 
-        Seeded from the cheap denormalized-state index, then the full-run lateral confirms staleness, so
-        a slow-but-live run (recent success, momentarily between lease renewals) is not swept.
+        Seeded from the cheap denormalized-state index (oldest-batch-first, so the bounded candidate
+        window always holds the longest-stranded runs rather than an arbitrary set), then the full-run
+        lateral confirms staleness, so a slow-but-live run (recent success, momentarily between lease
+        renewals) is not swept.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
                 WITH candidates AS (
-                    SELECT DISTINCT b.run_uuid, b.team_id, b.schema_id
+                    SELECT b.run_uuid, b.team_id, b.schema_id
                     FROM {BATCH_TABLE} b
                     WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                       AND b.created_at <= now() - make_interval(secs => %(stale)s)
@@ -1125,6 +1127,11 @@ class BatchQueue:
                             AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                             AND bf.latest_state = 'failed'
                       )
+                    -- Oldest-batch-first, so the window can't be starved by an arbitrary set of
+                    -- not-yet-stale runs the outer HAVING later rejects: the longest-stranded runs
+                    -- always land in it, and successive sweeps make deterministic forward progress.
+                    GROUP BY b.run_uuid, b.team_id, b.schema_id
+                    ORDER BY MIN(b.created_at) ASC
                     LIMIT %(limit)s
                 )
                 SELECT
