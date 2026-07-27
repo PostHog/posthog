@@ -1,11 +1,7 @@
 // AUTO-GENERATED from products/notebooks/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
 import {
     NotebooksCreateBody,
     NotebooksDestroyParams,
@@ -14,6 +10,8 @@ import {
     NotebooksPartialUpdateParams,
     NotebooksRetrieveParams,
 } from '@/generated/notebooks/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const NotebooksCreateSchema = NotebooksCreateBody
 

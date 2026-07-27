@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, cast
 
-from django.db.models import Case, IntegerField, Sum, Value, When
+from django.db.models import Case, Count, IntegerField, Sum, Value, When
 from django.db.models.functions import Coalesce
 
 import structlog
@@ -128,5 +128,17 @@ def get_replay_vision_credits_by_team(begin: datetime, end: datetime) -> list[tu
         .values("team_id")
         .annotate(total_credits=Coalesce(Sum("credits"), 0, output_field=IntegerField()))
         .values_list("team_id", "total_credits")
+    )
+    return cast(list[tuple[int, int]], list(rows))
+
+
+def get_replay_vision_observations_by_team(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    # Count the same receipts that credits sum over (one receipt per billed observation), bucketed by
+    # write time and filtered identically, so the count stays consistent with the reported credit total.
+    rows = (
+        ReplayObservationUsage.objects.filter(created_at__gte=begin, created_at__lt=end, team_id__isnull=False)
+        .values("team_id")
+        .annotate(total_observations=Count("id"))
+        .values_list("team_id", "total_observations")
     )
     return cast(list[tuple[int, int]], list(rows))

@@ -1,11 +1,7 @@
 // AUTO-GENERATED from services/mcp/definitions/proxy-records.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
 import {
     ProxyRecordsCreateBody,
     ProxyRecordsDestroyParams,
@@ -13,6 +9,8 @@ import {
     ProxyRecordsRetrieveParams,
     ProxyRecordsRetryCreateParams,
 } from '@/generated/proxy-records/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ProxyCreateSchema = ProxyRecordsCreateBody
 

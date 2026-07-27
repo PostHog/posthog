@@ -7,6 +7,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { AddEventButton } from 'scenes/surveys/AddEventButton'
+import { MAX_ITERATION_COUNT } from 'scenes/surveys/constants'
 import { doesSurveyRepeatOnEveryEvent } from 'scenes/surveys/utils'
 
 import {
@@ -30,7 +31,6 @@ import { WizardPanel, WizardSection, WizardStepLayout } from '../WizardLayout'
 
 const DEFAULT_ITERATION_COUNT = 10
 const MIN_ITERATION_COUNT = 2
-const MAX_ITERATION_COUNT = 500
 
 const FREQUENCY_OPTIONS: { value: string; days: number | undefined; label: string }[] = [
     { value: 'once', days: undefined, label: 'Once ever' },

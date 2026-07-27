@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
@@ -31,6 +32,7 @@ from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
+    LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
     reconstruct_ordered_columns,
@@ -417,6 +419,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         DirectMySQLTable,
         DirectSnowflakeTable,
         DirectRedshiftTable,
+        DirectClickHouseTable,
     ]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)
@@ -447,7 +450,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # Support for 'old' style columns
             if isinstance(type, str):
                 hogql_type_str = clickhouse_type.partition("(")[0]
-                fields[column] = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column)
+                fields[column] = LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column)
             elif isinstance(type, dict):
                 fields[column] = STR_TO_HOGQL_MAPPING[type["hogql"]](name=column)
             else:

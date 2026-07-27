@@ -1,13 +1,7 @@
 // AUTO-GENERATED from products/workflows/mcp/email_templates.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { withUiApp } from '@/resources/ui-apps'
-import { EmailTemplateDesignPatchSchema } from '@/schema/tool-inputs'
-
 import {
     MessagingTemplatesCreateBody,
     MessagingTemplatesListQueryParams,
@@ -15,6 +9,10 @@ import {
     MessagingTemplatesPartialUpdateParams,
     MessagingTemplatesRetrieveParams,
 } from '@/generated/email_templates/api'
+import { withUiApp } from '@/resources/ui-apps'
+import { EmailTemplateDesignPatchSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const WorkflowsCreateEmailTemplateSchema = MessagingTemplatesCreateBody
 

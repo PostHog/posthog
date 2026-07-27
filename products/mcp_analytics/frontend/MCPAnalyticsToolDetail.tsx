@@ -1,8 +1,8 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
-import { LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconArrowRight, IconCopy } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
     type Series,
@@ -28,6 +28,7 @@ import {
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
@@ -35,6 +36,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import type { MCPToolFailureOccurrenceItem } from '~/queries/schema/schema-general'
 import { SceneExport } from '~/scenes/sceneTypes'
 
 import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
@@ -51,6 +53,8 @@ import {
 } from './mcpAnalyticsToolDetailLogic'
 import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
 import { formatBucketLabel } from './timeBuckets'
+import { CreateFixTaskButton } from './tool-quality/CreateFixTaskButton'
+import { type MCPErrorContext, formatErrorContext, mcpSessionUrl } from './tool-quality/errorContext'
 
 export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
     component: MCPAnalyticsToolDetail,
@@ -119,6 +123,7 @@ function ResultTable({
     loading,
     columns,
     emptyMessage = 'No data for the selected date range.',
+    onRowClick,
 }: {
     title?: React.ReactNode
     description?: React.ReactNode
@@ -127,6 +132,7 @@ function ResultTable({
     loading: boolean
     columns: ResultColumn[]
     emptyMessage?: string
+    onRowClick?: (rowIndex: number) => void
 }): JSX.Element {
     return (
         <Card size="sm" className="gap-0">
@@ -168,7 +174,25 @@ function ResultTable({
                 ) : (
                     <TableBody>
                         {rows.map((row, i) => (
-                            <TableRow key={i}>
+                            <TableRow
+                                key={i}
+                                className={onRowClick ? 'cursor-pointer hover:bg-fill-highlight-50' : undefined}
+                                onClick={onRowClick ? () => onRowClick(i) : undefined}
+                                // A bare <tr> isn't keyboard-operable — mirror the tracing tables'
+                                // pattern so the drill-down opens on Enter/Space too.
+                                role={onRowClick ? 'button' : undefined}
+                                tabIndex={onRowClick ? 0 : undefined}
+                                onKeyDown={
+                                    onRowClick
+                                        ? (e: React.KeyboardEvent) => {
+                                              if (e.key === 'Enter' || e.key === ' ') {
+                                                  e.preventDefault()
+                                                  onRowClick(i)
+                                              }
+                                          }
+                                        : undefined
+                                }
+                            >
                                 {columns.map((col, ci) => (
                                     <TableCell key={ci} align={col.align} expand={col.expand}>
                                         {col.render(row)}
@@ -452,8 +476,8 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         descriptionsLoading,
         dailyChartData,
         dailyStatsLoading,
-        failureRows,
-        failureRowsLoading,
+        failureBuckets,
+        failureBucketsLoading,
         sampleIntentRows,
         sampleIntentRowsLoading,
         intentCoverage,
@@ -470,6 +494,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         dateFilter,
         interval,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
+    const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
     const { timezone } = useValues(teamLogic)
 
     const theme = useChartTheme()
@@ -657,10 +682,11 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <ResultTable
                     title="Failures"
-                    description="Errored calls of this tool grouped by error type and HTTP status. Sourced from the $mcp_is_error flag on $mcp_tool_call events, the same source as the error rate above."
-                    rows={failureRows}
-                    loading={failureRowsLoading}
+                    description="Errored calls of this tool grouped by error type and HTTP status. Sourced from the $mcp_is_error flag on $mcp_tool_call events, the same source as the error rate above. Click a row to see individual occurrences."
+                    rows={failureBuckets.map((b) => [b.message, b.occurrences, b.last_seen, b.harnesses])}
+                    loading={failureBucketsLoading}
                     emptyMessage="No errored calls recorded for this tool in the selected date range."
+                    onRowClick={(i) => selectFailure(failureBuckets[i] ?? null)}
                     columns={[
                         {
                             header: 'Error type',
@@ -680,7 +706,99 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                     ]}
                 />
             </div>
+
+            <FailureOccurrencesModal toolName={toolName} />
         </SceneContent>
+    )
+}
+
+// Drill-down into one failure bucket: the individual errored calls, each with a
+// copyable, paste-ready context block for handing to a coding agent.
+function FailureOccurrencesModal({ toolName }: { toolName: string }): JSX.Element {
+    const { selectedFailure, failureOccurrences, failureOccurrencesLoading } = useValues(
+        mcpAnalyticsToolDetailLogic({ toolName })
+    )
+    const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
+
+    const occurrenceContext = (o: MCPToolFailureOccurrenceItem): MCPErrorContext => ({
+        toolName,
+        errorType: selectedFailure?.error_type ?? '',
+        errorStatus: o.error_status || selectedFailure?.error_status || undefined,
+        errorMessage: o.error_message || undefined,
+        timestamp: o.timestamp,
+        harness: o.harness,
+        intent: o.intent,
+        sessionId: o.session_id || undefined,
+    })
+
+    return (
+        <LemonModal
+            isOpen={selectedFailure != null}
+            onClose={() => selectFailure(null)}
+            title={
+                <span>
+                    Failures: <span className="font-mono">{selectedFailure?.message}</span>
+                </span>
+            }
+            description="Most recent errored calls in this bucket (up to 50, last 7 days). Copy an occurrence's context to hand it to a coding agent."
+            width={880}
+        >
+            <ResultTable
+                rows={failureOccurrences.map((o) => [o.timestamp, o.harness, o.error_message, o])}
+                loading={failureOccurrencesLoading}
+                emptyMessage="No occurrences found in the last 7 days."
+                columns={[
+                    { header: 'When', render: (r) => <TZLabel time={String(r[0])} /> },
+                    { header: 'Harness', render: (r) => <span>{String(r[1] ?? '') || '—'}</span> },
+                    {
+                        header: 'Error message',
+                        expand: true,
+                        render: (r) =>
+                            r[2] ? (
+                                <span className="font-mono text-xs whitespace-pre-wrap break-all line-clamp-4">
+                                    {String(r[2])}
+                                </span>
+                            ) : (
+                                <span className="text-muted text-xs">
+                                    Not captured (event predates error message capture)
+                                </span>
+                            ),
+                    },
+                    {
+                        header: '',
+                        render: (r) => {
+                            const occurrence = r[3] as MCPToolFailureOccurrenceItem
+                            return (
+                                <div className="flex items-center gap-1 whitespace-nowrap">
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={<IconCopy />}
+                                        tooltip="Copy error context for a coding agent"
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            void copyToClipboard(
+                                                formatErrorContext(occurrenceContext(occurrence)),
+                                                'error context'
+                                            )
+                                        }}
+                                    />
+                                    <CreateFixTaskButton context={occurrenceContext(occurrence)} />
+                                    {occurrence.session_id ? (
+                                        <LemonButton
+                                            size="xsmall"
+                                            to={mcpSessionUrl(occurrence.session_id)}
+                                            tooltip="View the session this call belongs to"
+                                        >
+                                            Session
+                                        </LemonButton>
+                                    ) : null}
+                                </div>
+                            )
+                        },
+                    },
+                ]}
+            />
+        </LemonModal>
     )
 }
 

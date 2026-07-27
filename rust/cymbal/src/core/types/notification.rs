@@ -70,10 +70,17 @@ impl<'de> Deserialize<'de> for IngestionNotification {
                     "issue_created:{}:{}:{}",
                     value.meta.team_id, value.issue.issue_id, value.event_uuid
                 ),
-                Self::IssueReopened(value) => format!(
-                    "issue_reopened:{}:{}:{}",
-                    value.meta.team_id, value.issue.issue_id, value.event_timestamp
-                ),
+                Self::IssueReopened(value) => {
+                    let event_reference = if value.event_uuid.is_nil() {
+                        value.event_timestamp.clone()
+                    } else {
+                        value.event_uuid.to_string()
+                    };
+                    format!(
+                        "issue_reopened:{}:{}:{}",
+                        value.meta.team_id, value.issue.issue_id, event_reference
+                    )
+                }
                 Self::IssueSpiking(value) => format!(
                     "issue_spiking:{}:{}:{}:{}",
                     value.meta.team_id,
@@ -205,6 +212,8 @@ pub struct IssueReopened {
     pub meta: NotificationMeta,
     #[serde(flatten)]
     pub issue: IssueNotificationContext,
+    #[serde(default)]
+    pub event_uuid: Uuid,
     pub event_timestamp: String,
     pub assignee: Option<String>,
 }
