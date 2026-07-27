@@ -13,7 +13,7 @@ import { appendToolCallChunk, describeError, llmPlaygroundRunLogic, mergeUsage }
 function setPlaygroundAccessLevel(level: AccessControlLevel): void {
     window.POSTHOG_APP_CONTEXT = {
         ...window.POSTHOG_APP_CONTEXT,
-        resource_access_control: { playground: level },
+        resource_access_control: { llm_playground: level },
     } as typeof window.POSTHOG_APP_CONTEXT
 }
 

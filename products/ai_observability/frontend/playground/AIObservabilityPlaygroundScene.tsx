@@ -166,7 +166,7 @@ function PlaygroundHeaderActions(): JSX.Element {
                 Add prompt
             </LemonButton>
             <AccessControlAction
-                resourceType={AccessControlResourceType.Playground}
+                resourceType={AccessControlResourceType.LlmPlayground}
                 minAccessLevel={AccessControlLevel.Editor}
             >
                 <LemonButton

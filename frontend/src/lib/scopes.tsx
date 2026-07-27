@@ -123,6 +123,7 @@ export const API_SCOPES: APIScope[] = [
         disabledActions: ['write'],
         unprivilegedExcluded: true,
     },
+    { key: 'llm_playground', objectName: 'LLM playground', objectPlural: 'LLM playground' },
     { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
     { key: 'llm_provider_key', objectName: 'LLM provider key', objectPlural: 'LLM provider keys' },
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
@@ -156,7 +157,6 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
     { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
-    { key: 'playground', objectName: 'Playground', objectPlural: 'playground' },
     { key: 'plugin', objectName: 'Plugin', objectPlural: 'plugins' },
     {
         key: 'product_enablement',

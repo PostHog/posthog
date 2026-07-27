@@ -295,6 +295,7 @@ export enum AccessControlResourceType {
     LlmAnalytics = 'llm_analytics',
     Tagger = 'tagger',
     LlmSkill = 'llm_skill',
+    LlmPlayground = 'llm_playground',
     AiObservabilityClusters = 'ai_observability_clusters',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
@@ -322,7 +323,6 @@ export enum AccessControlResourceType {
     Tracing = 'tracing',
     ReplayScanner = 'replay_scanner',
     Toolbar = 'toolbar',
-    Playground = 'playground',
 }
 
 interface UserBaseType {
@@ -5766,6 +5766,7 @@ export const API_SCOPE_OBJECTS = [
     'llm_analytics',
     'ai_observability_clusters',
     'llm_gateway',
+    'llm_playground',
     'llm_prompt',
     'llm_provider_key',
     'llm_skill',
@@ -5779,7 +5780,6 @@ export const API_SCOPE_OBJECTS = [
     'organization_integration',
     'organization_member',
     'person',
-    'playground',
     'plugin',
     'product_enablement',
     'product_tour',

@@ -120,7 +120,7 @@ class PlaygroundAccessPermission(BasePermission):
             self.message = "Open a project before using the playground."
             return False
 
-        if UserAccessControl(user=user, team=team).check_access_level_for_resource("playground", required_level):
+        if UserAccessControl(user=user, team=team).check_access_level_for_resource("llm_playground", required_level):
             return True
 
         self.message = (

@@ -52,7 +52,7 @@ class TestPlaygroundAccessControl(APIBaseTest):
         membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
-            resource="playground",
+            resource="llm_playground",
             resource_id=None,
             access_level=access_level,
             organization_member=membership,
@@ -88,7 +88,7 @@ class TestPlaygroundAccessControl(APIBaseTest):
     def test_org_admin_bypasses_a_project_default_of_none(self):
         AccessControl.objects.create(
             team=self.team,
-            resource="playground",
+            resource="llm_playground",
             resource_id=None,
             access_level="none",
             organization_member=None,

@@ -78,6 +78,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconLlmAnalytics />
         case 'llm_skill':
             return <IconLlmPromptManagement />
+        case 'llm_playground':
+            return <IconPlaylist />
         case 'ai_observability_clusters':
             return <IconScatter />
         case 'live_debugger':
@@ -90,8 +92,6 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconPulse />
         case 'notebook':
             return <IconNotebook />
-        case 'playground':
-            return <IconPlaylist />
         case 'product_tour':
             return <IconSpotlight />
         case 'property_definition':

@@ -3,7 +3,7 @@ from django.db import migrations
 CHUNK_SIZE = 200
 
 
-def backfill_playground_access_control(apps, schema_editor):
+def backfill_llm_playground_access_control(apps, schema_editor):
     # The playground scene used to be gated on llm_analytics; now that it's an independent resource,
     # mirror every resource-wide llm_analytics grant onto a matching playground row so existing
     # permissions keep working instead of silently defaulting to editor. Rows with a resource_id are
@@ -16,7 +16,7 @@ def backfill_playground_access_control(apps, schema_editor):
         chunk_size=CHUNK_SIZE
     ):
         AccessControl.objects.get_or_create(
-            resource="playground",
+            resource="llm_playground",
             resource_id=None,
             team_id=row.team_id,
             organization_member_id=row.organization_member_id,
@@ -35,5 +35,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(backfill_playground_access_control, reverse_func),
+        migrations.RunPython(backfill_llm_playground_access_control, reverse_func),
     ]

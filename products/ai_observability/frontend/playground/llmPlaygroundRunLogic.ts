@@ -274,7 +274,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
         runAccessDeniedReason: [
             () => [],
             (): string | null =>
-                getAccessControlDisabledReason(AccessControlResourceType.Playground, AccessControlLevel.Editor),
+                getAccessControlDisabledReason(AccessControlResourceType.LlmPlayground, AccessControlLevel.Editor),
         ],
     }),
 

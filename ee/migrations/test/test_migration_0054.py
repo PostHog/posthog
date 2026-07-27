@@ -9,11 +9,11 @@ from parameterized import parameterized
 from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role
 
-migration_module = importlib.import_module("ee.migrations.0054_backfill_playground_access_control")
-backfill_playground_access_control = migration_module.backfill_playground_access_control
+migration_module = importlib.import_module("ee.migrations.0054_backfill_llm_playground_access_control")
+backfill_llm_playground_access_control = migration_module.backfill_llm_playground_access_control
 
 
-class TestBackfillPlaygroundAccessControl(BaseTest):
+class TestBackfillLlmPlaygroundAccessControl(BaseTest):
     def _scope_kwargs(self, case):
         role = (
             Role.objects.create(name="Engineering", organization=self.organization) if case == "role_scoped" else None
@@ -37,9 +37,9 @@ class TestBackfillPlaygroundAccessControl(BaseTest):
             team=self.team, resource="llm_analytics", resource_id=None, access_level="none", **scope_kwargs
         )
 
-        backfill_playground_access_control(apps, None)
+        backfill_llm_playground_access_control(apps, None)
 
-        backfilled = AccessControl.objects.filter(resource="playground", team=self.team, **scope_kwargs).first()
+        backfilled = AccessControl.objects.filter(resource="llm_playground", team=self.team, **scope_kwargs).first()
         assert backfilled is not None
         assert backfilled.access_level == "none"
 
@@ -52,9 +52,9 @@ class TestBackfillPlaygroundAccessControl(BaseTest):
             organization_member=self.organization_membership,
         )
 
-        backfill_playground_access_control(apps, None)
+        backfill_llm_playground_access_control(apps, None)
 
-        assert not AccessControl.objects.filter(resource="playground").exists()
+        assert not AccessControl.objects.filter(resource="llm_playground").exists()
 
     def test_ignores_object_scoped_llm_analytics_rows(self):
         AccessControl.objects.create(
@@ -65,9 +65,9 @@ class TestBackfillPlaygroundAccessControl(BaseTest):
             organization_member=self.organization_membership,
         )
 
-        backfill_playground_access_control(apps, None)
+        backfill_llm_playground_access_control(apps, None)
 
-        assert not AccessControl.objects.filter(resource="playground").exists()
+        assert not AccessControl.objects.filter(resource="llm_playground").exists()
 
     def test_does_not_overwrite_existing_row(self):
         AccessControl.objects.create(
@@ -79,15 +79,15 @@ class TestBackfillPlaygroundAccessControl(BaseTest):
         )
         AccessControl.objects.create(
             team=self.team,
-            resource="playground",
+            resource="llm_playground",
             resource_id=None,
             access_level="none",
             organization_member=self.organization_membership,
         )
 
-        backfill_playground_access_control(apps, None)
+        backfill_llm_playground_access_control(apps, None)
 
-        rows = AccessControl.objects.filter(resource="playground", organization_member=self.organization_membership)
+        rows = AccessControl.objects.filter(resource="llm_playground", organization_member=self.organization_membership)
 
         assert rows.count() == 1
         row = rows.first()
@@ -111,8 +111,8 @@ class TestBackfillPlaygroundAccessControl(BaseTest):
             team=self.team, resource="llm_analytics", resource_id=None, access_level="viewer", **scope_kwargs
         )
 
-        backfill_playground_access_control(apps, None)
-        backfill_playground_access_control(apps, None)
+        backfill_llm_playground_access_control(apps, None)
+        backfill_llm_playground_access_control(apps, None)
 
-        rows = AccessControl.objects.filter(resource="playground", team=self.team, **scope_kwargs)
+        rows = AccessControl.objects.filter(resource="llm_playground", team=self.team, **scope_kwargs)
         assert rows.count() == 1
