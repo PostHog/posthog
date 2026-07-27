@@ -79,7 +79,7 @@ class TestValidateCredentials:
     @mock.patch(CLOUDFLARE_SESSION_PATCH)
     def test_valid_on_verify_success(self, mock_session) -> None:
         mock_session.return_value.get.return_value = _response([], total_pages=1)
-        assert validate_credentials("token") is True
+        assert validate_credentials("token") == (True, 200)
 
     @mock.patch(CLOUDFLARE_SESSION_PATCH)
     def test_invalid_when_success_false(self, mock_session) -> None:
@@ -87,18 +87,19 @@ class TestValidateCredentials:
         resp.status_code = 200
         resp._content = json.dumps({"success": False, "result": None}).encode()
         mock_session.return_value.get.return_value = resp
-        assert validate_credentials("token") is False
+        assert validate_credentials("token") == (False, 200)
 
     @pytest.mark.parametrize("status_code", [401, 403, 500])
     @mock.patch(CLOUDFLARE_SESSION_PATCH)
     def test_invalid_on_error_status(self, mock_session, status_code) -> None:
         mock_session.return_value.get.return_value = _error_response(status_code)
-        assert validate_credentials("token") is False
+        # The status flows back so the caller can tell a rejected token from a 5xx/unreachable one.
+        assert validate_credentials("token") == (False, status_code)
 
     @mock.patch(CLOUDFLARE_SESSION_PATCH)
-    def test_invalid_on_exception(self, mock_session) -> None:
+    def test_unreachable_on_exception(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") is False
+        assert validate_credentials("token") == (False, None)
 
 
 class TestPagination:

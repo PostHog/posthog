@@ -27,7 +27,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.constants import AvailableFeature
+from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS, AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
@@ -46,7 +46,7 @@ from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntentSerializer,
     cached_product_intents_for_team,
@@ -98,7 +98,7 @@ from products.feature_flags.backend.models.evaluation_context import (
 )
 from products.logs.backend.models import TeamLogsConfig
 from products.signals.backend.models import SignalSourceConfig
-from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
 
@@ -613,10 +613,21 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "alongside the existing workflow metrics."
         ),
     )
+    email_tracking_consent_mode = serializers.ChoiceField(
+        choices=EmailTrackingConsentMode.choices,
+        required=False,
+        help_text=(
+            "Recipient-consent enforcement for open/click tracking on marketing workflow emails. "
+            "'off': no enforcement, tracking follows each email step's own setting. "
+            "'opt_out': track by default but not recipients who have opted out. "
+            "'opt_in': only track recipients who have explicitly opted in. "
+            "Transactional emails are exempt from consent enforcement."
+        ),
+    )
 
     class Meta:
         model = TeamWorkflowsConfig
-        fields = ["capture_workflows_engagement_events"]
+        fields = ["capture_workflows_engagement_events", "email_tracking_consent_mode"]
 
 
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -779,6 +790,22 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
     token = encode_jwt(claims, timedelta(days=7), PosthogJwtAudience.LIVESTREAM)
     safe_cache_set(cache_key, token, timeout=LIVE_EVENTS_TOKEN_TTL_SECONDS)
     return token
+
+
+def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerializer) -> Organization | None:
+    if serializer.instance is not None:
+        team = (
+            serializer.instance.passthrough_team
+            if hasattr(serializer.instance, "passthrough_team")
+            else serializer.instance
+        )
+        return team.organization
+
+    get_organization = serializer.context.get("get_organization")
+    if callable(get_organization):
+        return cast(Organization | None, get_organization())
+
+    return None
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
@@ -1440,10 +1467,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
-    VALID_RETENTION_DAYS = {14, 30, 90}
+    VALID_RETENTION_DAYS = {14, 30}
 
     def validate_logs_settings(self, value: dict | None) -> dict | None:
-        if value is None or not self.instance:
+        if value is None:
             return value
 
         new_retention = value.get("retention_days")
@@ -1452,14 +1479,25 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 f"retention_days must be one of {sorted(TeamSerializer.VALID_RETENTION_DAYS)}"
             )
 
-        # Only validate retention changes if we have an existing instance
-        logs_settings = (
-            self.instance.passthrough_team.logs_settings
-            if hasattr(self.instance, "passthrough_team")
-            else self.instance.logs_settings
+        team = (
+            self.instance.passthrough_team
+            if self.instance is not None and hasattr(self.instance, "passthrough_team")
+            else self.instance
         )
+        logs_settings = team.logs_settings if team is not None else None
+        old_retention = logs_settings.get("retention_days") if logs_settings else None
+
+        if new_retention is not None and old_retention != new_retention:
+            required_feature = LOGS_RETENTION_FEATURES_BY_DAYS.get(new_retention)
+            if required_feature:
+                organization = _get_organization_for_logs_settings_check(self)
+                if organization is None or not organization.is_feature_available(required_feature):
+                    raise exceptions.PermissionDenied(
+                        f"This organization does not have permission to set Logs retention to {new_retention} days."
+                    )
+
+        # Only validate retention throttling if we have an existing retention setting
         if self.instance and logs_settings:
-            old_retention = logs_settings.get("retention_days")
             old_last_updated = logs_settings.get("retention_last_updated")
 
             # Check if retention_days is being changed

@@ -162,6 +162,7 @@ describe('buildEmailMetricRows', () => {
                 email_bounced: 6,
                 email_bounce_prevented: 2,
                 email_blocked: 4,
+                email_untracked: 7,
             },
         })
         expect(rows).toEqual([
@@ -175,6 +176,7 @@ describe('buildEmailMetricRows', () => {
                 bounced: 6,
                 bouncePrevented: 2,
                 blocked: 4,
+                untracked: 7,
             },
         ])
     })

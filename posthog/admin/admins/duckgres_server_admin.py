@@ -127,9 +127,10 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         """Provision a brand-new managed warehouse for an org + its first team.
 
         Runs the same path as the in-product provision API: the duckgres control-plane
-        /provision call, then the DuckgresServer and DuckgresServerTeam records. The org's
-        feature flag is bypassed (require_enabled=False) so ops can provision before the org
-        is entitled to the in-product UI.
+        /provision call (which creates the first team's control-plane row), then the
+        DuckgresServer connection record. The org's feature flag is bypassed
+        (require_enabled=False) so ops can provision before the org is entitled to the
+        in-product UI.
         """
         if request.method not in {"GET", "POST"}:
             return HttpResponseNotAllowed(["GET", "POST"])
