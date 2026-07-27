@@ -6252,8 +6252,6 @@ export interface ExternalDataSource {
     user_access_level: AccessControlLevel
     supports_webhooks?: boolean
     supports_column_selection?: boolean
-    /** One-off import (e.g. an uploaded workbook): the sync schedule stays paused, refreshes are explicit. */
-    syncs_once?: boolean
     api_version?: string | null
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
 }
@@ -6423,7 +6421,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     /** Seconds subtracted from the incremental watermark at sync time to re-read a rolling overlap
      *  window (catches late/backdated rows). Timestamp/date incremental fields only. */
     incremental_field_lookback_seconds?: number | null
-    sync_frequency: DataWarehouseSyncInterval
+    /** `never` is the "Manual" cadence: the schedule recurs on nothing, syncs are explicit. */
+    sync_frequency: DataWarehouseSyncInterval | OrNever
     description?: string | null
     should_sync_default?: boolean
     primary_key_columns: string[] | null

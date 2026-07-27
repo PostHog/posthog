@@ -29,6 +29,7 @@ import { urls } from 'scenes/urls'
 
 import {
     DataWarehouseSyncInterval,
+    OrNever,
     ExternalDataSchemaStatus,
     ExternalDataSource,
     ExternalDataSourceSchema,
@@ -55,7 +56,7 @@ import {
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
-const frequencyRank = (frequency: DataWarehouseSyncInterval | null | undefined): number =>
+const frequencyRank = (frequency: DataWarehouseSyncInterval | OrNever | null | undefined): number =>
     frequency ? SYNC_FREQUENCY_ORDER.indexOf(frequency) : -1
 
 export interface SchemasTabProps {
@@ -428,14 +429,7 @@ function ManagedSchemaTable({
                     title: 'Frequency',
                     key: 'sync_frequency',
                     sorter: (a, b) => frequencyRank(a.sync_frequency) - frequencyRank(b.sync_frequency),
-                    render: (_, schema) =>
-                        // A syncs_once source never runs on a cadence — its schedule stays paused and
-                        // refreshes are explicit — so showing the row's stored interval would be a lie.
-                        source?.syncs_once
-                            ? 'Manual'
-                            : schema.sync_frequency
-                              ? SyncFrequencyLabelMap[schema.sync_frequency]
-                              : '—',
+                    render: (_, schema) => (schema.sync_frequency ? SyncFrequencyLabelMap[schema.sync_frequency] : '—'),
                 },
                 {
                     title: 'Last synced',

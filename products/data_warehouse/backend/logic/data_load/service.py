@@ -11,7 +11,7 @@ from django.conf import settings
 
 import structlog
 import temporalio
-from asgiref.sync import async_to_sync, sync_to_async
+from asgiref.sync import async_to_sync
 from temporalio.client import (
     Client as TemporalClient,
     Schedule,
@@ -61,15 +61,6 @@ def _jitter_timedelta(max_jitter: timedelta, rng: random.Random) -> tuple[int, i
 
 
 def get_sync_schedule(external_data_schema: ExternalDataSchema, should_sync: bool = True):
-    # A `syncs_once` source (an uploaded file) must never run on a cadence: whatever the caller
-    # asked for, its schedule is built paused. Enforced here — the one seam every schedule
-    # create/update flows through — so no caller can accidentally re-arm it.
-    # Lazy import: the registry pulls every vendor SDK, which must stay off this module's import path.
-    from products.warehouse_sources.backend.facade.source_management import source_syncs_once  # noqa: PLC0415
-
-    if should_sync and source_syncs_once(external_data_schema.source.source_type):
-        should_sync = False
-
     inputs = ExternalDataWorkflowInputs(
         team_id=external_data_schema.team_id,
         external_data_schema_id=external_data_schema.id,
@@ -119,7 +110,7 @@ def to_temporal_schedule(
     inputs,
     hour_of_day=0,
     minute_of_hour=0,
-    sync_frequency=timedelta(hours=6),
+    sync_frequency: timedelta | None = timedelta(hours=6),
     should_sync=True,
 ):
     action = ScheduleActionStartWorkflow(
@@ -139,16 +130,22 @@ def to_temporal_schedule(
     schedule_start = datetime.combine(datetime.now(UTC).date(), sync_time, tzinfo=UTC)
 
     # Create the spec for the schedule based on the sync frequency and sync time
-    # The sync time is applied using a combination of the offset and the start_at time
-    spec = ScheduleSpec(
-        intervals=[
-            ScheduleIntervalSpec(
-                every=sync_frequency,
-                offset=timedelta(minutes=sync_time.hour * 60 + sync_time.minute) % sync_frequency,
-            )
-        ],
-        start_at=schedule_start,
-    )
+    # The sync time is applied using a combination of the offset and the start_at time.
+    # A null frequency is the "never" cadence: the schedule carries no recurrence at all and exists
+    # only as the target for manual triggers (the initial import, resync) — it can't fire on its
+    # own no matter what pauses or unpauses it.
+    if sync_frequency is None:
+        spec = ScheduleSpec(start_at=schedule_start)
+    else:
+        spec = ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=sync_frequency,
+                    offset=timedelta(minutes=sync_time.hour * 60 + sync_time.minute) % sync_frequency,
+                )
+            ],
+            start_at=schedule_start,
+        )
 
     return Schedule(
         action=action,
@@ -282,17 +279,6 @@ async def a_delete_external_data_schedule(external_data_source: ExternalDataSour
 _BULK_SCHEDULE_CONCURRENCY = 100
 
 
-def _warm_source_relations(schemas: list[ExternalDataSchema]) -> None:
-    """Cache each schema's ``source`` FK while still in a sync context.
-
-    ``get_sync_schedule`` reads ``schema.source`` (for the syncs_once capability), and inside the
-    async bulk coroutines a lazy FK load raises ``SynchronousOnlyOperation`` — so the relation must
-    already be cached by the time the coroutine touches it.
-    """
-    for schema in schemas:
-        _ = schema.source
-
-
 @async_to_sync
 async def bulk_create_external_data_job_schedules(
     schemas: list[tuple[ExternalDataSchema, bool]],
@@ -308,8 +294,6 @@ async def bulk_create_external_data_job_schedules(
     """
     if not schemas:
         return []
-
-    await sync_to_async(_warm_source_relations)([schema for schema, _ in schemas])
 
     temporal = await async_connect()
     semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
@@ -379,8 +363,6 @@ async def bulk_update_external_data_job_schedules(
     """
     if not schemas:
         return [], []
-
-    await sync_to_async(_warm_source_relations)(schemas)
 
     temporal = await async_connect()
     semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)

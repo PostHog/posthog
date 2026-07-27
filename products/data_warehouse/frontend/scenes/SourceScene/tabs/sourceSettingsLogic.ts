@@ -29,6 +29,7 @@ import { urls } from 'scenes/urls'
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import {
     DataWarehouseSyncInterval,
+    OrNever,
     ExternalDataJob,
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
@@ -341,9 +342,9 @@ export function buildBulkEnablePayloads(
 }
 
 export function clampFrequencyForSchema(
-    requested: DataWarehouseSyncInterval,
+    requested: DataWarehouseSyncInterval | OrNever,
     schema: ExternalDataSourceSchema
-): DataWarehouseSyncInterval {
+): DataWarehouseSyncInterval | OrNever {
     return clampSyncFrequency(requested, schema.sync_type)
 }
 
@@ -374,7 +375,7 @@ export interface sourceSettingsLogicValues {
     cdcStatusError: string | null
     cdcStatusLoading: boolean
     filteredSchemas: ExternalDataSourceSchema[]
-    frequencyFilter: DataWarehouseSyncInterval | null
+    frequencyFilter: DataWarehouseSyncInterval | OrNever | null
     groupedFilteredSchemas: {
         schemaName: string
         tables: ExternalDataSourceSchema[]
@@ -388,7 +389,7 @@ export interface sourceSettingsLogicValues {
     pollPauseCount: number
     refreshingSchemas: boolean
     schemaFilterOptions: {
-        frequencies: DataWarehouseSyncInterval[]
+        frequencies: (DataWarehouseSyncInterval | OrNever)[]
         statuses: string[]
         syncMethods: (Exclude<ExternalDataSourceSchema['sync_type'], null> | 'none')[]
     }
@@ -432,9 +433,9 @@ export interface sourceSettingsLogicActions {
     }
     bulkSetFrequency: (
         schemas: ExternalDataSourceSchema[],
-        frequency: DataWarehouseSyncInterval
+        frequency: DataWarehouseSyncInterval | OrNever
     ) => {
-        frequency: DataWarehouseSyncInterval
+        frequency: DataWarehouseSyncInterval | OrNever
         schemas: ExternalDataSourceSchema[]
     }
     bulkSyncNow: (schemas: ExternalDataSourceSchema[]) => {
@@ -560,7 +561,7 @@ export interface sourceSettingsLogicActions {
     setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => {
         canLoadMoreJobs: boolean
     }
-    setFrequencyFilter: (frequency: DataWarehouseSyncInterval | null) => {
+    setFrequencyFilter: (frequency: DataWarehouseSyncInterval | OrNever | null) => {
         frequency: DataWarehouseSyncInterval | null
     }
     setIsProjectTime: (isProjectTime: boolean) => {
@@ -657,7 +658,7 @@ export interface sourceSettingsLogicMeta {
             schemaNameFilter: string,
             statusFilter: string | null,
             syncMethodFilter: string | null,
-            frequencyFilter: DataWarehouseSyncInterval | null
+            frequencyFilter: DataWarehouseSyncInterval | OrNever | null
         ) => ExternalDataSourceSchema[]
         groupedFilteredSchemas: (
             filteredSchemas: ExternalDataSourceSchema[],
@@ -667,7 +668,7 @@ export interface sourceSettingsLogicMeta {
             tables: ExternalDataSourceSchema[]
         }[]
         schemaFilterOptions: (source: ExternalDataSource | null) => {
-            frequencies: DataWarehouseSyncInterval[]
+            frequencies: (DataWarehouseSyncInterval | OrNever)[]
             statuses: string[]
             syncMethods: (Exclude<ExternalDataSourceSchema['sync_type'], null> | 'none')[]
         }
@@ -700,7 +701,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         uploadNewExcelWorkbook: (file: File) => ({ file }),
         setExcelWorkbookUploading: (loading: boolean) => ({ loading }),
         bulkDisable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
-        bulkSetFrequency: (schemas: ExternalDataSourceSchema[], frequency: DataWarehouseSyncInterval) => ({
+        bulkSetFrequency: (schemas: ExternalDataSourceSchema[], frequency: DataWarehouseSyncInterval | OrNever) => ({
             schemas,
             frequency,
         }),
@@ -714,7 +715,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         setSchemaNameFilter: (schemaNameFilter: string) => ({ schemaNameFilter }),
         setStatusFilter: (status: string | null) => ({ status }),
         setSyncMethodFilter: (syncMethod: string | null) => ({ syncMethod }),
-        setFrequencyFilter: (frequency: DataWarehouseSyncInterval | null) => ({ frequency }),
+        setFrequencyFilter: (frequency: DataWarehouseSyncInterval | OrNever | null) => ({ frequency }),
         syncNow: true,
         setSyncingNow: (syncing: boolean) => ({ syncing }),
         refreshSchemas: true,
@@ -974,7 +975,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 schemaNameFilter: string,
                 statusFilter: string | null,
                 syncMethodFilter: string | null,
-                frequencyFilter: DataWarehouseSyncInterval | null
+                frequencyFilter: DataWarehouseSyncInterval | OrNever | null
             ): ExternalDataSourceSchema[] => {
                 if (!source?.schemas) {
                     return []
@@ -1024,12 +1025,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             ): {
                 statuses: string[]
                 syncMethods: (Exclude<ExternalDataSourceSchema['sync_type'], null> | 'none')[]
-                frequencies: DataWarehouseSyncInterval[]
+                frequencies: (DataWarehouseSyncInterval | OrNever)[]
             } => {
                 const schemas = source?.schemas ?? []
                 const statuses = new Set<string>()
                 const syncMethods = new Set<Exclude<ExternalDataSourceSchema['sync_type'], null> | 'none'>()
-                const frequencies = new Set<DataWarehouseSyncInterval>()
+                const frequencies = new Set<DataWarehouseSyncInterval | OrNever>()
                 for (const schema of schemas) {
                     if (schema.status) {
                         statuses.add(schema.status)

@@ -3022,8 +3022,6 @@ export interface ExternalDataSourceSerializersApi {
     readonly supports_webhooks: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection: boolean
-    /** Whether this source imports once instead of on a recurring schedule (e.g. an uploaded Excel workbook). Its sync schedule stays paused; refreshing the data is an explicit resync. */
-    readonly syncs_once: boolean
     /**
      * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
      * @nullable
@@ -4416,8 +4414,6 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly supports_webhooks?: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection?: boolean
-    /** Whether this source imports once instead of on a recurring schedule (e.g. an uploaded Excel workbook). Its sync schedule stays paused; refreshing the data is an explicit resync. */
-    readonly syncs_once?: boolean
     /**
      * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
      * @nullable

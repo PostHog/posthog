@@ -27,6 +27,7 @@ import { urls } from 'scenes/urls'
 
 import {
     DataWarehouseSyncInterval,
+    OrNever,
     ExternalDataSchemaSourceSummary,
     ExternalDataSource,
     ExternalDataSourceSchema,
@@ -865,11 +866,11 @@ function ScheduleSection({
 }): JSX.Element {
     const { loadSchema } = useActions(schemaSceneLogic({ sourceId, schemaId: schema.id }))
     const isCdc = schema.sync_type === 'cdc'
-    const frequencyOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = allowedSyncFrequencies(
+    const frequencyOptions: LemonSelectOption<DataWarehouseSyncInterval | OrNever>[] = allowedSyncFrequencies(
         schema.sync_type
     ).map((value) => ({ value, label: SyncFrequencyLabelMap[value] }))
 
-    const [draftFrequency, setDraftFrequency] = useState<DataWarehouseSyncInterval>(
+    const [draftFrequency, setDraftFrequency] = useState<DataWarehouseSyncInterval | OrNever>(
         schema.sync_frequency || (isCdc ? '5min' : '6hour')
     )
     const [draftSyncTimeOfDay, setDraftSyncTimeOfDay] = useState<string | null>(schema.sync_time_of_day ?? null)
@@ -970,7 +971,7 @@ function AnchorTimeField({
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
-    draftFrequency: DataWarehouseSyncInterval
+    draftFrequency: DataWarehouseSyncInterval | OrNever
     draftSyncTimeOfDay: string | null
     setDraftSyncTimeOfDay: (value: string | null) => void
     isProjectTime: boolean
@@ -1057,7 +1058,8 @@ function AnchorTimeField({
                         setDraftSyncTimeOfDay(utcValue)
                     }}
                     suffix={
-                        isSyncTimeSet && schema.should_sync ? (
+                        // "never" has no cadence, so there is nothing for an anchor time to anchor.
+                        isSyncTimeSet && schema.should_sync && draftFrequency !== 'never' ? (
                             <Tooltip title={syncAnchorIntervalToHumanReadable(utcTime, draftFrequency)}>
                                 <IconInfo className="text-muted-alt" />
                             </Tooltip>

@@ -7,6 +7,7 @@ import { escapeDottedHogQLIdentifier } from '~/queries/utils'
 import {
     DataModelingSyncInterval,
     DataWarehouseSyncInterval,
+    OrNever,
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
     ExternalDataSourceSyncSchema,
@@ -168,7 +169,7 @@ export const SyncTypeLabelMap: Record<NonNullable<ExternalDataSourceSyncSchema['
     xmin: 'xmin',
 }
 
-export const SyncFrequencyLabelMap: Record<DataWarehouseSyncInterval, string> = {
+export const SyncFrequencyLabelMap: Record<DataWarehouseSyncInterval | OrNever, string> = {
     '1min': '1 min',
     '5min': '5 mins',
     '15min': '15 mins',
@@ -179,18 +180,21 @@ export const SyncFrequencyLabelMap: Record<DataWarehouseSyncInterval, string> = 
     '24hour': 'Daily',
     '7day': 'Weekly',
     '30day': 'Monthly',
+    // "never" recurs on nothing — the schedule only runs when explicitly triggered (resync).
+    // Last, so dropdowns read cadences shortest→longest and then Manual.
+    never: 'Manual',
 }
 
 // Sync frequencies ordered shortest→longest. Object key order above is the single source of truth.
-export const SYNC_FREQUENCY_ORDER = Object.keys(SyncFrequencyLabelMap) as DataWarehouseSyncInterval[]
+export const SYNC_FREQUENCY_ORDER = Object.keys(SyncFrequencyLabelMap) as (DataWarehouseSyncInterval | OrNever)[]
 
 // Sub-5-minute cadence is CDC-only; every other sync type floors at 5 minutes. This is the one
 // place that rule lives — the schedule picker, bulk edits, and the clamp all derive from it.
-export const CDC_ONLY_SYNC_FREQUENCIES: DataWarehouseSyncInterval[] = ['1min']
+export const CDC_ONLY_SYNC_FREQUENCIES: (DataWarehouseSyncInterval | OrNever)[] = ['1min']
 
 // Frequencies a given sync type is allowed to use. (The backend enforces the same rule in
 // ExternalDataSchemaSerializer — keep them in sync if this changes.)
-export function allowedSyncFrequencies(syncType: string | null | undefined): DataWarehouseSyncInterval[] {
+export function allowedSyncFrequencies(syncType: string | null | undefined): (DataWarehouseSyncInterval | OrNever)[] {
     if (syncType === 'cdc') {
         return SYNC_FREQUENCY_ORDER
     }
@@ -199,11 +203,16 @@ export function allowedSyncFrequencies(syncType: string | null | undefined): Dat
 
 // Raise a requested frequency to the fastest one the sync type permits (e.g. 1min → 5min for non-CDC).
 export function clampSyncFrequency(
-    requested: DataWarehouseSyncInterval,
+    requested: DataWarehouseSyncInterval | OrNever,
     syncType: string | null | undefined
-): DataWarehouseSyncInterval {
+): DataWarehouseSyncInterval | OrNever {
     const allowed = allowedSyncFrequencies(syncType)
-    return allowed.includes(requested) ? requested : allowed[0]
+    if (allowed.includes(requested)) {
+        return requested
+    }
+    // Floor to the fastest recurring cadence — "never" is not a cadence, so a too-fast request
+    // must not be "clamped" into no syncs at all.
+    return allowed.find((frequency) => frequency !== 'never') ?? allowed[0]
 }
 
 export const StatusTagSetting: Record<ExternalDataJobStatus | ExternalDataSchemaStatus, LemonTagType> = {

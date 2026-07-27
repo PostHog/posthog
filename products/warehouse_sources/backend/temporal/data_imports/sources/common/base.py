@@ -140,11 +140,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # `get_schemas` with a placeholder config could connect, hang, or close the DB session.
     lists_tables_without_credentials: bool = False
 
-    # `True` for sources whose data is a one-off import rather than a feed that changes upstream
-    # (today: an uploaded Excel workbook). Their sync schedule is created paused, so the initial
-    # import runs once and any later refresh is a deliberate manual sync — re-running a cadence
-    # against a file that never changes would just rebuild the same table forever.
-    syncs_once: bool = False
+    # Cadence stamped onto this source's schemas at creation. `None` means the "never" frequency:
+    # the schedule exists only as a target for manual triggers (the initial import, resync) and
+    # recurs on nothing — the right default for a source whose data is a one-off upload.
+    default_sync_frequency_interval: datetime.timedelta | None = datetime.timedelta(hours=6)
 
     # `True` only for sources whose engine supports xmin-based incremental replication
     # (Postgres). Gates the xmin sync type at the source-type level; per-table availability is

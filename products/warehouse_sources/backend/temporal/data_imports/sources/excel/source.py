@@ -45,9 +45,10 @@ class ExcelSource(SimpleSource[ExcelSourceConfig]):
     # placeholder config for the public docs table catalog.
     lists_tables_without_credentials = False
 
-    # The workbook is a snapshot, not a feed: import it once and let a refresh be a manual sync
-    # (which is also how a replaced file gets picked up).
-    syncs_once = True
+    # The workbook is a snapshot, not a feed: schemas default to the "never" frequency, so the
+    # create-time trigger imports once and any refresh is a deliberate manual sync (which is also
+    # how a replaced file gets picked up).
+    default_sync_frequency_interval = None
 
     # Column selection is honored by projecting the row down while reading the sheet.
     supports_column_selection = True

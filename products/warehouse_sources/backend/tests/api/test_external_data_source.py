@@ -2560,7 +2560,6 @@ class TestExternalDataSource(APIBaseTest):
                 "user_access_level",
                 "supports_webhooks",
                 "supports_column_selection",
-                "syncs_once",
                 "api_version",
                 "api_version_deprecation",
             ],

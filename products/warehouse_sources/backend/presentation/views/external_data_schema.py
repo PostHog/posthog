@@ -55,7 +55,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     WebhookSource,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
-    source_syncs_once,
     source_type_supports_cdc,
     validate_and_coerce_row_filters,
 )
@@ -557,7 +556,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def to_representation(self, instance: ExternalDataSchema) -> dict:
         ret = super().to_representation(instance)
         ret["sync_type"] = ExternalDataSchema.SyncType(instance.sync_type) if instance.sync_type is not None else None
-        ret["sync_frequency"] = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
+        # A null interval is the "never" frequency (schedule exists, recurs on nothing). The shared
+        # mapping returns None for it because saved queries use null as "not scheduled" — here it
+        # round-trips as the "never" choice the write side already accepts.
+        ret["sync_frequency"] = (
+            "never"
+            if instance.sync_frequency_interval is None
+            else sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
+        )
         ret["sync_time_of_day"] = (
             self.fields["sync_time_of_day"].to_representation(instance.sync_time_of_day)
             if instance.sync_time_of_day
@@ -1045,9 +1051,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 if schedule_exists:
                     if should_sync is False:
                         pause_external_data_schedule(str(updated_instance.id))
-                    elif should_sync is True and not source_syncs_once(source.source_type):
-                        # A syncs_once source's schedule stays paused: enabling the schema keeps the
-                        # imported table live, and refreshing it is the explicit resync action.
+                    elif should_sync is True:
                         unpause_external_data_schedule(str(updated_instance.id))
                 elif should_sync_value:
                     # No schedule yet but the schema should be syncing — create (or recover) it. The

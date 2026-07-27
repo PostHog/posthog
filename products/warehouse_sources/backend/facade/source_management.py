@@ -19,7 +19,6 @@ _LAZY = {
     "CDCSourceAdapter": "cdc.adapters",
     "get_cdc_adapter": "cdc.adapters",
     "source_type_supports_cdc": "cdc.adapters",
-    "source_syncs_once": "sources.common.registry",
     "CDCRepairError": "cdc.repair",
     "CDCRepairInProgress": "cdc.repair",
     "repair_cdc_source": "cdc.repair",

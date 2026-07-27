@@ -811,12 +811,7 @@ def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> Exter
         if should_sync is False:
             pause_external_data_schedule(schema_id)
         elif should_sync is True:
-            from products.warehouse_sources.backend.facade.source_management import source_syncs_once  # noqa: PLC0415
-
-            # A syncs_once source's schedule stays paused — refreshing it is the explicit
-            # resync action, never a cadence.
-            if not source_syncs_once(schema.source.source_type):
-                unpause_external_data_schedule(schema_id)
+            unpause_external_data_schedule(schema_id)
     else:
         if should_sync is True:
             sync_external_data_job_workflow(schema, create=True)

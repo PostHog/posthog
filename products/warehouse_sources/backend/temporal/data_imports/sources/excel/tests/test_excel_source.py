@@ -135,13 +135,14 @@ def _source_inputs(*, schema_name: str, enabled_columns: list[str] | None = None
 
 
 class TestExcelSyncCadence(SimpleTestCase):
-    def test_excel_syncs_once(self) -> None:
-        # The workbook never changes upstream, so the schedule is created paused and the initial
-        # import is the explicit trigger. The create flow reads this flag to decide.
-        assert ExcelSource().syncs_once is True
+    def test_excel_schemas_default_to_the_never_frequency(self) -> None:
+        # The workbook is a snapshot: schemas are stamped with a null interval ("never") at
+        # creation, so the create-time trigger imports once and nothing recurs.
+        assert ExcelSource().default_sync_frequency_interval is None
 
-    def test_syncs_once_defaults_off_for_other_sources(self) -> None:
-        # Every feed-backed source must keep its recurring schedule — this flag is opt-in only.
+    def test_feed_sources_keep_a_recurring_default(self) -> None:
+        from datetime import timedelta
+
         from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import _BaseSource
 
-        assert _BaseSource.syncs_once is False
+        assert _BaseSource.default_sync_frequency_interval == timedelta(hours=6)
