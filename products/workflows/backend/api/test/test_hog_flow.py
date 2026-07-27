@@ -3779,10 +3779,18 @@ class TestHogFlowSecretInputs(APIBaseTest):
         )
 
         # Stage a draft (via MCP) that rotates the secret; live must stay untouched until publish.
-        draft_payload = self._flow_payload(api_key="ROTATED-IN-DRAFT")
+        # Uses the /graph endpoint which is the MCP-sanctioned path for action edits.
         stage = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {"actions": draft_payload["actions"]},
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {"config": {"inputs": {"api_key": {"value": "ROTATED-IN-DRAFT"}}}},
+                    }
+                ]
+            },
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert stage.status_code == 200, stage.json()
@@ -3868,12 +3876,28 @@ class TestHogFlowSecretInputs(APIBaseTest):
         )
 
         # Rotate the secret through a published draft so live becomes ROTATED and revision v1 (the
-        # pre-rotation content, secrets stripped) is snapshotted.
-        rotated = self._flow_payload(api_key="ROTATED")
+        # pre-rotation content, secrets stripped) is snapshotted. The rotation carries a non-secret
+        # edit too: revisions are compared secret-free, so a secret-only change is content-equal and
+        # would never bump a version to restore.
         assert (
             self.client.patch(
-                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-                {"actions": rotated["actions"]},
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+                {
+                    "operations": [
+                        {
+                            "op": "update_action",
+                            "id": "action_1",
+                            "patch": {
+                                "config": {
+                                    "inputs": {
+                                        "url": {"value": "https://rotated.example.com"},
+                                        "api_key": {"value": "ROTATED"},
+                                    }
+                                }
+                            },
+                        }
+                    ]
+                },
                 HTTP_X_POSTHOG_CLIENT="mcp",
             ).status_code
             == 200
@@ -3896,9 +3920,11 @@ class TestHogFlowSecretInputs(APIBaseTest):
         self._publish_confirmed(flow_id)
 
         # The restored graph re-attaches the CURRENT live secret, not the historical one - a rotated
-        # credential is never resurrected from a snapshot.
+        # credential is never resurrected from a snapshot - while its non-secret content does roll back.
         flow.refresh_from_db()
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "ROTATED"
+        live_inputs = next(a for a in flow.actions if a["id"] == "action_1")["config"]["inputs"]
+        assert live_inputs["url"]["value"] == "https://example.com"
         assert flow.draft is None
 
     def test_duplicate_action_id_is_rejected(self):

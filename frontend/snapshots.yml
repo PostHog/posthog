@@ -5395,13 +5395,13 @@ snapshots:
     scenes-app-customer-analytics-dashboard--b-2-c-mode--light:
         hash: v1.k794b7964.ff25e11868464e00df352180254dbe0a1017cd1d8c7c4f4c7d6995068e80e2dc.m0XFOZVPCdSaCLaPQ6XTePvkZJ1I11QI2KARZi9QpWs
     scenes-app-customer-analytics-dashboard--gated-with-feature-toggle--dark:
-        hash: v1.k794b7964.f07be6c5a9a602a1b2de2e07ff8329cf79022a86359c8592ec0ffa997e06815e.4p0ObyV8dflPFp4eV8-iGtIyPw-H4rNRImtZ98MUaq0
+        hash: v1.k794b7964.731394bccab76141d6dc494f99dd56cc85e18b3f787977f8edd5c1a50c5564c8.9z2bNOo-dAM0tEyxcqStccQSV7X6iHbKnJdqAgvNapU
     scenes-app-customer-analytics-dashboard--gated-with-feature-toggle--light:
-        hash: v1.k794b7964.c08ac439ce99c1885784bb01585643983c42e334ee9b66dc4fdca3a200f49aa8.1nfQJfx8u9E46SodXwq0FKkEXnMgRERGpZ3LrS7lsgk
+        hash: v1.k794b7964.d4a3f7e666d9788b86e4e35e6e976dc048f50189129b316352f60e389916e740.XNraHFrJz2oo-ioKjtSG3b53aSd7SUozc4GkGnRUVPw
     scenes-app-customer-analytics-dashboard--gated-without-matching-early-access-feature--dark:
-        hash: v1.k794b7964.df78ad055d2df40bd8f7291c6be67f5186e055f66f8d642e54f4493bfea8dee4.ZN0UYUnaFqZlJQb_8eCa8a74QdPPt4v9VBEQNfMT5Dw
+        hash: v1.k794b7964.212105add8f003ebda9493c4f1324aa86a9ea9d4f078a9202f746125bc188ee0.mcCJ4cjTJAjHr9-eqJV3Vki9l2-kPcGcbCkwbnXGGNI
     scenes-app-customer-analytics-dashboard--gated-without-matching-early-access-feature--light:
-        hash: v1.k794b7964.261496c85d5d04af3eb5e766063ec3e1783ea9ba2d54f82bb9c7d4b0f1cc28a0.5Gacg7ZDoAp-d35eiCG9-Jp2vYDw-4uvGAJsL5U4uiI
+        hash: v1.k794b7964.c17e8855ba266d7d7732b79d59cbe6996e34469b95aaf820146a2ec098d4c1cd.xHHIXeNzT7uaxywPDDglLPD96SXg9n66LgqmXi677J0
     scenes-app-customer-analytics-journey-builder--new-journey--dark:
         hash: v1.k794b7964.5e2f6c51e7e4db5d5d8bed07edeb90f8e71b6dbe9e4aa7042ce9337e407ff3bb.qbiM7NeFkMfNbY374tsbc_nZloshk9lmHLFgIPx5-ow
     scenes-app-customer-analytics-journey-builder--new-journey--light:
@@ -5573,7 +5573,7 @@ snapshots:
     scenes-app-dashboards--show-across-viewports--narrow--dark:
         hash: v1.k794b7964.e919c4955d7113170ab00269c5f628c318afe14f26dc8aafb046b172e17f362e.YDXD84rrb2KR1I36pHMxEsGZ0sN0os_cBBdNIf89Pu8
     scenes-app-dashboards--show-across-viewports--narrow--light:
-        hash: v1.k794b7964.a46d840722e971910236d6fcd8a8f69e0b1db5ee9d472d62055b02d6569f7a99.kHEdVPNUm5DRKSlMFS12SLKf1TyChQJZKKuZ2PKvtfA
+        hash: v1.k794b7964.2a88f06991ca4c13ad27ee62db8eaa037c542301e28c24934eedc1bbb78cb338.3Ne0cm6_2xQiGE1wGcRzmw0QBd3QrEYkELz3PCg9J48
     scenes-app-dashboards--show-across-viewports--superwide--dark:
         hash: v1.k794b7964.9948b52cf842206c1584057a6a16b8caed7a32d95f103dbea07089a02df75a53.AuXGqOvw-P-XuzOL2Zl-BkBPb1-Q3R1949f5-IkTjZA
     scenes-app-dashboards--show-across-viewports--superwide--light:
@@ -6882,14 +6882,6 @@ snapshots:
         hash: v1.k794b7964.224e8a5e493e290b4ae4bbc2e03034a73b2ecfce20c86bcde08eab86b57b712e.xYn7md33k3lh0Oj7If1WzYPDgW9aiqbZ4aux_4bhOUc
     scenes-app-project-homepage--project-homepage--light:
         hash: v1.k794b7964.2eafc7385bf39f5be7d4d6d0ad1b70897952bcf37a16bd3ae6c644716cd16d25.25OmRYioQX_VF2kc2AVnvYlE0yve6YNcY2FDdJwV5kE
-    scenes-app-quickstart-product-card--all-states--dark:
-        hash: v1.k794b7964.73f58c4247d194cdf5416d066a434816f003ac93fea1c319bc22e3753f99ccdf.iCrGK5sYWLKMEyIcdG4Yz_sU4crC06CROJuJO68Cgoo
-    scenes-app-quickstart-product-card--all-states--light:
-        hash: v1.k794b7964.f102ea94159c9f504a9614dfae0f36ed2d608bd29bf873a3e3af47674a1327f5.gwilG-dC5olu1ZefJBTe9u0AfZpHAJx7ByaKR-xPH94
-    scenes-app-quickstart-product-card--playground--dark:
-        hash: v1.k794b7964.db711c55fbba74ec6c076121fad873037a9f9fdaa68a9fecf5cad96d4aac77a1.n4BzdM9Lx-eVP3ooCb6_tD9x7BfjEuOc1oks9ji5S8c
-    scenes-app-quickstart-product-card--playground--light:
-        hash: v1.k794b7964.b85349f783d2e37dc3d8f34c47a0cf0279472dd5f4b57a98972274fc6a08fac5.KzPnkFBWU41BKwOOklmvlpw3U_7UfSmDr-9HBibnCrc
     scenes-app-replay-vision--scanners-list--dark:
         hash: v1.k794b7964.c224db762849cf8b332d37e72b254a859d40cd113b36b78f6f031e1f17efcf73.9d-GzGqGR4iCPVCCEOySYcYbGOR2NMRhr9JR9eOndBA
     scenes-app-replay-vision--scanners-list--light:
