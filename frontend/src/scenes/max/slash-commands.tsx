@@ -49,6 +49,7 @@ export const MAX_SLASH_COMMANDS: SlashCommand[] = [
     },
     {
         name: SlashCommandName.SlashTicket,
+        arg: '[details]',
         description: 'Create a support ticket with a summary of this conversation',
         icon: <IconSupport />,
         requiresIdle: true,

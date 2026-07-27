@@ -328,6 +328,7 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
                                         conversationId={conversationId}
                                         traceId={traceId}
                                         summary={ticketSummaryData.summary}
+                                        initialText={ticketSummaryData.initialText}
                                         targetArea={ticketSummaryData.targetArea}
                                     />
                                 ))}

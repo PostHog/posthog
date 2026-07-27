@@ -19,7 +19,7 @@ interface TicketPromptProps {
     traceId: string | null
     /** If provided, skip the input step and use this summary directly */
     summary?: string
-    /** If provided, pre-populate the input field with this text */
+    /** If provided, pre-populate the issue input (no summary) or the note field (with summary) */
     initialText?: string
     /** Target area inferred from the conversation; falls back to product analytics when absent */
     targetArea?: SupportTicketTargetArea | null
@@ -72,7 +72,7 @@ export function TicketPrompt({
             kind: 'bug',
             target_area: targetArea ?? 'analytics',
             severity_level: 'low',
-            message: summary ? '' : issueText,
+            message: summary ? (initialText ?? '') : issueText,
             tags: ['raised_from_posthog_ai_chat'],
             ai_conversation_id: conversationId,
             ai_trace_id: traceId,

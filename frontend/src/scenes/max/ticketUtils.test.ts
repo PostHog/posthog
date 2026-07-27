@@ -33,6 +33,22 @@ describe('ticketUtils', () => {
             expect(getTicketSummaryData(thread, false)).toEqual({ summary: SUMMARY, messageIndex: 3, targetArea: null })
         })
 
+        it('passes text after /ticket through as initialText without altering the summary', () => {
+            const thread = [
+                human('How do I create an insight?'),
+                ai('You can create an insight by...'),
+                human('/ticket only the 4th question'),
+                ai(SUMMARY),
+            ]
+
+            expect(getTicketSummaryData(thread, false)).toEqual({
+                summary: SUMMARY,
+                initialText: 'only the 4th question',
+                messageIndex: 3,
+                targetArea: null,
+            })
+        })
+
         it('extracts the target area from the summary topic line', () => {
             const thread = [
                 human('My recordings are missing'),

@@ -1,5 +1,7 @@
 import { SupportTicketTargetArea, TARGET_AREA_OPTIONS } from 'lib/components/Support/supportLogic'
 
+import { SlashCommandName } from '~/queries/schema/schema-assistant-messages'
+
 import { ThreadMessage } from './maxLogic'
 
 export interface TicketSummaryData {
@@ -7,6 +9,7 @@ export interface TicketSummaryData {
     discarded?: boolean
     messageIndex: number
     targetArea?: SupportTicketTargetArea | null
+    initialText?: string
 }
 
 export interface TicketPromptData {
@@ -43,9 +46,9 @@ export function parseTicketTargetArea(content: string): SupportTicketTargetArea 
  * Extracts the text after "/ticket " from a message, if any.
  */
 function extractTicketText(content: string): string | undefined {
-    if (content.startsWith('/ticket ')) {
-        const text = content.slice('/ticket '.length).trim()
-        return text || undefined
+    const prefix = `${SlashCommandName.SlashTicket} `
+    if (content.startsWith(prefix)) {
+        return content.slice(prefix.length).trim() || undefined
     }
     return undefined
 }
@@ -67,7 +70,7 @@ export function getTicketPromptData(threadGrouped: ThreadMessage[], streamingAct
     const isInitialTicketPrompt =
         firstMessage?.type === 'human' &&
         'content' in firstMessage &&
-        firstMessage.content.startsWith('/ticket') &&
+        firstMessage.content.startsWith(SlashCommandName.SlashTicket) &&
         lastMessage?.type === 'ai' &&
         'content' in lastMessage &&
         lastMessage.content.includes("I'll help you create a support ticket")
@@ -91,7 +94,7 @@ export function getTicketPromptData(threadGrouped: ThreadMessage[], streamingAct
 /**
  * Detects if /ticket was sent with an existing conversation and extracts summary data.
  * Returns:
- * - { summary, messageIndex } when a summary is ready for ticket creation
+ * - { summary, initialText, messageIndex } when a summary is ready for ticket creation
  * - { discarded: true, messageIndex } when user continued conversation after summary
  * - null when no ticket summary is applicable
  */
@@ -107,7 +110,7 @@ export function getTicketSummaryData(
     let ticketCommandIndex = -1
     for (let i = threadGrouped.length - 1; i >= 0; i--) {
         const msg = threadGrouped[i]
-        if (msg?.type === 'human' && 'content' in msg && msg.content.startsWith('/ticket')) {
+        if (msg?.type === 'human' && 'content' in msg && msg.content.startsWith(SlashCommandName.SlashTicket)) {
             ticketCommandIndex = i
             break
         }
@@ -145,17 +148,15 @@ export function getTicketSummaryData(
                 }
             }
 
-            // Extract any user-provided text from the /ticket command
+            // Text after "/ticket" pre-populates the note field in the ticket form
             const userText =
                 'content' in ticketCommandMessage
                     ? extractTicketText(ticketCommandMessage.content as string)
                     : undefined
 
-            // Combine user text with AI summary if both exist
-            const summary = userText ? `User notes: ${userText}\n\n${responseMessage.content}` : responseMessage.content
-
             return {
-                summary,
+                summary: responseMessage.content,
+                initialText: userText,
                 messageIndex: ticketCommandIndex + 1,
                 targetArea: parseTicketTargetArea(responseMessage.content),
             }
