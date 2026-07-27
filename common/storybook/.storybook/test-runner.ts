@@ -126,6 +126,14 @@ const JEST_TIMEOUT_MS = 60000 // Multi-viewport snapshots can take substantially
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
 
+// Each story file gets a fresh browser context, so `prepare` reloads the whole preview bundle with a
+// cold HTTP cache. Under CI contention that tail overruns Playwright's 30s default. RETRY_TIMES can't
+// save it: `jest.retryTimes` is registered from setupFilesAfterEnv, which runs *after* the environment
+// setup this navigation happens in, so the throw kills the suite file outright. Hence retrying here.
+const NAVIGATION_TIMEOUT_MS = 45000
+const NAVIGATION_ATTEMPTS = 3
+const NAVIGATION_LIVENESS_TIMEOUT_MS = 10000
+
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
 
 // Storybook channel events that mean a forced remount's play function failed. Shared between the
@@ -174,14 +182,7 @@ export default {
             const headers = await testRunnerConfig.getHttpHeaders(iframeURL)
             await browserContext.setExtraHTTPHeaders(headers)
         }
-        await page.goto(iframeURL, { waitUntil: 'load' }).catch((err) => {
-            if (err.message?.includes('ERR_CONNECTION_REFUSED')) {
-                throw new Error(
-                    `Could not access the Storybook instance at ${targetURL}. Are you sure it's running?\n\n${err.message}`
-                )
-            }
-            throw err
-        })
+        await gotoStorybookIframe(page, iframeURL, targetURL)
     },
 
     setup() {
@@ -331,6 +332,44 @@ export default {
         skip: ['test-skip'], // NOTE: This is overridden by the CI action ci-storybook.yml to include browser specific skipping
     },
 } as TestRunnerConfig
+
+async function gotoStorybookIframe(page: Page, iframeURL: string, targetURL: string | undefined): Promise<void> {
+    const unreachable = (detail: string): Error =>
+        new Error(`Could not access the Storybook instance at ${targetURL}. Are you sure it's running?\n\n${detail}`)
+
+    for (let attempt = 1; attempt <= NAVIGATION_ATTEMPTS; attempt++) {
+        try {
+            await page.goto(iframeURL, { waitUntil: 'load', timeout: NAVIGATION_TIMEOUT_MS })
+            return
+        } catch (error) {
+            const detail = (error as Error).message ?? String(error)
+            if (detail.includes('ERR_CONNECTION_REFUSED')) {
+                throw unreachable(detail)
+            }
+            if (attempt === NAVIGATION_ATTEMPTS) {
+                throw new Error(
+                    `Loading ${iframeURL} timed out on all ${NAVIGATION_ATTEMPTS} attempts of ${NAVIGATION_TIMEOUT_MS}ms.\n\n${detail}`
+                )
+            }
+            // Only a slow bundle load earns another attempt. A server that can't serve its index within
+            // seconds has wedged, and retrying every story file would burn the shard's whole timeout
+            // budget before reporting anything useful.
+            const serverResponds = await page.request
+                .get(targetURL ?? iframeURL, { timeout: NAVIGATION_LIVENESS_TIMEOUT_MS })
+                .then((response) => response.ok())
+                .catch(() => false)
+            if (!serverResponds) {
+                throw unreachable(detail)
+            }
+            // eslint-disable-next-line no-console
+            console.warn(
+                `[test-runner] Navigating to ${iframeURL} timed out after ${NAVIGATION_TIMEOUT_MS}ms, retrying (${
+                    attempt + 1
+                }/${NAVIGATION_ATTEMPTS})`
+            )
+        }
+    }
+}
 
 async function expectStoryToMatchSnapshot(
     page: Page,
