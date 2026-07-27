@@ -98,6 +98,7 @@ class TestUpdateTaskRunStatusActivity:
         [
             (TaskRun.Status.COMPLETED, "task_run_completed"),
             (TaskRun.Status.FAILED, "task_run_failed"),
+            (TaskRun.Status.CANCELLED, "task_run_cancelled_terminal"),
         ],
     )
     @patch("products.tasks.backend.temporal.process_task.activities.update_task_run_status.record_run_token_usage")
@@ -170,6 +171,29 @@ class TestUpdateTaskRunStatusActivity:
 
         completed = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_completed"]
         assert len(completed) == 1
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_cancelled_transition_captures_reason_and_source_once(
+        self, mock_capture, activity_environment, test_task_run
+    ):
+        test_task_run.state = {**(test_task_run.state or {}), "cancel_source": "api"}
+        test_task_run.save(update_fields=["state"])
+
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.CANCELLED,
+            error_message="Stopped by user",
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        cancelled = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_cancelled_terminal"]
+        assert len(cancelled) == 1
+        props = cancelled[0].kwargs["properties"]
+        assert props["cancel_reason"] == "Stopped by user"
+        assert props["cancel_source"] == "api"
+        assert "duration_seconds" in props
 
     @pytest.mark.django_db(transaction=True)
     def test_terminal_transition_updates_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):

@@ -278,6 +278,30 @@ class TestTaskRunMetrics(TestCase):
         assert len(props["error_message"]) == 500
         assert props["error_message"].endswith("Error: wizard exited with code 7")
 
+    def test_patch_terminal_cancellation_captures_single_task_run_cancelled_terminal(self) -> None:
+        from products.tasks.backend.facade import api as facade
+
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD, extra_state={"cancel_source": "pr_closed"})
+
+        with (
+            patch.object(facade, "signal_workflow_completion"),
+            patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture,
+        ):
+            for _ in range(2):  # the repeat PATCH must not double-capture
+                facade.update_task_run(
+                    run.id,
+                    self.task.id,
+                    self.team.id,
+                    validated_data={"status": "cancelled", "error_message": "Setup pull request was closed"},
+                )
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_cancelled_terminal"]
+        assert len(captured) == 1
+        props = captured[0].kwargs["properties"]
+        assert props["cancel_reason"] == "Setup pull request was closed"
+        assert props["cancel_source"] == "pr_closed"
+        assert "duration_seconds" in props
+
     @parameterized.expand(
         [
             ("failed", 1.0),

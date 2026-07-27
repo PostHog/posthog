@@ -245,6 +245,13 @@ _PATCH_ID_SLACK_AGENT_DESIGN_STATUS = "tasks-slack-agent-design-status"
 # deterministic. Same two-step cleanup lifecycle as above.
 _PATCH_ID_SKIP_LOCAL_ENVIRONMENT_RUNS = "tasks-skip-local-environment-runs"
 
+# Drops the workflow-level `task_run_cancelled` event from the cancellation handler. With the
+# analytics capture off it recorded nothing at all: `track_workflow_event` only feeds Prometheus
+# for `task_run_failed`. Pre-rollout histories scheduled that activity between the progress emit
+# and `update_task_run_status`, so removing it unconditionally would break their replay with
+# TMPRL1100. Same two-step cleanup lifecycle as the patches above.
+_PATCH_ID_DROP_CANCELLED_WORKFLOW_EVENT = "tasks-drop-cancelled-workflow-event"
+
 # Defers stream completion to cleanup without breaking existing histories.
 _PATCH_ID_DEFER_RUN_STREAM_COMPLETION = "tasks-defer-run-stream-completion"
 _PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE = "tasks-complete-stream-after-cleanup-failure"
@@ -876,15 +883,23 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         failed_group,
                         detail="Cancelled",
                     )
-                await self._track_workflow_event(
-                    "task_run_cancelled",
-                    {
-                        "run_id": run_id,
-                        "task_id": self.context.task_id,
-                        "repository": self.context.repository,
-                        "team_id": self.context.team_id,
-                    },
-                )
+                # See `_PATCH_ID_DROP_CANCELLED_WORKFLOW_EVENT`: only replays of pre-rollout
+                # histories still schedule this. New executions skip it, because with the capture
+                # suppressed it records nothing, and capturing it instead would put a run reaching
+                # terminal CANCELLED into the PostHog AI relay's `task_run_cancelled` funnel. The
+                # status-update activity below owns the single terminal capture,
+                # `task_run_cancelled_terminal`, keyed on the DB transition.
+                if not workflow.patched(_PATCH_ID_DROP_CANCELLED_WORKFLOW_EVENT):
+                    await self._track_workflow_event(
+                        "task_run_cancelled",
+                        {
+                            "run_id": run_id,
+                            "task_id": self.context.task_id,
+                            "repository": self.context.repository,
+                            "team_id": self.context.team_id,
+                        },
+                        capture_analytics=False,
+                    )
             await self._update_task_run_status("cancelled", run_id=run_id)
             if current_sandbox_id:
                 complete_stream = _defer_run_stream_completion()

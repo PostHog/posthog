@@ -2123,6 +2123,20 @@ def update_task_run(
         observe_wizard_run_unbound(run)
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
         if new_status == TaskRun.Status.CANCELLED:
+            # Same single-emitter contract as task_run_failed above: this PATCH performed
+            # the transition, so the workflow's status-update activity sees the row already
+            # CANCELLED and skips its own capture. Named `_terminal` to stay clear of
+            # `task_run_cancelled`, which capture_relay_command_telemetry owns for PostHog AI
+            # relay turn-cancels.
+            run_state = run.state if isinstance(run.state, dict) else {}
+            run.capture_event(
+                "task_run_cancelled_terminal",
+                {
+                    "cancel_reason": truncate_error_message(run.error_message),
+                    "cancel_source": run_state.get("cancel_source") or "unspecified",
+                    "duration_seconds": run._duration_seconds(),
+                },
+            )
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
                 notify_task_run_cancelled,
             )
@@ -2857,6 +2871,13 @@ def capture_relay_command_telemetry(
     generic-task usage stays out of the PostHog AI funnels. Mirrors the old conversation-layer
     semantics: a cancel is recorded only when it actually reached the agent, while a permission
     response is recorded with its forward ``success`` either way.
+
+    ``task_run_cancelled`` here means "the agent's current turn was cancelled" and is PostHog AI
+    only. The run reaching terminal ``CANCELLED`` is a different event for every origin product,
+    ``task_run_cancelled_terminal``, emitted by whichever path performs the DB transition
+    (``update_task_run`` below, or the ``update_task_run_status`` Temporal activity). Keep the two
+    names apart so a relay-cancelled PostHog AI run that then terminalizes does not land in this
+    funnel twice with two disjoint property shapes.
     """
     if method not in _POSTHOG_AI_RELAY_TELEMETRY_METHODS:
         return

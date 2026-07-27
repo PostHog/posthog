@@ -90,6 +90,18 @@ Additional properties:
 | `error_message`    | `str`   | Error message (truncated to the **last** 500 chars — the root cause sits at the tail)                                                                                                                          |
 | `duration_seconds` | `float` | Time from creation to failure                                                                                                                                                                                  |
 
+### `task_run_cancelled_terminal`
+
+Captured exactly once per cancelled run, by whichever component performs the DB transition to `CANCELLED`: the `update_task_run_status` Temporal activity (workflow cancellations) or the facade run PATCH path (API, webhook and fallback cancellations).
+
+Distinct from [`task_run_cancelled`](#task_run_cancelled-no-longer-emitted-by-the-process_task-workflow), which is PostHog AI only and means "the agent's current turn was cancelled" rather than "the run reached a terminal state". Additional properties:
+
+| Property           | Type    | Description                                                                                           |
+| ------------------ | ------- | ----------------------------------------------------------------------------------------------------- |
+| `cancel_reason`    | `str`   | Cancellation message (truncated to the **last** 500 chars)                                            |
+| `cancel_source`    | `str`   | `cancel_source` recorded on `TaskRun.state` by `facade/cancellation.py`; `unspecified` when never set |
+| `duration_seconds` | `float` | Time from creation to cancellation                                                                    |
+
 ## Loop Fire Metrics
 
 Source: `products/tasks/backend/metrics.py`, emitted from `products/tasks/backend/logic/services/loop_runs.py::fire_loop`.
@@ -133,9 +145,10 @@ Tracked after sandbox and agent server are provisioned.
 | `used_snapshot` | `bool` | Whether a snapshot was used     |
 | `repository`    | `str`  | Repository in `org/repo` format |
 
-### `task_run_cancelled`
+### `task_run_cancelled` (no longer emitted by the `process_task` workflow)
 
-Tracked when the workflow is cancelled via `CancelledError`.
+`process_task/workflow.py` records **nothing** on `CancelledError`: the `update_task_run_status` activity owns the terminal capture on the DB transition and emits [`task_run_cancelled_terminal`](#task_run_cancelled_terminal). Unlike `task_run_failed`, a `track_workflow_event` call with the capture suppressed records no metrics and no logs either, so the call is gated out behind the `tasks-drop-cancelled-workflow-event` patch and only replays of pre-rollout histories still schedule it.
+The event name is still emitted by the `execute_sandbox` workflow (properties below) and by `capture_relay_command_telemetry` for PostHog AI relay turn-cancels.
 
 | Property     | Type  | Description                     |
 | ------------ | ----- | ------------------------------- |

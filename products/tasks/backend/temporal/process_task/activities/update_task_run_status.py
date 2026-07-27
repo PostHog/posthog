@@ -92,7 +92,7 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
     task_run.publish_stream_state_event()
     observe_wizard_run_unbound(task_run)
 
-    if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED] and old_status != input.status:
+    if input.status in _TERMINAL_STATUSES and old_status != input.status:
         _capture_terminal_analytics(task_run, input)
 
     # This activity is how workflow-driven runs (finish tool, failures, timeouts, cancellations)
@@ -126,8 +126,22 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
     transition so activity retries and repeat updates don't double-count.
     """
     try:
+        state = task_run.state if isinstance(task_run.state, dict) else {}
         if input.status == TaskRun.Status.COMPLETED:
             task_run.capture_event("task_run_completed", {"duration_seconds": task_run._duration_seconds()})
+        elif input.status == TaskRun.Status.CANCELLED:
+            # Not `task_run_cancelled`: that name belongs to the PostHog AI relay turn-cancel
+            # (facade.api.capture_relay_command_telemetry) and means "the agent's current turn was
+            # cancelled". This one means "the run reached terminal CANCELLED" and fires for every
+            # origin product, so it gets its own name next to `task_run_cancel_requested`.
+            task_run.capture_event(
+                "task_run_cancelled_terminal",
+                {
+                    "cancel_reason": truncate_error_message(input.error_message or task_run.error_message),
+                    "cancel_source": state.get("cancel_source") or "unspecified",
+                    "duration_seconds": task_run._duration_seconds(),
+                },
+            )
         else:
             task_run.capture_event(
                 "task_run_failed",
@@ -138,7 +152,6 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                 },
             )
 
-        state = task_run.state if isinstance(task_run.state, dict) else {}
         usage = state.get("token_usage")
         if isinstance(usage, dict):
             adapter = state.get("runtime_adapter")
