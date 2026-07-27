@@ -20,6 +20,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.conversations.backend.models.ticket import Ticket
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import (
     Account,
@@ -2646,3 +2647,39 @@ class TestAccountRelationshipViewSet(APIBaseTest):
         response = self.client.post(f"{self.endpoint}{rel.id}/end/")
 
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+
+class TestAccountSupportTicketViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-1")
+        self.endpoint = f"/api/environments/{self.team.id}/accounts/{self.account.id}/support_tickets/"
+
+    def test_list_returns_tickets_for_the_accounts_org(self):
+        Ticket.objects.create(
+            team=self.team,
+            ticket_number=7,
+            widget_session_id="s7",
+            distinct_id="d7",
+            organization_id="acme-1",
+            status="open",
+        )
+        Ticket.objects.create(
+            team=self.team, ticket_number=8, widget_session_id="s8", distinct_id="d8", organization_id="other-org"
+        )
+
+        response = self.client.get(self.endpoint)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual([t["ticket_number"] for t in data], [7])
+        self.assertEqual(data[0]["status"], "open")
+        self.assertTrue(data[0]["deep_link"].endswith(f"/project/{self.team.id}/support/tickets/7"))
+
+    def test_list_is_empty_when_account_has_no_external_id(self):
+        unlinked = Account.objects.unscoped().create(team=self.team, name="Unlinked", external_id=None)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/{unlinked.id}/support_tickets/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json(), [])

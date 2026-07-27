@@ -63,6 +63,7 @@ import type {
     PatchedCustomerProfileConfigApi,
     PatchedEventStreamApi,
     PatchedGroupUsageMetricApi,
+    SupportTicketApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -482,6 +483,21 @@ export const accountsRelationshipsEndCreate = async (
     return apiMutator<AccountRelationshipApi>(getAccountsRelationshipsEndCreateUrl(projectId, accountId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getAccountsSupportTicketsListUrl = (projectId: string, accountId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/support_tickets/`
+}
+
+export const accountsSupportTicketsList = async (
+    projectId: string,
+    accountId: string,
+    options?: RequestInit
+): Promise<SupportTicketApi[]> => {
+    return apiMutator<SupportTicketApi[]>(getAccountsSupportTicketsListUrl(projectId, accountId), {
+        ...options,
+        method: 'GET',
     })
 }
 

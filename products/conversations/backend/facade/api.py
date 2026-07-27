@@ -6,7 +6,11 @@ Slack integration behind contract types so callers never touch slack_sdk or the
 team's Slack credentials directly.
 """
 
+from datetime import datetime
 from typing import Any
+
+from django.conf import settings
+from django.db.models import F
 
 from pydantic.dataclasses import dataclass
 from slack_sdk.errors import SlackApiError
@@ -138,3 +142,39 @@ def post_ticket_internal_note(team_id: int, ticket_id: str, content: str, *, ded
         item_context={"author_type": "AI", "is_private": True, "internal_note_key": dedupe_key},
     )
     return str(comment.id)
+
+
+@dataclass(frozen=True)
+class TicketSummary:
+    """A support ticket, reduced to what an account's tickets list renders."""
+
+    id: str
+    ticket_number: int
+    status: str
+    last_message_at: datetime | None
+    last_message_text: str | None
+    deep_link: str
+
+
+def list_account_tickets(team_id: int, organization_id: str, *, limit: int = 50) -> list[TicketSummary]:
+    """Support tickets whose resolved customer org matches ``organization_id``, newest activity first.
+
+    ``organization_id`` is the customer's group key (a customer-analytics account's
+    ``external_id``). An empty key matches nothing — never every ticket for the team.
+    """
+    if not organization_id:
+        return []
+    tickets = Ticket.objects.filter(team_id=team_id, organization_id=organization_id).order_by(
+        F("last_message_at").desc(nulls_last=True)
+    )[:limit]
+    return [
+        TicketSummary(
+            id=str(ticket.id),
+            ticket_number=ticket.ticket_number,
+            status=ticket.status,
+            last_message_at=ticket.last_message_at,
+            last_message_text=ticket.last_message_text,
+            deep_link=f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket.ticket_number}",
+        )
+        for ticket in tickets
+    ]
