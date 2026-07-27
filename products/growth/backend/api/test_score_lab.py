@@ -139,7 +139,7 @@ class TestScoreLabAPI(APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        rows = _drain_ndjson(response.streaming_content)
+        rows = _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
         verdict_rows = [row for row in rows if "summary" not in row]
         (summary_row,) = [row for row in rows if "summary" in row]
 
@@ -272,7 +272,7 @@ class TestScoreLabAPI(APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        rows = _drain_ndjson(response.streaming_content)
+        rows = _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
         verdict_rows = [row for row in rows if "summary" not in row]
         self.assertEqual(len(verdict_rows), 1)
         self.assertEqual(verdict_rows[0]["company"], "RowCo")
@@ -383,7 +383,7 @@ class TestScoreLabAPI(APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        rows = _drain_ndjson(response.streaming_content)
+        rows = _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
         verdict_rows = [row for row in rows if "summary" not in row]
         self.assertEqual(verdict_rows[0]["outputs"], {"is_enterprise": True, "employee_estimate": 500.0})
         self.assertNotIn("verdict", verdict_rows[0])

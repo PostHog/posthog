@@ -11,7 +11,7 @@ drift on how a verdict is computed.
 
 import json
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Count, Q
@@ -30,6 +30,7 @@ from posthog.api.streaming import streaming_response
 from posthog.api.utils import ErrorResponseSerializer
 from posthog.helpers.impersonation import is_impersonated
 from posthog.llm.gateway_client import get_llm_client
+from posthog.models import User
 from posthog.permissions import IsStaffUser
 
 from products.growth.backend.enrichment.input_query import InputQueryError, parse_input_query, run_input_query
@@ -140,7 +141,7 @@ def _valid_models_for_label(label: str) -> set[str]:
 
 
 class LabelSummarySerializer(serializers.Serializer):
-    label = serializers.CharField(help_text="Label name computed by one or more prompt config versions.")
+    label = serializers.CharField(help_text="Label name computed by one or more prompt config versions.")  # type: ignore[assignment]  # DRF Field.label collides with a field named label
     version_count = serializers.IntegerField(help_text="Number of prompt config versions saved for this label.")
     active_version = serializers.CharField(
         allow_null=True, help_text="Version string the batch runner currently computes for this label, or null."
@@ -203,7 +204,7 @@ class ConfigVersionSerializer(serializers.Serializer):
 
     @extend_schema_field(serializers.EmailField(allow_null=True))
     def get_created_by_email(self, obj: EnrichmentPromptConfig) -> str | None:
-        return obj.created_by.email if obj.created_by_id else None
+        return obj.created_by.email if obj.created_by else None
 
     @extend_schema_field(serializers.BooleanField())
     def get_has_results(self, obj: EnrichmentPromptConfig) -> bool:
@@ -216,11 +217,11 @@ class ConfigListResponseSerializer(serializers.Serializer):
 
 
 class ConfigsQuerySerializer(serializers.Serializer):
-    label = serializers.CharField(help_text="Label name to list prompt config versions for.")
+    label = serializers.CharField(help_text="Label name to list prompt config versions for.")  # type: ignore[assignment]  # DRF Field.label collides with a field named label
 
 
 class RunRequestSerializer(serializers.Serializer):
-    label = serializers.CharField(
+    label = serializers.CharField(  # type: ignore[assignment]
         max_length=128,
         help_text="Label this config computes, e.g. ai_pilled. Need not already exist - run classifies "
         "against an in-memory config only and persists nothing.",
@@ -287,7 +288,7 @@ class RunRequestSerializer(serializers.Serializer):
 
 
 class SaveRequestSerializer(serializers.Serializer):
-    label = serializers.CharField(max_length=128, help_text="Label this config computes, e.g. ai_pilled.")
+    label = serializers.CharField(max_length=128, help_text="Label this config computes, e.g. ai_pilled.")  # type: ignore[assignment]  # DRF Field.label collides with a field named label
     version = serializers.CharField(
         max_length=128,
         help_text="Human-readable classifier version, e.g. ai-pilled-clay-v2. Must be unique per label.",
@@ -540,7 +541,7 @@ class ScoreLabViewSet(viewsets.ViewSet):
             input_query=data["input_query"],
             output_fields=data["output_fields"],
             is_active=False,
-            created_by=request.user,
+            created_by=cast(User, request.user),
         )
 
         logger.info(
