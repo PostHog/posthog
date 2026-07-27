@@ -123,9 +123,62 @@ def _redact_logpush_destination(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _redact_scim_authentication(auth: Any) -> Any:
+    """An Access app's SCIM `authentication` block holds the credentials Cloudflare
+    uses to push to the customer's SCIM endpoint (basic user/password, a bearer
+    token, or an OAuth client secret). Keep only the non-secret `scheme` and redact
+    everything else, so a warehouse reader can't recover them."""
+    if isinstance(auth, list):
+        return [_redact_scim_authentication(item) for item in auth]
+    if isinstance(auth, dict):
+        return {key: (value if key.lower() == "scheme" else "REDACTED") for key, value in auth.items()}
+    return auth
+
+
+# Keys inside an Access app's `saas_app` block that hold an OIDC client secret.
+_SAAS_APP_SECRET_KEYS = frozenset({"client_secret", "secret"})
+
+
+def _redact_access_app(row: dict[str, Any]) -> dict[str, Any]:
+    scim = row.get("scim_config")
+    if isinstance(scim, dict) and "authentication" in scim:
+        row["scim_config"] = {**scim, "authentication": _redact_scim_authentication(scim["authentication"])}
+    saas = row.get("saas_app")
+    if isinstance(saas, dict):
+        row["saas_app"] = {
+            key: ("REDACTED" if key.lower() in _SAAS_APP_SECRET_KEYS else value) for key, value in saas.items()
+        }
+    return row
+
+
+def _redact_header_values(value: Any) -> Any:
+    if isinstance(value, list):
+        return ["REDACTED" for _ in value]
+    return "REDACTED"
+
+
+def _redact_healthcheck(row: dict[str, Any]) -> dict[str, Any]:
+    """A health check's `http_config.header` map is user-configured request headers
+    that can carry an `Authorization` (or other auth) header. Redact the values while
+    keeping the header names, so the check's shape stays legible without leaking secrets."""
+    http_config = row.get("http_config")
+    if not isinstance(http_config, dict):
+        return row
+    header = http_config.get("header")
+    if not isinstance(header, dict):
+        return row
+    row["http_config"] = {
+        **http_config,
+        "header": {name: _redact_header_values(value) for name, value in header.items()},
+    }
+    return row
+
+
 _DATA_MAPS = {
     "dns_analytics_report": _flatten_dns_analytics_row,
     "logpush_jobs": _redact_logpush_destination,
+    "access_apps": _redact_access_app,
+    "healthchecks": _redact_healthcheck,
 }
 
 

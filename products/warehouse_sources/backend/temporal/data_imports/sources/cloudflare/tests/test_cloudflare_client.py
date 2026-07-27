@@ -10,6 +10,8 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import (
     PAGE_SIZE,
+    _redact_access_app,
+    _redact_healthcheck,
     _redact_logpush_destination,
     cloudflare_source,
     validate_credentials,
@@ -477,6 +479,102 @@ class TestLogpushDestinationRedaction:
 
         assert "SUPERSECRET" not in rows[0]["destination_conf"]
         assert rows[0]["destination_conf"] == "s3://b/logs?secret-access-key=REDACTED"
+
+
+class TestAccessAppRedaction:
+    def test_redacts_scim_authentication_but_keeps_scheme(self) -> None:
+        row = {
+            "id": "app1",
+            "scim_config": {"enabled": True, "authentication": {"scheme": "oauthbearertoken", "token": "shh"}},
+        }
+
+        result = _redact_access_app(row)
+
+        assert result["scim_config"] == {
+            "enabled": True,
+            "authentication": {"scheme": "oauthbearertoken", "token": "REDACTED"},
+        }
+
+    def test_redacts_each_authentication_in_a_list(self) -> None:
+        row = {"scim_config": {"authentication": [{"scheme": "httpbasic", "user": "u", "password": "p"}]}}
+
+        result = _redact_access_app(row)
+
+        assert result["scim_config"]["authentication"] == [
+            {"scheme": "httpbasic", "user": "REDACTED", "password": "REDACTED"}
+        ]
+
+    def test_redacts_saas_app_client_secret_only(self) -> None:
+        row = {"saas_app": {"auth_type": "oidc", "client_id": "cid", "client_secret": "shh"}}
+
+        result = _redact_access_app(row)
+
+        assert result["saas_app"] == {"auth_type": "oidc", "client_id": "cid", "client_secret": "REDACTED"}
+
+    def test_leaves_rows_without_secret_blocks_untouched(self) -> None:
+        row = {"id": "app1", "name": "My app"}
+        assert _redact_access_app(row) == row
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_secrets_are_stripped_when_synced(self, MockSession) -> None:
+        # Guards that the redaction data_map is actually wired to the access_apps resource.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "a1"}], total_pages=1),
+                _response(
+                    [
+                        {
+                            "id": "app1",
+                            "scim_config": {"authentication": {"scheme": "oauthbearertoken", "token": "SUPERSECRET"}},
+                        }
+                    ],
+                    total_pages=1,
+                ),
+            ],
+        )
+
+        rows = _rows(cloudflare_source("token", "access_apps", team_id=1, job_id="j"))
+
+        assert rows[0]["scim_config"]["authentication"] == {"scheme": "oauthbearertoken", "token": "REDACTED"}
+
+
+class TestHealthcheckRedaction:
+    def test_redacts_http_config_header_values_keeping_names(self) -> None:
+        row = {
+            "id": "hc1",
+            "http_config": {"method": "GET", "header": {"Host": ["example.com"], "Authorization": ["Bearer tok"]}},
+        }
+
+        result = _redact_healthcheck(row)
+
+        assert result["http_config"] == {
+            "method": "GET",
+            "header": {"Host": ["REDACTED"], "Authorization": ["REDACTED"]},
+        }
+
+    def test_leaves_rows_without_http_headers_untouched(self) -> None:
+        row = {"id": "hc1", "http_config": {"method": "GET"}}
+        assert _redact_healthcheck(row) == row
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_auth_header_is_stripped_when_synced(self, MockSession) -> None:
+        # Guards that the redaction data_map is actually wired to the healthchecks resource.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "z1"}], total_pages=1),
+                _response(
+                    [{"id": "hc1", "http_config": {"header": {"Authorization": ["Bearer SUPERSECRET"]}}}], total_pages=1
+                ),
+            ],
+        )
+
+        rows = _rows(cloudflare_source("token", "healthchecks", team_id=1, job_id="j"))
+
+        assert rows[0]["http_config"]["header"] == {"Authorization": ["REDACTED"]}
 
 
 class TestAuditLogsIncremental:
