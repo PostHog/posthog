@@ -21,6 +21,7 @@ from posthog.storage.hypercache import (
     HyperCacheDependencyUnavailable,
     HyperCacheStoreMissing,
 )
+from posthog.storage.hypercache_messages import HypercacheReadySignal
 
 
 class HyperCacheTestBase:
@@ -1501,3 +1502,142 @@ class TestHyperCacheSkipIfUnchanged(BaseTest):
             with patch.object(hc, "_set_cache_value_redis", wraps=hc._set_cache_value_redis) as redis_write:
                 hc.set_cache_value(self.team.id, second, skip_if_unchanged=skip_if_unchanged)
         redis_write.assert_called_once()
+
+
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "ready-signal-test-cache",
+        },
+    }
+)
+class TestHyperCacheReadySignal(BaseTest):
+    """set_cache_value publishes a best-effort cache-ready signal after a real write."""
+
+    CHANNEL = "hypercache:ready:test_ns:ready_value"
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def _hypercache(self, expiry_sorted_set_key: str | None = None) -> HyperCache:
+        return HyperCache(
+            namespace="test_ns",
+            value="ready_value",
+            load_fn=lambda team: {"default": "data"},
+            enable_etag=True,
+            s3_enabled=False,
+            ready_channel=self.CHANNEL,
+            expiry_sorted_set_key=expiry_sorted_set_key,
+        )
+
+    def test_ready_channel_requires_enable_etag(self):
+        with pytest.raises(ValueError, match="ready_channel requires enable_etag"):
+            HyperCache(
+                namespace="test_ns",
+                value="ready_value",
+                load_fn=lambda team: {"default": "data"},
+                enable_etag=False,
+                ready_channel=self.CHANNEL,
+            )
+
+    @override_settings(HYPERCACHE_READY_SIGNALS_ENABLED=True)
+    @patch("posthog.storage.hypercache.get_client")
+    def test_publishes_signal_after_real_write(self, mock_get_client):
+        mock_redis = Mock()
+        mock_get_client.return_value = mock_redis
+
+        hc = self._hypercache()
+        hc.set_cache_value(self.team, {"a": 1})
+
+        mock_redis.publish.assert_called_once()
+        channel, payload = mock_redis.publish.call_args[0]
+        assert channel == self.CHANNEL
+        # The payload is the v1 wire contract, carrying the team and the etag just written —
+        # the exact bytes the gateway confirm-reads against Redis.
+        parsed = HypercacheReadySignal.model_validate_json(payload)
+        assert parsed.team_id == self.team.id
+        assert parsed.namespace == "test_ns"
+        assert parsed.value == "ready_value"
+        assert parsed.etag == hc.get_etag(self.team)
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_no_publish_when_gate_off(self, mock_get_client):
+        # Default settings leave the gate off — the whole change ships dark.
+        mock_redis = Mock()
+        mock_get_client.return_value = mock_redis
+
+        hc = self._hypercache()
+        hc.set_cache_value(self.team, {"a": 1})
+
+        mock_redis.publish.assert_not_called()
+
+    @override_settings(HYPERCACHE_READY_SIGNALS_ENABLED=True)
+    @patch("posthog.storage.hypercache.get_client")
+    def test_no_publish_on_skip_if_unchanged(self, mock_get_client):
+        mock_redis = Mock()
+        mock_get_client.return_value = mock_redis
+
+        hc = self._hypercache(expiry_sorted_set_key="ready_ns_expiry")
+        # First write establishes the etag and publishes; the byte-identical rewrite takes the
+        # skip early-return, so no spurious second ping is published.
+        hc.set_cache_value(self.team, {"a": 1}, skip_if_unchanged=True)
+        hc.set_cache_value(self.team, {"a": 1}, skip_if_unchanged=True)
+
+        assert mock_redis.publish.call_count == 1
+
+    @parameterized.expand(
+        [
+            # Each path writes/deletes without a real-payload set_cache_value, so none may publish:
+            # a sentinel is a "missing" beacon (null), delete is sweep-covered, and the redis-only
+            # path (repopulation/backfill) restores already-current content.
+            ("sentinel", lambda hc, team: hc.set_cache_value(team, HyperCacheStoreMissing())),
+            ("delete", lambda hc, team: hc.delete_cache_entry(team)),
+            ("redis_only", lambda hc, team: hc.set_cache_value_redis_only(team, {"a": 1})),
+        ]
+    )
+    @override_settings(HYPERCACHE_READY_SIGNALS_ENABLED=True)
+    @patch("posthog.storage.hypercache.get_client")
+    def test_no_publish_on_non_real_write_paths(self, _name, action, mock_get_client):
+        mock_redis = Mock()
+        mock_get_client.return_value = mock_redis
+
+        hc = self._hypercache()
+        action(hc, self.team)
+
+        mock_redis.publish.assert_not_called()
+
+    @override_settings(HYPERCACHE_READY_SIGNALS_ENABLED=True)
+    @patch("posthog.storage.hypercache.capture_exception")
+    @patch("posthog.storage.hypercache.get_client")
+    def test_publish_failure_does_not_fail_write(self, mock_get_client, mock_capture):
+        mock_redis = Mock()
+        mock_redis.publish.side_effect = redis.exceptions.ConnectionError("boom")
+        mock_get_client.return_value = mock_redis
+
+        hc = self._hypercache()
+        size = hc.set_cache_value(self.team, {"a": 1})
+
+        # A publish failure is swallowed and captured; the write returns its size and the value lands.
+        assert size == len(json.dumps({"a": 1}, sort_keys=True))
+        assert hc.get_from_cache(self.team) == {"a": 1}
+        mock_capture.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("plain", False, None),
+            ("skip_if_unchanged", True, "ready_ns_expiry"),
+        ]
+    )
+    @patch("posthog.storage.hypercache.get_client")
+    def test_etag_computed_once_per_set_cache_value(self, _name, skip_if_unchanged, expiry_key, mock_get_client):
+        mock_get_client.return_value = Mock()
+        hc = self._hypercache(expiry_sorted_set_key=expiry_key)
+
+        with patch.object(hc, "_compute_etag", wraps=hc._compute_etag) as compute_spy:
+            hc.set_cache_value(self.team, {"a": 1}, skip_if_unchanged=skip_if_unchanged)
+
+        # One write hashes the multi-MB payload exactly once: the skip-if-unchanged compare and
+        # the Redis write share the single hash instead of recomputing it.
+        assert compute_spy.call_count == 1

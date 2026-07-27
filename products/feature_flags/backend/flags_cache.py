@@ -468,6 +468,8 @@ flags_hypercache = HyperCache(
     # (FlagDefinitionsCache), keyed on (team_id, etag). Without this, the cache
     # bypass branch fires on every request and the perf opt is wasted.
     enable_etag=True,
+    # Post-write cache-ready signal for the flags-stream-gateway (dedicated flags tier).
+    ready_channel="hypercache:ready:feature_flags:flags.json",
 )
 
 

@@ -12,6 +12,7 @@ from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
 from posthog.personhog_client.fake_client import get_active_fake
+from posthog.storage.hypercache_messages import HypercacheReadySignal
 from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete
@@ -207,6 +208,25 @@ class TestLocalEvaluationCache(BaseTest):
         response, source = flag_definitions_hypercache.get_from_cache_with_source(self.team)
         assert source == "redis"
         self._assert_payload_valid_with_cohorts(response)
+
+    @override_settings(HYPERCACHE_READY_SIGNALS_ENABLED=True)
+    @patch("posthog.storage.hypercache.get_client")
+    def test_update_flag_caches_publishes_one_ready_signal_per_change(self, mock_get_client):
+        # End-to-end wiring guard: the definitions cache opts into the ready channel, so a real
+        # rebuild publishes exactly one signal, and an unchanged rebuild (skip_if_unchanged) none.
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+        clear_flag_definition_caches(self.team)
+
+        update_flag_caches(self.team)
+
+        assert mock_redis.publish.call_count == 1
+        channel, payload = mock_redis.publish.call_args[0]
+        assert channel == "hypercache:ready:feature_flags:flags_with_cohorts.json"
+        assert HypercacheReadySignal.model_validate_json(payload).team_id == self.team.id
+
+        update_flag_caches(self.team)
+        assert mock_redis.publish.call_count == 1
 
 
 class TestUpdateFlagCachesGroupMappingGuards(BaseTest):

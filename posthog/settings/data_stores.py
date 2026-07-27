@@ -557,6 +557,11 @@ if not EMBEDDING_API_URL:
 # This allows feature-flags service to have dedicated Redis for better resource isolation
 FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
+# When true, HyperCache emits a best-effort Redis PUBLISH after a real cache write so the
+# flags-stream-gateway can wake subscribers immediately (the ETag sweep remains the backstop).
+# Default off so the change ships dark; flip per environment to start/stop without a code change.
+HYPERCACHE_READY_SIGNALS_ENABLED = get_from_env("HYPERCACHE_READY_SIGNALS_ENABLED", False, type_cast=str_to_bool)
+
 # Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
 # sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is
 # published where the gateway reads it — zero config for the agent-platform e2e

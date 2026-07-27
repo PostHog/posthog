@@ -406,6 +406,8 @@ flag_definitions_hypercache = HyperCache(
     batch_load_fn=lambda teams: _get_flags_response_for_local_evaluation_batch(teams),
     enable_etag=True,
     expiry_sorted_set_key=FLAG_DEFINITIONS_CACHE_EXPIRY_SORTED_SET,
+    # Post-write cache-ready signal for the flags-stream-gateway (shared tier).
+    ready_channel="hypercache:ready:feature_flags:flags_with_cohorts.json",
 )
 
 

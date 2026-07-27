@@ -6,6 +6,7 @@ from typing import Optional
 
 from django.conf import settings
 from django.core.cache import cache, caches
+from django.utils import timezone
 
 import structlog
 import redis.exceptions
@@ -17,6 +18,7 @@ from prometheus_client import Counter, Histogram
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.storage import object_storage
+from posthog.storage.hypercache_messages import HypercacheReadySignal
 from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
@@ -117,6 +119,12 @@ HYPERCACHE_CACHE_COUNTER = Counter(
     labelnames=["result", "namespace", "value"],
 )
 
+HYPERCACHE_READY_SIGNAL_COUNTER = Counter(
+    "posthog_hypercache_ready_signal",
+    "Cache-ready signals published after a real HyperCache write (published, skipped, or failed)",
+    labelnames=["namespace", "value", "outcome"],
+)
+
 
 _HYPER_CACHE_EMPTY_VALUE = "__missing__"
 
@@ -180,9 +188,15 @@ class HyperCache:
         enable_etag: bool = False,
         expiry_sorted_set_key: Optional[str] = None,
         s3_enabled: bool = True,
+        ready_channel: Optional[str] = None,
     ):
         if token_based and hashed_credential_based:
             raise ValueError("token_based and hashed_credential_based are mutually exclusive")
+
+        # A cache-ready signal carries the freshly written ETag; without etags there is
+        # nothing meaningful to publish, so opting in without them is a wiring mistake.
+        if ready_channel and not enable_etag:
+            raise ValueError("ready_channel requires enable_etag")
 
         self.namespace = namespace
         self.value = value
@@ -197,6 +211,9 @@ class HyperCache:
         self.batch_load_fn = batch_load_fn
         self.enable_etag = enable_etag
         self.expiry_sorted_set_key = expiry_sorted_set_key
+        # Redis pub/sub channel for the post-write cache-ready signal. None disables it;
+        # publishing is additionally gated globally by settings.HYPERCACHE_READY_SIGNALS_ENABLED.
+        self.ready_channel = ready_channel
         # Redis-only mode: skips the S3 tier on reads, writes, and deletes. For short-TTL
         # entries whose staleness bound depends on expiry — an S3 copy never expires, so
         # it would restore a stale value past every redis expiry.
@@ -522,13 +539,23 @@ class HyperCache:
                 "set_cache_value(skip_if_unchanged=True) requires expiry tracking "
                 "(expiry_sorted_set_key) with a scheduled refresh that re-stamps the TTL"
             )
+        # Serialize and hash once per call, covering both the skip-if-unchanged compare and
+        # the write below, then hand both down so neither is recomputed (the payload tail is
+        # multiple MB — hashing it twice is real cost). This is the single place the ETag for
+        # this write is computed, which is what lets the ready signal reuse it.
         json_data: str | None = None
-        if skip_if_unchanged and self.enable_etag and isinstance(data, dict):
+        etag: str | None = None
+        if self.enable_etag and isinstance(data, dict):
             json_data = json.dumps(data, sort_keys=True)
-            if self._compute_etag(json_data) == self.get_etag(key):
+            etag = self._compute_etag(json_data)
+            if skip_if_unchanged and etag == self.get_etag(key):
                 HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
                 return len(json_data)
-        size = self._set_cache_value_redis(key, data, ttl=ttl, json_data=json_data)
+        size = self._set_cache_value_redis(key, data, ttl=ttl, json_data=json_data, etag=etag)
+        # Publish as soon as the real payload landed in Redis (None ⇒ sentinel/missing branch):
+        # the hint must not wait on — or be suppressed by a failure of — the S3 mirror below.
+        if size is not None:
+            self._publish_ready_signal(key, etag)
         if self.s3_enabled:
             self._set_cache_value_s3(key, data, ttl=ttl)
         # Only track expiry when we have a Team object (avoids DB lookup)
@@ -607,6 +634,7 @@ class HyperCache:
         data: dict | None | HyperCacheStoreMissing,
         ttl: Optional[int] = None,
         json_data: str | None = None,
+        etag: str | None = None,
     ) -> int | None:
         """
         Set cache value in Redis and return the serialized size in bytes.
@@ -615,6 +643,9 @@ class HyperCache:
 
         Pass ``json_data`` to reuse an already-serialized payload (a caller that hashed it
         for an ETag comparison) instead of re-running ``json.dumps`` over a large value.
+        Pass ``etag`` to reuse an already-computed content hash; callers that did not compute
+        one (e.g. the read-path repopulation and ``set_cache_value_redis_only``) leave it None
+        and it is computed here.
         """
         cache_key = self.get_cache_key(key)
         etag_key = self.get_etag_key(key)
@@ -631,7 +662,8 @@ class HyperCache:
             if json_data is None:
                 json_data = json.dumps(data, sort_keys=True)
             if self.enable_etag:
-                etag = self._compute_etag(json_data)
+                if etag is None:
+                    etag = self._compute_etag(json_data)
                 # Write data and ETag via pipeline (single Redis round trip)
                 # Note this is not strictly atomic, but good enough for our use case
                 self.cache_client.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout)
@@ -717,6 +749,68 @@ class HyperCache:
             logger.warning(
                 "Failed to track cache expiry",
                 namespace=self.namespace,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            capture_exception(e)
+
+    @staticmethod
+    def _team_id_from_key(key: KeyType) -> int | None:
+        """Resolve the numeric team id from a cache key without a DB lookup.
+
+        Team → its id, int → itself; a str token key returns None (resolving it would
+        need a DB round trip the write path must avoid), so only team-keyed caches
+        publish ready signals.
+        """
+        if isinstance(key, Team):
+            return key.id
+        if isinstance(key, int):
+            return key
+        return None
+
+    def _publish_ready_signal(self, key: KeyType, etag: str | None) -> None:
+        """Best-effort Redis PUBLISH of a cache-ready signal after a real write.
+
+        No-ops unless a ready_channel is configured and the global gate is on. The signal
+        is at-most-once and sweep-backed downstream (the flags-stream-gateway), so any
+        failure is swallowed and counted, never surfaced to the write. Publishes on
+        ``self.redis_url`` — the writer/primary the payload was just written to, so a
+        primary-side confirm-read sees the etag the signal carries.
+        """
+        if not self.ready_channel or not settings.HYPERCACHE_READY_SIGNALS_ENABLED:
+            return
+
+        if etag is None:
+            HYPERCACHE_READY_SIGNAL_COUNTER.labels(
+                namespace=self.namespace, value=self.value, outcome="skipped_no_etag"
+            ).inc()
+            return
+
+        team_id = self._team_id_from_key(key)
+        if team_id is None:
+            HYPERCACHE_READY_SIGNAL_COUNTER.labels(
+                namespace=self.namespace, value=self.value, outcome="skipped_no_team_id"
+            ).inc()
+            return
+
+        try:
+            payload = HypercacheReadySignal(
+                team_id=team_id,
+                namespace=self.namespace,
+                value=self.value,
+                etag=etag,
+                written_at=timezone.now(),
+            ).model_dump_json()
+            get_client(self.redis_url).publish(self.ready_channel, payload)
+            HYPERCACHE_READY_SIGNAL_COUNTER.labels(
+                namespace=self.namespace, value=self.value, outcome="published"
+            ).inc()
+        except Exception as e:
+            HYPERCACHE_READY_SIGNAL_COUNTER.labels(namespace=self.namespace, value=self.value, outcome="error").inc()
+            logger.warning(
+                "Failed to publish hypercache ready signal",
+                namespace=self.namespace,
+                value=self.value,
                 error=str(e),
                 error_type=type(e).__name__,
             )
