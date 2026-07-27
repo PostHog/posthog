@@ -14,63 +14,39 @@ use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 use serde_json::Value;
 
-use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::outputs::PrepSpec;
 use capture::outputs::{Output, OutputTable};
 use capture::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
 };
 use capture::router::router;
-use capture::sinks::producer::ProduceRecord;
-use capture::sinks::sink::{Prepare, PreparedPayload, Sink, SinkResult};
+use capture::sinks::sink::{PreparedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
-use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, Utc};
 
 #[derive(Default, Clone)]
 struct MemorySink {
-    events: Arc<Mutex<Vec<ProcessedEvent>>>,
-}
-
-/// Build an inert prepared payload: real uuid + headers, empty routing. Lets
-/// a capturing test sink ride the prep -> publish path without a broker.
-fn passthrough_payload(event: &ProcessedEvent) -> PreparedPayload {
-    PreparedPayload {
-        uuid: event.event.uuid,
-        record: ProduceRecord {
-            topic: String::new(),
-            key: None,
-            payload: Vec::new(),
-            headers: event.event.to_headers(),
-        },
-    }
-}
-
-#[async_trait]
-impl Prepare for MemorySink {
-    async fn prepare_batch(
-        &self,
-        events: Vec<ProcessedEvent>,
-    ) -> Result<Vec<PreparedPayload>, CaptureError> {
-        let payloads = events.iter().map(passthrough_payload).collect();
-        self.events.lock().unwrap().extend(events);
-        Ok(payloads)
-    }
+    events: Arc<Mutex<Vec<PreparedPayload>>>,
 }
 
 #[async_trait]
 impl Sink for MemorySink {
     async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
-        prepared
-            .into_iter()
-            .map(|p| SinkResult::ok(p.uuid))
-            .collect()
+        let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
+        self.events.lock().unwrap().extend(prepared);
+        results
     }
 }
 
 impl MemorySink {
-    fn events(&self) -> Vec<ProcessedEvent> {
+    fn events(&self) -> Vec<PreparedPayload> {
         self.events.lock().unwrap().clone()
+    }
+
+    /// Deserialize a captured payload back into the event it carries.
+    fn captured(p: &PreparedPayload) -> serde_json::Value {
+        serde_json::from_slice(&p.record.payload).expect("payload must deserialize")
     }
 }
 
@@ -152,7 +128,10 @@ async fn setup_router_with_limits(
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(Arc::new(sink.clone())))),
+        Arc::new(OutputTable::new(Output::single(
+            Arc::new(sink.clone()),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        ))),
         redis,
         None,
         quota_limiter,
@@ -211,11 +190,12 @@ fn create_batch_payload_with_token(events: &[&str], token: &str) -> String {
     }
 }
 
-fn extract_captured_event_names(events: &[ProcessedEvent]) -> Vec<String> {
+fn extract_captured_event_names(events: &[PreparedPayload]) -> Vec<String> {
     events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let cap = MemorySink::captured(e);
+            let event_data: Value = serde_json::from_str(cap["data"].as_str().unwrap()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect()
@@ -996,7 +976,8 @@ async fn test_survey_quota_handles_multiple_submission_groups() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 1);
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
+    let cap = MemorySink::captured(&captured_events[0]);
+    let event_data: Value = serde_json::from_str(cap["data"].as_str().unwrap()).unwrap();
     assert_eq!(event_data["event"], "click");
 }
 
@@ -1205,7 +1186,10 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(Arc::new(sink.clone())))),
+        Arc::new(OutputTable::new(Output::single(
+            Arc::new(sink.clone()),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        ))),
         redis,
         None,
         quota_limiter,
@@ -1296,7 +1280,10 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(Arc::new(sink.clone())))),
+        Arc::new(OutputTable::new(Output::single(
+            Arc::new(sink.clone()),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        ))),
         redis,
         None,
         quota_limiter,
@@ -1391,7 +1378,10 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(Arc::new(sink.clone())))),
+        Arc::new(OutputTable::new(Output::single(
+            Arc::new(sink.clone()),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        ))),
         redis,
         None,
         quota_limiter,
@@ -1444,7 +1434,8 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 1);
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
+    let cap = MemorySink::captured(&captured_events[0]);
+    let event_data: Value = serde_json::from_str(cap["data"].as_str().unwrap()).unwrap();
     assert_eq!(event_data["event"], "pageview");
 }
 
@@ -1823,7 +1814,10 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(Arc::new(sink.clone())))),
+        Arc::new(OutputTable::new(Output::single(
+            Arc::new(sink.clone()),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        ))),
         redis,
         None,
         quota_limiter,
@@ -1876,7 +1870,8 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
     // So AI event should be dropped, only pageview remains
     let events = sink.events();
     assert_eq!(events.len(), 1);
-    let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
+    let cap = MemorySink::captured(&events[0]);
+    let event_data: Value = serde_json::from_str(cap["data"].as_str().unwrap()).unwrap();
     assert_eq!(event_data["event"], "pageview");
 }
 

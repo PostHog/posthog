@@ -28,16 +28,292 @@
 //! prep path via the `OutputRegistry`); the table is where per-address
 //! wiring lands when the first config needs it.
 
-use std::sync::Arc;
+pub mod registry;
 
-use metrics::{counter, gauge};
+use std::sync::Arc;
+use std::time::Instant;
+
+use metrics::{counter, gauge, histogram};
+use tokio::task::JoinSet;
 use tracing::log::error;
+use tracing::{info_span, Instrument};
 
 use crate::api::CaptureError;
-use crate::config::AiRouting;
+use crate::config::{AiRouting, EnvelopeCompression, KafkaConfig};
 use crate::failover::{AttemptOutcome, FailoverController, Route as FailoverRoute};
-use crate::sinks::sink::{fold_results, Prepare};
+use crate::outputs::registry::{OutputRegistry, Outputs};
+use crate::pipeline::{resolve, KeyPolicy, Lane, LaneDecision, LaneEffect, Pipeline};
+use crate::serialization::{Format, Serializer};
+use crate::sinks::producer::ProduceRecord;
+use crate::sinks::sink::{fold_results, PreparedPayload, Sink};
 use crate::v0_request::ProcessedEvent;
+
+/// One target's payload-assembly configuration: the output→topic wiring and
+/// the per-destination payload serializers. The outputs layer runs the whole
+/// prep dance with this — lane lookup, serialization, headers, topic and
+/// partition key — and hands the sink ready-to-publish payloads. Cheap to
+/// clone (an `Arc` and two `Copy` serializers), which matters in the
+/// scatter-gather prep path where it is cloned once per spawned task.
+#[derive(Clone)]
+pub struct PrepSpec {
+    registry: Arc<OutputRegistry>,
+    default_serializer: Serializer,
+    replay_serializer: Serializer,
+}
+
+impl PrepSpec {
+    pub fn new(
+        registry: Arc<OutputRegistry>,
+        replay_envelope_compression: EnvelopeCompression,
+    ) -> Self {
+        Self {
+            registry,
+            default_serializer: Serializer::json(),
+            replay_serializer: Serializer::new(Format::Json, replay_envelope_compression.into()),
+        }
+    }
+
+    /// The payload encoding for an event's pipeline. Replay has its own
+    /// (envelope-compressed) contract with its consumers; everything else is
+    /// plain json.
+    fn serializer_for(&self, pipeline: Pipeline) -> Serializer {
+        match pipeline {
+            Pipeline::Replay => self.replay_serializer,
+            _ => self.default_serializer,
+        }
+    }
+}
+
+impl From<&KafkaConfig> for PrepSpec {
+    fn from(config: &KafkaConfig) -> Self {
+        Self::new(
+            Arc::new(OutputRegistry::from(config)),
+            config.kafka_replay_envelope_compression,
+        )
+    }
+}
+
+/// Bridge from a resolved `(pipeline, lane)` address to the registry's output
+/// vocabulary, which resolves to a topic.
+///
+/// `unreachable!` arms are lane/pipeline pairs [`resolve`] — the sole
+/// `LaneDecision` constructor — never produces, pinned by its unit tests.
+fn output_for<'a>(decision: &'a LaneDecision<'a>) -> Outputs<'a> {
+    match (decision.pipeline, &decision.lane) {
+        (_, Lane::Dlq) => Outputs::Dlq,
+        (_, Lane::Custom(topic)) => Outputs::Custom(topic),
+        (Pipeline::Analytics, Lane::Main) => Outputs::Main,
+        (Pipeline::Analytics, Lane::Overflow) => Outputs::Overflow,
+        (Pipeline::Analytics, Lane::Historical) => Outputs::Historical,
+        (Pipeline::Heatmaps, Lane::Main) => Outputs::Heatmaps,
+        (Pipeline::Warnings, Lane::Main) => Outputs::ClientIngestionWarning,
+        (Pipeline::ErrorTracking, Lane::Main) => Outputs::ErrorTracking,
+        (Pipeline::Replay, Lane::Main) => Outputs::Main,
+        (Pipeline::Replay, Lane::Overflow) => Outputs::ReplayOverflow,
+        (pipeline, lane) => unreachable!("lane {lane:?} is not reachable for {pipeline:?}"),
+    }
+}
+
+/// CPU-bound prep work for one event: serialize payload + build headers +
+/// pick topic/key. Safe to run concurrently across events in a batch because
+/// it touches no producer state — the sink's publish phase is what enforces
+/// per-partition ordering.
+///
+/// The lane decision is [`resolve`] — pure policy over the metadata stamped
+/// upstream. This function only applies it: serializer choice, header stamps,
+/// counters, topic and partition key resolution. It consults no limiter and
+/// decides nothing.
+fn prepare_payload(
+    spec: &PrepSpec,
+    event: ProcessedEvent,
+) -> Result<PreparedPayload, CaptureError> {
+    let (event, metadata) = (event.event, event.metadata);
+
+    let decision = resolve(&metadata);
+    let serializer = spec.serializer_for(decision.pipeline);
+    let payload = serializer.serialize(&event)?;
+
+    // Correlation UUID, captured before the (memory-hungry) event is
+    // dropped so the prepared payload can key its per-event `SinkResult`.
+    let uuid = event.uuid;
+    let event_key = event.key();
+
+    // Use the event's to_headers() method for consistent header serialization
+    let mut headers = event.to_headers();
+
+    drop(event); // Events can be EXTREMELY memory hungry
+
+    // Generic metadata-driven header stamps, independent of the lane
+    // decision: applied to every event.
+    if metadata.skip_person_processing {
+        headers.set_force_disable_person_processing(true);
+    }
+    if metadata.skip_heatmap_processing {
+        headers.set_skip_heatmap_processing(true);
+    }
+
+    match decision.effect {
+        LaneEffect::Standard => {}
+        LaneEffect::Dlq => {
+            counter!(
+                "capture_events_rerouted_dlq",
+                &[("reason", "event_restriction")]
+            )
+            .increment(1);
+
+            // Set DLQ specific headers
+            // DLQ reason cannot be known beyond being triggered by an event restriction.
+            headers.set_dlq_reason("event_restriction".to_string());
+            // Unlike with our node code, DLQ step will always be static.
+            headers.set_dlq_step("capture".to_string());
+            headers.set_dlq_timestamp(
+                chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            );
+        }
+        LaneEffect::CustomTopic => {
+            counter!(
+                "capture_events_rerouted_custom_topic",
+                &[("reason", "event_restriction")]
+            )
+            .increment(1);
+        }
+        LaneEffect::ForceDisablePersonProcessing => {
+            headers.set_force_disable_person_processing(true);
+        }
+    }
+
+    // Single output→topic resolution point: the registry owns the wiring,
+    // and `Custom` returns its inline admin-supplied topic.
+    let output = output_for(&decision);
+    let topic: &str = spec.registry.topic_for(&output);
+
+    let partition_key: Option<String> = match decision.key_policy {
+        KeyPolicy::EventKey => Some(event_key),
+        KeyPolicy::Null => None,
+        KeyPolicy::SessionId => Some(
+            metadata
+                .session_id
+                .clone()
+                .ok_or(CaptureError::MissingSessionId)?,
+        ),
+    };
+
+    // The serializer's content headers signal the encoding on the wire, so
+    // old and new encodings coexist on one destination during a rollout.
+    if let Some(encoding) = serializer.content_encoding() {
+        headers.set_content_encoding(encoding.to_string());
+    }
+
+    Ok(PreparedPayload {
+        uuid,
+        record: ProduceRecord {
+            topic: topic.to_string(),
+            key: partition_key,
+            payload,
+            headers,
+        },
+    })
+}
+
+/// Batches below this size take the serial fast path in `prepare_batch`:
+/// spawning N `JoinSet` tasks to run `prepare_payload` in parallel is
+/// net-negative when each task does only payload serialization and a header
+/// build — the scheduler overhead dominates the CPU savings. Scatter-gather
+/// kicks in at or above this threshold where parallel prep wins back its
+/// spawn cost.
+pub(crate) const SCATTER_GATHER_MIN_BATCH: usize = 8;
+
+/// Prep phase for a whole batch: turn `ProcessedEvent`s into ready-to-publish
+/// [`PreparedPayload`]s in the original event order. Fail-fast: any single
+/// prep error aborts the whole batch and produces zero records.
+///
+/// Small batches prep serially; batches at or above
+/// `SCATTER_GATHER_MIN_BATCH` scatter prep across tokio workers and gather
+/// back into input order so per-partition ordering downstream is unaffected.
+/// (The histogram names keep their `kafka` prefix for dashboard continuity —
+/// prep is generic now, but the metric contract is stable.)
+pub(crate) async fn prepare_batch(
+    spec: &PrepSpec,
+    events: Vec<ProcessedEvent>,
+) -> Result<Vec<PreparedPayload>, CaptureError> {
+    let batch_size = events.len();
+
+    // Small-batch fast path: the JoinSet spawn overhead dominates any
+    // parallel-prep win, so stay single-threaded.
+    if batch_size < SCATTER_GATHER_MIN_BATCH {
+        let prep_start = Instant::now();
+        let mut prepared: Vec<PreparedPayload> = Vec::with_capacity(batch_size);
+        for event in events {
+            match prepare_payload(spec, event) {
+                Ok(payload) => prepared.push(payload),
+                Err(err) => {
+                    histogram!("capture_kafka_batch_prep_duration_seconds")
+                        .record(prep_start.elapsed().as_secs_f64());
+                    return Err(err);
+                }
+            }
+        }
+        histogram!("capture_kafka_batch_prep_duration_seconds")
+            .record(prep_start.elapsed().as_secs_f64());
+        return Ok(prepared);
+    }
+
+    // Parallel prep across tokio workers. Each task returns its input index
+    // so results reassemble in the original event order before the serial
+    // enqueue phase. This is where the CPU win lives: payload serialization
+    // + header build run concurrently on up to N worker threads, rather
+    // than sequentially on a single task.
+    let prep_start = Instant::now();
+    let mut prep_set: JoinSet<(usize, Result<PreparedPayload, CaptureError>)> = JoinSet::new();
+    for (idx, event) in events.into_iter().enumerate() {
+        let spec = spec.clone();
+        prep_set.spawn(
+            async move { (idx, prepare_payload(&spec, event)) }
+                .instrument(info_span!("prepare_payload")),
+        );
+    }
+
+    // Collect into a (idx, payload) Vec and sort rather than indexing into
+    // a `Vec<Option<_>>`. Encodes the "every slot filled" invariant in the
+    // type: no `Option`, no unreachable `expect`, no N-element `None`
+    // preallocation. Our only cancellation source is `prep_set.abort_all()`
+    // below, invoked only from an already-errored branch, so any
+    // `JoinError` observed during normal drain implies a panic inside
+    // `prepare_payload` — counted separately so it's alertable.
+    let mut prepared: Vec<(usize, PreparedPayload)> = Vec::with_capacity(batch_size);
+    while let Some(join_result) = prep_set.join_next().await {
+        let (idx, result) = match join_result {
+            Err(err) => {
+                counter!("capture_kafka_prep_panic_total").increment(1);
+                error!("join error while preparing payload: {err:#}");
+                // Drain remaining prep tasks before returning so they can't
+                // leak records downstream after we've already failed.
+                // Record the histogram on the error path too so prep-duration
+                // stays observable during failures (not just happy path).
+                prep_set.abort_all();
+                histogram!("capture_kafka_batch_prep_duration_seconds")
+                    .record(prep_start.elapsed().as_secs_f64());
+                return Err(CaptureError::RetryableSinkError);
+            }
+            Ok(inner) => inner,
+        };
+        match result {
+            Ok(payload) => prepared.push((idx, payload)),
+            Err(err) => {
+                prep_set.abort_all();
+                histogram!("capture_kafka_batch_prep_duration_seconds")
+                    .record(prep_start.elapsed().as_secs_f64());
+                return Err(err);
+            }
+        }
+    }
+    prepared.sort_unstable_by_key(|(idx, _)| *idx);
+    debug_assert_eq!(prepared.len(), batch_size);
+    histogram!("capture_kafka_batch_prep_duration_seconds")
+        .record(prep_start.elapsed().as_secs_f64());
+
+    Ok(prepared.into_iter().map(|(_, payload)| payload).collect())
+}
 
 /// A produce destination: a single backend, or a policy composing two of them.
 /// The representation is private — construction happens at boot in `setup`,
@@ -48,7 +324,8 @@ pub struct Output {
 
 enum Repr {
     Single {
-        sink: Arc<dyn Prepare>,
+        sink: Arc<dyn Sink>,
+        prep: PrepSpec,
     },
     /// Health-gated failover, Kafka primary / S3 secondary today. Publishes
     /// to the primary and re-publishes the batch to the secondary on a
@@ -74,9 +351,9 @@ enum Repr {
 }
 
 impl Output {
-    pub fn single(sink: Arc<dyn Prepare>) -> Self {
+    pub fn single(sink: Arc<dyn Sink>, prep: PrepSpec) -> Self {
         Output {
-            repr: Repr::Single { sink },
+            repr: Repr::Single { sink, prep },
         }
     }
 
@@ -145,8 +422,8 @@ impl Output {
     /// resolves topics and serializes for itself.
     pub async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         match &self.repr {
-            Repr::Single { sink } => {
-                let prepared = sink.prepare_batch(events).await?;
+            Repr::Single { sink, prep } => {
+                let prepared = prepare_batch(prep, events).await?;
                 fold_results(sink.publish(prepared).await)
             }
             Repr::Failover {
@@ -308,7 +585,7 @@ impl Output {
     /// former `FallbackSink`); split flushes both clusters.
     pub fn flush(&self) -> Result<(), anyhow::Error> {
         match &self.repr {
-            Repr::Single { sink } => sink.flush(),
+            Repr::Single { sink, .. } => sink.flush(),
             Repr::Failover { primary, .. } => primary.flush(),
             Repr::Split {
                 primary, secondary, ..
@@ -386,10 +663,17 @@ mod tests {
         }
     }
 
+    fn spec() -> PrepSpec {
+        PrepSpec::new(
+            Arc::new(crate::outputs::registry::test_topics()),
+            EnvelopeCompression::None,
+        )
+    }
+
     fn tokens(sink: &MockSink) -> Vec<String> {
-        sink.get_events()
+        sink.captured_events()
             .iter()
-            .map(|e| e.event.token.clone())
+            .map(|e| e.token.clone())
             .collect()
     }
 
@@ -397,8 +681,8 @@ mod tests {
     async fn failover_publishes_to_secondary_on_retriable_failure() {
         let secondary = MockSink::new();
         let output = Output::failover_reactive(
-            Output::single(Arc::new(FailSink(CaptureError::RetryableSinkError))),
-            Output::single(Arc::new(secondary.clone())),
+            Output::single(Arc::new(FailSink(CaptureError::RetryableSinkError)), spec()),
+            Output::single(Arc::new(secondary.clone()), spec()),
         );
 
         output
@@ -410,14 +694,14 @@ mod tests {
             .await
             .expect("failed to send batch");
 
-        assert_eq!(secondary.get_events().len(), 3);
+        assert_eq!(secondary.captured_events().len(), 3);
     }
 
     #[tokio::test]
     async fn failover_returns_error_when_both_fail() {
         let output = Output::failover_reactive(
-            Output::single(Arc::new(FailSink(CaptureError::RetryableSinkError))),
-            Output::single(Arc::new(FailSink(CaptureError::RetryableSinkError))),
+            Output::single(Arc::new(FailSink(CaptureError::RetryableSinkError)), spec()),
+            Output::single(Arc::new(FailSink(CaptureError::RetryableSinkError)), spec()),
         );
 
         assert!(matches!(
@@ -436,15 +720,18 @@ mod tests {
     async fn failover_fatal_error_does_not_fail_over() {
         let secondary = MockSink::new();
         let output = Output::failover_reactive(
-            Output::single(Arc::new(FailSink(CaptureError::NonRetryableSinkError))),
-            Output::single(Arc::new(secondary.clone())),
+            Output::single(
+                Arc::new(FailSink(CaptureError::NonRetryableSinkError)),
+                spec(),
+            ),
+            Output::single(Arc::new(secondary.clone()), spec()),
         );
 
         assert!(matches!(
             output.publish(vec![event_with_token("tok")]).await,
             Err(CaptureError::NonRetryableSinkError)
         ));
-        assert!(secondary.get_events().is_empty());
+        assert!(secondary.captured_events().is_empty());
     }
 
     #[tokio::test]
@@ -466,8 +753,8 @@ mod tests {
         let primary = MockSink::new();
         let secondary = MockSink::new();
         let output = Output::failover(
-            Output::single(Arc::new(primary.clone())),
-            Output::single(Arc::new(secondary.clone())),
+            Output::single(Arc::new(primary.clone()), spec()),
+            Output::single(Arc::new(secondary.clone()), spec()),
             kafka_handle.clone(),
         );
 
@@ -475,29 +762,28 @@ mod tests {
         kafka_handle.report_healthy();
         tokio::time::sleep(Duration::from_millis(100)).await;
         output.publish(vec![event_with_token("a")]).await.unwrap();
-        assert_eq!(primary.get_events().len(), 1);
-        assert!(secondary.get_events().is_empty());
+        assert_eq!(primary.captured_events().len(), 1);
+        assert!(secondary.captured_events().is_empty());
 
         // Let the advisory deadline expire: publishes skip the primary.
         tokio::time::sleep(Duration::from_millis(400)).await;
         output.publish(vec![event_with_token("b")]).await.unwrap();
-        assert_eq!(primary.get_events().len(), 1);
-        assert_eq!(secondary.get_events().len(), 1);
+        assert_eq!(primary.captured_events().len(), 1);
+        assert_eq!(secondary.captured_events().len(), 1);
 
         // Recovery: report healthy again and the primary serves once more.
         kafka_handle.report_healthy();
         tokio::time::sleep(Duration::from_millis(100)).await;
         output.publish(vec![event_with_token("c")]).await.unwrap();
-        assert_eq!(primary.get_events().len(), 2);
-        assert_eq!(secondary.get_events().len(), 1);
+        assert_eq!(primary.captured_events().len(), 2);
+        assert_eq!(secondary.captured_events().len(), 1);
     }
 
     // ---- Breaker-mode failover (dark-launched) ---------------------------
 
     use crate::failover::testing::{test_breaker_config, ManualClock};
     use crate::failover::{ControlPlane, HealthReport, RouteResolution};
-    use crate::sinks::sink::{Prepare, PreparedPayload, Sink, SinkResult};
-    use crate::sinks::test_sink::passthrough_payload;
+    use crate::sinks::sink::SinkResult;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     /// A sink whose publish outcome is toggleable, counting publish calls.
@@ -518,16 +804,6 @@ mod tests {
         }
         fn calls(&self) -> usize {
             self.calls.load(Ordering::SeqCst)
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl Prepare for ProgrammableSink {
-        async fn prepare_batch(
-            &self,
-            events: Vec<ProcessedEvent>,
-        ) -> Result<Vec<PreparedPayload>, CaptureError> {
-            Ok(events.iter().map(passthrough_payload).collect())
         }
     }
 
@@ -562,8 +838,8 @@ mod tests {
         ));
         Output {
             repr: Repr::Failover {
-                primary: Box::new(Output::single(primary)),
-                secondary: Box::new(Output::single(secondary)),
+                primary: Box::new(Output::single(primary, spec())),
+                secondary: Box::new(Output::single(secondary, spec())),
                 advisory_handle: None,
                 controller: Some(controller),
             },
@@ -597,7 +873,7 @@ mod tests {
             output.publish(vec![event_with_token("tok")]).await.unwrap();
         }
         assert_eq!(primary.calls(), 5);
-        assert!(secondary.get_events().is_empty());
+        assert!(secondary.captured_events().is_empty());
     }
 
     #[tokio::test]
@@ -619,7 +895,7 @@ mod tests {
             output.publish(vec![event_with_token("tok")]).await.unwrap();
         }
         assert_eq!(primary.calls(), 4);
-        assert_eq!(secondary.get_events().len(), 4);
+        assert_eq!(secondary.captured_events().len(), 4);
 
         // Open: batches go straight to the secondary, primary untouched.
         output.publish(vec![event_with_token("tok")]).await.unwrap();
@@ -628,7 +904,7 @@ mod tests {
             4,
             "open breaker must not touch the primary"
         );
-        assert_eq!(secondary.get_events().len(), 5);
+        assert_eq!(secondary.captured_events().len(), 5);
 
         // Heal the primary and let the cooldown elapse: half-open probes it,
         // and after required_successes=2 the breaker closes again.
@@ -642,7 +918,11 @@ mod tests {
             7,
             "probes and closed traffic hit the primary"
         );
-        assert_eq!(secondary.get_events().len(), 5, "no more fallback traffic");
+        assert_eq!(
+            secondary.captured_events().len(),
+            5,
+            "no more fallback traffic"
+        );
     }
 
     #[tokio::test]
@@ -670,7 +950,7 @@ mod tests {
 
         output.publish(vec![event_with_token("tok")]).await.unwrap();
         assert_eq!(primary.calls(), 0);
-        assert_eq!(secondary.get_events().len(), 1);
+        assert_eq!(secondary.captured_events().len(), 1);
     }
 
     #[tokio::test]
@@ -684,10 +964,11 @@ mod tests {
         ));
         let output = Output {
             repr: Repr::Failover {
-                primary: Box::new(Output::single(Arc::new(FailSink(
-                    CaptureError::NonRetryableSinkError,
-                )))),
-                secondary: Box::new(Output::single(Arc::new(secondary.clone()))),
+                primary: Box::new(Output::single(
+                    Arc::new(FailSink(CaptureError::NonRetryableSinkError)),
+                    spec(),
+                )),
+                secondary: Box::new(Output::single(Arc::new(secondary.clone()), spec())),
                 advisory_handle: None,
                 controller: Some(controller),
             },
@@ -701,7 +982,7 @@ mod tests {
                 Err(CaptureError::NonRetryableSinkError)
             ));
         }
-        assert!(secondary.get_events().is_empty());
+        assert!(secondary.captured_events().is_empty());
     }
 
     #[tokio::test]
@@ -709,8 +990,8 @@ mod tests {
         let primary = MockSink::new();
         let secondary = MockSink::new();
         let output = Output::split(
-            Output::single(Arc::new(primary.clone())),
-            Output::single(Arc::new(secondary.clone())),
+            Output::single(Arc::new(primary.clone()), spec()),
+            Output::single(Arc::new(secondary.clone()), spec()),
             AiRouting::SecondaryAllowlist(vec!["secondary_tok".to_string()].into_iter().collect()),
         );
 
@@ -732,8 +1013,8 @@ mod tests {
         let primary = MockSink::new();
         let secondary = MockSink::new();
         let output = Output::split(
-            Output::single(Arc::new(primary.clone())),
-            Output::single(Arc::new(secondary.clone())),
+            Output::single(Arc::new(primary.clone()), spec()),
+            Output::single(Arc::new(secondary.clone()), spec()),
             AiRouting::SecondaryAllowlist(
                 vec!["sec_1".to_string(), "sec_2".to_string()]
                     .into_iter()

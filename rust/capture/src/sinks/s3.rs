@@ -1,3 +1,4 @@
+#[cfg(test)]
 use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
 use aws_sdk_s3::config::Builder;
@@ -265,35 +266,6 @@ impl Inner {
 }
 
 #[async_trait]
-impl crate::sinks::sink::Prepare for S3Sink {
-    /// S3 stores newline-delimited serialized events; the payload bytes are the
-    /// whole contract. Topic, key, and headers on the prepared record are inert
-    /// for this backend — carried only so the payload shape is uniform across
-    /// sinks (the failover policy hands one prepared batch to either target).
-    async fn prepare_batch(
-        &self,
-        events: Vec<ProcessedEvent>,
-    ) -> Result<Vec<crate::sinks::sink::PreparedPayload>, CaptureError> {
-        let serializer = crate::serialization::Serializer::json();
-        events
-            .into_iter()
-            .map(|event| {
-                let payload = serializer.serialize(&event.event)?;
-                Ok(crate::sinks::sink::PreparedPayload {
-                    uuid: event.event.uuid,
-                    record: crate::sinks::producer::ProduceRecord {
-                        topic: String::new(),
-                        key: None,
-                        payload,
-                        headers: event.event.to_headers(),
-                    },
-                })
-            })
-            .collect()
-    }
-}
-
-#[async_trait]
 impl crate::sinks::sink::Sink for S3Sink {
     /// Append each payload to the shared buffer and await the flush outcome the
     /// buffer broadcasts — the same wait `Event::send_batch` performs. Results
@@ -407,8 +379,22 @@ mod tests {
         }
 
         async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-            use crate::sinks::sink::{fold_results, Prepare, Sink};
-            let prepared = self.prepare_batch(events).await?;
+            use crate::sinks::sink::{fold_results, PreparedPayload, Sink};
+            let serializer = crate::serialization::Serializer::json();
+            let prepared = events
+                .iter()
+                .map(|event| {
+                    Ok(PreparedPayload {
+                        uuid: event.event.uuid,
+                        record: crate::sinks::producer::ProduceRecord {
+                            topic: String::new(),
+                            key: None,
+                            payload: serializer.serialize(&event.event)?,
+                            headers: event.event.to_headers(),
+                        },
+                    })
+                })
+                .collect::<Result<Vec<_>, CaptureError>>()?;
             fold_results(self.publish(prepared).await)
         }
     }

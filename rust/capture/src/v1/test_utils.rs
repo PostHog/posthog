@@ -829,7 +829,15 @@ impl TestStateBuilder {
 
         // Legacy outputs — no-op since V1 tests go through v1_sink_router
         let legacy_outputs = Arc::new(crate::outputs::OutputTable::new(
-            crate::outputs::Output::single(Arc::new(crate::sinks::noop::NoOpSink::new())),
+            crate::outputs::Output::single(
+                Arc::new(crate::sinks::noop::NoOpSink::new()),
+                crate::outputs::PrepSpec::new(
+                    Arc::new(crate::outputs::registry::OutputRegistry::from(
+                        &test_kafka_config(),
+                    )),
+                    crate::config::EnvelopeCompression::None,
+                ),
+            ),
         ));
 
         let timesource: Arc<dyn TimeSource + Send + Sync> = Arc::new(crate::time::SystemTime {});

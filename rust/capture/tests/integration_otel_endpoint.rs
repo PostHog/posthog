@@ -4,19 +4,17 @@ mod integration_utils;
 use async_trait::async_trait;
 use axum_test_helper::TestClient;
 use capture::ai_s3::MockBlobStorage;
-use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
     RestrictionScope, RestrictionType,
 };
+use capture::outputs::PrepSpec;
 use capture::outputs::{Output, OutputTable};
 use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
 use capture::router::router;
-use capture::sinks::producer::ProduceRecord;
-use capture::sinks::sink::{Prepare, PreparedPayload, Sink, SinkResult};
+use capture::sinks::sink::{PreparedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
-use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
 use integration_utils::{test_lifecycle_handlers, DEFAULT_TEST_TIME};
@@ -48,7 +46,7 @@ impl TimeSource for FixedTime {
 
 #[derive(Clone)]
 struct CapturingSink {
-    events: Arc<tokio::sync::Mutex<Vec<ProcessedEvent>>>,
+    events: Arc<tokio::sync::Mutex<Vec<PreparedPayload>>>,
 }
 
 impl CapturingSink {
@@ -58,44 +56,17 @@ impl CapturingSink {
         }
     }
 
-    async fn get_events(&self) -> Vec<ProcessedEvent> {
+    async fn get_events(&self) -> Vec<PreparedPayload> {
         self.events.lock().await.clone()
-    }
-}
-
-/// Build an inert prepared payload: real uuid + headers, empty routing. Lets
-/// a capturing test sink ride the prep -> publish path without a broker.
-fn passthrough_payload(event: &ProcessedEvent) -> PreparedPayload {
-    PreparedPayload {
-        uuid: event.event.uuid,
-        record: ProduceRecord {
-            topic: String::new(),
-            key: None,
-            payload: Vec::new(),
-            headers: event.event.to_headers(),
-        },
-    }
-}
-
-#[async_trait]
-impl Prepare for CapturingSink {
-    async fn prepare_batch(
-        &self,
-        events: Vec<ProcessedEvent>,
-    ) -> Result<Vec<PreparedPayload>, CaptureError> {
-        let payloads = events.iter().map(passthrough_payload).collect();
-        self.events.lock().await.extend(events);
-        Ok(payloads)
     }
 }
 
 #[async_trait]
 impl Sink for CapturingSink {
     async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
-        prepared
-            .into_iter()
-            .map(|p| SinkResult::ok(p.uuid))
-            .collect()
+        let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
+        self.events.lock().await.extend(prepared);
+        results
     }
 }
 
@@ -183,7 +154,10 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(Arc::new(sink.clone())))),
+        Arc::new(OutputTable::new(Output::single(
+            Arc::new(sink.clone()),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        ))),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
@@ -249,8 +223,18 @@ async fn send_request_with_client(client: &TestClient, request: &ExportTraceServ
     resp.status().as_u16()
 }
 
-fn parse_event_data(event: &ProcessedEvent) -> serde_json::Value {
-    serde_json::from_str(&event.event.data).expect("event data is valid JSON")
+fn captured(p: &PreparedPayload) -> common_types::CapturedEvent {
+    serde_json::from_slice(&p.record.payload).expect("payload must deserialize")
+}
+
+fn topic(output: &capture::outputs::registry::Outputs) -> String {
+    capture::outputs::registry::OutputRegistry::from(&DEFAULT_CONFIG.kafka)
+        .topic_for(output)
+        .to_string()
+}
+
+fn parse_event_data(event: &PreparedPayload) -> serde_json::Value {
+    serde_json::from_str(&captured(event).data).expect("event data is valid JSON")
 }
 
 fn make_single_span_request() -> ExportTraceServiceRequest {
@@ -346,11 +330,14 @@ async fn test_single_span_produces_one_event() {
     assert_eq!(events.len(), 1);
 
     let event = &events[0];
-    assert_eq!(event.event.token, TOKEN);
-    assert_eq!(event.event.event, "$ai_generation");
-    assert_eq!(event.event.distinct_id, "user-1");
-    assert_eq!(event.metadata.data_type, DataType::AnalyticsMain);
-    assert_eq!(event.metadata.event_name, "$ai_generation");
+    let cap = captured(event);
+    assert_eq!(cap.token, TOKEN);
+    assert_eq!(cap.event, "$ai_generation");
+    assert_eq!(cap.distinct_id, "user-1");
+    assert_eq!(
+        event.record.topic,
+        topic(&capture::outputs::registry::Outputs::Main)
+    );
 
     let data = parse_event_data(event);
     assert_eq!(
@@ -419,9 +406,9 @@ async fn test_multiple_spans_produce_multiple_events() {
     let events = sink.get_events().await;
     assert_eq!(events.len(), 3);
 
-    assert_eq!(events[0].event.event, "$ai_generation");
-    assert_eq!(events[1].event.event, "$ai_embedding");
-    assert_eq!(events[2].event.event, "$ai_span");
+    assert_eq!(captured(&events[0]).event, "$ai_generation");
+    assert_eq!(captured(&events[1]).event, "$ai_embedding");
+    assert_eq!(captured(&events[2]).event, "$ai_span");
 
     let data1 = parse_event_data(&events[1]);
     assert_eq!(data1["properties"]["$ai_parent_id"], "0101010101010101");
@@ -632,7 +619,7 @@ async fn test_mixed_requests_only_emit_relevant_ai_spans() {
 
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].event.event, "$ai_generation");
+    assert_eq!(captured(&events[0]).event, "$ai_generation");
 }
 
 #[tokio::test]
@@ -983,7 +970,7 @@ async fn test_restriction_types() {
         restriction_type: RestrictionType,
         args: Option<serde_json::Value>,
         expected_status: u16,
-        check: fn(&[ProcessedEvent]) -> bool,
+        check: fn(&[PreparedPayload]) -> bool,
     }
 
     let cases = [
@@ -999,31 +986,38 @@ async fn test_restriction_types() {
             restriction_type: RestrictionType::ForceOverflow,
             args: None,
             expected_status: 200,
-            check: |events| events.len() == 1 && events[0].metadata.force_overflow,
+            check: |events| {
+                events.len() == 1
+                    && events[0].record.topic
+                        == topic(&capture::outputs::registry::Outputs::Overflow)
+            },
         },
         Case {
             name: "skip_person_processing",
             restriction_type: RestrictionType::SkipPersonProcessing,
             args: None,
             expected_status: 200,
-            check: |events| events.len() == 1 && events[0].metadata.skip_person_processing,
+            check: |events| {
+                events.len() == 1
+                    && events[0].record.headers.force_disable_person_processing == Some(true)
+            },
         },
         Case {
             name: "redirect_to_dlq",
             restriction_type: RestrictionType::RedirectToDlq,
             args: None,
             expected_status: 200,
-            check: |events| events.len() == 1 && events[0].metadata.redirect_to_dlq,
+            check: |events| {
+                events.len() == 1
+                    && events[0].record.topic == topic(&capture::outputs::registry::Outputs::Dlq)
+            },
         },
         Case {
             name: "redirect_to_topic",
             restriction_type: RestrictionType::RedirectToTopic,
             args: Some(json!({"topic": "custom_topic"})),
             expected_status: 200,
-            check: |events| {
-                events.len() == 1
-                    && events[0].metadata.redirect_to_topic == Some("custom_topic".to_string())
-            },
+            check: |events| events.len() == 1 && events[0].record.topic == "custom_topic",
         },
     ];
 
@@ -1185,15 +1179,19 @@ async fn test_otel_batch_with_hot_token_stamps_force_limited_on_every_span() {
 
     for (i, event) in events.iter().enumerate() {
         assert_eq!(
-            event.metadata.overflow_reason,
-            Some(OverflowReason::ForceLimited),
-            "span[{i}] must be stamped ForceLimited"
+            event.record.topic,
+            topic(&capture::outputs::registry::Outputs::Overflow),
+            "span[{i}] must be rerouted to overflow (ForceLimited)"
         );
         assert!(
-            event.metadata.skip_person_processing,
-            "span[{i}] ForceLimited implies skip_person_processing"
+            event.record.key.is_none(),
+            "span[{i}] ForceLimited drops the partition key"
         );
-        assert_eq!(event.metadata.data_type, DataType::AnalyticsMain);
+        assert_eq!(
+            event.record.headers.force_disable_person_processing,
+            Some(true),
+            "span[{i}] ForceLimited implies person processing disabled"
+        );
     }
 }
 
@@ -1227,20 +1225,23 @@ async fn test_otel_batch_rate_limited_key_stamps_overbudget_spans() {
     assert_eq!(events.len(), 3);
 
     assert_eq!(
-        events[0].metadata.overflow_reason, None,
+        events[0].record.topic,
+        topic(&capture::outputs::registry::Outputs::Main),
         "first span fits within the burst"
     );
     for (i, event) in events.iter().enumerate().skip(1) {
         assert_eq!(
-            event.metadata.overflow_reason,
-            Some(OverflowReason::RateLimited {
-                preserve_locality: true
-            }),
-            "span[{i}] must be stamped RateLimited{{preserve_locality: true}}"
+            event.record.topic,
+            topic(&capture::outputs::registry::Outputs::Overflow),
+            "span[{i}] must be rerouted to overflow (RateLimited)"
         );
         assert!(
-            !event.metadata.skip_person_processing,
-            "span[{i}] RateLimited does NOT imply skip_person_processing"
+            event.record.key.is_some(),
+            "span[{i}] preserve_locality keeps the partition key"
+        );
+        assert_eq!(
+            event.record.headers.force_disable_person_processing, None,
+            "span[{i}] RateLimited does NOT disable person processing"
         );
     }
 }
@@ -1259,7 +1260,10 @@ async fn test_otel_batch_without_overflow_limiter_leaves_reason_none() {
     let events = sink.get_events().await;
     assert_eq!(events.len(), 3);
     for event in &events {
-        assert_eq!(event.metadata.overflow_reason, None);
-        assert!(!event.metadata.skip_person_processing);
+        assert_eq!(
+            event.record.topic,
+            topic(&capture::outputs::registry::Outputs::Main)
+        );
+        assert_eq!(event.record.headers.force_disable_person_processing, None);
     }
 }

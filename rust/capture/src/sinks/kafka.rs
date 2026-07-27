@@ -18,17 +18,13 @@
 //! cost in the scatter-gather batch path at two `Arc::clone` calls (producer
 //! + topics) rather than deep copies of limiter state.
 use crate::api::CaptureError;
-use crate::config::{CaptureMode, EnvelopeCompression, KafkaConfig};
-use crate::pipeline::{resolve, KeyPolicy, Lane, LaneDecision, LaneEffect, Pipeline};
-use crate::serialization::{Format, Serializer};
-use crate::sinks::producer::{KafkaProducer, ProduceRecord};
+use crate::config::KafkaConfig;
 #[cfg(test)]
-pub(crate) use crate::sinks::registry::test_topics;
-use crate::sinks::registry::{OutputRegistry, Outputs};
+pub(crate) use crate::outputs::registry::test_topics;
+use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 #[cfg(test)]
 use crate::sinks::sink::fold_results;
 use crate::sinks::sink::{PreparedPayload, Sink, SinkResult};
-use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
 use metrics::{counter, gauge, histogram};
 use rdkafka::producer::{FutureProducer, Producer};
@@ -176,56 +172,19 @@ impl rdkafka::ClientContext for KafkaContext {
     }
 }
 
-/// Bridge from a resolved `(pipeline, lane)` address to the sink's output
-/// vocabulary, which the [`OutputRegistry`] resolves to a topic. Lives sink-side
-/// so the pipeline layer stays free of sink types; moves into the outputs layer
-/// when it exists.
-///
-/// `unreachable!` arms are lane/pipeline pairs [`pipeline::resolve`] — the sole
-/// `LaneDecision` constructor — never produces, pinned by its unit tests.
-fn output_for<'a>(decision: &'a LaneDecision<'a>) -> Outputs<'a> {
-    match (decision.pipeline, &decision.lane) {
-        (_, Lane::Dlq) => Outputs::Dlq,
-        (_, Lane::Custom(topic)) => Outputs::Custom(topic),
-        (Pipeline::Analytics, Lane::Main) => Outputs::Main,
-        (Pipeline::Analytics, Lane::Overflow) => Outputs::Overflow,
-        (Pipeline::Analytics, Lane::Historical) => Outputs::Historical,
-        (Pipeline::Heatmaps, Lane::Main) => Outputs::Heatmaps,
-        (Pipeline::Warnings, Lane::Main) => Outputs::ClientIngestionWarning,
-        (Pipeline::ErrorTracking, Lane::Main) => Outputs::ErrorTracking,
-        (Pipeline::Replay, Lane::Main) => Outputs::Main,
-        (Pipeline::Replay, Lane::Overflow) => Outputs::ReplayOverflow,
-        (pipeline, lane) => unreachable!("lane {lane:?} is not reachable for {pipeline:?}"),
-    }
-}
-
 /// Generic Kafka sink that can use any producer implementation.
 ///
-/// Holds only the producer handle, the topic config, and the per-destination
-/// payload serializers. No limiter state — overflow and replay-overflow routing
-/// decisions are stamped upstream in the pipeline onto
-/// `ProcessedEventMetadata::overflow_reason` and read here.
-/// Both Arc fields are cheap to clone (two atomic ref-count increments),
-/// which matters under the scatter-gather batch produce path where the sink
-/// is cloned once per spawned prep task.
+/// Holds only the producer handle: the sink is pure mechanism, consuming
+/// already-prepared payloads. Routing, serialization, and topic assembly all
+/// happen in the outputs layer.
 pub struct KafkaSinkBase<P: KafkaProducer> {
     producer: Arc<P>,
-    topics: Arc<OutputRegistry>,
-    /// Payload encoding for replay (`SnapshotMain`) events: json × the
-    /// configured envelope (lz4 when `kafka_replay_envelope_compression` says
-    /// so).
-    replay_serializer: Serializer,
-    /// Payload encoding for every other destination: plain json.
-    default_serializer: Serializer,
 }
 
 impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
     fn clone(&self) -> Self {
         Self {
             producer: Arc::clone(&self.producer),
-            topics: Arc::clone(&self.topics),
-            replay_serializer: self.replay_serializer,
-            default_serializer: self.default_serializer,
         }
     }
 }
@@ -236,15 +195,8 @@ pub type KafkaSink = KafkaSinkBase<RdKafkaProducer<KafkaContext>>;
 impl KafkaSink {
     pub async fn new(
         config: KafkaConfig,
-        mode: CaptureMode,
         liveness: Option<lifecycle::Handle>,
     ) -> anyhow::Result<KafkaSink> {
-        // Bind every output to its configured topic and refuse to boot if any
-        // one the mode produces to is empty — fail fast on a misconfig here,
-        // before we ever touch a broker, rather than at first produce (#68719).
-        let topics = Arc::new(OutputRegistry::from(&config));
-        topics.check_complete(mode)?;
-
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
         let mut client_config = ClientConfig::new();
@@ -366,12 +318,6 @@ impl KafkaSink {
 
         Ok(KafkaSinkBase {
             producer: Arc::new(rd_producer),
-            topics,
-            replay_serializer: Serializer::new(
-                Format::Json,
-                config.kafka_replay_envelope_compression.into(),
-            ),
-            default_serializer: Serializer::json(),
         })
     }
 }
@@ -380,140 +326,10 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Create a new KafkaSinkBase with a custom producer (useful for testing).
     /// No limiters — the sink is a mechanism layer; overflow stamping happens
     /// upstream in the pipeline. See the module header for details.
-    pub fn with_producer(producer: P, topics: OutputRegistry) -> Self {
+    pub fn with_producer(producer: P) -> Self {
         Self {
             producer: Arc::new(producer),
-            topics: Arc::new(topics),
-            replay_serializer: Serializer::json(),
-            default_serializer: Serializer::json(),
         }
-    }
-
-    /// Same as `with_producer` but with envelope compression enabled. Used in tests.
-    pub fn with_producer_and_compression(
-        producer: P,
-        topics: OutputRegistry,
-        replay_envelope_compression: EnvelopeCompression,
-    ) -> Self {
-        Self {
-            producer: Arc::new(producer),
-            topics: Arc::new(topics),
-            replay_serializer: Serializer::new(Format::Json, replay_envelope_compression.into()),
-            default_serializer: Serializer::json(),
-        }
-    }
-
-    /// The payload encoding for an event's pipeline. Replay has its own
-    /// (envelope-compressed) contract with its consumers; everything else is
-    /// plain json. Becomes per-output configuration once outputs exist.
-    fn serializer_for(&self, pipeline: Pipeline) -> Serializer {
-        match pipeline {
-            Pipeline::Replay => self.replay_serializer,
-            _ => self.default_serializer,
-        }
-    }
-
-    /// CPU-bound prep work: serialize payload + build headers + pick topic/key.
-    /// Safe to run concurrently across events in a batch because it does not
-    /// touch the librdkafka producer queue — phase 2 of `send_batch` is what
-    /// enforces per-partition ordering by calling `enqueue_record` serially
-    /// in the original event order.
-    ///
-    /// The lane decision is [`pipeline::resolve`] — pure policy over the
-    /// metadata stamped upstream. This function only applies it: serializer
-    /// choice, header stamps, counters, topic and partition key resolution.
-    /// It consults no limiter and decides nothing.
-    ///
-    /// Not `async`: post-refactor there are no await points, and keeping it
-    /// synchronous lets `send_batch`'s serial fast path call it inline without
-    /// any runtime indirection.
-    fn prepare_record(&self, event: ProcessedEvent) -> Result<PreparedPayload, CaptureError> {
-        let (event, metadata) = (event.event, event.metadata);
-
-        let decision = resolve(&metadata);
-        let serializer = self.serializer_for(decision.pipeline);
-        let payload = serializer.serialize(&event)?;
-
-        // Correlation UUID, captured before the (memory-hungry) event is
-        // dropped so the prepared payload can key its per-event `SinkResult`.
-        let uuid = event.uuid;
-        let event_key = event.key();
-
-        // Use the event's to_headers() method for consistent header serialization
-        let mut headers = event.to_headers();
-
-        drop(event); // Events can be EXTREMELY memory hungry
-
-        // Generic metadata-driven header stamps, independent of the lane
-        // decision: applied to every event.
-        if metadata.skip_person_processing {
-            headers.set_force_disable_person_processing(true);
-        }
-        if metadata.skip_heatmap_processing {
-            headers.set_skip_heatmap_processing(true);
-        }
-
-        match decision.effect {
-            LaneEffect::Standard => {}
-            LaneEffect::Dlq => {
-                counter!(
-                    "capture_events_rerouted_dlq",
-                    &[("reason", "event_restriction")]
-                )
-                .increment(1);
-
-                // Set DLQ specific headers
-                // DLQ reason cannot be known beyond being triggered by an event restriction.
-                headers.set_dlq_reason("event_restriction".to_string());
-                // Unlike with our node code, DLQ step will always be static.
-                headers.set_dlq_step("capture".to_string());
-                headers.set_dlq_timestamp(
-                    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-                );
-            }
-            LaneEffect::CustomTopic => {
-                counter!(
-                    "capture_events_rerouted_custom_topic",
-                    &[("reason", "event_restriction")]
-                )
-                .increment(1);
-            }
-            LaneEffect::ForceDisablePersonProcessing => {
-                headers.set_force_disable_person_processing(true);
-            }
-        }
-
-        // Single output→topic resolution point: the registry owns the wiring,
-        // and `Custom` returns its inline admin-supplied topic.
-        let output = output_for(&decision);
-        let topic: &str = self.topics.topic_for(&output);
-
-        let partition_key: Option<String> = match decision.key_policy {
-            KeyPolicy::EventKey => Some(event_key),
-            KeyPolicy::Null => None,
-            KeyPolicy::SessionId => Some(
-                metadata
-                    .session_id
-                    .clone()
-                    .ok_or(CaptureError::MissingSessionId)?,
-            ),
-        };
-
-        // The serializer's content headers signal the encoding on the wire, so
-        // old and new encodings coexist on one destination during a rollout.
-        if let Some(encoding) = serializer.content_encoding() {
-            headers.set_content_encoding(encoding.to_string());
-        }
-
-        Ok(PreparedPayload {
-            uuid,
-            record: ProduceRecord {
-                topic: topic.to_string(),
-                key: partition_key,
-                payload,
-                headers,
-            },
-        })
     }
 
     /// Serial, ordering-preserving enqueue into librdkafka. Emits the per-topic
@@ -531,96 +347,6 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
 // Batch machinery needs `P: 'static`: prep tasks and ack futures are spawned
 // onto tokio workers, which require owned, static futures.
 impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
-    /// Prep phase for a whole batch: turn `ProcessedEvent`s into ready-to-publish
-    /// [`PreparedPayload`]s in the original event order. Fail-fast: any single
-    /// prep error aborts the whole batch and produces zero records.
-    ///
-    /// Small batches prep serially; batches at or above
-    /// `SCATTER_GATHER_MIN_BATCH` scatter prep across tokio workers and gather
-    /// back into input order so per-partition ordering downstream is unaffected.
-    pub(crate) async fn prepare_batch(
-        &self,
-        events: Vec<ProcessedEvent>,
-    ) -> Result<Vec<PreparedPayload>, CaptureError> {
-        let batch_size = events.len();
-
-        // Small-batch fast path: the JoinSet spawn overhead dominates any
-        // parallel-prep win, so stay single-threaded.
-        if batch_size < SCATTER_GATHER_MIN_BATCH {
-            let prep_start = Instant::now();
-            let mut prepared: Vec<PreparedPayload> = Vec::with_capacity(batch_size);
-            for event in events {
-                match self.prepare_record(event) {
-                    Ok(payload) => prepared.push(payload),
-                    Err(err) => {
-                        histogram!("capture_kafka_batch_prep_duration_seconds")
-                            .record(prep_start.elapsed().as_secs_f64());
-                        return Err(err);
-                    }
-                }
-            }
-            histogram!("capture_kafka_batch_prep_duration_seconds")
-                .record(prep_start.elapsed().as_secs_f64());
-            return Ok(prepared);
-        }
-
-        // Parallel prep across tokio workers. Each task returns its input index
-        // so results reassemble in the original event order before the serial
-        // enqueue phase. This is where the CPU win lives: payload serialization
-        // + header build run concurrently on up to N worker threads, rather
-        // than sequentially on a single task.
-        let prep_start = Instant::now();
-        let mut prep_set: JoinSet<(usize, Result<PreparedPayload, CaptureError>)> = JoinSet::new();
-        for (idx, event) in events.into_iter().enumerate() {
-            let this = self.clone();
-            prep_set.spawn(
-                async move { (idx, this.prepare_record(event)) }
-                    .instrument(info_span!("prepare_record")),
-            );
-        }
-
-        // Collect into a (idx, payload) Vec and sort rather than indexing into
-        // a `Vec<Option<_>>`. Encodes the "every slot filled" invariant in the
-        // type: no `Option`, no unreachable `expect`, no N-element `None`
-        // preallocation. Our only cancellation source is `prep_set.abort_all()`
-        // below, invoked only from an already-errored branch, so any
-        // `JoinError` observed during normal drain implies a panic inside
-        // `prepare_record` — counted separately so it's alertable.
-        let mut prepared: Vec<(usize, PreparedPayload)> = Vec::with_capacity(batch_size);
-        while let Some(join_result) = prep_set.join_next().await {
-            let (idx, result) = match join_result {
-                Err(err) => {
-                    counter!("capture_kafka_prep_panic_total").increment(1);
-                    error!("join error while preparing Kafka record: {err:#}");
-                    // Drain remaining prep tasks before returning so they can't
-                    // leak records into librdkafka after we've already failed.
-                    // Record the histogram on the error path too so prep-duration
-                    // stays observable during failures (not just happy path).
-                    prep_set.abort_all();
-                    histogram!("capture_kafka_batch_prep_duration_seconds")
-                        .record(prep_start.elapsed().as_secs_f64());
-                    return Err(CaptureError::RetryableSinkError);
-                }
-                Ok(inner) => inner,
-            };
-            match result {
-                Ok(payload) => prepared.push((idx, payload)),
-                Err(err) => {
-                    prep_set.abort_all();
-                    histogram!("capture_kafka_batch_prep_duration_seconds")
-                        .record(prep_start.elapsed().as_secs_f64());
-                    return Err(err);
-                }
-            }
-        }
-        prepared.sort_unstable_by_key(|(idx, _)| *idx);
-        debug_assert_eq!(prepared.len(), batch_size);
-        histogram!("capture_kafka_batch_prep_duration_seconds")
-            .record(prep_start.elapsed().as_secs_f64());
-
-        Ok(prepared.into_iter().map(|(_, payload)| payload).collect())
-    }
-
     /// Serial, ordering-preserving enqueue of a prepared batch followed by the
     /// concurrent ack drain. Fail-fast on the first enqueue or ack error; the
     /// ordering bottleneck is deliberate — librdkafka preserves per-partition
@@ -657,16 +383,6 @@ impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
 }
 
 #[async_trait]
-impl<P: KafkaProducer + 'static> crate::sinks::sink::Prepare for KafkaSinkBase<P> {
-    async fn prepare_batch(
-        &self,
-        events: Vec<ProcessedEvent>,
-    ) -> Result<Vec<PreparedPayload>, CaptureError> {
-        KafkaSinkBase::prepare_batch(self, events).await
-    }
-}
-
-#[async_trait]
 impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
     /// Publish an already-prepared batch. The mechanism is fail-fast to
     /// preserve v0's whole-request semantics, so results are batch-uniform:
@@ -689,24 +405,44 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
     }
 }
 
-/// Batches below this size take the serial fast path in `send_batch`: spawning
-/// N `JoinSet` tasks to run `prepare_record` in parallel is net-negative when
-/// each task does only payload serialization and a header build — the
-/// scheduler overhead dominates the CPU savings. Scatter-gather kicks in at
-/// or above this threshold where parallel prep wins back its spawn cost.
-pub(crate) const SCATTER_GATHER_MIN_BATCH: usize = 8;
+#[cfg(test)]
+use crate::v0_request::ProcessedEvent;
 
-/// Test-only produce helpers: the goldens and integration suites drive the
-/// exact production path (prep → publish → fold) without going through an
-/// output, keeping their bodies identical to the pre-outputs era.
+/// Test-only produce helpers: the goldens drive the exact production path
+/// (outputs-layer prep → publish → fold) against a mock producer, keeping
+/// their bodies identical to the pre-outputs era. The default spec uses the
+/// test topics with no envelope compression; lz4 goldens pass their own.
 #[cfg(test)]
 impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
+    pub(crate) fn test_prep_spec() -> crate::outputs::PrepSpec {
+        crate::outputs::PrepSpec::new(
+            Arc::new(test_topics()),
+            crate::config::EnvelopeCompression::None,
+        )
+    }
+
     pub(crate) async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         self.send_batch(vec![event]).await
     }
 
+    pub(crate) async fn send_with(
+        &self,
+        spec: &crate::outputs::PrepSpec,
+        event: ProcessedEvent,
+    ) -> Result<(), CaptureError> {
+        self.send_batch_with(spec, vec![event]).await
+    }
+
     pub(crate) async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        let prepared = self.prepare_batch(events).await?;
+        self.send_batch_with(&Self::test_prep_spec(), events).await
+    }
+
+    pub(crate) async fn send_batch_with(
+        &self,
+        spec: &crate::outputs::PrepSpec,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<(), CaptureError> {
+        let prepared = crate::outputs::prepare_batch(spec, events).await?;
         fold_results(self.publish(prepared).await)
     }
 }
@@ -831,7 +567,7 @@ mod tests {
             kafka_metrics_metadata_max_age_ms: None,
             kafka_replay_envelope_compression: EnvelopeCompression::None,
         };
-        let sink = KafkaSink::new(config, config::CaptureMode::Events, Some(handle))
+        let sink = KafkaSink::new(config, Some(handle))
             .await
             .expect("failed to create sink");
         (cluster, sink)
@@ -1127,7 +863,8 @@ mod tests {
     #[cfg(test)]
     mod topic_routing {
         use super::*;
-        use crate::sinks::kafka::{test_topics, KafkaSinkBase, SCATTER_GATHER_MIN_BATCH};
+        use crate::outputs::SCATTER_GATHER_MIN_BATCH;
+        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
         const MAIN_TOPIC: &str = "events_plugin_ingestion";
@@ -1248,14 +985,14 @@ mod tests {
             let _guard = metrics::set_default_local_recorder(&recorder);
 
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer_and_compression(
-                producer.clone(),
-                test_topics(),
+            let sink = KafkaSinkBase::with_producer(producer.clone());
+            let spec = crate::outputs::PrepSpec::new(
+                std::sync::Arc::new(test_topics()),
                 input.compression,
             );
 
             let event = create_test_event(&input);
-            sink.send(event).await.unwrap();
+            sink.send_with(&spec, event).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1, "Expected exactly one record");
@@ -2281,7 +2018,7 @@ mod tests {
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
         async fn send_batch_preserves_order_same_key() {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone());
 
             // 20 events, all sharing the same distinct_id (so they hash to the
             // same partition via murmur2), each with a unique UUID so we can
@@ -2338,7 +2075,7 @@ mod tests {
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
         async fn send_batch_prep_error_aborts_batch() {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone());
 
             // Build a batch where event #3 is a SnapshotMain with session_id=None,
             // which causes prepare_record to return MissingSessionId. The other
@@ -2402,7 +2139,7 @@ mod tests {
             const BATCH: usize = 10;
             const FAIL_IDX: usize = 3;
             let producer = MockKafkaProducer::new_failing_at(FAIL_IDX);
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone());
 
             let events = build_batch(BATCH);
             let input_distinct_ids: Vec<String> =
@@ -2448,7 +2185,7 @@ mod tests {
             // batch_size=1 exercises the serial fast path (1 < SCATTER_GATHER_MIN_BATCH)
             // and verifies the loop handles a single-element batch correctly.
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone());
 
             let events = build_batch(1);
             sink.send_batch(events).await.expect("send_batch failed");
@@ -2464,7 +2201,7 @@ mod tests {
             // path. We can't observe "which path ran" directly, so we assert
             // behavioral equivalence: N records, correct topic, input order.
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone());
 
             let size = SCATTER_GATHER_MIN_BATCH - 1;
             let events = build_batch(size);
@@ -2495,7 +2232,7 @@ mod tests {
             // path. Behavioral equivalence with the serial path must hold:
             // same N records, same order, same topics.
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone());
 
             let size = SCATTER_GATHER_MIN_BATCH;
             let events = build_batch(size);
@@ -2527,7 +2264,7 @@ mod tests {
         /// and the scatter-gather path (10 events).
         async fn mixed_datatypes_routing_for_batch(pad_to: usize) {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone());
 
             // Core 5-event diverse batch.
             let mut events: Vec<ProcessedEvent> = vec![
@@ -2601,7 +2338,7 @@ mod tests {
         #[tokio::test]
         async fn snapshot_payload_uncompressed_by_default() {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone());
 
             let event = create_test_event(&EventInput {
                 data_type: DataType::SnapshotMain,
@@ -2620,9 +2357,9 @@ mod tests {
         #[tokio::test]
         async fn snapshot_payload_lz4_compressed_when_enabled() {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer_and_compression(
-                producer.clone(),
-                test_topics(),
+            let sink = KafkaSinkBase::with_producer(producer.clone());
+            let spec = crate::outputs::PrepSpec::new(
+                std::sync::Arc::new(test_topics()),
                 EnvelopeCompression::Lz4,
             );
 
@@ -2630,7 +2367,7 @@ mod tests {
                 data_type: DataType::SnapshotMain,
                 ..Default::default()
             });
-            sink.send(event).await.unwrap();
+            sink.send_with(&spec, event).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1);
@@ -2653,9 +2390,9 @@ mod tests {
         #[tokio::test]
         async fn non_snapshot_payload_not_compressed_when_lz4_enabled() {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer_and_compression(
-                producer.clone(),
-                test_topics(),
+            let sink = KafkaSinkBase::with_producer(producer.clone());
+            let spec = crate::outputs::PrepSpec::new(
+                std::sync::Arc::new(test_topics()),
                 EnvelopeCompression::Lz4,
             );
 
@@ -2663,7 +2400,7 @@ mod tests {
                 data_type: DataType::AnalyticsMain,
                 ..Default::default()
             });
-            sink.send(event).await.unwrap();
+            sink.send_with(&spec, event).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1);

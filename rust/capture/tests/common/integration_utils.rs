@@ -6,15 +6,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use capture::{
-    api::{CaptureError, CaptureResponse, CaptureResponseCode},
+    api::{CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
+    outputs::registry::{OutputRegistry, Outputs},
+    outputs::PrepSpec,
     outputs::{Output, OutputTable},
     quota_limiters::CaptureQuotaLimiter,
     router::router,
-    sinks::producer::ProduceRecord,
-    sinks::sink::{Prepare, PreparedPayload, Sink, SinkResult},
+    sinks::sink::{PreparedPayload, Sink, SinkResult},
     time::TimeSource,
-    v0_request::{DataType, ProcessedEvent},
 };
 use chrono::{DateTime, Utc};
 
@@ -336,7 +336,7 @@ pub async fn expect_response_fail(title: &str, res: TestResponse) {
 }
 
 // utility to validate tests/fixtures/single_event_payload.json
-pub fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+pub fn validate_single_event_payload(title: &str, got_events: Vec<PreparedPayload>) {
     let expected_event_count = 1;
     let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
 
@@ -352,17 +352,16 @@ pub fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent
     // should only be one event in this batch
     let got = got_events[0].to_owned();
 
-    // introspect on extracted event parsing metadata
-    let meta = &got.metadata;
+    // introspect on the routing outcome
     assert_eq!(
-        DataType::AnalyticsMain,
-        meta.data_type,
+        topic_for(&Outputs::Main),
+        got.record.topic,
         "mismatched Kafka topic assignment in case: {title}",
     );
-    assert_eq!(None, meta.session_id, "wrong session_id in case: {title}",);
 
     // introspect on extracted event attributes
-    let event = &got.event;
+    let event = captured_event(&got, title);
+    let event = &event;
     assert_eq!(
         "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
         "mismatched token in case: {title}",
@@ -454,7 +453,7 @@ pub fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent
 }
 
 // utility to validate tests/fixtures/single_engage_event_payload.json
-pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<PreparedPayload>) {
     let expected_event_count = 1;
     let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
 
@@ -468,17 +467,16 @@ pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<Process
     // should only be one event in this batch
     let got = got_events[0].to_owned();
 
-    // introspect on extracted event parsing metadata
-    let meta = &got.metadata;
+    // introspect on the routing outcome
     assert_eq!(
-        DataType::AnalyticsMain,
-        meta.data_type,
+        topic_for(&Outputs::Main),
+        got.record.topic,
         "mismatched Kafka topic assignment in case: {title}",
     );
-    assert_eq!(None, meta.session_id, "wrong session_id in case: {title}",);
 
     // introspect on extracted event attributes
-    let event = &got.event;
+    let event = captured_event(&got, title);
+    let event = &event;
     assert_eq!(
         "phc_VXRzc3poSG9GZm1JenRiZnJ6TTJFZGh4OWY2QXzx9f3", &event.token,
         "mismatched token in case: {title}",
@@ -558,7 +556,7 @@ pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<Process
 }
 
 // utility to validate tests/fixtures/single_replay_event_payload.json
-pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<PreparedPayload>) {
     let expected_event_count = 1;
     let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
 
@@ -572,21 +570,21 @@ pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<Process
     // should only be one event in this batch
     let got = got_events[0].to_owned();
 
-    // introspect on extracted event parsing metadata
-    let meta = &got.metadata;
+    // introspect on the routing outcome
     assert_eq!(
-        DataType::SnapshotMain,
-        meta.data_type,
+        topic_for(&Outputs::Main),
+        got.record.topic,
         "mismatched Kafka topic assignment in case: {title}",
     );
     assert_eq!(
         Some("01983d9b-8639-78fa-ac26-b9e7bf716521".to_string()),
-        meta.session_id,
-        "wrong session_id in case: {title}",
+        got.record.key,
+        "wrong session partition key in case: {title}",
     );
 
     // introspect on extracted event attributes
-    let event = &got.event;
+    let event = captured_event(&got, title);
+    let event = &event;
     assert_eq!(
         "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
         "mismatched token in case: {title}",
@@ -685,7 +683,7 @@ pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<Process
 }
 
 // utility to validate tests/fixtures/batch_events_payload.json
-pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+pub fn validate_batch_events_payload(title: &str, got_events: Vec<PreparedPayload>) {
     let expected_event_count = 2;
     let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
 
@@ -699,17 +697,16 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     // first event should be a $pageview
     let pageview = got_events[0].to_owned();
 
-    // introspect on extracted event parsing metadata
-    let meta = &pageview.metadata;
+    // introspect on the routing outcome
     assert_eq!(
-        DataType::AnalyticsMain,
-        meta.data_type,
+        topic_for(&Outputs::Main),
+        pageview.record.topic,
         "mismatched Kafka topic assignment in case: {title}",
     );
-    assert_eq!(None, meta.session_id, "wrong session_id in case: {title}",);
 
     // introspect on extracted event attributes
-    let event = &pageview.event;
+    let event = captured_event(&pageview, title);
+    let event = &event;
     assert_eq!(
         "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
         "mismatched token on $pageview in case: {title}",
@@ -816,20 +813,16 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     // second event should be a $pageleave
     let pageleave = got_events[1].to_owned();
 
-    // introspect on extracted event parsing metadata
-    let meta = &pageleave.metadata;
+    // introspect on the routing outcome
     assert_eq!(
-        DataType::AnalyticsMain,
-        meta.data_type,
+        topic_for(&Outputs::Main),
+        pageleave.record.topic,
         "mismatched Kafka topic assignment in case: {title}",
-    );
-    assert_eq!(
-        None, meta.session_id,
-        "mismatched session_id in case: {title}",
     );
 
     // introspect on extracted event attributes
-    let event = &pageleave.event;
+    let event = captured_event(&pageleave, title);
+    let event = &event;
     assert_eq!(
         "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
         "mismatched token on $pageleave in case: {title}",
@@ -928,7 +921,7 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
 // produce a third event — a `$$heatmap` redirect — alongside the original two.
 // The original $pageleave gets `skip_heatmap_processing: true` so the events
 // pipeline does not also extract heatmap data downstream.
-pub fn validate_batch_events_with_heatmap_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+pub fn validate_batch_events_with_heatmap_payload(title: &str, got_events: Vec<PreparedPayload>) {
     assert_eq!(
         3,
         got_events.len(),
@@ -937,25 +930,28 @@ pub fn validate_batch_events_with_heatmap_payload(title: &str, got_events: Vec<P
     );
 
     let pageview = &got_events[0];
+    let pageview_event = captured_event(pageview, title);
     assert_eq!(
-        pageview.event.event, "$pageview",
+        pageview_event.event, "$pageview",
         "first event should be $pageview in case: {title}",
     );
-    assert!(
-        !pageview.metadata.skip_heatmap_processing,
+    assert_eq!(
+        pageview.record.headers.skip_heatmap_processing, None,
         "$pageview carries no heatmap data, must not be flagged in case: {title}",
     );
 
     let pageleave = &got_events[1];
+    let pageleave_event = captured_event(pageleave, title);
     assert_eq!(
-        pageleave.event.event, "$pageleave",
+        pageleave_event.event, "$pageleave",
         "second event should be $pageleave in case: {title}",
     );
-    assert!(
-        pageleave.metadata.skip_heatmap_processing,
+    assert_eq!(
+        pageleave.record.headers.skip_heatmap_processing,
+        Some(true),
         "$pageleave carries scroll-depth heatmap data, must be flagged in case: {title}",
     );
-    let pageleave_data: Value = from_str(&pageleave.event.data)
+    let pageleave_data: Value = from_str(&pageleave_event.data)
         .unwrap_or_else(|_| panic!("failed to hydrate $pageleave event.data in case: {title}"));
     let pageleave_props = pageleave_data["properties"]
         .as_object()
@@ -970,29 +966,30 @@ pub fn validate_batch_events_with_heatmap_payload(title: &str, got_events: Vec<P
     );
 
     let redirect = &got_events[2];
+    let redirect_event = captured_event(redirect, title);
     assert_eq!(
-        redirect.metadata.data_type,
-        DataType::HeatmapMain,
+        redirect.record.topic,
+        topic_for(&Outputs::Heatmaps),
         "redirect must be routed to the heatmaps topic in case: {title}",
     );
     assert_eq!(
-        redirect.event.event, "$$heatmap",
+        redirect_event.event, "$$heatmap",
         "redirect event name must be $$heatmap in case: {title}",
     );
-    assert!(
-        !redirect.metadata.skip_heatmap_processing,
+    assert_eq!(
+        redirect.record.headers.skip_heatmap_processing, None,
         "redirect must NOT be flagged — the heatmaps pipeline is its consumer in case: {title}",
     );
     assert_ne!(
-        redirect.event.uuid, pageleave.event.uuid,
+        redirect_event.uuid, pageleave_event.uuid,
         "redirect must have a fresh uuid to avoid deduplicating against the original (case: {title})",
     );
     assert_eq!(
-        redirect.event.distinct_id, pageleave.event.distinct_id,
+        redirect_event.distinct_id, pageleave_event.distinct_id,
         "redirect must inherit distinct_id from its source event in case: {title}",
     );
 
-    let redirect_data: Value = from_str(&redirect.event.data)
+    let redirect_data: Value = from_str(&redirect_event.data)
         .unwrap_or_else(|_| panic!("failed to hydrate redirect event.data in case: {title}"));
     let redirect_props = redirect_data["properties"]
         .as_object()
@@ -1021,50 +1018,35 @@ impl TimeSource for FixedTime {
     }
 }
 
+/// Deserialize a captured payload back into the event it carries.
+fn captured_event(p: &PreparedPayload, title: &str) -> common_types::CapturedEvent {
+    serde_json::from_slice(&p.record.payload)
+        .unwrap_or_else(|_| panic!("payload must deserialize in case: {title}"))
+}
+
+fn topic_for(output: &Outputs) -> String {
+    OutputRegistry::from(&DEFAULT_CONFIG.kafka)
+        .topic_for(output)
+        .to_string()
+}
+
 #[derive(Clone, Default)]
 struct MemorySink {
-    events: Arc<Mutex<Vec<ProcessedEvent>>>,
+    events: Arc<Mutex<Vec<PreparedPayload>>>,
 }
 
 impl MemorySink {
-    pub fn events(&self) -> Vec<ProcessedEvent> {
+    pub fn events(&self) -> Vec<PreparedPayload> {
         self.events.lock().unwrap().clone()
-    }
-}
-
-/// Build an inert prepared payload: real uuid + headers, empty routing. Lets
-/// a capturing test sink ride the prep -> publish path without a broker.
-fn passthrough_payload(event: &ProcessedEvent) -> PreparedPayload {
-    PreparedPayload {
-        uuid: event.event.uuid,
-        record: ProduceRecord {
-            topic: String::new(),
-            key: None,
-            payload: Vec::new(),
-            headers: event.event.to_headers(),
-        },
-    }
-}
-
-#[async_trait]
-impl Prepare for MemorySink {
-    async fn prepare_batch(
-        &self,
-        events: Vec<ProcessedEvent>,
-    ) -> Result<Vec<PreparedPayload>, CaptureError> {
-        let payloads = events.iter().map(passthrough_payload).collect();
-        self.events.lock().unwrap().extend_from_slice(&events);
-        Ok(payloads)
     }
 }
 
 #[async_trait]
 impl Sink for MemorySink {
     async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
-        prepared
-            .into_iter()
-            .map(|p| SinkResult::ok(p.uuid))
-            .collect()
+        let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
+        self.events.lock().unwrap().extend_from_slice(&prepared);
+        results
     }
 }
 
@@ -1110,7 +1092,10 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             timesource,
             readiness,
             liveness,
-            Arc::new(OutputTable::new(Output::single(Arc::new(sink.clone())))),
+            Arc::new(OutputTable::new(Output::single(
+                Arc::new(sink.clone()),
+                PrepSpec::from(&DEFAULT_CONFIG.kafka),
+            ))),
             redis,
             None, // global_rate_limiter_token_distinctid
             quota_limiter,

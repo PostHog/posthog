@@ -5,19 +5,18 @@ use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
-use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionManager, RestrictionScope,
     RestrictionType,
 };
+use capture::outputs::PrepSpec;
 use capture::outputs::{Output, OutputTable};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
-use capture::sinks::producer::ProduceRecord;
-use capture::sinks::sink::{Prepare, PreparedPayload, Sink, SinkResult};
+use capture::sinks::sink::{PreparedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
-use capture::v0_request::{DataType, ProcessedEvent};
+use capture::v0_request::DataType;
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
 use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG, DEFAULT_TEST_TIME};
@@ -39,7 +38,7 @@ impl TimeSource for FixedTime {
 
 #[derive(Clone)]
 struct CapturingSink {
-    events: Arc<tokio::sync::Mutex<Vec<ProcessedEvent>>>,
+    events: Arc<tokio::sync::Mutex<Vec<PreparedPayload>>>,
 }
 
 impl CapturingSink {
@@ -49,44 +48,17 @@ impl CapturingSink {
         }
     }
 
-    async fn get_events(&self) -> Vec<ProcessedEvent> {
+    async fn get_events(&self) -> Vec<PreparedPayload> {
         self.events.lock().await.clone()
-    }
-}
-
-/// Build an inert prepared payload: real uuid + headers, empty routing. Lets
-/// a capturing test sink ride the prep -> publish path without a broker.
-fn passthrough_payload(event: &ProcessedEvent) -> PreparedPayload {
-    PreparedPayload {
-        uuid: event.event.uuid,
-        record: ProduceRecord {
-            topic: String::new(),
-            key: None,
-            payload: Vec::new(),
-            headers: event.event.to_headers(),
-        },
-    }
-}
-
-#[async_trait]
-impl Prepare for CapturingSink {
-    async fn prepare_batch(
-        &self,
-        events: Vec<ProcessedEvent>,
-    ) -> Result<Vec<PreparedPayload>, CaptureError> {
-        let payloads = events.iter().map(passthrough_payload).collect();
-        self.events.lock().await.extend(events);
-        Ok(payloads)
     }
 }
 
 #[async_trait]
 impl Sink for CapturingSink {
     async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
-        prepared
-            .into_iter()
-            .map(|p| SinkResult::ok(p.uuid))
-            .collect()
+        let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
+        self.events.lock().await.extend(prepared);
+        results
     }
 }
 
@@ -130,7 +102,10 @@ async fn setup_recordings_router_with_restriction(
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(Arc::new(sink)))),
+        Arc::new(OutputTable::new(Output::single(
+            Arc::new(sink),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        ))),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
@@ -193,61 +168,75 @@ struct ExpectedEvent<'a> {
     expected_properties: Option<Value>,
 }
 
-fn assert_event(event: &ProcessedEvent, expected: &ExpectedEvent) {
-    // Assert CapturedEvent fields
-    assert_eq!(event.event.token, expected.token, "token mismatch");
+fn assert_event(payload: &PreparedPayload, expected: &ExpectedEvent) {
+    // Assert event content by deserializing the payload back.
+    let event: Value =
+        serde_json::from_slice(&payload.record.payload).expect("payload should be valid JSON");
+    assert_eq!(event["token"], expected.token, "token mismatch");
     assert_eq!(
-        event.event.distinct_id, expected.distinct_id,
+        event["distinct_id"], expected.distinct_id,
         "distinct_id mismatch"
     );
-    assert_eq!(
-        event.event.event, expected.event_name,
-        "event name mismatch"
+    assert_eq!(event["event"], expected.event_name, "event name mismatch");
+    assert!(
+        !event["ip"].as_str().unwrap_or_default().is_empty(),
+        "ip should not be empty"
     );
-    assert_eq!(
-        event.event.session_id.as_deref(),
-        Some(expected.session_id),
-        "session_id mismatch"
+    assert!(
+        !event["now"].as_str().unwrap_or_default().is_empty(),
+        "now should not be empty"
     );
-    assert!(!event.event.ip.is_empty(), "ip should not be empty");
-    assert!(!event.event.now.is_empty(), "now should not be empty");
-    assert!(!event.event.data.is_empty(), "data should not be empty");
+    let data_str = event["data"].as_str().expect("data should be a string");
+    assert!(!data_str.is_empty(), "data should not be empty");
 
-    // Assert ProcessedEventMetadata fields
+    // Replay partitions on the session id — except redirects (dlq / custom
+    // topic), which partition on the event key like every other pipeline.
+    if !expected.redirect_to_dlq && expected.redirect_to_topic.is_none() {
+        assert_eq!(
+            payload.record.key.as_deref(),
+            Some(expected.session_id),
+            "session partition key mismatch"
+        );
+    }
+
+    // Assert the routing outcome the declarative expectations imply: the
+    // record's topic and person-processing header carry what used to be
+    // metadata stamps.
+    use capture::outputs::registry::{OutputRegistry, Outputs};
+    let registry = OutputRegistry::from(&DEFAULT_CONFIG.kafka);
+    let expected_output = if expected.redirect_to_dlq {
+        Outputs::Dlq
+    } else if let Some(topic) = &expected.redirect_to_topic {
+        Outputs::Custom(topic)
+    } else if expected.force_overflow {
+        Outputs::ReplayOverflow
+    } else {
+        match expected.data_type {
+            DataType::AnalyticsMain | DataType::SnapshotMain => Outputs::Main,
+            DataType::AnalyticsHistorical => Outputs::Historical,
+            DataType::HeatmapMain => Outputs::Heatmaps,
+            DataType::ClientIngestionWarning => Outputs::ClientIngestionWarning,
+            DataType::ExceptionErrorTracking => Outputs::ErrorTracking,
+        }
+    };
     assert_eq!(
-        event.metadata.data_type, expected.data_type,
-        "data_type mismatch"
+        payload.record.topic,
+        registry.topic_for(&expected_output),
+        "topic mismatch"
     );
     assert_eq!(
-        event.metadata.event_name, expected.event_name,
-        "metadata.event_name mismatch"
-    );
-    assert_eq!(
-        event.metadata.session_id.as_deref(),
-        Some(expected.session_id),
-        "metadata.session_id mismatch"
-    );
-    assert_eq!(
-        event.metadata.force_overflow, expected.force_overflow,
-        "force_overflow mismatch"
-    );
-    assert_eq!(
-        event.metadata.skip_person_processing, expected.skip_person_processing,
-        "skip_person_processing mismatch"
-    );
-    assert_eq!(
-        event.metadata.redirect_to_dlq, expected.redirect_to_dlq,
-        "redirect_to_dlq mismatch"
-    );
-    assert_eq!(
-        event.metadata.redirect_to_topic, expected.redirect_to_topic,
-        "redirect_to_topic mismatch"
+        payload.record.headers.force_disable_person_processing,
+        if expected.skip_person_processing {
+            Some(true)
+        } else {
+            None
+        },
+        "person-processing header mismatch"
     );
 
     // Assert properties in event data
     if let Some(expected_props) = &expected.expected_properties {
-        let data: Value =
-            serde_json::from_str(&event.event.data).expect("event.data should be valid JSON");
+        let data: Value = serde_json::from_str(data_str).expect("event.data should be valid JSON");
         let actual_props = data
             .get("properties")
             .expect("event data should have properties");
@@ -501,7 +490,10 @@ async fn setup_recordings_router_with_redirect_to_topic(
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(Arc::new(sink)))),
+        Arc::new(OutputTable::new(Output::single(
+            Arc::new(sink),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        ))),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,

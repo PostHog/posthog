@@ -13,7 +13,7 @@ use tracing::Level;
 use uuid::Uuid;
 
 use crate::config::CaptureMode;
-use crate::sinks::registry::OutputRegistry;
+use crate::outputs::registry::OutputRegistry;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::sink::Sink;
 use crate::v1::sinks::types::{BatchSummary, Destination, Outcome, PreparedEvent, SinkResult};

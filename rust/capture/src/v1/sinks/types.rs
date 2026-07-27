@@ -5,7 +5,7 @@ use std::fmt;
 use common_types::CapturedEventHeaders;
 use uuid::Uuid;
 
-use crate::sinks::registry::Outputs;
+use crate::outputs::registry::Outputs;
 
 /// Kafka topic routing for a processed event.
 /// `Drop` means the event should not be produced at all.
@@ -32,7 +32,7 @@ impl Destination {
     }
 
     /// Map this v1 destination onto the shared [`Outputs`] enum so topic
-    /// resolution goes through the one [`OutputRegistry`](crate::sinks::registry::OutputRegistry)
+    /// resolution goes through the one [`OutputRegistry`](crate::outputs::registry::OutputRegistry)
     /// instead of a parallel `topic_for` match. `Drop` has no topic and returns
     /// `None`; `Custom` borrows its inline admin-supplied topic. v1 is
     /// analytics-only, so it never produces `Outputs::ReplayOverflow`.
@@ -70,7 +70,7 @@ impl Destination {
 #[cfg(test)]
 mod destination_tests {
     use super::Destination;
-    use crate::sinks::registry::Outputs;
+    use crate::outputs::registry::Outputs;
 
     /// Every non-`Drop` destination bridges to a shared `Outputs` variant, and
     /// `Drop` maps to `None`. This is the seam that lets the v1 stack resolve

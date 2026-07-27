@@ -1,6 +1,6 @@
 use envconfig::Envconfig;
 
-use crate::sinks::registry::OutputRegistry;
+use crate::outputs::registry::OutputRegistry;
 
 /// Per-sink Kafka producer configuration. Loaded via `Envconfig::init_from_hashmap`
 /// from env vars under the `KAFKA_` sub-prefix of a sink's env namespace.

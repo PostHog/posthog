@@ -309,6 +309,33 @@ Test bodies port with assertions preserved.
 one step = one commit, subject from the tracker below.
 No `--no-verify` — pre-commit hooks must pass.
 
+#### Step 12 · Prep hoists into the outputs layer; `Prepare` retired
+
+- **Goal.** Sinks take prepared payloads as input, full stop. `PrepSpec`
+  (registry + per-destination serializers) moves payload assembly —
+  lane resolution, serialization, header stamps, topic and partition key,
+  and the scatter-gather batch prep — into the outputs layer; the
+  `(pipeline, lane)` → output bridge and the `OutputRegistry` move with it
+  (`outputs::registry`). The `Prepare` trait is deleted; every backend
+  (Kafka, S3, print, noop) preps identically via its output's spec, and the
+  Kafka sink is reduced to producer + enqueue + ack drain. The boot
+  completeness check moves to `setup::create_output`.
+- **Test posture change (deliberate).** Capturing mocks now intercept
+  *published payloads*, not `ProcessedEvent`s, so ~60 assertions that read
+  metadata stamps migrated to wire-level outcomes: topic, partition key,
+  headers, and payload bytes (deserialized for content checks). The declarative
+  `ExpectedEvent` checkers recompute the expected record from the same
+  expectations, so test bodies stayed put. The migration surfaced one real
+  semantic the old assertions couldn't see: replay events redirected to
+  dlq/custom topics partition on the event key, not the session id.
+- **Known deltas, accepted:** print/noop deployments now run the real prep
+  path (lane effects and their counters included), and prep can fail there
+  (e.g. `MissingSessionId`) where the old passthrough couldn't. The prep
+  histograms keep their `capture_kafka_*` names for dashboard continuity.
+- **Files.** `outputs/mod.rs`, `outputs/registry.rs` (moved), `sinks/*`,
+  `setup.rs`, all capturing test mocks.
+- **Size.** L.
+
 ## Closing state
 
 All steps are complete. The five strata are landed:
@@ -324,8 +351,8 @@ All steps are complete. The five strata are landed:
   content headers carrying encoding coexistence (the lz4 replay design,
   generalized); a protobuf cutover is an output-level config change.
 - **Sinks are mechanism.** Kafka/S3/print/noop take prepared payloads and
-  ack them; `Prepare` is backend SPI, never caller API. Prep still lives with
-  each backend and migrates into the outputs layer without touching callers.
+  ack them — nothing else. Payload assembly lives in the outputs layer
+  (`PrepSpec`); the Kafka sink is producer + enqueue + ack drain.
 - **Breaker failover is dark-launched** behind `CAPTURE_FAILOVER_ENABLED`,
   ported intact from `-sinks-v1` as the failover output's autonomous mode.
 - **v1 resolves topics through the shared `OutputRegistry`** via
@@ -349,3 +376,4 @@ All steps are complete. The five strata are landed:
 | 9 · Mode-scoped completeness | done | `refactor(capture): mode-scoped output registry completeness` |
 | 10 · Breaker mode (dark) | done | `feat(capture): breaker-driven failover mode (dark)` |
 | 11 · v1 convergence | done | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
+| 12 · Prep hoist; `Prepare` retired | done | `refactor(capture): hoist prep into outputs; sinks take prepared payloads only` |

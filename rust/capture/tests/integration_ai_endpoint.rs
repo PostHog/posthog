@@ -6,15 +6,13 @@ use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
 use capture::ai_s3::{BlobStorage, MockBlobStorage};
-use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::outputs::PrepSpec;
 use capture::outputs::{Output, OutputTable};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
-use capture::sinks::producer::ProduceRecord;
-use capture::sinks::sink::{Prepare, PreparedPayload, Sink, SinkResult};
+use capture::sinks::sink::{PreparedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
-use capture::v0_request::{OverflowReason, ProcessedEvent};
 use chrono::{DateTime, TimeZone, Utc};
 use common_redis::MockRedisClient;
 use futures::StreamExt;
@@ -54,28 +52,15 @@ impl TimeSource for FixedTime {
 #[derive(Clone, Default)]
 struct TestSink;
 
-/// Build an inert prepared payload: real uuid + headers, empty routing. Lets
-/// a capturing test sink ride the prep -> publish path without a broker.
-fn passthrough_payload(event: &ProcessedEvent) -> PreparedPayload {
-    PreparedPayload {
-        uuid: event.event.uuid,
-        record: ProduceRecord {
-            topic: String::new(),
-            key: None,
-            payload: Vec::new(),
-            headers: event.event.to_headers(),
-        },
-    }
+/// Deserialize a captured payload back into the event it carries.
+fn captured(p: &PreparedPayload) -> common_types::CapturedEvent {
+    serde_json::from_slice(&p.record.payload).expect("payload must deserialize")
 }
 
-#[async_trait]
-impl Prepare for TestSink {
-    async fn prepare_batch(
-        &self,
-        events: Vec<ProcessedEvent>,
-    ) -> Result<Vec<PreparedPayload>, CaptureError> {
-        Ok(events.iter().map(passthrough_payload).collect())
-    }
+fn topic(output: &capture::outputs::registry::Outputs) -> String {
+    capture::outputs::registry::OutputRegistry::from(&DEFAULT_CONFIG.kafka)
+        .topic_for(output)
+        .to_string()
 }
 
 #[async_trait]
@@ -91,7 +76,7 @@ impl Sink for TestSink {
 // Capturing sink for Kafka tests - stores events in memory
 #[derive(Clone)]
 struct CapturingSink {
-    events: Arc<tokio::sync::Mutex<Vec<ProcessedEvent>>>,
+    events: Arc<tokio::sync::Mutex<Vec<PreparedPayload>>>,
 }
 
 impl CapturingSink {
@@ -101,30 +86,17 @@ impl CapturingSink {
         }
     }
 
-    async fn get_events(&self) -> Vec<ProcessedEvent> {
+    async fn get_events(&self) -> Vec<PreparedPayload> {
         self.events.lock().await.clone()
-    }
-}
-
-#[async_trait]
-impl Prepare for CapturingSink {
-    async fn prepare_batch(
-        &self,
-        events: Vec<ProcessedEvent>,
-    ) -> Result<Vec<PreparedPayload>, CaptureError> {
-        let payloads = events.iter().map(passthrough_payload).collect();
-        self.events.lock().await.extend(events);
-        Ok(payloads)
     }
 }
 
 #[async_trait]
 impl Sink for CapturingSink {
     async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
-        prepared
-            .into_iter()
-            .map(|p| SinkResult::ok(p.uuid))
-            .collect()
+        let results = prepared.iter().map(|p| SinkResult::ok(p.uuid)).collect();
+        self.events.lock().await.extend(prepared);
+        results
     }
 }
 
@@ -205,7 +177,10 @@ fn setup_ai_test_router() -> Router {
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(Arc::new(sink)))),
+        Arc::new(OutputTable::new(Output::single(
+            Arc::new(sink),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        ))),
         redis,
         None,
         quota_limiter,
@@ -1669,7 +1644,10 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(Arc::new(sink)))),
+        Arc::new(OutputTable::new(Output::single(
+            Arc::new(sink),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        ))),
         redis,
         None,
         quota_limiter,
@@ -1750,7 +1728,7 @@ async fn test_ai_event_published_to_kafka() {
     let event = &events[0];
 
     // Verify event UUID
-    let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
+    let event_json: serde_json::Value = serde_json::from_str(&captured(event).data).unwrap();
     assert_eq!(event_json["uuid"], event_uuid);
     assert_eq!(event_json["event"], "$ai_generation");
     assert_eq!(event_json["distinct_id"], "test_user");
@@ -1822,7 +1800,7 @@ async fn test_ai_event_with_blobs_published_with_s3_placeholders() {
     );
 
     let event = &events[0];
-    let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
+    let event_json: serde_json::Value = serde_json::from_str(&captured(event).data).unwrap();
 
     // Verify properties contain S3 URLs from mock blob storage
     let props = event_json["properties"].as_object().unwrap();
@@ -1968,7 +1946,7 @@ async fn test_ai_event_with_multiple_blobs_sequential_ranges() {
     assert_eq!(events.len(), 1);
 
     let event = &events[0];
-    let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
+    let event_json: serde_json::Value = serde_json::from_str(&captured(event).data).unwrap();
     let props = event_json["properties"].as_object().unwrap();
 
     // Extract all URLs
@@ -2055,7 +2033,7 @@ async fn test_ai_event_metadata_preserved_in_kafka() {
     assert_eq!(events.len(), 1);
 
     let event = &events[0];
-    let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
+    let event_json: serde_json::Value = serde_json::from_str(&captured(event).data).unwrap();
 
     // Verify all metadata is preserved
     assert_eq!(event_json["uuid"], event_uuid);
@@ -2122,7 +2100,7 @@ async fn test_ai_event_with_ignore_sent_at_true() {
     assert_eq!(events.len(), 1);
 
     let event = &events[0];
-    let computed_timestamp = event.metadata.computed_timestamp.unwrap();
+    let computed_timestamp = captured(event).timestamp;
 
     // Should use the event timestamp directly without clock skew correction
     let expected = DateTime::parse_from_rfc3339(event_timestamp)
@@ -2183,7 +2161,7 @@ async fn test_ai_event_with_ignore_sent_at_false() {
     assert_eq!(events.len(), 1);
 
     let event = &events[0];
-    let computed_timestamp = event.metadata.computed_timestamp.unwrap();
+    let computed_timestamp = captured(event).timestamp;
 
     // With clock skew correction:
     // computed = now + (timestamp - sent_at)
@@ -2249,7 +2227,7 @@ async fn test_ai_event_without_ignore_sent_at_defaults_to_false() {
     assert_eq!(events.len(), 1);
 
     let event = &events[0];
-    let computed_timestamp = event.metadata.computed_timestamp.unwrap();
+    let computed_timestamp = captured(event).timestamp;
 
     // Should apply clock skew correction by default
     let expected = chrono::Utc
@@ -2310,7 +2288,8 @@ async fn test_ai_event_ip_defaults_to_localhost_in_tests() {
 
     let event = &events[0];
     assert_eq!(
-        event.event.ip, "127.0.0.1",
+        captured(event).ip,
+        "127.0.0.1",
         "IP address should default to 127.0.0.1 when ConnectInfo is not available"
     );
 }
@@ -2360,12 +2339,13 @@ async fn test_ai_event_ip_redacted_for_internal_events() {
 
     let event = &events[0];
     assert_eq!(
-        event.event.ip, "127.0.0.1",
+        captured(event).ip,
+        "127.0.0.1",
         "IP address should be redacted to 127.0.0.1 for events with capture_internal property"
     );
 
     // Verify the capture_internal property is preserved
-    let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
+    let event_json: serde_json::Value = serde_json::from_str(&captured(event).data).unwrap();
     let props = event_json["properties"].as_object().unwrap();
     assert_eq!(props["capture_internal"], true);
 }
@@ -2421,7 +2401,7 @@ async fn test_ai_event_with_invalid_sent_at_skips_clock_skew_correction() {
     assert_eq!(events.len(), 1);
 
     let event = &events[0];
-    let computed_timestamp = event.metadata.computed_timestamp.unwrap();
+    let computed_timestamp = captured(event).timestamp;
 
     // Should use the event timestamp directly without clock skew correction
     // (same behavior as if sent_at was missing)
@@ -2481,7 +2461,7 @@ async fn test_ai_event_without_sent_at_uses_event_timestamp() {
     assert_eq!(events.len(), 1);
 
     let event = &events[0];
-    let computed_timestamp = event.metadata.computed_timestamp.unwrap();
+    let computed_timestamp = captured(event).timestamp;
 
     // Should use the event timestamp directly
     let expected = DateTime::parse_from_rfc3339(event_timestamp)
@@ -2541,7 +2521,7 @@ async fn test_ai_event_with_valid_sent_at_applies_clock_skew_correction() {
     assert_eq!(events.len(), 1);
 
     let event = &events[0];
-    let computed_timestamp = event.metadata.computed_timestamp.unwrap();
+    let computed_timestamp = captured(event).timestamp;
 
     // With clock skew correction:
     // computed = now + (timestamp - sent_at)
@@ -2585,7 +2565,10 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(Arc::new(sink)))),
+        Arc::new(OutputTable::new(Output::single(
+            Arc::new(sink),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        ))),
         redis,
         None,
         quota_limiter,
@@ -2796,7 +2779,10 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(Arc::new(sink)))),
+        Arc::new(OutputTable::new(Output::single(
+            Arc::new(sink),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        ))),
         redis,
         None,
         quota_limiter,
@@ -2952,7 +2938,10 @@ fn setup_ai_test_router_with_overflow_limiter(
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(Arc::new(sink)))),
+        Arc::new(OutputTable::new(Output::single(
+            Arc::new(sink),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        ))),
         redis,
         None,
         quota_limiter,
@@ -3013,13 +3002,14 @@ async fn test_ai_event_with_hot_key_stamps_force_limited_reason() {
 
     let event = &events[0];
     assert_eq!(
-        event.metadata.overflow_reason,
-        Some(OverflowReason::ForceLimited),
-        "hot key must be stamped ForceLimited so the sink routes to overflow"
+        event.record.topic,
+        topic(&capture::outputs::registry::Outputs::Overflow),
+        "hot key must be rerouted to overflow (ForceLimited)"
     );
-    assert!(
-        event.metadata.skip_person_processing,
-        "ForceLimited implies skip_person_processing so the header is set"
+    assert_eq!(
+        event.record.headers.force_disable_person_processing,
+        Some(true),
+        "ForceLimited implies person processing disabled via header"
     );
 }
 
@@ -3045,8 +3035,14 @@ async fn test_ai_event_with_cold_key_leaves_overflow_reason_none() {
 
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].metadata.overflow_reason, None);
-    assert!(!events[0].metadata.skip_person_processing);
+    assert_eq!(
+        events[0].record.topic,
+        topic(&capture::outputs::registry::Outputs::Main)
+    );
+    assert_eq!(
+        events[0].record.headers.force_disable_person_processing,
+        None
+    );
 }
 
 #[tokio::test]
@@ -3065,7 +3061,10 @@ async fn test_ai_endpoint_without_overflow_limiter_is_parity_with_pre_refactor()
 
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].metadata.overflow_reason, None);
+    assert_eq!(
+        events[0].record.topic,
+        topic(&capture::outputs::registry::Outputs::Main)
+    );
 }
 
 // ============================================================================
@@ -3092,7 +3091,10 @@ fn ai_router(
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(Arc::new(sink)))),
+        Arc::new(OutputTable::new(Output::single(
+            Arc::new(sink),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        ))),
         redis,
         None,
         quota_limiter,
@@ -3211,7 +3213,7 @@ async fn test_ai_endpoint_verified_gateway_event_bypasses_quota_and_is_stamped()
         1,
         "verified gateway event must bypass the LLM quota limiter"
     );
-    let data: Value = serde_json::from_str(&events[0].event.data).unwrap();
+    let data: Value = serde_json::from_str(&captured(&events[0]).data).unwrap();
     assert_eq!(data["properties"]["$ai_gateway_verified"], json!(true));
     assert_eq!(
         data["properties"]["$ai_gateway_request_id"],
@@ -3244,7 +3246,7 @@ async fn test_ai_endpoint_forged_marker_is_stripped() {
 
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
-    let data: Value = serde_json::from_str(&events[0].event.data).unwrap();
+    let data: Value = serde_json::from_str(&captured(&events[0]).data).unwrap();
     assert!(
         data["properties"].get("$ai_gateway_verified").is_none(),
         "a forged $ai_gateway_verified with an invalid signature must be stripped"
