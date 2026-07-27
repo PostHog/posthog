@@ -562,7 +562,7 @@ export interface sourceSettingsLogicActions {
         canLoadMoreJobs: boolean
     }
     setFrequencyFilter: (frequency: DataWarehouseSyncInterval | OrNever | null) => {
-        frequency: DataWarehouseSyncInterval | null
+        frequency: DataWarehouseSyncInterval | OrNever | null
     }
     setIsProjectTime: (isProjectTime: boolean) => {
         isProjectTime: boolean
@@ -876,7 +876,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             },
         ],
         frequencyFilter: [
-            null as DataWarehouseSyncInterval | null,
+            null as DataWarehouseSyncInterval | OrNever | null,
             {
                 setFrequencyFilter: (_, { frequency }) => frequency,
             },
