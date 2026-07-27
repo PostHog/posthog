@@ -147,17 +147,19 @@ export function ReportChart({ chart }: { chart: ReportChartApi }): JSX.Element |
         >
             <div className="flex items-start justify-between gap-2">
                 <h4 className="m-0 text-sm font-semibold text-primary">{chart.title}</h4>
-                <LemonButton
-                    to={openTarget.url}
-                    targetBlank
-                    hideExternalLinkIcon
-                    icon={<IconExternal />}
-                    size="xsmall"
-                    type="tertiary"
-                    tooltip={openTarget.label}
-                    aria-label={openTarget.label}
-                    data-attr="report-chart-open"
-                />
+                {openTarget ? (
+                    <LemonButton
+                        to={openTarget.url}
+                        targetBlank
+                        hideExternalLinkIcon
+                        icon={<IconExternal />}
+                        size="xsmall"
+                        type="tertiary"
+                        tooltip={openTarget.label}
+                        aria-label={openTarget.label}
+                        data-attr="report-chart-open"
+                    />
+                ) : null}
             </div>
             <div className={bodyClass}>
                 {isSavedInsightNode(query) ? (

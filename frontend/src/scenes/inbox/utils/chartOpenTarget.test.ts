@@ -26,13 +26,22 @@ describe('chartOpenTarget', () => {
     })
 
     it.each([
+        ['no shortId at all', { kind: NodeKind.SavedInsightNode }],
+        ['an empty shortId', { kind: NodeKind.SavedInsightNode, shortId: '' }],
+    ])('offers nowhere to go for a saved-insight chart with %s', (_name, query: unknown) => {
+        // The query is stored unparsed, so this shape reaches the renderer. Dropping the guard sends
+        // the reader to `/insights/undefined` from the one chart that already can't load.
+        expect(chartOpenTarget(query as Node)).toBeNull()
+    })
+
+    it.each([
         ['a trends chart', trendsChart, 'Open as new insight'],
         ['a SQL chart', sqlChart, 'Open in SQL editor'],
     ])('labels %s by where it actually lands', (_name, query: Node, label: string) => {
-        expect(chartOpenTarget(query).label).toBe(label)
+        expect(chartOpenTarget(query)?.label).toBe(label)
     })
 
     it('sends a SQL chart to the SQL editor, where its query is editable', () => {
-        expect(chartOpenTarget(sqlChart).url).toContain('/sql')
+        expect(chartOpenTarget(sqlChart)?.url).toContain('/sql')
     })
 })
