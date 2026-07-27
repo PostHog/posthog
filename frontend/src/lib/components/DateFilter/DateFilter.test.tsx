@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { Button } from 'lib/ui/quill'
 import { dateMapping } from 'lib/utils/dateFilters'
 
 import { initKeaTests } from '~/test/init'
@@ -101,5 +102,38 @@ describe('DateFilter with allowFixedRangeWithTime', () => {
         await waitFor(() => {
             expect(screen.getByText(/select a date and time range/i)).toBeInTheDocument()
         })
+    })
+})
+
+describe('DateFilter with a custom trigger', () => {
+    beforeEach(() => {
+        initKeaTests()
+        render(
+            <Provider>
+                <DateFilter
+                    onChange={jest.fn()}
+                    dateOptions={dateMapping}
+                    renderTrigger={({ buttonRef, isOpen, label, onClick }) => (
+                        <Button ref={buttonRef} aria-expanded={isOpen} onClick={onClick}>
+                            Custom: {label}
+                        </Button>
+                    )}
+                />
+            </Provider>
+        )
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    it('opens the date options from the rendered trigger', async () => {
+        const trigger = screen.getByRole('button', { name: /Custom:/ })
+
+        expect(trigger).toHaveAttribute('aria-expanded', 'false')
+        await userEvent.click(trigger)
+
+        expect(trigger).toHaveAttribute('aria-expanded', 'true')
+        expect(screen.getByText('Yesterday')).toBeInTheDocument()
     })
 })

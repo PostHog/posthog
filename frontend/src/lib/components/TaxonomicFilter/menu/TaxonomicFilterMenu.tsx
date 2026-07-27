@@ -388,7 +388,13 @@ export function TaxonomicFilterMenu({
             const mergedItem = extra
                 ? ({ ...(entry.item as unknown as object), ...extra } as unknown as TaxonomicDefinitionTypes)
                 : entry.item
-            const itemValue = entry.group.getValue?.(mergedItem) ?? null
+            const declaredGroupType =
+                mergedItem && typeof mergedItem === 'object' && 'group' in mergedItem ? mergedItem.group : undefined
+            const committedGroup = groups.find((group) => group.type === declaredGroupType) ?? entry.group
+            const itemValue = committedGroup.getValue
+                ? (committedGroup.getValue(mergedItem) ?? null)
+                : (entry.name ?? null)
+            const committedEntry = { ...entry, group: committedGroup, item: mergedItem }
             hadCommitRef.current = true
             posthog.capture('taxonomic filter menu item selected', {
                 groupType: entry.group.type,
@@ -430,11 +436,11 @@ export function TaxonomicFilterMenu({
                 // rather than a real picked item — lets us measure its adoption.
                 wasUrlContainsShortcut: (entry.item as { isContainsShortcut?: boolean }).isContainsShortcut === true,
             })
-            selectItem(entry.group, itemValue, mergedItem)
-            onCommit?.({ ...entry, item: mergedItem }, extra)
+            selectItem(committedGroup, itemValue, mergedItem)
+            onCommit?.(committedEntry, extra)
             closeAll()
         },
-        [selectItem, onCommit, closeAll, searchQuery]
+        [groups, selectItem, onCommit, closeAll, searchQuery]
     )
 
     // -- Trigger render --
