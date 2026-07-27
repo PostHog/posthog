@@ -97,11 +97,16 @@ Create an API user and key on the [API keys page](https://app.meetcampfire.com/v
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: CampfireSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CampfireSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         endpoint_config = CAMPFIRE_ENDPOINTS.get(schema_name) if schema_name else None
         if validate_campfire_credentials(config.api_key, path=endpoint_config.path if endpoint_config else None):

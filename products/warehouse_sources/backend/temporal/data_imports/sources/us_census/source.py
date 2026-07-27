@@ -84,6 +84,7 @@ class USCensusSource(SimpleSource[USCensusSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         endpoint_names = list(ENDPOINTS)
         if _has_custom_query(config):
@@ -91,7 +92,11 @@ class USCensusSource(SimpleSource[USCensusSourceConfig]):
         return build_endpoint_schemas(endpoint_names, INCREMENTAL_FIELDS, names, descriptions=ENDPOINT_DESCRIPTIONS)
 
     def validate_credentials(
-        self, config: USCensusSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: USCensusSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         custom_query_error = validate_custom_query(
             config.custom_dataset, config.custom_variables, config.custom_geography

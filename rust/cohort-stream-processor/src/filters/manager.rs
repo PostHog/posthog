@@ -219,6 +219,7 @@ mod tests {
             id,
             team_id,
             filters: serde_json::Value::Null,
+            behavioral_filters_shape_hash: None,
             timezone: "UTC".to_string(),
         }
     }

@@ -63,6 +63,7 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Zoom's list endpoints expose no server-side timestamp filter, so every
         # endpoint is a full refresh (no incremental sync).
@@ -83,7 +84,7 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: ZoomSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: ZoomSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_zoom_credentials(
             account_id=config.account_id,

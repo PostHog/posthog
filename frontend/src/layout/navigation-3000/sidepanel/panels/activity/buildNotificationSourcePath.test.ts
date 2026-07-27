@@ -12,7 +12,6 @@ function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNoti
         body: '',
         read: false,
         read_at: null,
-        archivable: false,
         resource_type: null,
         resource_id: '',
         target_type: 'user',
@@ -75,6 +74,16 @@ describe('buildNotificationSourcePath', () => {
             })
         )
         expect(result).toBe('/error_tracking/issue-uuid')
+    })
+
+    it('builds path from source_type and source_id for ticket', () => {
+        const result = buildNotificationSourcePath(
+            makeNotification({
+                source_type: 'ticket',
+                source_id: 'ticket-uuid',
+            })
+        )
+        expect(result).toBe('/support/tickets/ticket-uuid')
     })
 
     it('falls back to source_url when source_type is null', () => {

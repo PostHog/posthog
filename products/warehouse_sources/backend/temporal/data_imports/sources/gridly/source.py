@@ -100,6 +100,7 @@ Find the **View ID** in Gridly by opening your grid, selecting a view, and openi
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Gridly exposes no server-side timestamp filter, so every table is full refresh only.
         schemas = [
@@ -120,7 +121,11 @@ Find the **View ID** in Gridly by opening your grid, selecting a view, and openi
         return schemas
 
     def validate_credentials(
-        self, config: GridlySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GridlySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_gridly_credentials(config.api_key, config.view_id)
 

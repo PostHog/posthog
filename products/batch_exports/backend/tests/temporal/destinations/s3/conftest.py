@@ -348,7 +348,7 @@ def external_id(request, aorganization) -> str | None:
     try:
         return request.param
     except Exception:
-        return str(aorganization.id)
+        return f"posthog-{aorganization.id}"
 
 
 @pytest_asyncio.fixture

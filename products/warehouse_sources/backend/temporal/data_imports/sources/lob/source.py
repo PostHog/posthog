@@ -94,6 +94,7 @@ Test and Live keys return different data, so connect the environment whose data 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = LOB_ENDPOINTS[endpoint]
@@ -113,7 +114,7 @@ Test and Live keys return different data, so connect the environment whose data 
         return schemas
 
     def validate_credentials(
-        self, config: LobSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: LobSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         is_valid, status_code = validate_lob_credentials(config.api_key)
         if is_valid:

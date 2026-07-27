@@ -108,6 +108,7 @@ Your personal API token is in your [AppSignal personal settings](https://appsign
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -128,7 +129,11 @@ Your personal API token is in your [AppSignal personal settings](https://appsign
         return schemas
 
     def validate_credentials(
-        self, config: AppsignalSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AppsignalSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_appsignal_credentials(config.api_token, config.app_id):
             return True, None

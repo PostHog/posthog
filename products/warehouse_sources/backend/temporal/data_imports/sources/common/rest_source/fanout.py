@@ -64,6 +64,8 @@ def build_dependent_resource(
     child_endpoint_extra: Endpoint | None = None,
     child_params_extra: dict[str, Any] | None = None,
     page_size_param: str | None = "limit",
+    resume_hook: Callable[[dict[str, Any] | None], None] | None = None,
+    initial_paginator_state: dict[str, Any] | None = None,
 ) -> Iterable[Any]:
     parent_config = endpoint_configs[fanout.parent_name]
     child_config = endpoint_configs[child_endpoint]
@@ -146,6 +148,13 @@ def build_dependent_resource(
         "resources": [parent_resource, child_resource],
     }
 
-    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    resources = rest_api_resources(
+        config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=resume_hook,
+        initial_paginator_state=initial_paginator_state,
+    )
     child_dlt_resource = next(r for r in resources if getattr(r, "name", None) == child_endpoint)
     return child_dlt_resource.add_map(rename_parent_fields(fanout.parent_name, fanout.parent_field_renames))

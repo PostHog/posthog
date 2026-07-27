@@ -95,13 +95,18 @@ API keys are available on paid plans. Create one under **Settings → Integratio
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — My Hours list endpoints expose no server-side
         # timestamp filter, so there is no incremental cursor to advance (INCREMENTAL_FIELDS is empty).
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: MyHoursSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MyHoursSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
         status, message = check_access(config.api_key)

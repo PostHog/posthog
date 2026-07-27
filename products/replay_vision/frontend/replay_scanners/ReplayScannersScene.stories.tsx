@@ -35,7 +35,7 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         query: null,
         sampling_rate: 1,
         provider: 'google',
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.6-flash',
         enabled: true,
         emits_signals: false,
         scanner_version: 1,

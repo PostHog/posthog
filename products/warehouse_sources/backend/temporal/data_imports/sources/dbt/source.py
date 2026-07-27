@@ -132,6 +132,7 @@ Your account ID is the number after `/deploy/` in your dbt URL. If your account 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = DBT_ENDPOINTS[endpoint]
@@ -154,7 +155,7 @@ Your account ID is the number after `/deploy/` in your dbt URL. If your account 
         return schemas
 
     def validate_credentials(
-        self, config: DbtSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: DbtSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_dbt_credentials(
             api_token=config.api_token,
@@ -166,7 +167,7 @@ Your account ID is the number after `/deploy/` in your dbt URL. If your account 
         )
 
     def get_endpoint_permissions(
-        self, config: DbtSourceConfig, team_id: int, endpoints: list[str]
+        self, config: DbtSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         return get_dbt_endpoint_permissions(
             api_token=config.api_token,

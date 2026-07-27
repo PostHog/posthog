@@ -256,6 +256,28 @@ def test_missing_token_error_is_non_retryable(error_msg: str) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        # fetch_page/_get, exhausted after tenacity's 5 in-process attempts (e.g. a Cloudflare 522)
+        "Hubspot API error (retryable): status=522, url=https://api.hubapi.com/crm/v3/properties/meetings",
+        "Hubspot API error (retryable): status=429, url=https://api.hubapi.com/crm/v3/objects/contacts",
+        "Hubspot API malformed JSON response (retryable): url=https://api.hubapi.com/crm/v3/objects/deals",
+        "Hubspot search error (retryable): status=503, url=https://api.hubapi.com/crm/v3/objects/contacts/search",
+        "Hubspot search malformed JSON response (retryable): url=https://api.hubapi.com/crm/v3/objects/deals/search",
+        "Hubspot v4 associations error (retryable): status=500, "
+        "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
+        "Hubspot v4 associations malformed JSON response (retryable): "
+        "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
+    ],
+)
+def test_transient_http_error_is_retryable(error_msg: str) -> None:
+    patterns = HubspotSource().get_retryable_errors()
+    assert any(pattern in error_msg for pattern in patterns), (
+        f"HubSpot error {error_msg!r} did not match any retryable pattern"
+    )
+
+
 class TestApiVersion:
     def test_defaults_to_v3_until_date_version_is_verified(self) -> None:
         src = HubspotSource()

@@ -66,6 +66,21 @@ def _run(run_id: str) -> dict[str, Any]:
     return {"id": run_id, "start_time": "2026-06-01T00:00:00Z"}
 
 
+SESSION_IDS_PAGE = [{"id": "session-1"}]
+
+
+def _with_session_page(fake_fetch):
+    """Wrap a runs/query-only fake_fetch so the preceding sessions-listing GET (json_body=None)
+    is answered separately from the runs/query POSTs the wrapped function expects to see."""
+
+    def wrapped(session, url, headers, log, json_body=None):
+        if json_body is None:
+            return SESSION_IDS_PAGE
+        return fake_fetch(session, url, headers, log, json_body=json_body)
+
+    return wrapped
+
+
 class TestNormalizeBaseUrl:
     @pytest.mark.parametrize(
         "raw,expected",
@@ -146,7 +161,7 @@ class TestRunsPagination:
             bodies.append(json_body)
             return pages[len(bodies) - 1]
 
-        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
             rows = _collect(
                 get_rows("key", BASE_URL, "runs", logger, manager, 1, True, watermark)  # type: ignore[arg-type]
             )
@@ -164,11 +179,44 @@ class TestRunsPagination:
     def test_terminates_on_empty_page_and_missing_cursors(self):
         manager = FakeManager()
 
-        with mock.patch(_FETCH_PAGE, return_value={"runs": [], "cursors": {"next": "dangling"}}) as fetch:
+        def fake_fetch(session, url, headers, log, json_body=None):
+            return {"runs": [], "cursors": {"next": "dangling"}}
+
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)) as fetch:
+            rows = _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert rows == []
+        # One call to list sessions, one to runs/query.
+        assert fetch.call_count == 2
+
+    def test_no_sessions_in_workspace_skips_runs_query_entirely(self):
+        # runs/query requires a session/id/parent_run/trace/reference_example scope; with no
+        # tracing projects there's nothing to scope to, so the sync must not call it at all
+        # (an empty `session: []` would 400 the same way the unscoped call used to).
+        manager = FakeManager()
+
+        with mock.patch(_FETCH_PAGE, return_value=[]) as fetch:
             rows = _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
 
         assert rows == []
         assert fetch.call_count == 1
+
+    def test_runs_query_is_always_scoped_to_a_session(self):
+        # Regression test: runs/query used to send limit/select/order (and start_time) with no
+        # session/id/parent_run/trace/reference_example, which LangSmith rejects with a 400
+        # ("At least one of 'session', 'id', 'parent_run', 'trace' or 'reference_example' must be
+        # specified"). Every request must carry the workspace's session ids.
+        manager = FakeManager()
+        bodies: list[dict[str, Any]] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            bodies.append(json_body)
+            return {"runs": [_run("a")], "cursors": {"next": None}}
+
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
+            _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert bodies[0]["session"] == [row["id"] for row in SESSION_IDS_PAGE]
 
     def test_resume_pins_cursor_and_window(self):
         manager = FakeManager(resume=LangSmithResumeConfig(cursor="c9", window_start="2026-01-01T00:00:00.000000Z"))
@@ -178,7 +226,7 @@ class TestRunsPagination:
             bodies.append(json_body)
             return {"runs": [_run("x")], "cursors": {"next": None}}
 
-        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
             _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1, True, datetime.now(UTC)))  # type: ignore[arg-type]
 
         # The interrupted run's window is replayed, not recomputed from the new watermark — a
@@ -193,7 +241,7 @@ class TestRunsPagination:
         big_page = {"runs": [_run(f"r{i}") for i in range(2500)], "cursors": {"next": "c2"}}
         last_page = {"runs": [_run("tail")], "cursors": {"next": None}}
 
-        with mock.patch(_FETCH_PAGE, side_effect=[big_page, last_page]):
+        with mock.patch(_FETCH_PAGE, side_effect=[SESSION_IDS_PAGE, big_page, last_page]):
             rows = _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
 
         assert len(rows) == 2501
@@ -248,6 +296,18 @@ class TestOffsetPagination:
 
 
 class TestPaginationAbuseGuards:
+    def test_oversized_session_id_accumulation_raises(self):
+        # A host controls both the count and size of session ids returned while scoping the runs
+        # query; without a cumulative cap, accumulating every id would let a hostile host exhaust a
+        # shared worker's memory well before MAX_PAGES_PER_RUN ever trips.
+        manager = FakeManager()
+        huge_id = "x" * 50_000
+        page_size = LANGSMITH_ENDPOINTS["projects"].page_size
+
+        with mock.patch(_FETCH_PAGE, return_value=[{"id": huge_id} for _ in range(page_size)]):
+            with pytest.raises(LangSmithResponseTooLargeError):
+                _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+
     def test_repeated_runs_cursor_raises(self):
         # A host that hands back a cursor it already gave us would loop forever; the walk must bail
         # instead of spinning until the week-long activity timeout.
@@ -256,7 +316,7 @@ class TestPaginationAbuseGuards:
         def fake_fetch(session, url, headers, log, json_body=None):
             return {"runs": [_run("a")], "cursors": {"next": "loop"}}
 
-        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
             with pytest.raises(LangSmithRepeatedCursorError):
                 _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
 
@@ -269,7 +329,7 @@ class TestPaginationAbuseGuards:
         def fake_fetch(session, url, headers, log, json_body=None):
             return {"runs": [_run("a")], "cursors": {"next": big_cursor}}
 
-        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
             with pytest.raises(LangSmithResponseTooLargeError):
                 _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
 
@@ -286,7 +346,7 @@ class TestPaginationAbuseGuards:
             return {"runs": [_run(f"r{counter['n']}")], "cursors": {"next": f"c{counter['n']}"}}
 
         rows: list[dict[str, Any]] = []
-        with mock.patch(_MAX_PAGES, 3), mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+        with mock.patch(_MAX_PAGES, 3), mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
             with pytest.raises(LangSmithPageLimitError):
                 for table in get_rows("key", BASE_URL, "runs", logger, manager, 1):  # type: ignore[arg-type]
                     rows.extend(table.to_pylist())

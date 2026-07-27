@@ -41,6 +41,9 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.APPFIGURES, "reviews", "appfigures", "review"),
     (ExternalDataSourceType.APPFOLLOW, "reviews", "appfollow", "review"),
     (ExternalDataSourceType.JUDGEMEREVIEWS, "reviews", "judgeme_reviews", "review"),
+    # OAuth-connected support sources
+    (ExternalDataSourceType.INTERCOM, "conversations", "intercom", "ticket"),
+    (ExternalDataSourceType.HUBSPOT, "tickets", "hubspot", "ticket"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]

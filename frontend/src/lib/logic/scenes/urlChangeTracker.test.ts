@@ -68,7 +68,7 @@ describe('getUrlChangeTracker', () => {
         const webTracker = getUrlChangeTracker('webAnalyticsLogic')
         const insightsTracker = getUrlChangeTracker('insightsLogic')
 
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < 7; i++) {
             webTracker.recordChange('/web?foo=bar', 'webAnalyticsLogic', 'setFilters')
         }
 
@@ -132,9 +132,9 @@ describe('UrlChangeTracker', () => {
 
     describe('isRapidlyChanging', () => {
         it.each([
-            { count: 3, expected: false },
-            { count: 4, expected: false },
-            { count: 5, expected: true },
+            { count: 5, expected: false },
+            { count: 6, expected: false },
+            { count: 7, expected: true },
             { count: 10, expected: true },
         ])('flags a loop re-setting the same URL: $expected at $count changes', ({ count, expected }) => {
             for (let i = 0; i < count; i++) {

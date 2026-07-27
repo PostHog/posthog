@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     resolve_primary_keys,
     run_pre_write_defensive_compact,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
 
@@ -166,6 +167,38 @@ class TestRunPreWriteDefensiveCompact:
         mock_capture.assert_called_once()
         logger.aexception.assert_awaited_once()
 
+    @parameterized.expand(
+        [
+            (
+                "credentials_loading",
+                "Operation not supported: an error occurred while loading credentials: dispatch failure: timeout",
+            ),
+            (
+                "credential_provider_not_enabled",
+                "Operation not supported: the credential provider was not enabled: no providers in chain provided credentials",
+            ),
+            (
+                "generic_s3_error",
+                "Generic S3 error: Error getting list response body: operation timed out",
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_logs_transient_object_store_error_without_capturing(self, _name: str, error_message: str):
+        # A transient blip talking to our own delta S3 bucket (credential-provider or connectivity
+        # errors from delta-rs) isn't a bug in this function — it shouldn't flood error tracking the
+        # way an actual maintenance bug does (see test_swallows_maintenance_failure above).
+        helper = MagicMock(run_maintenance=AsyncMock(side_effect=OSError(error_message)))
+        logger = MagicMock(aexception=AsyncMock(), awarning=AsyncMock())
+
+        schema = MagicMock(partition_count=5, sync_type_config={})
+        with patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture:
+            await run_pre_write_defensive_compact(helper, schema, MagicMock(partition_count=None), logger)
+
+        mock_capture.assert_not_called()
+        logger.awarning.assert_awaited_once()
+        logger.aexception.assert_not_awaited()
+
 
 class TestReportHeartbeatTimeoutRecording(BaseTest):
     def _schema(self) -> ExternalDataSchema:
@@ -268,6 +301,38 @@ class TestHandleCorruptedDeltaLog:
         assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"
         assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is True
+
+    def test_reset_failure_routes_through_non_retryable_handler(self, team):
+        # A reset that can't even complete (e.g. the storage backend rejects the delete) must not
+        # propagate unguarded — the revive markers would stay set, so every subsequent sync would
+        # repeat the exact same failing reset forever. It must go through the same give-up-after-
+        # N-attempts policy as any other import error, rather than looping and flooding error tracking.
+        schema, job = self._schema_and_job(team)
+        reset_error = RuntimeError("An error occurred (InvalidAccessKeyId) when calling ListObjectsV2")
+        helper = MagicMock(
+            is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock(side_effect=reset_error)
+        )
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.posthoganalytics"),
+            patch(
+                f"{_EXTRACT_MODULE}.handle_non_retryable_error",
+                new=AsyncMock(side_effect=NonRetryableException()),
+            ) as handle_mock,
+        ):
+            with pytest.raises(NonRetryableException):
+                async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
+
+        handle_mock.assert_awaited_once()
+        assert handle_mock.await_args is not None
+        assert handle_mock.await_args.args[0] == schema.team_id
+        assert handle_mock.await_args.args[1] == str(job.pipeline_id)
+        assert handle_mock.await_args.args[2] == str(job.id)
+        assert handle_mock.await_args.args[-1] is reset_error
+        # The reset itself failed, so the non-billable flip (which only happens after a successful
+        # reset) must never be reached.
+        job.refresh_from_db()
+        assert job.billable is True
 
     def test_revive_marker_resets_readable_table(self, team):
         # A hollow table — log opens fine but references data files gone from S3 — is invisible to

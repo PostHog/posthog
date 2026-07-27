@@ -12,15 +12,12 @@ from posthog.temporal.ai_observability.sentiment.schema import PendingClassifica
 from posthog.temporal.ai_observability.sentiment.utils import build_generation_result
 
 
-def _neutral_sentiment_activity_result(reasoning: str) -> EvaluationActivityResult:
+def _skipped_sentiment_activity_result(skip_reason: str, reasoning: str) -> EvaluationActivityResult:
     return {
         "result_type": "sentiment",
         "reasoning": reasoning,
-        "sentiment_label": "neutral",
-        "sentiment_score": 0.0,
-        "sentiment_scores": {"positive": 0.0, "neutral": 0.0, "negative": 0.0},
-        "sentiment_messages": {},
-        "sentiment_message_count": 0,
+        "skipped": True,
+        "skip_reason": skip_reason,
     }
 
 
@@ -31,10 +28,12 @@ def _build_sentiment_activity_result(
     classification_results: list[SentimentResult],
 ) -> EvaluationActivityResult:
     if not user_messages:
-        return _neutral_sentiment_activity_result("No user messages found; sentiment defaults to neutral.")
+        return _skipped_sentiment_activity_result(
+            "no_user_messages", "No user messages found; sentiment evaluation skipped."
+        )
     if not classification_results:
-        return _neutral_sentiment_activity_result(
-            "No sentiment classifications produced; sentiment defaults to neutral."
+        return _skipped_sentiment_activity_result(
+            "no_classifications", "No sentiment classifications produced; sentiment evaluation skipped."
         )
 
     pending = [
@@ -96,7 +95,9 @@ async def execute_sentiment_eval_activity(
     trace_id = properties.get("$ai_trace_id", event_uuid)
     user_messages = extract_sentiment_eval_messages(input_raw)
     if not user_messages:
-        return _neutral_sentiment_activity_result("No user messages found; sentiment defaults to neutral.")
+        return _skipped_sentiment_activity_result(
+            "no_user_messages", "No user messages found; sentiment evaluation skipped."
+        )
 
     texts = [text for _message_index, text in user_messages]
 

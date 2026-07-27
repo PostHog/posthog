@@ -99,6 +99,7 @@ You can generate an API key in your Attio workspace settings. Check out [this gu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Attio API doesn't support updatedAt filtering, so only full refresh is supported
         schemas = [
@@ -116,7 +117,7 @@ You can generate an API key in your Attio workspace settings. Check out [this gu
         return schemas
 
     def validate_credentials(
-        self, config: AttioSourceConfig, team_id: int, schema_name: str | None = None
+        self, config: AttioSourceConfig, team_id: int, schema_name: str | None = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_attio_credentials(config.api_key)
 

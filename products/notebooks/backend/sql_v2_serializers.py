@@ -1,4 +1,16 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+
+
+@extend_schema_field(serializers.DictField(child=serializers.FloatField()))
+class LenientTimingsField(serializers.JSONField):
+    """`timings` documented as a str->float map but never validated as one.
+
+    The envelope is produced inside the sandbox, where user code can forge it, and the
+    callback is fire-and-forget — a 400 here is swallowed like a network error and the
+    run is stranded RUNNING forever. So a bad timings shape must never fail the envelope;
+    `sql_v2_metrics._sanitized_timings` is the sole validator and drops bad keys.
+    """
 
 
 class NotebookSQLV2RefSerializer(serializers.Serializer):
@@ -200,6 +212,16 @@ class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
         allow_null=True,
         allow_blank=True,
         help_text="Error message when status is 'error'.",
+    )
+    timings = LenientTimingsField(
+        required=False,
+        help_text=(
+            "Phase durations in seconds. From the sandbox: input_wait_s (waiting on the data "
+            "plane), download_s (presigned frame downloads), kernel_boot_s (ensuring the "
+            "ipykernel is up), exec_s (kernel cell execution), sandbox_total_s (the whole "
+            "sandbox-side run). From the direct lane: queued_s (enqueue to Celery pickup), "
+            "clickhouse_s (pickup to completion). Feeds the node-run metrics."
+        ),
     )
 
 
