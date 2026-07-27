@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -64,6 +64,15 @@ export function FoundryScene(): JSX.Element {
                         title: 'State',
                         key: 'state',
                         render: (_, bet: BetRecord) => <BetStateTag bet={bet} />,
+                    },
+                    {
+                        title: 'Execution',
+                        key: 'execution_mode',
+                        render: (_, bet: BetRecord) => (
+                            <LemonTag type={bet.execution_mode === 'managed' ? 'completion' : 'default'}>
+                                {bet.execution_mode}
+                            </LemonTag>
+                        ),
                     },
                     {
                         title: 'Iteration',

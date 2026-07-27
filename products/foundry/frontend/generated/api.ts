@@ -8,7 +8,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { BetDTOApi, BetEventDTOApi, CreateBetApi, CreateBetEventApi, RecordVerdictApi } from './api.schemas'
+import type {
+    BetDTOApi,
+    BetEventDTOApi,
+    BetNodeDTOApi,
+    CreateBetApi,
+    CreateBetEventApi,
+    RecordVerdictApi,
+} from './api.schemas'
 
 export const getBetsListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/bets/`
@@ -108,6 +115,20 @@ export const betsFundCreate = async (projectId: string, id: string, options?: Re
     return apiMutator<BetDTOApi>(getBetsFundCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getBetsNodesListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/bets/${id}/nodes/`
+}
+
+/**
+ * List the bet's node tree, as projected from node.spawned/node.finished/node.failed events.
+ */
+export const betsNodesList = async (projectId: string, id: string, options?: RequestInit): Promise<BetNodeDTOApi[]> => {
+    return apiMutator<BetNodeDTOApi[]>(getBetsNodesListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

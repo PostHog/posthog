@@ -12,6 +12,11 @@
  */
 export type BetDTOApiExposurePlan = { [key: string]: unknown }
 
+/**
+ * Managed-mode execution config: {image/template, command, env allowlist, caps}.
+ */
+export type BetDTOApiRunConfig = { [key: string]: unknown }
+
 export interface SuccessMetricApi {
     /** Human-readable name of the metric the bet is judged on. */
     name: string
@@ -43,6 +48,17 @@ export interface SourceRefApi {
     /** Link to the originating signal or report. */
     url?: string
 }
+
+/**
+ * * `external` - external
+ * * `managed` - managed
+ */
+export type ExecutionModeEnumApi = (typeof ExecutionModeEnumApi)[keyof typeof ExecutionModeEnumApi]
+
+export const ExecutionModeEnumApi = {
+    External: 'external',
+    Managed: 'managed',
+} as const
 
 /**
  * * `drafted` - DRAFTED
@@ -87,6 +103,18 @@ export interface BetDTOApi {
     exposure_plan: BetDTOApiExposurePlan
     /** Lineage references to the signals/reports that motivated the bet. */
     sources: SourceRefApi[]
+    /** 'external': any orchestrator POSTs events. 'managed': Foundry drives the run via Temporal.
+     *
+     * * `external` - external
+     * * `managed` - managed */
+    execution_mode: ExecutionModeEnumApi
+    /** Managed-mode execution config: {image/template, command, env allowlist, caps}. */
+    run_config: BetDTOApiRunConfig
+    /**
+     * Git-backed memory repo cloned into managed nodes' sandboxes at a conventional path.
+     * @nullable
+     */
+    memory_repo_url?: string | null
     id: string
     slug: string
     hypothesis: string
@@ -101,6 +129,8 @@ export interface BetDTOApi {
     feature_flag_key: string | null
     /** @nullable */
     experiment_id: number | null
+    /** @nullable */
+    created_by_id: number | null
     created_at: string
     updated_at: string
 }
@@ -109,6 +139,11 @@ export interface BetDTOApi {
  * How the bet should be rolled out once gated (free-form, consumed by the orchestrator).
  */
 export type CreateBetApiExposurePlan = { [key: string]: unknown }
+
+/**
+ * Managed-mode execution config: {image/template, command, env allowlist, caps}.
+ */
+export type CreateBetApiRunConfig = { [key: string]: unknown }
 
 export interface CreateBetApi {
     /**
@@ -134,6 +169,18 @@ export interface CreateBetApi {
      * @nullable
      */
     ttl?: string | null
+    /** 'external': any orchestrator POSTs events. 'managed': Foundry drives the run via Temporal.
+     *
+     * * `external` - external
+     * * `managed` - managed */
+    execution_mode?: ExecutionModeEnumApi
+    /** Managed-mode execution config: {image/template, command, env allowlist, caps}. */
+    run_config?: CreateBetApiRunConfig
+    /**
+     * Git-backed memory repo cloned into managed nodes' sandboxes at a conventional path.
+     * @nullable
+     */
+    memory_repo_url?: string | null
 }
 
 /**
@@ -145,10 +192,14 @@ export type BetEventDTOApiPayload = { [key: string]: unknown }
  * * `run.started` - RUN_STARTED
  * * `run.finished` - RUN_FINISHED
  * * `node.spawned` - NODE_SPAWNED
+ * * `node.finished` - NODE_FINISHED
+ * * `node.failed` - NODE_FAILED
  * * `artifact.ready` - ARTIFACT_READY
  * * `gate.result` - GATE_RESULT
  * * `exposure.started` - EXPOSURE_STARTED
  * * `verdict.proposed` - VERDICT_PROPOSED
+ * * `budget.exceeded` - BUDGET_EXCEEDED
+ * * `knowledge.published` - KNOWLEDGE_PUBLISHED
  * * `note` - NOTE
  * * `state.changed` - STATE_CHANGED
  */
@@ -158,10 +209,14 @@ export const BetEventDTOKindEnumApi = {
     Runstarted: 'run.started',
     Runfinished: 'run.finished',
     Nodespawned: 'node.spawned',
+    Nodefinished: 'node.finished',
+    Nodefailed: 'node.failed',
     Artifactready: 'artifact.ready',
     Gateresult: 'gate.result',
     Exposurestarted: 'exposure.started',
     Verdictproposed: 'verdict.proposed',
+    Budgetexceeded: 'budget.exceeded',
+    Knowledgepublished: 'knowledge.published',
     Note: 'note',
     Statechanged: 'state.changed',
 } as const
@@ -176,7 +231,7 @@ export interface BetEventDTOApi {
 }
 
 /**
- * Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}.
+ * Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. Node/knowledge kinds (node.spawned, node.finished, node.failed, budget.exceeded, knowledge.published) are validated against a typed shape.
  */
 export type CreateBetEventApiPayload = { [key: string]: unknown }
 
@@ -184,10 +239,14 @@ export type CreateBetEventApiPayload = { [key: string]: unknown }
  * * `run.started` - run.started
  * * `run.finished` - run.finished
  * * `node.spawned` - node.spawned
+ * * `node.finished` - node.finished
+ * * `node.failed` - node.failed
  * * `artifact.ready` - artifact.ready
  * * `gate.result` - gate.result
  * * `exposure.started` - exposure.started
  * * `verdict.proposed` - verdict.proposed
+ * * `budget.exceeded` - budget.exceeded
+ * * `knowledge.published` - knowledge.published
  * * `note` - note
  */
 export type CreateBetEventKindEnumApi = (typeof CreateBetEventKindEnumApi)[keyof typeof CreateBetEventKindEnumApi]
@@ -196,10 +255,14 @@ export const CreateBetEventKindEnumApi = {
     Runstarted: 'run.started',
     Runfinished: 'run.finished',
     Nodespawned: 'node.spawned',
+    Nodefinished: 'node.finished',
+    Nodefailed: 'node.failed',
     Artifactready: 'artifact.ready',
     Gateresult: 'gate.result',
     Exposurestarted: 'exposure.started',
     Verdictproposed: 'verdict.proposed',
+    Budgetexceeded: 'budget.exceeded',
+    Knowledgepublished: 'knowledge.published',
     Note: 'note',
 } as const
 
@@ -209,14 +272,57 @@ export interface CreateBetEventApi {
      * * `run.started` - run.started
      * * `run.finished` - run.finished
      * * `node.spawned` - node.spawned
+     * * `node.finished` - node.finished
+     * * `node.failed` - node.failed
      * * `artifact.ready` - artifact.ready
      * * `gate.result` - gate.result
      * * `exposure.started` - exposure.started
      * * `verdict.proposed` - verdict.proposed
+     * * `budget.exceeded` - budget.exceeded
+     * * `knowledge.published` - knowledge.published
      * * `note` - note */
     kind: CreateBetEventKindEnumApi
-    /** Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. */
+    /** Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. Node/knowledge kinds (node.spawned, node.finished, node.failed, budget.exceeded, knowledge.published) are validated against a typed shape. */
     payload?: CreateBetEventApiPayload
+}
+
+/**
+ * * `spawned` - SPAWNED
+ * * `running` - RUNNING
+ * * `finished` - FINISHED
+ * * `failed` - FAILED
+ * * `cancelled` - CANCELLED
+ */
+export type BetNodeDTOStatusEnumApi = (typeof BetNodeDTOStatusEnumApi)[keyof typeof BetNodeDTOStatusEnumApi]
+
+export const BetNodeDTOStatusEnumApi = {
+    Spawned: 'spawned',
+    Running: 'running',
+    Finished: 'finished',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+export interface BetNodeDTOApi {
+    id: string
+    bet_id: string
+    /** @nullable */
+    parent_id: string | null
+    node_id: string
+    status: BetNodeDTOStatusEnumApi
+    runner: string
+    depth: number
+    /** @nullable */
+    max_cost: number | null
+    /** @nullable */
+    max_depth: number | null
+    /** @nullable */
+    max_children: number | null
+    cost_so_far: number
+    /** @nullable */
+    sandbox_external_id: string | null
+    created_at: string
+    updated_at: string
 }
 
 /**

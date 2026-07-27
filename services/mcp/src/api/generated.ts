@@ -12582,6 +12582,11 @@ export namespace Schemas {
      */
     export type BetDTOExposurePlan = { [key: string]: unknown };
 
+    /**
+     * Managed-mode execution config: {image/template, command, env allowlist, caps}.
+     */
+    export type BetDTORunConfig = { [key: string]: unknown };
+
     export interface SuccessMetric {
       /** Human-readable name of the metric the bet is judged on. */
       name: string;
@@ -12613,6 +12618,18 @@ export namespace Schemas {
       /** Link to the originating signal or report. */
       url?: string;
     }
+
+    /**
+     * * `external` - external
+     * * `managed` - managed
+     */
+    export type ExecutionModeEnum = typeof ExecutionModeEnum[keyof typeof ExecutionModeEnum];
+
+
+    export const ExecutionModeEnum = {
+      External: 'external',
+      Managed: 'managed',
+    } as const;
 
     /**
      * * `drafted` - DRAFTED
@@ -12659,6 +12676,18 @@ export namespace Schemas {
       exposure_plan: BetDTOExposurePlan;
       /** Lineage references to the signals/reports that motivated the bet. */
       sources: SourceRef[];
+      /** 'external': any orchestrator POSTs events. 'managed': Foundry drives the run via Temporal.
+       *
+       * * `external` - external
+       * * `managed` - managed */
+      execution_mode: ExecutionModeEnum;
+      /** Managed-mode execution config: {image/template, command, env allowlist, caps}. */
+      run_config: BetDTORunConfig;
+      /**
+         * Git-backed memory repo cloned into managed nodes' sandboxes at a conventional path.
+         * @nullable
+         */
+      memory_repo_url?: string | null;
       id: string;
       slug: string;
       hypothesis: string;
@@ -12673,6 +12702,8 @@ export namespace Schemas {
       feature_flag_key: string | null;
       /** @nullable */
       experiment_id: number | null;
+      /** @nullable */
+      created_by_id: number | null;
       created_at: string;
       updated_at: string;
     }
@@ -12686,10 +12717,14 @@ export namespace Schemas {
      * * `run.started` - RUN_STARTED
      * * `run.finished` - RUN_FINISHED
      * * `node.spawned` - NODE_SPAWNED
+     * * `node.finished` - NODE_FINISHED
+     * * `node.failed` - NODE_FAILED
      * * `artifact.ready` - ARTIFACT_READY
      * * `gate.result` - GATE_RESULT
      * * `exposure.started` - EXPOSURE_STARTED
      * * `verdict.proposed` - VERDICT_PROPOSED
+     * * `budget.exceeded` - BUDGET_EXCEEDED
+     * * `knowledge.published` - KNOWLEDGE_PUBLISHED
      * * `note` - NOTE
      * * `state.changed` - STATE_CHANGED
      */
@@ -12700,10 +12735,14 @@ export namespace Schemas {
       Runstarted: 'run.started',
       Runfinished: 'run.finished',
       Nodespawned: 'node.spawned',
+      Nodefinished: 'node.finished',
+      Nodefailed: 'node.failed',
       Artifactready: 'artifact.ready',
       Gateresult: 'gate.result',
       Exposurestarted: 'exposure.started',
       Verdictproposed: 'verdict.proposed',
+      Budgetexceeded: 'budget.exceeded',
+      Knowledgepublished: 'knowledge.published',
       Note: 'note',
       Statechanged: 'state.changed',
     } as const;
@@ -12715,6 +12754,46 @@ export namespace Schemas {
       bet_id: string;
       kind: BetEventDTOKindEnum;
       created_at: string;
+    }
+
+    /**
+     * * `spawned` - SPAWNED
+     * * `running` - RUNNING
+     * * `finished` - FINISHED
+     * * `failed` - FAILED
+     * * `cancelled` - CANCELLED
+     */
+    export type BetNodeDTOStatusEnum = typeof BetNodeDTOStatusEnum[keyof typeof BetNodeDTOStatusEnum];
+
+
+    export const BetNodeDTOStatusEnum = {
+      Spawned: 'spawned',
+      Running: 'running',
+      Finished: 'finished',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface BetNodeDTO {
+      id: string;
+      bet_id: string;
+      /** @nullable */
+      parent_id: string | null;
+      node_id: string;
+      status: BetNodeDTOStatusEnum;
+      runner: string;
+      depth: number;
+      /** @nullable */
+      max_cost: number | null;
+      /** @nullable */
+      max_depth: number | null;
+      /** @nullable */
+      max_children: number | null;
+      cost_so_far: number;
+      /** @nullable */
+      sandbox_external_id: string | null;
+      created_at: string;
+      updated_at: string;
     }
 
     export interface BiasRisk {
@@ -15773,6 +15852,11 @@ export namespace Schemas {
      */
     export type CreateBetExposurePlan = { [key: string]: unknown };
 
+    /**
+     * Managed-mode execution config: {image/template, command, env allowlist, caps}.
+     */
+    export type CreateBetRunConfig = { [key: string]: unknown };
+
     export interface CreateBet {
       /**
          * Unique-per-project identifier; also seeds the feature flag key ('bet-<slug>').
@@ -15797,10 +15881,22 @@ export namespace Schemas {
          * @nullable
          */
       ttl?: string | null;
+      /** 'external': any orchestrator POSTs events. 'managed': Foundry drives the run via Temporal.
+       *
+       * * `external` - external
+       * * `managed` - managed */
+      execution_mode?: ExecutionModeEnum;
+      /** Managed-mode execution config: {image/template, command, env allowlist, caps}. */
+      run_config?: CreateBetRunConfig;
+      /**
+         * Git-backed memory repo cloned into managed nodes' sandboxes at a conventional path.
+         * @nullable
+         */
+      memory_repo_url?: string | null;
     }
 
     /**
-     * Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}.
+     * Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. Node/knowledge kinds (node.spawned, node.finished, node.failed, budget.exceeded, knowledge.published) are validated against a typed shape.
      */
     export type CreateBetEventPayload = { [key: string]: unknown };
 
@@ -15808,10 +15904,14 @@ export namespace Schemas {
      * * `run.started` - run.started
      * * `run.finished` - run.finished
      * * `node.spawned` - node.spawned
+     * * `node.finished` - node.finished
+     * * `node.failed` - node.failed
      * * `artifact.ready` - artifact.ready
      * * `gate.result` - gate.result
      * * `exposure.started` - exposure.started
      * * `verdict.proposed` - verdict.proposed
+     * * `budget.exceeded` - budget.exceeded
+     * * `knowledge.published` - knowledge.published
      * * `note` - note
      */
     export type CreateBetEventKindEnum = typeof CreateBetEventKindEnum[keyof typeof CreateBetEventKindEnum];
@@ -15821,10 +15921,14 @@ export namespace Schemas {
       Runstarted: 'run.started',
       Runfinished: 'run.finished',
       Nodespawned: 'node.spawned',
+      Nodefinished: 'node.finished',
+      Nodefailed: 'node.failed',
       Artifactready: 'artifact.ready',
       Gateresult: 'gate.result',
       Exposurestarted: 'exposure.started',
       Verdictproposed: 'verdict.proposed',
+      Budgetexceeded: 'budget.exceeded',
+      Knowledgepublished: 'knowledge.published',
       Note: 'note',
     } as const;
 
@@ -15834,13 +15938,17 @@ export namespace Schemas {
        * * `run.started` - run.started
        * * `run.finished` - run.finished
        * * `node.spawned` - node.spawned
+       * * `node.finished` - node.finished
+       * * `node.failed` - node.failed
        * * `artifact.ready` - artifact.ready
        * * `gate.result` - gate.result
        * * `exposure.started` - exposure.started
        * * `verdict.proposed` - verdict.proposed
+       * * `budget.exceeded` - budget.exceeded
+       * * `knowledge.published` - knowledge.published
        * * `note` - note */
       kind: CreateBetEventKindEnum;
-      /** Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. */
+      /** Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. Node/knowledge kinds (node.spawned, node.finished, node.failed, budget.exceeded, knowledge.published) are validated against a typed shape. */
       payload?: CreateBetEventPayload;
     }
 

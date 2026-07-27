@@ -15,6 +15,7 @@ import * as zod from 'zod'
 export const betsCreateBodySlugMax = 200
 
 export const betsCreateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
+export const betsCreateBodyExecutionModeDefault = `external`
 
 export const BetsCreateBody = /* @__PURE__ */ zod.object({
     slug: zod
@@ -71,6 +72,21 @@ export const BetsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Lineage references to the signals\/reports that motivated the bet.'),
     ttl: zod.iso.datetime({ offset: true }).nullish().describe('When the bet expires if unresolved.'),
+    execution_mode: zod
+        .enum(['external', 'managed'])
+        .describe('\* `external` - external\n\* `managed` - managed')
+        .default(betsCreateBodyExecutionModeDefault)
+        .describe(
+            "'external': any orchestrator POSTs events. 'managed': Foundry drives the run via Temporal.\n\n\* `external` - external\n\* `managed` - managed"
+        ),
+    run_config: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Managed-mode execution config: {image\/template, command, env allowlist, caps}.'),
+    memory_repo_url: zod
+        .string()
+        .nullish()
+        .describe("Git-backed memory repo cloned into managed nodes' sandboxes at a conventional path."),
 })
 
 /**
@@ -82,22 +98,28 @@ export const BetsEventsCreateBody = /* @__PURE__ */ zod.object({
             'run.started',
             'run.finished',
             'node.spawned',
+            'node.finished',
+            'node.failed',
             'artifact.ready',
             'gate.result',
             'exposure.started',
             'verdict.proposed',
+            'budget.exceeded',
+            'knowledge.published',
             'note',
         ])
         .describe(
-            '\* `run.started` - run.started\n\* `run.finished` - run.finished\n\* `node.spawned` - node.spawned\n\* `artifact.ready` - artifact.ready\n\* `gate.result` - gate.result\n\* `exposure.started` - exposure.started\n\* `verdict.proposed` - verdict.proposed\n\* `note` - note'
+            '\* `run.started` - run.started\n\* `run.finished` - run.finished\n\* `node.spawned` - node.spawned\n\* `node.finished` - node.finished\n\* `node.failed` - node.failed\n\* `artifact.ready` - artifact.ready\n\* `gate.result` - gate.result\n\* `exposure.started` - exposure.started\n\* `verdict.proposed` - verdict.proposed\n\* `budget.exceeded` - budget.exceeded\n\* `knowledge.published` - knowledge.published\n\* `note` - note'
         )
         .describe(
-            "Typed event kind reported by the orchestrator. 'gate.result' with payload {pass: true} advances building → gated.\n\n\* `run.started` - run.started\n\* `run.finished` - run.finished\n\* `node.spawned` - node.spawned\n\* `artifact.ready` - artifact.ready\n\* `gate.result` - gate.result\n\* `exposure.started` - exposure.started\n\* `verdict.proposed` - verdict.proposed\n\* `note` - note"
+            "Typed event kind reported by the orchestrator. 'gate.result' with payload {pass: true} advances building → gated.\n\n\* `run.started` - run.started\n\* `run.finished` - run.finished\n\* `node.spawned` - node.spawned\n\* `node.finished` - node.finished\n\* `node.failed` - node.failed\n\* `artifact.ready` - artifact.ready\n\* `gate.result` - gate.result\n\* `exposure.started` - exposure.started\n\* `verdict.proposed` - verdict.proposed\n\* `budget.exceeded` - budget.exceeded\n\* `knowledge.published` - knowledge.published\n\* `note` - note"
         ),
     payload: zod
         .record(zod.string(), zod.unknown())
         .optional()
-        .describe("Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}."),
+        .describe(
+            "Event payload. For 'gate.result': {pass: bool, violations: [{code, message, severity}]}. Node\/knowledge kinds (node.spawned, node.finished, node.failed, budget.exceeded, knowledge.published) are validated against a typed shape."
+        ),
 })
 
 /**
