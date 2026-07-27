@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Conversations
 feature: conversations
-url_prefix: /conversations/tickets
+url_prefix: /support/tickets
 ui_apps: {}
 tools:
     conversations-tickets-ai-feedback-create:
