@@ -128,6 +128,43 @@ class BatchExportDestination(UUIDTModel):
     )
 
 
+class BatchExportSource(TeamScopedRootMixin, UUIDTModel):
+    """A model for the source of the data that a PostHog BatchExport will export.
+
+    This model answers the question: what data are we exporting? For now it holds a
+    HogQL query whose results are exported, but it's designed to grow into the single
+    place that captures how a batch export selects its data (data warehouse view
+    references, export mode, data interval field, primary and version keys) in future.
+    """
+
+    class Meta:
+        db_table = "posthog_batchexportsource"
+
+    # `db_constraint=False`: a real FK constraint to the hot `posthog_team` table would
+    # take a lock on it while being created. Team scoping is enforced at the app level
+    # via `TeamScopedRootMixin`. See products/README.md "Adding or moving backend models
+    # and migrations".
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        help_text="The team this belongs to.",
+    )
+    hogql_query = models.TextField(
+        null=True,
+        blank=True,
+        help_text="The HogQL query whose results are exported.",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="The timestamp at which this BatchExportSource was created.",
+    )
+    last_updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="The timestamp at which this BatchExportSource was last updated.",
+    )
+
+
 class BatchExportRun(UUIDTModel):
     """A single run of a PostHog batch export defined by its data interval bounds.
 
@@ -280,6 +317,7 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         EVENTS = "events"
         PERSONS = "persons"
         SESSIONS = "sessions"
+        HOGQL = "hogql"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
     name = models.TextField(help_text="A human-readable name for this BatchExport.")
@@ -287,6 +325,13 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         "BatchExportDestination",
         on_delete=models.CASCADE,
         help_text="The destination to export data to.",
+    )
+    source = models.ForeignKey(
+        "BatchExportSource",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="The source of the data to export. When set, takes precedence over `model`.",
     )
     interval = models.CharField(
         max_length=64,
@@ -618,12 +663,20 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
         EVENTS = "events"
         PERSONS = "persons"
         SESSIONS = "sessions"
+        HOGQL = "hogql"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
     destination = models.ForeignKey(
         "BatchExportDestination",
         on_delete=models.CASCADE,
         help_text="The destination to export data to.",
+    )
+    source = models.ForeignKey(
+        "BatchExportSource",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="The source of the data to export. When set, takes precedence over `model`.",
     )
     deleted = models.BooleanField(default=False, help_text="Whether this is deleted or not.")
     created_at = models.DateTimeField(
