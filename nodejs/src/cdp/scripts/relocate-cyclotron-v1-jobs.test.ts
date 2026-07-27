@@ -2,6 +2,8 @@ import { Pool } from 'pg'
 import { v4 as uuidv4 } from 'uuid'
 import { gzipSync } from 'zlib'
 
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { RelocateDeps, buildV2Config, relocate } from './relocate-cyclotron-v1-jobs'
 
@@ -71,7 +73,8 @@ describe('relocate-cyclotron-v1-jobs (e2e)', () => {
         id: string
         function_id: string | null
         priority: number
-        scheduled: Date
+        // pg's global type parser returns timestamptz as an ISO string in this process.
+        scheduled: Date | string
         parent_run_id: string | null
         status: string
         distinct_id: string | null
@@ -89,7 +92,7 @@ describe('relocate-cyclotron-v1-jobs (e2e)', () => {
             return null
         }
         const row = res.rows[0]
-        return { ...row, state: row.state ? JSON.parse(row.state.toString('utf-8')) : null }
+        return { ...row, state: row.state ? parseJSON(row.state.toString('utf-8')) : null }
     }
 
     const cleanup = async (): Promise<void> => {
@@ -97,7 +100,7 @@ describe('relocate-cyclotron-v1-jobs (e2e)', () => {
         await v2Pool.query(`DELETE FROM cyclotron_jobs WHERE queue_name = $1`, [QUEUE])
     }
 
-    beforeAll(async () => {
+    beforeAll(() => {
         v1 = new Pool({ connectionString: V1_DB_URL })
         v2Pool = new Pool({ connectionString: V2_DB_URL })
         v2Queue = new CyclotronJobQueuePostgresV2(1, buildV2Config(V2_DB_URL))
@@ -165,7 +168,7 @@ describe('relocate-cyclotron-v1-jobs (e2e)', () => {
         expect(v2Plain!.function_id).toBe(functionId)
         expect(v2Plain!.priority).toBe(7)
         expect(v2Plain!.parent_run_id).toBe(parentRunId)
-        expect(v2Plain!.scheduled.getTime()).toBe(scheduledSoon.getTime())
+        expect(new Date(v2Plain!.scheduled).getTime()).toBe(scheduledSoon.getTime())
         expect(v2Plain!.state?.state).toEqual(vmState)
         // Lookup columns derived from the payload.
         expect(v2Plain!.distinct_id).toBe('de2e-user')
@@ -179,6 +182,38 @@ describe('relocate-cyclotron-v1-jobs (e2e)', () => {
 
         // Corrupt row never written to V2.
         expect(await readV2Row(corrupt)).toBeNull()
+    })
+
+    it('relocates a prod-scale batch that crosses the V2 insert-batch boundary', async () => {
+        // buildV2Config sets CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE=100, so >100 legit rows force
+        // the producer to insert in multiple batches — the path prod hits (email had 840). The
+        // ≤3-row tests never cross it, so a dropped tail batch would slip through them.
+        const LEGIT = 120
+        const legitIds = await Promise.all(
+            Array.from({ length: LEGIT }, (_, i) =>
+                insertV1Row({ scheduled: futureDate((i + 1) * 24 * 60 * 60 * 1000) })
+            )
+        )
+        const corruptIds = await Promise.all(
+            Array.from({ length: 3 }, () => insertV1Row({ scheduled: futureDate(2 * YEAR_MS) }))
+        )
+
+        const result = await relocate(deps(), { queue: QUEUE, envLabel: 'test', apply: true })
+
+        expect(result).toMatchObject({
+            legitCount: LEGIT,
+            corruptCount: 3,
+            relocated: LEGIT,
+            deletedCorrupt: 3,
+            remaining: 0,
+            missingIds: [],
+        })
+        expect(await v1AvailableIds()).toEqual([])
+        // Every legit id landed in V2; no corrupt id did.
+        expect(result.verifiedIds.sort()).toEqual([...legitIds].sort())
+        expect(await readV2Row(legitIds[0])).not.toBeNull()
+        expect(await readV2Row(legitIds[LEGIT - 1])).not.toBeNull()
+        expect(await readV2Row(corruptIds[0])).toBeNull()
     })
 
     it('dry-run reports counts but writes and deletes nothing', async () => {

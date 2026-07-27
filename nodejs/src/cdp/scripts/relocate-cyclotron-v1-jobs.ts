@@ -72,7 +72,9 @@ export interface V1Row {
     metadata: Buffer | null
     parameters: Buffer | null
     blob: Buffer | null
-    scheduled: Date | null
+    // pg returns timestamptz as a Date by default, but plugin-server installs a global type
+    // parser that returns an ISO string — so this is Date | string depending on the process.
+    scheduled: Date | string | null
     scheduled_raw: string | null
     is_corrupt: boolean
 }
@@ -181,7 +183,8 @@ export function rowToInvocation(row: V1Row): CyclotronJobInvocation {
         state: 'available',
         priority: row.priority,
         // cyclotronJobToInvocation expects an ISO string; preserve the original schedule.
-        scheduled: row.scheduled ? row.scheduled.toISOString() : null,
+        // Normalize whether pg gave us a Date or an ISO string (see V1Row.scheduled).
+        scheduled: row.scheduled ? new Date(row.scheduled).toISOString() : null,
         parentRunId: row.parent_run_id,
         vmState: decodeJsonBytea(row.vm_state, { gzipTolerant: true }),
         metadata: decodeJsonBytea(row.metadata),
