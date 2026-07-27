@@ -79,6 +79,78 @@ function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogic
 const FEEDBACK_EVENTS = new Set(['$ai_feedback', '$ai_metric'])
 const SINGLE_TRACE_PAGE_LOADED_EVENT = 'llma single trace loaded'
 
+export interface FeedbackAttachmentMap {
+    byNodeId: Map<string, LLMTraceEvent[]>
+    rootLevel: LLMTraceEvent[]
+}
+
+function getNodeIdentity(event: LLMTraceEvent): string {
+    return event.properties.$ai_generation_id ?? event.properties.$ai_span_id ?? event.id
+}
+
+function isValidMetricOrFeedback(event: LLMTraceEvent): boolean {
+    if (event.event === '$ai_metric') {
+        return !!event.properties.$ai_metric_value
+    }
+    if (event.event === '$ai_feedback') {
+        return !!event.properties.$ai_feedback_text
+    }
+    return false
+}
+
+const EVENT_TYPE_ORDER: Record<string, number> = {
+    $ai_metric: 0,
+    $ai_feedback: 1,
+}
+
+function sortByEventType(events: LLMTraceEvent[]): LLMTraceEvent[] {
+    return [...events].sort((a, b) => EVENT_TYPE_ORDER[a.event] - EVENT_TYPE_ORDER[b.event])
+}
+
+/**
+ * Resolves each $ai_metric/$ai_feedback event on a trace to either the specific
+ * span/generation it targets (via $ai_parent_id) or the root/header pool, when
+ * untargeted or the target can't be found among the trace's other events.
+ */
+export function buildFeedbackAttachmentMap(events: LLMTraceEvent[], traceId: string): FeedbackAttachmentMap {
+    const validNodeIds = new Set<string>()
+    for (const event of events) {
+        if (FEEDBACK_EVENTS.has(event.event)) {
+            continue
+        }
+        validNodeIds.add(getNodeIdentity(event))
+    }
+
+    const byNodeIdRaw = new Map<string, LLMTraceEvent[]>()
+    const rootLevel: LLMTraceEvent[] = []
+
+    for (const event of events) {
+        if (!FEEDBACK_EVENTS.has(event.event) || !isValidMetricOrFeedback(event)) {
+            continue
+        }
+
+        const targetId = event.properties.$ai_parent_id ?? event.properties.$ai_trace_id
+
+        if (targetId && targetId !== traceId && validNodeIds.has(targetId)) {
+            const existing = byNodeIdRaw.get(targetId)
+            if (existing) {
+                existing.push(event)
+            } else {
+                byNodeIdRaw.set(targetId, [event])
+            }
+        } else {
+            rootLevel.push(event)
+        }
+    }
+
+    const byNodeId = new Map<string, LLMTraceEvent[]>()
+    for (const [nodeId, nodeEvents] of byNodeIdRaw) {
+        byNodeId.set(nodeId, sortByEventType(nodeEvents))
+    }
+
+    return { byNodeId, rootLevel }
+}
+
 export interface SingleTraceLoadTiming {
     min_trace_timestamp_utc: string | null
     max_trace_timestamp_utc: string | null
