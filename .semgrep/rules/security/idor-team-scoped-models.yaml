@@ -80,6 +80,7 @@ rules:
                               |BatchExportBackfill
                               |BatchExportFileDownload
                               |BatchExportOnDemand
+                              |BatchExportSource
                               |BatchImport
                               |BriefConfig
                               |ButtonTile
@@ -283,6 +284,7 @@ rules:
                               |Tag
                               |Tagger
                               |Task
+                              |TaskActivity
                               |TaskArtifact
                               |TaskAutomation
                               |TaskPresence
@@ -400,6 +402,7 @@ rules:
                         |BatchExportBackfill
                         |BatchExportFileDownload
                         |BatchExportOnDemand
+                        |BatchExportSource
                         |BatchImport
                         |BriefConfig
                         |ButtonTile
@@ -598,6 +601,7 @@ rules:
                         |Tag
                         |Tagger
                         |Task
+                        |TaskActivity
                         |TaskArtifact
                         |TaskAutomation
                         |TaskPresence
