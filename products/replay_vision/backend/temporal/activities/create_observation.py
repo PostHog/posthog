@@ -30,6 +30,9 @@ def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
         provider=scanner.provider,
         emits_signals=scanner.emits_signals,
         scanner_config=scanner.scanner_config,
+        query=scanner.query,
+        sampling_rate=scanner.sampling_rate,
+        sampling_mode=scanner.sampling_mode,
     ).model_dump(mode="json")
 
 
