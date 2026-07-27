@@ -205,8 +205,13 @@ def build_database_stats_source_response(
 def snapshot_rows(cursor: Any, collected_at: datetime, snapshot_id: str) -> list[dict[str, Any]]:
     """Materialize an executed cursor as snapshot rows, keyed by the engine's own columns.
 
-    The catalog's columns pass through untouched; only the snapshot identity is added.
+    The catalog's columns pass through untouched; only the snapshot identity is added,
+    and it takes precedence if a catalog ever exposes a column of the same name.
     """
     identity = dict(zip((name for name, _, _ in SNAPSHOT_COLUMNS), (collected_at, snapshot_id)))
     column_names = [column.name for column in cursor.description]
-    return [{**identity, **dict(zip(column_names, row))} for row in cursor]
+    # Identity is merged last so it wins: a catalog column that happened to be called
+    # `collected_at` would otherwise overwrite the snapshot's own timestamp, which is the
+    # append cursor — the sync would then advance on customer data instead of on when we
+    # collected. Losing the catalog's column is the safe side of that trade.
+    return [{**dict(zip(column_names, row)), **identity} for row in cursor]

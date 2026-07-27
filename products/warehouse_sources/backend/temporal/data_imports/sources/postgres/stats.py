@@ -163,10 +163,16 @@ _SETTINGS_COLUMNS: tuple[tuple[str, str, bool], ...] = (
 # same reason `pg_settings` is collected by allowlist.
 #
 # The maintenance commands are here because their timing is a real signal (a slow
-# `CREATE INDEX` or `VACUUM` is a finding) and none of them take a credential. `COPY` is
-# deliberately absent: `COPY … FROM PROGRAM` embeds a shell command.
+# `VACUUM` or `REINDEX` is a finding) and, being utility statements, they are stored
+# verbatim — safe only because their syntax takes identifiers, never a value.
+#
+# Two absences are deliberate, and neither should be added back:
+#   - `EXPLAIN` is a utility statement that wraps an arbitrary one, so
+#     `EXPLAIN SELECT … WHERE token = 'secret'` is stored with the literal intact. The
+#     `SELECT` it wraps would have been jumbled; the `EXPLAIN` form is not.
+#   - `COPY`, because `COPY … FROM PROGRAM` embeds a shell command.
 _SAFE_STATEMENT_TEXT = re.compile(
-    r"^\s*(?:select|insert|update|delete|with|merge|values|table|explain|vacuum|analyze|reindex|cluster|refresh)\b",
+    r"^\s*(?:select|insert|update|delete|with|merge|values|table|vacuum|analyze|reindex|cluster|refresh)\b",
     re.IGNORECASE,
 )
 _REDACTED_QUERY_COLUMN = "query"

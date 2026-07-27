@@ -355,6 +355,9 @@ class TestCollectStatementsScripted:
             "CREATE SUBSCRIPTION s CONNECTION 'host=h password=p' PUBLICATION p",
             "CREATE USER MAPPING FOR bob SERVER fdw OPTIONS (password 'x')",
             "COPY t FROM PROGRAM 'curl -u user:pass https://example.com'",
+            # EXPLAIN is a utility statement, so the wrapped query's literals are stored
+            # verbatim rather than jumbled into placeholders.
+            "EXPLAIN SELECT * FROM t WHERE token = 'secret'",
         ]
         # Kept: DML has its constants normalized to placeholders by Postgres, and the
         # maintenance commands take no credential while their timing is a real signal.

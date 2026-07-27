@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.dat
     build_database_stats_source_response,
     database_stats_enabled,
     is_database_stats_row,
+    snapshot_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
@@ -251,6 +253,40 @@ class TestSQLSourceStatsRouting:
         implementation.build_pipeline.assert_called_once_with(config, inputs)
 
 
+class TestSnapshotRows:
+    class _Column:
+        def __init__(self, name: str):
+            self.name = name
+
+    class _Cursor:
+        def __init__(self, columns, rows):
+            self.description = [TestSnapshotRows._Column(name) for name in columns]
+            self._rows = rows
+
+        def __iter__(self):
+            return iter(self._rows)
+
+    def test_catalog_column_cannot_overwrite_the_snapshot_identity(self):
+        # `collected_at` is the append cursor. A catalog exposing a column of that name
+        # must not be able to set it, or the sync would advance on customer data.
+        collected_at, snapshot_id = datetime.now(UTC), "snap-1"
+        cursor = self._Cursor(["relname", "collected_at", "snapshot_id"], [("users", "not-a-time", "theirs")])
+
+        rows = snapshot_rows(cursor, collected_at, snapshot_id)
+
+        assert rows[0]["collected_at"] == collected_at
+        assert rows[0]["snapshot_id"] == snapshot_id
+        assert rows[0]["relname"] == "users"
+
+    def test_catalog_columns_pass_through_untouched(self):
+        collected_at, snapshot_id = datetime.now(UTC), "snap-2"
+        cursor = self._Cursor(["relname", "seq_scan"], [("users", 12)])
+
+        rows = snapshot_rows(cursor, collected_at, snapshot_id)
+
+        assert rows == [{"collected_at": collected_at, "snapshot_id": snapshot_id, "relname": "users", "seq_scan": 12}]
+
+
 class TestSQLSourceReconcile:
     @pytest.mark.django_db
     def test_reconcile_keeps_stats_rows_routable(self, team):
@@ -270,8 +306,9 @@ class TestSQLSourceReconcile:
         _StubSQLSource(MagicMock(), catalogs=_CATALOGS).reconcile_schema_metadata(source, [stats_schema], team.pk)
 
         row.refresh_from_db()
-        assert is_database_stats_row(row.schema_metadata)
-        assert [c["name"] for c in row.schema_metadata["columns"]] == ["collected_at", "relname"]
+        metadata = row.schema_metadata or {}
+        assert is_database_stats_row(metadata)
+        assert [c["name"] for c in metadata["columns"]] == ["collected_at", "relname"]
 
 
 class TestBuildDatabaseStatsSourceResponse:
