@@ -1840,6 +1840,48 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             "The DAG node must exist before materialization is scheduled",
         )
 
+    def test_immediate_run_only_on_newly_enabled_materialization(self):
+        endpoint = create_endpoint_with_version(
+            name="v2-initial-run",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        mock_client = mock.AsyncMock()
+        with (
+            mock.patch(
+                "products.data_modeling.backend.schedule.get_v2_saved_query_ids",
+                side_effect=lambda ids: set(ids),
+            ),
+            mock.patch(
+                "products.data_modeling.backend.logic.node_materialization.sync_connect",
+                return_value=mock_client,
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                    {"is_materialized": True, "data_freshness_seconds": 86400},
+                    format="json",
+                )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            mock_client.start_workflow.assert_called_once()
+            self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
+
+            mock_client.start_workflow.reset_mock()
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                    {"description": "metadata only"},
+                    format="json",
+                )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            # a retained enable must not restart materialization: only a newly created
+            # saved query (first enable, re-enable, version bump) gets the initial run
+            mock_client.start_workflow.assert_not_called()
+
     def test_unsatisfiable_freshness_returns_400(self):
         endpoint = create_endpoint_with_version(
             name="too-fresh",
