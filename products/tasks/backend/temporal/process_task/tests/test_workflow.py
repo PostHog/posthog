@@ -306,7 +306,14 @@ class TestProcessTaskWorkflow:
                     execution_timeout=timedelta(minutes=60),
                 )
 
-        assert "no longer exists" in str(failure.value)
+        # `WorkflowFailureError` carries only a generic message; the reason is in the cause
+        # chain, so assert there rather than on `str(failure.value)`.
+        causes = []
+        error: BaseException | None = failure.value
+        while error is not None:
+            causes.append(str(error))
+            error = error.__cause__
+        assert any("no longer exists" in cause or "not found" in cause for cause in causes), causes
 
 
 class TestProcessTaskFollowupDispatch:

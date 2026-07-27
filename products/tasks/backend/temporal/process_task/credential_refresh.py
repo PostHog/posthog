@@ -17,6 +17,7 @@ class CredentialRefreshExitReason(StrEnum):
 
 
 SANDBOX_GONE_ERROR_MESSAGE = "Sandbox stopped; resume to continue"
+TASK_ROWS_GONE_ERROR_MESSAGE = "Task records were deleted while the run was in progress"
 
 
 async def run_credential_refresh_loop(context: TaskProcessingContext, sandbox_id: str) -> CredentialRefreshExitReason:
