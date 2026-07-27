@@ -8,6 +8,7 @@ import dagster
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tags, reset_query_tags, tag_queries
+from posthog.models import Team
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
 from products.web_analytics.dags.cache_warming import (
@@ -327,6 +328,45 @@ class TestWarmQueriesOp(BaseTest):
             )
 
         self.assertEqual(runner.run.call_count, expected_runs)
+
+    @parameterized.expand(
+        [
+            # A churned team surfaces as a DoesNotExist from get_cache_key (the
+            # team-extension FK). That must be a quiet skip, not a logged failure
+            # plus an error-tracking event per churned team — which spammed
+            # tracebacks in prod. Any other error is a genuine failure and must
+            # still be reported, so the guard can't swallow real bugs.
+            ("churned_team_does_not_exist", Team.DoesNotExist, 0),
+            ("genuine_failure", RuntimeError, 1),
+        ]
+    )
+    def test_churned_team_skipped_but_real_failure_reported(
+        self, _name: str, raised: type[Exception], expected_capture_calls: int
+    ) -> None:
+        runner = MagicMock()
+        runner.get_cache_key.side_effect = raised("boom")
+        with (
+            patch(
+                "products.web_analytics.dags.cache_warming.build_replay_runner",
+                return_value=(runner, {}, True),
+            ),
+            patch("products.web_analytics.dags.cache_warming.capture_exception") as mock_capture,
+        ):
+            warm_queries_op(
+                dagster.build_op_context(),
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                        "query_count": 5,
+                        "representative_query_count": 5,
+                        "normalized_query_hash": "h",
+                    }
+                ],
+            )
+
+        self.assertEqual(mock_capture.call_count, expected_capture_calls)
+        self.assertEqual(runner.run.call_count, 0)
 
     def test_duplicate_cache_keys_warm_once(self) -> None:
         # Selection groups by raw JSON text, so two encodings of one query can

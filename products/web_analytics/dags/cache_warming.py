@@ -7,6 +7,7 @@ import statistics
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Optional
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import close_old_connections
 from django.utils.dateparse import parse_datetime
 
@@ -595,6 +596,14 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
             WARMING_QUERIES_COUNTER.labels(outcome="warmed").inc()
             return "warmed"
+        except ObjectDoesNotExist:
+            # A team deleted after the teams dict was loaded (the 14-day demand
+            # window churns teams out) surfaces here from get_cache_key: it reads a
+            # team extension via get-or-create, whose create hits the team foreign
+            # key and leaves the lookup raising the extension's DoesNotExist. That's
+            # not a warming failure — skip it quietly rather than logging a
+            # traceback and firing error tracking for every churned team.
+            return "team_missing"
         except Exception as e:
             # Module logger, not context.log: Dagster's log manager isn't
             # guaranteed thread-safe, and workers fail concurrently.
