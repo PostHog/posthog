@@ -9,6 +9,9 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 from django.utils import timezone
 
+import requests
+
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models import OAuthAccessToken, Team
 from posthog.models.integration import Integration
 
@@ -180,6 +183,9 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     removals = [w for w in recorder.github_writes if w["kind"] == "remove_reaction"]
     assert len(additions) == 1
     assert [r["reaction_id"] for r in removals] == [additions[0]["id"]]
+
+    # An APPROVED verdict never hands off to ReviewHog — the reviewhog label is a refusal-only signal.
+    assert [w for w in recorder.github_writes if w["kind"] == "add_label"] == []
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -1057,6 +1063,101 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
         assert label_removals == [{"kind": "remove_label", "repo": REPO, "number": 101, "label": "stamphog"}]
     else:
         assert label_removals == []
+
+    # A refused PR hands off to ReviewHog by adding its trigger label, in both review modes —
+    # stamphog couldn't sign off, so a deeper second-opinion review is wanted regardless of how the
+    # review was triggered.
+    label_adds = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "add_label"]
+    assert label_adds == [{"kind": "add_label", "repo": REPO, "number": 101, "labels": ["reviewhog"]}]
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        # The client swallows a 422 (label missing on the repo) itself; a 500 raises StamphogGitHubError.
+        pytest.param(422, id="swallows_missing_label"),
+        pytest.param(500, id="client_raises_on_500"),
+        # The egress layer raises these directly — not subclasses of StamphogGitHubError, so a narrow
+        # except would let them escape post_verdict and skip the durable verdict save below.
+        pytest.param(GitHubRateLimitError("secondary rate limit"), id="rate_limit_does_not_escape"),
+        pytest.param(requests.ConnectionError("network blip"), id="network_error_does_not_escape"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
+    team,
+    stamphog_chain: StamphogChain,
+    fault: int | Exception,
+) -> None:
+    # The ReviewHog handoff is a secondary, cross-product notification that runs AFTER the durable
+    # terminal save, so the refusal itself is never at risk — it's already committed by the time the
+    # handoff fires. Left uncaught, though, the exception would fail the activity and trigger a retry,
+    # re-running already-succeeded side effects (posting the sticky comment, stripping the trigger
+    # label) even though the verdict is saved; catching it keeps the handoff single-shot best-effort.
+    # A 422 is swallowed inside the client; a 500 raises StamphogGitHubError; a rate limit raises
+    # GitHubRateLimitError and a network blip raises requests.RequestException from the egress layer.
+    # All four must leave the run COMPLETED + REFUSED, not FAILED. The latter two are the regression:
+    # they are not subclasses of StamphogGitHubError, so only a broad catch at the call site contains
+    # them.
+    repo_config = _repo_config(team.id)
+    head_sha = "sha-refused-handoff"
+    stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
+    if isinstance(fault, Exception):
+        stamphog_chain.recorder.add_label_side_effect = fault
+    else:
+        stamphog_chain.recorder.add_label_response_override = fakes.FakeResponse(fault, text="handoff failure")
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={"reviewer_raw": _refused_engine_output()},
+    )
+
+    _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    run.refresh_from_db()
+    assert run.status == ReviewRunStatus.COMPLETED
+    assert run.verdict == ReviewVerdict.REFUSED
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_superseded_refusal_does_not_hand_off_to_reviewhog(team, stamphog_chain: StamphogChain) -> None:
+    # The ReviewHog handoff runs AFTER the conditional terminal save, so a refusal that loses the save
+    # to a supersession (a synchronize/re-review delivery landing between the head guard and the save)
+    # must not trigger ReviewHog for the stale refusal — a newer run may approve the same head. The run
+    # returns skipped_superseded and the reviewhog label is never added.
+    repo_config = _repo_config(team.id)
+    head_sha = "sha-refused-superseded"
+    stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={"reviewer_raw": _refused_engine_output()},
+    )
+    # A concurrent delivery flips the run to SUPERSEDED during the sticky-comment post (before the
+    # terminal save), so the conditional .exclude(status=SUPERSEDED).update(...) matches nothing and the
+    # run returns skipped_superseded. This reaches the terminal-save early return, NOT the top guard —
+    # the run is REVIEWING at load.
+    original_post_sticky = activities._post_sticky
+
+    def _supersede_then_post(client, repo, pr, body) -> None:
+        ReviewRun.objects.for_team(team.id).filter(id=run.id).update(status=ReviewRunStatus.SUPERSEDED)
+        original_post_sticky(client, repo, pr, body)
+
+    with patch.object(activities, "_post_sticky", side_effect=_supersede_then_post):
+        result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert result == {"verdict": "skipped_superseded"}
+    assert [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "add_label"] == []
 
 
 @pytest.mark.parametrize(

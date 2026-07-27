@@ -303,6 +303,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     // language instead of calling a slack tool).
     const slackReply = session.trigger_metadata?.kind === 'slack' ? session.trigger_metadata : null
     const system = await buildSystemPrompt(rev, deps.bundle, {
+        availableMcps: (deps.mcpClients ?? []).map((client) => client.prefix),
         unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({
             id: f.ref.id,
             category: f.category,

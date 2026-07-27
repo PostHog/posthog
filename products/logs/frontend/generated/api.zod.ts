@@ -707,6 +707,9 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const logsGroupByCreateBodyQueryOneGroupBySourceDefault = `log`
+export const logsGroupByCreateBodyQueryOneGroupBysItemSourceDefault = `log`
+export const logsGroupByCreateBodyQueryOneGroupBysMax = 4
+
 export const logsGroupByCreateBodyQueryOneOrderGroupsByDefault = `log_count`
 export const logsGroupByCreateBodyQueryOneLimitDefault = 100
 export const logsGroupByCreateBodyQueryOneLimitMax = 500
@@ -791,15 +794,39 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Property filters applied before grouping. Same shape as the query-logs endpoint.'),
             groupBy: zod
                 .string()
+                .optional()
                 .describe(
-                    'The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"trace_id\", \"span_id\".'
+                    'The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"trace_id\", \"span_id\". Ignored when groupBys is provided.'
                 ),
             groupBySource: zod
                 .enum(['log', 'resource', 'column'])
                 .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
                 .default(logsGroupByCreateBodyQueryOneGroupBySourceDefault)
                 .describe(
-                    'Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                    'Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields. Ignored when groupBys is provided.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                ),
+            groupBys: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\") or, when source is \"column\", one of the top-level log fields: \"severity_level\", \"trace_id\", \"span_id\".'
+                            ),
+                        source: zod
+                            .enum(['log', 'resource', 'column'])
+                            .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
+                            .default(logsGroupByCreateBodyQueryOneGroupBysItemSourceDefault)
+                            .describe(
+                                'Where this dimension\'s key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                            ),
+                    })
+                )
+                .min(1)
+                .max(logsGroupByCreateBodyQueryOneGroupBysMax)
+                .optional()
+                .describe(
+                    'Ordered group-by dimensions to combine (a group is one combination of per-dimension values), up to 4. Takes precedence over groupBy\/groupBySource; one of the two must be provided.'
                 ),
             orderGroupsBy: zod
                 .enum(['log_count', 'error_count', 'last_seen'])

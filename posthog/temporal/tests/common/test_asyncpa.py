@@ -86,6 +86,7 @@ async def test_record_batch_reader_reads_record_batches(record_batches: collecti
 
         _ = buffer.seek(0)
 
+        assert await reader.get_schema() == first_batch.schema
         read_batch = await anext(reader)
 
         assert first_batch == read_batch

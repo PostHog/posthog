@@ -90,6 +90,8 @@ function WizardSyncDialog({
     isOpen,
     onClose,
     onClear,
+    onCancel,
+    cancelling = false,
     onDashboardClick,
 }: {
     progress: InstallationProgress
@@ -99,6 +101,8 @@ function WizardSyncDialog({
     isOpen: boolean
     onClose: () => void
     onClear?: () => void
+    onCancel?: () => void
+    cancelling?: boolean
     onDashboardClick?: () => void
 }): JSX.Element {
     const isTerminal = progress.phase === 'completed' || progress.phase === 'error'
@@ -122,6 +126,19 @@ function WizardSyncDialog({
                         Dismiss this run
                     </LemonButton>
                 )}
+                {!isTerminal && onCancel && (
+                    <LemonButton
+                        type="secondary"
+                        status="danger"
+                        onClick={onCancel}
+                        loading={cancelling}
+                        disabledReason={cancelling ? 'Cancelling the run' : undefined}
+                        className="self-end"
+                        data-attr="wizard-sync-cancel-run"
+                    >
+                        Cancel run
+                    </LemonButton>
+                )}
             </div>
         </LemonModal>
     )
@@ -136,6 +153,8 @@ function WizardSyncSurface({
     mode,
     runKey,
     onClear,
+    onCancel,
+    cancelling = false,
     hideCard = false,
 }: {
     progress: InstallationProgress
@@ -146,6 +165,9 @@ function WizardSyncSurface({
     mode: WizardSyncMode
     runKey: string
     onClear?: () => void
+    /** Cancels the run server-side (cloud runs only) — shown in the dialog while the run is live. */
+    onCancel?: () => void
+    cancelling?: boolean
     hideCard?: boolean
 }): JSX.Element {
     const { dismissedKey, dialogOpen } = useValues(wizardSyncUiLogic)
@@ -246,6 +268,8 @@ function WizardSyncSurface({
                 isOpen={dialogOpen}
                 onClose={closeDialog}
                 onClear={handleClear}
+                onCancel={onCancel}
+                cancelling={cancelling}
             />
         </>
     )
@@ -256,7 +280,8 @@ function WizardSyncCloudFab({ handle, hideCard }: { handle: CloudRunHandle; hide
     const { installationProgress, taskRunState } = useValues(
         installationProgressLogic({ mode: 'cloud', runId: handle.runId, taskId: handle.taskId })
     )
-    const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
+    const { cancellingRun } = useValues(activeCloudRunLogic)
+    const { clearActiveCloudRun, cancelActiveCloudRun } = useActions(activeCloudRunLogic)
     const isTerminal = installationProgress.phase === 'completed' || installationProgress.phase === 'error'
     return (
         <WizardSyncSurface
@@ -266,6 +291,8 @@ function WizardSyncCloudFab({ handle, hideCard }: { handle: CloudRunHandle; hide
             mode="cloud"
             runKey={handle.runId}
             onClear={clearActiveCloudRun}
+            onCancel={cancelActiveCloudRun}
+            cancelling={cancellingRun}
             hideCard={hideCard}
         />
     )

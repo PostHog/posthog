@@ -139,7 +139,7 @@ from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreagg
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
-from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -586,7 +586,7 @@ class Database(BaseModel):
             if isinstance(table_name, list):
                 table_name = ".".join(table_name)
             if table_name in self._denied_tables:
-                raise QueryError(f"You don't have access to table `{table_name}`.") from e
+                raise TableAccessDeniedError(table_name) from e
             suggestions = self._suggest_table_names(table_name)
             suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             raise QueryError(f"Unknown table `{table_name}`.{suffix}") from e
@@ -1547,7 +1547,7 @@ class Database(BaseModel):
                     events_table.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
                 elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
-                    events_table.fields["person_id"] = StringDatabaseField(name="person_id")
+                    events_table.fields["person_id"] = UUIDDatabaseField(name="person_id")
                     _use_person_properties_from_events(database)
 
                 elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
@@ -2127,7 +2127,7 @@ def _use_person_properties_from_events(database: Database) -> None:
 
 def _use_person_id_from_person_overrides(database: Database) -> None:
     table = database.get_table("events")
-    table.fields["event_person_id"] = StringDatabaseField(name="person_id")
+    table.fields["event_person_id"] = UUIDDatabaseField(name="person_id")
     table.fields["override"] = LazyJoin(
         from_field=["distinct_id"],
         join_table=database.get_table("person_distinct_id_overrides"),

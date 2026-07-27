@@ -22,7 +22,9 @@ pub use chunk::{
     ClaimKind, ClaimedChunk, EnqueuedChunk, HaltReason, Halted, ProduceHwms, ProducedChunk,
     ScannedChunk, UnknownChunkStatus,
 };
-pub use cohort_core::seed::SeedTile;
+pub use cohort_core::seed::{
+    BehavioralShapeHash, BehavioralShapeHashError, ReconcileTile, SeedTile,
+};
 pub use condition::{EventNameSet, Lookback, PinnedCondition};
 pub use ids::{
     Band, ChunkId, ClaimEpoch, ConditionHash, ConditionHashError, DayIdx, RunId, SChunkMs,

@@ -20,10 +20,13 @@ from prometheus_client import Counter, Histogram
 
 from posthog.schema import ChartDisplayType, FunnelLayout, NodeKind
 
+from posthog.hogql.errors import TableAccessDeniedError
+
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.exporter import EXPORT_TIMER
@@ -607,6 +610,23 @@ def export_image(
                 )
         except Exception as e:
             team_id = str(exported_asset.team.id) if exported_asset else "unknown"
-            capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
             logger.error("image_exporter.failed", exception=e, exc_info=True)
+            # A revoked creator's access-denied error is a known limitation - report it as an event
+            # rather than surfacing it in error tracking.
+            if isinstance(e, TableAccessDeniedError) and creator_access_revoked(
+                exported_asset.created_by, exported_asset.team
+            ):
+                report_creator_access_revoked(
+                    user=exported_asset.created_by,
+                    team=exported_asset.team,
+                    source="export",
+                    error=e,
+                    properties={
+                        "exported_asset_id": exported_asset.id,
+                        "insight_id": exported_asset.insight_id,
+                        "dashboard_id": exported_asset.dashboard_id,
+                    },
+                )
+            else:
+                capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
             raise

@@ -1,67 +1,24 @@
-from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-from urllib3.util.retry import Retry
+from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.settings import IMAGGA_ENDPOINTS
 
 BASE_URL = "https://api.imagga.com/v2"
-REQUEST_TIMEOUT_SECONDS = 30
-MAX_RETRY_ATTEMPTS = 5
 
 # The /usage result carries two histogram objects keyed by period -> count (`daily`, `monthly`).
 # Their key set changes every period, so folding them into the flat snapshot row would drift the
 # column width sync to sync. They're kept out of the `usage` snapshot; the per-day series is exposed
 # through the dedicated `daily_usage` table instead.
 _HISTOGRAM_KEYS = frozenset({"daily", "monthly"})
-
-
-class ImaggaRetryableError(Exception):
-    pass
-
-
-def _headers() -> dict[str, str]:
-    return {"Accept": "application/json"}
-
-
-def _fetch_usage(
-    session: requests.Session, api_key: str, api_secret: str, logger: FilteringBoundLogger
-) -> dict[str, Any]:
-    """Fetch GET /usage and return its ``result`` object.
-
-    ``concurrency=1`` asks Imagga to include the concurrency block (current vs max) alongside the
-    usage counters. Credentials travel in the Basic-auth header, not the URL, so a non-2xx error's
-    URL is safe to surface unredacted.
-    """
-    url = f"{BASE_URL}/usage?concurrency=1"
-    response = session.get(url, auth=(api_key, api_secret), headers=_headers(), timeout=REQUEST_TIMEOUT_SECONDS)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise ImaggaRetryableError(f"Imagga API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Imagga API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    body = response.json()
-    result = body.get("result") if isinstance(body, dict) else None
-    return result if isinstance(result, dict) else {}
-
-
-def validate_credentials(api_key: str, api_secret: str) -> bool:
-    """Confirm the key/secret pair is genuine with a single GET /usage. 200 = valid; 401/403 = not."""
-    try:
-        session = make_tracked_session(redact_values=(api_secret,) if api_secret else ())
-        response = session.get(f"{BASE_URL}/usage", auth=(api_key, api_secret), headers=_headers(), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
 
 
 def _usage_snapshot_row(result: dict[str, Any]) -> dict[str, Any]:
@@ -108,62 +65,82 @@ def _daily_usage_rows(result: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def get_rows(
-    api_key: str,
-    api_secret: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    # The tenacity wrapper below is the single retry authority for this session, so disable the
-    # transport-level status retries (`make_tracked_session`'s DEFAULT_RETRY already retries 429/5xx).
-    # Otherwise both layers retry a rate-limit response and one 429 fans out into far more requests.
-    session = make_tracked_session(retry=Retry(total=0), redact_values=(api_secret,) if api_secret else ())
+def _usage_data_map(result: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    """Reshape the /usage result into the flat snapshot row, or drop it (empty list) when unusable.
 
-    @retry(
-        retry=retry_if_exception_type((ImaggaRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
+    An empty result, or a non-empty one missing the ``billing_period_start`` merge key, is dropped:
+    the `usage` table merges on that key, so yielding a row without it would fail the warehouse merge
+    permanently. Degrading to an empty sync keeps a malformed response non-fatal.
+    """
+    row = _usage_snapshot_row(result)
+    if not row:
+        return []
+    missing_keys = [key for key in IMAGGA_ENDPOINTS["usage"].primary_keys if key not in row]
+    if missing_keys:
+        return []
+    return row
+
+
+def validate_credentials(api_key: str, api_secret: str) -> bool:
+    """Confirm the key/secret pair is genuine with a single GET /usage. 200 = valid; 401/403 = not."""
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_secret,) if api_secret else ()),
+        f"{BASE_URL}/usage",
+        headers={"Accept": "application/json"},
+        auth=HTTPBasicAuth(api_key, api_secret),
     )
-    def fetch() -> dict[str, Any]:
-        return _fetch_usage(session, api_key, api_secret, logger)
+    return ok
 
-    result = fetch()
 
-    if endpoint == "usage":
-        row = _usage_snapshot_row(result)
-        if not row:
-            return
-        # The `usage` table merges on `billing_period_start`. If Imagga returns a result without it,
-        # yielding the row anyway makes the warehouse merge fail permanently on a missing key column;
-        # skip and log instead so a malformed response degrades to an empty sync, not a hard failure.
-        missing_keys = [key for key in IMAGGA_ENDPOINTS["usage"].primary_keys if key not in row]
-        if missing_keys:
-            logger.warning(f"Imagga /usage response missing primary key(s) {missing_keys}; skipping snapshot row")
-            return
-        yield [row]
-        return
-
-    if endpoint == "daily_usage":
-        rows = _daily_usage_rows(result)
-        if rows:
-            yield rows
-        return
-
-    raise ValueError(f"Unknown Imagga endpoint: {endpoint}")
+# Both tables are built from the same GET /usage response, differing only in how the `result` object
+# is reshaped: `usage` flattens it into a one-row snapshot, `daily_usage` explodes the per-day
+# histogram into one row per day. Credentials ride in the Basic-auth header (redacted from errors),
+# never the URL. `concurrency=1` asks Imagga to include the concurrency block in the result.
+_ENDPOINT_DATA_MAPS: dict[str, Any] = {
+    "usage": _usage_data_map,
+    "daily_usage": lambda result: _daily_usage_rows(result),
+}
 
 
 def imagga_source(
     api_key: str,
     api_secret: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
 ) -> SourceResponse:
+    if endpoint not in _ENDPOINT_DATA_MAPS:
+        raise ValueError(f"Unknown Imagga endpoint: {endpoint}")
+
     config = IMAGGA_ENDPOINTS[endpoint]
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": BASE_URL,
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "http_basic", "username": api_key, "password": api_secret},
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": "usage",
+                    "params": {"concurrency": "1"},
+                    # The rows live under `result`; a missing/null `result` (or a non-dict body)
+                    # yields no rows rather than failing, matching the old empty-degradation behavior.
+                    "data_selector": "result",
+                },
+                "data_map": _ENDPOINT_DATA_MAPS[endpoint],
+            }
+        ],
+    }
+
+    resource = rest_api_resource(rest_config, team_id, job_id, None)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(api_key=api_key, api_secret=api_secret, endpoint=endpoint, logger=logger),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

@@ -15,7 +15,7 @@ export const NotebooksListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -50,7 +50,7 @@ export const NotebooksCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -81,7 +81,7 @@ export const NotebooksRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     short_id: zod.string(),
 })
@@ -93,7 +93,7 @@ export const NotebooksPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     short_id: zod.string(),
 })
@@ -125,7 +125,7 @@ export const NotebooksDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     short_id: zod.string(),
 })

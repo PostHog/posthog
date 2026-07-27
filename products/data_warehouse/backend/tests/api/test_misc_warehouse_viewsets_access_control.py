@@ -142,12 +142,38 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
 
         response = self.client.post(
             self._path("provision/"),
-            data={"database_name": "x", "table_name": "x"},
+            data={"database_name": "x", "schema_name": "x"},
             content_type="application/json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         mock_provision.assert_called_once_with(self.team.organization_id, "x", self.team.id, "x")
+
+    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.check_schema_name")
+    def test_check_schema_name_blocked_for_project_editor_who_is_not_org_admin(self, mock_check):
+        # The check scans every project's schema in the org, so a non-admin could otherwise
+        # probe names and learn what inaccessible projects use.
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.get(self._path("check-schema-name/?name=probe"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_check.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.check_schema_name")
+    def test_check_schema_name_allowed_for_org_admin(self, mock_check):
+        mock_check.return_value = Response({"name": "probe", "available": True}, status=status.HTTP_200_OK)
+        membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.get(self._path("check-schema-name/?name=probe"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_check.assert_called_once_with(self.team.organization_id, "probe")
 
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.reset_password")
     def test_reset_password_blocked_for_project_editor_who_is_not_org_admin(self, mock_reset_password):

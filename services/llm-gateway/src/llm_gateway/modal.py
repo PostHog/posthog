@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Final
 
 import litellm
@@ -12,6 +12,7 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
     LiteLLMMessagesToCompletionTransformationHandler,
 )
 
+from llm_gateway.anthropic_stream import observe_anthropic_stream
 from llm_gateway.config import Settings, _normalize_cost_key
 
 # Modal endpoints are OpenAI-compatible vLLM servers; no native litellm provider.
@@ -77,6 +78,10 @@ def _traffic_bucket(user_key: str) -> float:
 def modal_traffic_fraction(product: str, settings: Settings) -> float:
     # Legacy product aliases (twig/array) must read their canonical product's fraction.
     product = _normalize_cost_key(product)
+    # Image scans are server-side calls, but they must move between GLM backends with the Code
+    # runtime they protect so builds do not depend on a backend that Code has already rolled off.
+    if product == "custom_image_scans":
+        product = "posthog_code"
     return settings.glm_modal_product_traffic_fractions.get(product, settings.glm_modal_traffic_fraction)
 
 
@@ -109,7 +114,10 @@ def _inject_modal_params(kwargs: dict[str, Any], api_base: str, modal_key: str, 
 def make_modal_anthropic_call(api_base: str, modal_key: str, modal_secret: str) -> Callable[..., Awaitable[Any]]:
     async def llm_call(**kwargs: Any) -> Any:
         _inject_modal_params(kwargs, api_base, modal_key, modal_secret)
-        return await LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler(**kwargs)
+        response = await LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler(**kwargs)
+        if isinstance(response, AsyncIterator):
+            return observe_anthropic_stream(response, "modal")
+        return response
 
     return llm_call
 

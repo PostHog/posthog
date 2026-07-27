@@ -1,4 +1,4 @@
-# Channels & Threads (PostHog Code / Bluebird)
+# Channels & Threads (PostHog Desktop / Bluebird)
 
 Spec for the Slack-style channel revamp. A channel is a shared feed where each
 member message kicks off a task; the task renders as a card everyone in the
@@ -105,7 +105,7 @@ Thread messages inherit the task's visibility.
   `signal_task_run_user_message`, then stamps `forwarded_to_agent_at`,
   `forwarded_by`, `forwarded_run`. 400 when the task has no signalable run.
 
-## Client (PostHog Code, bluebird mode)
+## Client (PostHog Desktop, bluebird mode)
 
 - **Channel feed** — the channel view becomes a Slack-like feed: each item is
   the kickoff message (author avatar + name + prompt) with a task card

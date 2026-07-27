@@ -266,8 +266,8 @@ export function Billing(): JSX.Element {
                                 <div className="flex gap-x-2">
                                     <div>{getProductIcon('IconTerminal', { className: 'text-2xl shrink-0' })}</div>
                                     <div>
-                                        <h3 className="font-bold mb-0">Code</h3>
-                                        <div>Manage existing PostHog Code seats.</div>
+                                        <h3 className="font-bold mb-0">PostHog Desktop</h3>
+                                        <div>Manage existing PostHog Desktop seats.</div>
                                     </div>
                                 </div>
                                 <LemonButton

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use etcd_client::{EventType, WatchStream};
+use metrics::{counter, gauge, histogram};
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
@@ -10,12 +11,10 @@ use k8s_awareness::types::ControllerKind;
 use k8s_awareness::{DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
-use crate::protocol::{drain_satisfied, freeze_quorum_met, plan_rebalance, warm_satisfied};
+use crate::protocol::{drain_satisfied, freeze_quorum_met, plan_partial_rebalance, warm_satisfied};
 use crate::store::{self, PersonhogStore};
 use crate::strategy::AssignmentStrategy;
-use crate::types::{
-    AssignmentStatus, HandoffPhase, HandoffState, PartitionAssignment, PodStatus, RegisteredPod,
-};
+use crate::types::{AssignmentPrecondition, HandoffPhase, HandoffState, PodStatus, RegisteredPod};
 
 use crate::util;
 
@@ -136,6 +135,8 @@ impl Coordinator {
         }
 
         tracing::info!(name = %self.config.name, "acquired leadership");
+        gauge!("personhog_coordination_is_coordinator").set(1.0);
+        counter!("personhog_coordination_elections_won_total").increment(1);
 
         // A failed keepalive means the lease is gone (or about to be) and
         // another candidate can win the election: abdicate rather than
@@ -169,6 +170,8 @@ impl Coordinator {
         // Revoke so the next candidate's campaign wins immediately instead
         // of waiting out the lease TTL.
         drop(self.store.revoke_lease(lease_id).await);
+
+        reset_coordinator_gauges();
 
         result.map(|()| true)
     }
@@ -352,8 +355,10 @@ impl Coordinator {
                     }
 
                     // After processing all events in this batch, check if all
-                    // handoffs have completed. If so, re-trigger rebalancing to
-                    // pick up any pod changes that were deferred.
+                    // handoffs have completed. If so, re-trigger rebalancing as
+                    // the final sweep for moves that were pinned while these
+                    // handoffs were in flight (pod changes themselves are never
+                    // deferred; they plan around the in-flight set).
                     if store.list_handoffs().await?.is_empty() {
                         Self::handle_pod_change_static(
                             &store,
@@ -414,9 +419,26 @@ impl Coordinator {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 _ = tick.tick() => {
-                    for handoff in store.list_handoffs().await? {
-                        Self::handle_handoff_update_static(&store, &handoff).await?;
+                    let handoffs = store.list_handoffs().await?;
+                    for handoff in &handoffs {
+                        Self::handle_handoff_update_static(&store, handoff).await?;
                         Self::check_phase_advance(&store, handoff.partition).await?;
+                    }
+                    // The gauge refresh is best-effort and runs after the
+                    // reconcile pass: its reads exist only for metrics and
+                    // must never delay or interrupt handoff advancement —
+                    // this tick is the liveness backstop for router
+                    // departures, which fire no watched event. A skipped
+                    // refresh is repaired by the next tick.
+                    let pods = store.list_pods().await;
+                    let routers = store.list_routers().await;
+                    match (pods, routers) {
+                        (Ok(pods), Ok(routers)) => {
+                            record_cluster_gauges(&handoffs, &pods, routers.len());
+                        }
+                        (Err(e), _) | (_, Err(e)) => {
+                            tracing::debug!(error = %e, "skipping cluster gauge refresh");
+                        }
                     }
                 }
             }
@@ -461,6 +483,7 @@ impl Coordinator {
                         .cas_handoff_phase(partition, HandoffPhase::Freezing, target)
                         .await?;
                     if advanced {
+                        record_phase_advance(&handoff, target);
                         tracing::info!(
                             partition,
                             freeze_acks = freeze_acks.len(),
@@ -482,6 +505,7 @@ impl Coordinator {
                         .cas_handoff_phase(partition, HandoffPhase::Draining, HandoffPhase::Warming)
                         .await?;
                     if advanced {
+                        record_phase_advance(&handoff, HandoffPhase::Warming);
                         tracing::info!(
                             partition,
                             old_owner = ?handoff.old_owner,
@@ -499,7 +523,9 @@ impl Coordinator {
                         "new owner warmed, completing handoff"
                     );
                     match store.complete_handoff(partition).await {
-                        Ok(true) => {}
+                        Ok(true) => {
+                            record_phase_advance(&handoff, HandoffPhase::Complete);
+                        }
                         Ok(false) => {
                             tracing::warn!(partition, "handoff modified concurrently, skipping");
                         }
@@ -585,29 +611,43 @@ impl Coordinator {
         // be stuck forever otherwise.
         Self::cleanup_stale_handoffs(store).await?;
 
-        // Skip rebalancing while handoffs are in flight to prevent overlapping
-        // rebalances from overwriting each other. The watch_handoffs_loop will
-        // re-trigger rebalancing once all handoffs complete.
-        let remaining_handoffs = store.list_handoffs().await?;
-        if !remaining_handoffs.is_empty() {
+        // In-flight handoffs pin their partitions: the plan excludes them
+        // (no second handoff, no assignment write) and attributes them to
+        // their target for the balance math, so a stuck handoff defers
+        // only its own partition instead of all rebalancing.
+        let in_flight = store.list_handoffs().await?;
+        if !in_flight.is_empty() {
             tracing::info!(
-                in_flight = remaining_handoffs.len(),
-                "handoffs in progress, deferring rebalance"
+                pinned = in_flight.len(),
+                "planning around in-flight handoffs"
             );
-            return Ok(());
         }
 
-        let current_assignments = store.list_assignments().await?;
+        // One revisioned snapshot feeds both the placement computation and
+        // the apply-time preconditions: a handoff's old_owner is only
+        // meaningful while the assignment it was read from is unchanged.
+        let current_assignments = store.list_assignments_with_mod_revisions().await?;
 
         let current_map: HashMap<u32, String> = current_assignments
             .iter()
-            .map(|a| (a.partition, a.owner.clone()))
+            .map(|(a, _)| (a.partition, a.owner.clone()))
+            .collect();
+        let assignment_revisions: HashMap<u32, i64> = current_assignments
+            .iter()
+            .map(|(a, revision)| (a.partition, *revision))
             .collect();
 
         // Placement and diff semantics (moves carry the prior owner, fresh
         // partitions carry none, everything goes through Freezing) live in
-        // `protocol::plan_rebalance`, shared with the stateright model.
-        let plan = plan_rebalance(strategy, &current_map, &active_pods, total_partitions);
+        // `protocol::plan_partial_rebalance`, shared with the stateright
+        // model.
+        let plan = plan_partial_rebalance(
+            strategy,
+            &current_map,
+            &in_flight,
+            &active_pods,
+            total_partitions,
+        );
 
         if plan.handoffs.is_empty() {
             tracing::debug!("no handoffs needed");
@@ -622,6 +662,10 @@ impl Coordinator {
                 partition: h.partition,
                 old_owner: h.old_owner.clone(),
                 new_owner: h.new_owner.clone(),
+                new_owner_address: pods
+                    .iter()
+                    .find(|p| p.pod_name == h.new_owner)
+                    .and_then(|p| p.advertise_address.clone()),
                 phase: HandoffPhase::Freezing,
                 started_at: now,
                 handoff_id: util::new_handoff_id(),
@@ -639,26 +683,42 @@ impl Coordinator {
             "creating handoffs"
         );
 
-        // Assignments for partitions that are NOT being moved (correct owner
-        // already) still need to be written to etcd, but reassignments and
-        // fresh assignments defer their PartitionAssignment writes until the
-        // handoff reaches Complete.
-        let handoff_partitions: HashSet<u32> =
-            handoff_objects.iter().map(|h| h.partition).collect();
-        let stable_assignments: Vec<PartitionAssignment> = plan
-            .desired
+        // The rebalance writes no assignment records: handoff completion is
+        // the sole writer of assignments (see `complete_handoff`'s
+        // invariant), so routers always observe owner changes as Complete
+        // events, and a stale plan can never restore a superseded owner.
+        // Each handoff instead carries a precondition tying it to the
+        // snapshot its old_owner came from.
+        let preconditions: Vec<AssignmentPrecondition> = handoff_objects
             .iter()
-            .map(|(&partition, owner)| PartitionAssignment {
-                partition,
-                owner: owner.clone(),
-                status: AssignmentStatus::Active,
+            .map(|h| match assignment_revisions.get(&h.partition) {
+                Some(&mod_revision) => AssignmentPrecondition::UnchangedSince {
+                    partition: h.partition,
+                    mod_revision,
+                },
+                None => AssignmentPrecondition::Absent {
+                    partition: h.partition,
+                },
             })
-            .filter(|a| !handoff_partitions.contains(&a.partition))
             .collect();
 
-        store
-            .create_assignments_and_handoffs(&stable_assignments, &handoff_objects)
-            .await?;
+        if !store
+            .create_assignments_and_handoffs(&[], &handoff_objects, &preconditions)
+            .await?
+        {
+            // A concurrent invocation (the empty-set re-trigger racing a
+            // pod event, or a failing-over coordinator) created a handoff
+            // first. Its plan acted on fresher state than ours; whatever
+            // this plan wanted beyond it is replanned by the next pod
+            // event or the final sweep.
+            tracing::info!("concurrent plan won handoff creation; standing down");
+            return Ok(());
+        }
+
+        counter!("personhog_coordination_handoffs_created_total", "kind" => "move")
+            .increment(moves as u64);
+        counter!("personhog_coordination_handoffs_created_total", "kind" => "fresh")
+            .increment((plan.handoffs.len() - moves) as u64);
 
         // Nudge advancement for handoffs whose preconditions are already
         // satisfied at creation time (no old_owner, dead old_owner, vacuous
@@ -718,10 +778,13 @@ impl Coordinator {
                 phase = ?current.phase,
                 "cleaning up handoff targeting a dead new owner"
             );
-            if !store
+            if store
                 .delete_handoff_and_acks_if_unchanged(current.partition, mod_revision)
                 .await?
             {
+                counter!("personhog_coordination_handoffs_cancelled_total", "reason" => "dead_new_owner")
+                    .increment(1);
+            } else {
                 tracing::info!(
                     partition = current.partition,
                     "handoff changed concurrently, skipping cleanup"
@@ -766,6 +829,71 @@ impl Coordinator {
         }
         Ok(())
     }
+}
+
+// ── Metrics ─────────────────────────────────────────────────────
+
+fn phase_label(phase: HandoffPhase) -> &'static str {
+    match phase {
+        HandoffPhase::Freezing => "freezing",
+        HandoffPhase::Draining => "draining",
+        HandoffPhase::Warming => "warming",
+        HandoffPhase::Complete => "complete",
+    }
+}
+
+/// Record a successful phase advance: a transition counter plus a
+/// histogram of milliseconds elapsed since the handoff was created.
+/// `started_at` carries one-second resolution, so these timings exist to
+/// spot stalls (a handoff minutes into Freezing), not to micro-profile;
+/// the pod side's warm and drain histograms carry the precise
+/// per-operation cost.
+fn record_phase_advance(handoff: &HandoffState, to: HandoffPhase) {
+    counter!(
+        "personhog_coordination_handoff_transitions_total",
+        "from" => phase_label(handoff.phase),
+        "to" => phase_label(to),
+    )
+    .increment(1);
+    let elapsed = util::now_seconds().saturating_sub(handoff.started_at);
+    histogram!(
+        "personhog_coordination_handoff_phase_reached_ms",
+        "phase" => phase_label(to),
+    )
+    .record((elapsed * 1000) as f64);
+}
+
+/// Refresh the coordinator's view-of-the-cluster gauges. Driven from the
+/// reconcile tick, so only the elected coordinator exports live values;
+/// `reset_coordinator_gauges` zeroes them when leadership ends.
+fn record_cluster_gauges(handoffs: &[HandoffState], pods: &[RegisteredPod], routers: usize) {
+    for phase in [
+        HandoffPhase::Freezing,
+        HandoffPhase::Draining,
+        HandoffPhase::Warming,
+        HandoffPhase::Complete,
+    ] {
+        let count = handoffs.iter().filter(|h| h.phase == phase).count();
+        gauge!("personhog_coordination_handoffs_in_flight", "phase" => phase_label(phase))
+            .set(count as f64);
+    }
+    for (status, label) in [
+        (PodStatus::Ready, "ready"),
+        (PodStatus::Draining, "draining"),
+    ] {
+        let count = pods.iter().filter(|p| p.status == status).count();
+        gauge!("personhog_coordination_pods_registered", "status" => label).set(count as f64);
+    }
+    gauge!("personhog_coordination_routers_registered").set(routers as f64);
+}
+
+/// Zero every gauge this instance exports as coordinator. Called when
+/// leadership ends, so a former coordinator's scrape endpoint doesn't
+/// keep reporting the last-known cluster state alongside the new
+/// coordinator's live values.
+fn reset_coordinator_gauges() {
+    gauge!("personhog_coordination_is_coordinator").set(0.0);
+    record_cluster_gauges(&[], &[], 0);
 }
 
 // ── Pure functions ──────────────────────────────────────────────
@@ -852,6 +980,7 @@ mod tests {
             registered_at: 0,
             last_heartbeat: 0,
             controller: None,
+            advertise_address: None,
         }
     }
 

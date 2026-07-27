@@ -187,9 +187,16 @@ from products.conversations.backend.temporal import (
     ACTIVITIES as CONVERSATIONS_ACTIVITIES,
     WORKFLOWS as CONVERSATIONS_WORKFLOWS,
 )
-from products.engineering_analytics.backend.facade.temporal import JOB_LOGS_ACTIVITIES, JOB_LOGS_WORKFLOWS
+from products.engineering_analytics.backend.facade.temporal import (
+    CI_SIGNALS_ACTIVITIES,
+    CI_SIGNALS_WORKFLOWS,
+    JOB_LOGS_ACTIVITIES,
+    JOB_LOGS_WORKFLOWS,
+)
 from products.error_tracking.backend.facade.temporal import (
     ACTIVITIES as ERROR_TRACKING_ACTIVITIES,
+    LIFECYCLE_ACTIVITIES as ERROR_TRACKING_LIFECYCLE_ACTIVITIES,
+    LIFECYCLE_WORKFLOWS as ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
     WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
 )
 from products.experiments.backend.temporal import (
@@ -206,6 +213,10 @@ from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
 )
+from products.logs.backend.temporal.retention_entitlements import (
+    ACTIVITIES as LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES,
+    WORKFLOWS as LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS,
+)
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
@@ -218,6 +229,7 @@ from products.replay_vision.backend.temporal import (
     ACTIVITIES as REPLAY_VISION_ACTIVITIES,
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
+from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
 from products.review_hog.backend.temporal import (
     ACTIVITIES as REVIEW_HOG_ACTIVITIES,
     WORKFLOWS as REVIEW_HOG_WORKFLOWS,
@@ -242,6 +254,8 @@ from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
     METADATA_ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
     METADATA_WORKFLOWS as DATA_WAREHOUSE_METADATA_WORKFLOWS,
+    PERSON_PROPERTY_BACKFILL_ACTIVITIES,
+    PERSON_PROPERTY_BACKFILL_WORKFLOWS,
     PERSON_PROPERTY_SYNC_ACTIVITIES,
     PERSON_PROPERTY_SYNC_WORKFLOWS,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
@@ -277,8 +291,14 @@ _task_queue_specs = [
     ),
     (
         settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
-        DATA_WAREHOUSE_METADATA_WORKFLOWS + SEMANTIC_ENRICHMENT_WORKFLOWS + PERSON_PROPERTY_SYNC_WORKFLOWS,
-        DATA_WAREHOUSE_METADATA_ACTIVITIES + SEMANTIC_ENRICHMENT_ACTIVITIES + PERSON_PROPERTY_SYNC_ACTIVITIES,
+        DATA_WAREHOUSE_METADATA_WORKFLOWS
+        + SEMANTIC_ENRICHMENT_WORKFLOWS
+        + PERSON_PROPERTY_SYNC_WORKFLOWS
+        + PERSON_PROPERTY_BACKFILL_WORKFLOWS,
+        DATA_WAREHOUSE_METADATA_ACTIVITIES
+        + SEMANTIC_ENRICHMENT_ACTIVITIES
+        + PERSON_PROPERTY_SYNC_ACTIVITIES
+        + PERSON_PROPERTY_BACKFILL_ACTIVITIES,
     ),
     (
         settings.DATA_MODELING_TASK_QUEUE,
@@ -303,8 +323,10 @@ _task_queue_specs = [
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
         + SYNC_EVENTS_RETENTION_WORKFLOWS
         + JOB_LOGS_WORKFLOWS
+        + CI_SIGNALS_WORKFLOWS
         + NOTEBOOKS_WORKFLOWS
-        + SIGNUP_ENRICHMENT_WORKFLOWS,
+        + SIGNUP_ENRICHMENT_WORKFLOWS
+        + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -322,8 +344,10 @@ _task_queue_specs = [
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
         + SYNC_EVENTS_RETENTION_ACTIVITIES
         + JOB_LOGS_ACTIVITIES
+        + CI_SIGNALS_ACTIVITIES
         + NOTEBOOKS_ACTIVITIES
-        + SIGNUP_ENRICHMENT_ACTIVITIES,
+        + SIGNUP_ENRICHMENT_ACTIVITIES
+        + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
     # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a
@@ -355,7 +379,7 @@ _task_queue_specs = [
     ),
     (
         settings.TASKS_TASK_QUEUE,
-        # PostHog Code Slack workflows are also registered on MAX_AI_TASK_QUEUE.
+        # PostHog Desktop Slack workflows are also registered on MAX_AI_TASK_QUEUE.
         # First step of merging them onto this queue — once master traffic has
         # cut over and any in-flight runs have drained, drop them from
         # AI_WORKFLOWS / AI_ACTIVITIES and flip the start_workflow callers in
@@ -457,6 +481,11 @@ _task_queue_specs = [
         ERROR_TRACKING_ACTIVITIES,
     ),
     (
+        settings.ERROR_TRACKING_LIFECYCLE_TASK_QUEUE,
+        ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
+        ERROR_TRACKING_LIFECYCLE_ACTIVITIES,
+    ),
+    (
         settings.EVENT_SCREENSHOTS_TASK_QUEUE,
         EVENT_SCREENSHOTS_WORKFLOWS,
         EVENT_SCREENSHOTS_ACTIVITIES,
@@ -481,7 +510,7 @@ _task_queue_specs = [
 _workflows: defaultdict[str, set[type[PostHogWorkflow]]] = defaultdict(set)
 _activities: defaultdict[str, set[typing.Callable[..., typing.Any]]] = defaultdict(set)
 for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_specs:
-    _workflows[task_queue_name].update(workflows_for_queue)  # type: ignore
+    _workflows[task_queue_name].update(workflows_for_queue)
     _activities[task_queue_name].update(activities_for_queue)
 
 WORKFLOWS_DICT = _workflows
@@ -699,7 +728,8 @@ class Command(BaseCommand):
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
-            configure_logger(loop=loop)
+            otel_log_mirror = build_vision_log_mirror() if task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
+            configure_logger(loop=loop, otel_log_mirror=otel_log_mirror)
 
             logger = LOGGER.bind(
                 host=temporal_host,

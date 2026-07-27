@@ -1,29 +1,26 @@
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor.settings import TEAMTAILOR_ENDPOINTS
 
 TEAMTAILOR_BASE_URL = "https://api.teamtailor.com/v1"
 # JSON:API caps `page[size]` at 30; the largest page minimises round trips.
 PAGE_SIZE = 30
-REQUEST_TIMEOUT_SECONDS = 60
 # Every request must pin an API version; this dated value is a documented, stable release.
 API_VERSION = "20240404"
 # Cheap endpoint used to confirm an API key is genuine. The key is account-wide, so one probe
 # validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/users"
-
-
-class TeamtailorRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -42,91 +39,84 @@ def _headers(api_key: str) -> dict[str, str]:
     }
 
 
-@retry(
-    retry=retry_if_exception_type((TeamtailorRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    url: str,
-    params: Optional[dict[str, Any]],
-    logger: FilteringBoundLogger,
-) -> dict[str, Any]:
-    # `links.next` is a fully-formed URL that already carries the page cursor, so params are only
-    # sent for the first request and omitted once we're following `next`.
-    response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise TeamtailorRetryableError(f"Teamtailor API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Teamtailor API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    data = response.json()
-    # JSON:API responses are always an object with a top-level `data` array; a non-object payload
-    # means a malformed response, so fail loudly rather than silently ending the sync.
-    if not isinstance(data, dict):
-        raise TeamtailorRetryableError(f"Teamtailor returned an unexpected payload for {url}: {type(data).__name__}")
-    return data
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[TeamtailorResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = TEAMTAILOR_ENDPOINTS[endpoint]
-    # `redact_values` masks the API key in logged URLs and captured samples.
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    next_url = resume.next_url if resume else None
-    if next_url:
-        logger.debug(f"Teamtailor: resuming {endpoint} from saved cursor")
-
-    while True:
-        if next_url:
-            data = _fetch_page(session, next_url, None, logger)
-        else:
-            data = _fetch_page(session, f"{TEAMTAILOR_BASE_URL}{config.path}", {"page[size]": PAGE_SIZE}, logger)
-
-        items = data.get("data") or []
-        if items:
-            yield items
-
-        # `links.next` is absent or null on the final page.
-        next_url = (data.get("links") or {}).get("next")
-        if not next_url:
-            break
-
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(TeamtailorResumeConfig(next_url=next_url))
+def _version_headers() -> dict[str, str]:
+    # Auth (the `Token token=` header) is supplied via the framework auth config so its value is
+    # redacted from logs and errors; only the non-secret version/accept headers are set here.
+    return {"X-Api-Version": API_VERSION, "Accept": "application/vnd.api+json"}
 
 
 def teamtailor_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[TeamtailorResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = TEAMTAILOR_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": TEAMTAILOR_BASE_URL,
+            "headers": _version_headers(),
+            # Teamtailor's scheme is `Authorization: Token token=<key>`; carry the whole credential
+            # string via api_key auth so the key is scrubbed from error messages and logged URLs.
+            "auth": {
+                "type": "api_key",
+                "api_key": f"Token token={api_key}",
+                "name": "Authorization",
+                "location": "header",
+            },
+            # JSON:API returns the next-page URL in `links.next`; an absent/null link ends the sync.
+            # The link is self-contained, so the paginator drops the first-page params when following it.
+            "paginator": JSONResponsePaginator(next_url_path="links.next"),
+        },
+        # Per-resource settings are fully specified below, so no shared defaults are needed.
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"page[size]": PAGE_SIZE},
+                    "data_selector": "data",
+                    # JSON:API always returns an object with a top-level `data` list; a 200 whose
+                    # body is any other shape is malformed, so retry rather than silently ending
+                    # the sync (the old client raised a retryable error for a non-object payload).
+                    "data_selector_malformed_retryable": True,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.next_url:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on `id`) rather than skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(TeamtailorResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
+        column_hints=resource.column_hints,
     )
 
 

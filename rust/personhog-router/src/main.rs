@@ -199,6 +199,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 RESPONSE_SIZE_BUCKETS,
             )
             .unwrap()
+            // Handoff phase timings are a stall detector: healthy phases
+            // complete in seconds, and the interesting tail is minutes.
+            // The default buckets cap at 10s, which would collapse every
+            // stall into +Inf.
+            .set_buckets_for_metric(
+                metrics_exporter_prometheus::Matcher::Full(
+                    "personhog_coordination_handoff_phase_reached_ms".into(),
+                ),
+                &[
+                    1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0, 300000.0, 600000.0,
+                ],
+            )
+            .unwrap()
             .install_recorder()
             .expect("Failed to install metrics recorder");
 
@@ -271,19 +284,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             RoutingTable::new(Arc::clone(&store), routing_table_config);
 
         let shared_table = coordination_routing_table.table_handle();
-        let leader_port = config.leader_port;
-        // Pods may register with an explicit `host:port` name (local
-        // multi-leader setups, where a single fleet-wide port cannot hold);
-        // those resolve as-is. Bare pod names resolve via DNS on the
-        // fleet-wide leader port.
+        // Addresses come from the same etcd records that carry ownership
+        // (each pod registers its advertised host:port, and the
+        // coordinator copies it into handoffs and assignments), so a
+        // routable owner is always dialable — there is no separate
+        // discovery or DNS step to lag behind the routing table.
+        let leader_addresses = coordination_routing_table.addresses_handle();
         let leader_backend = Arc::new(LeaderBackend::new(
             shared_table,
             Arc::new(move |pod_name: &str| {
-                if pod_name.contains(':') {
-                    Some(format!("http://{pod_name}"))
-                } else {
-                    Some(format!("http://{pod_name}:{leader_port}"))
-                }
+                leader_addresses
+                    .read()
+                    .expect("addresses lock poisoned")
+                    .get(pod_name)
+                    .map(|address| format!("http://{address}"))
             }),
             LeaderBackendConfig {
                 num_partitions,

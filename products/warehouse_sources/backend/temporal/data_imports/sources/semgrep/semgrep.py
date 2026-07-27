@@ -1,235 +1,287 @@
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
-from urllib.parse import urlencode
+from typing import Any, Optional
 
 import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.settings import (
     SEMGREP_ENDPOINTS,
     SemgrepEndpointConfig,
 )
 
 SEMGREP_BASE_URL = "https://semgrep.dev/api/v1"
-REQUEST_TIMEOUT_SECONDS = 60
-
-
-class SemgrepRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
 class SemgrepResumeConfig:
-    # Deployment being processed when the state was saved. Semgrep tokens currently scope to a
-    # single deployment, but the fan-out iterates whatever /deployments returns, so the bookmark
-    # is a stable deployment id rather than a positional index.
+    # Legacy fields kept so state persisted by the pre-framework implementation still parses
+    # (ResumableSourceManager rehydrates via ``dataclass(**saved)``); a state carrying only these
+    # can't be mapped onto the framework fan-out cursor, so such a run simply restarts the fan-out
+    # (the merge dedupes any re-pulled rows on the primary key).
     deployment_id: str | None = None
-    # Next zero-indexed page for page-numbered endpoints (projects, findings).
     page: int = 0
-    # Next cursor for the cursor-paginated secrets endpoint.
     cursor: str | None = None
+    # Framework fan-out resume snapshot: which deployments' child paths are done, which one was in
+    # progress, and that child's paginator state. See ``_make_paginate_dependent_resource``.
+    fanout_state: dict[str, Any] | None = None
 
 
-def _get_headers(api_token: str) -> dict[str, str]:
+class _PageNumberPaginator(BasePaginator):
+    """Zero-indexed ``page``/``page_size`` pagination that stops on a short (or empty) page.
+
+    Semgrep's findings/projects endpoints expose no total count, so a page returning fewer rows
+    than ``page_size`` marks the end — matching the hand-rolled implementation, which stopped a
+    request earlier than the framework's built-in ``PageNumberPaginator`` (that one only stops on a
+    fully empty page).
+    """
+
+    def __init__(self, page_size: int, page: int = 0, page_param: str = "page") -> None:
+        super().__init__()
+        self.page_size = page_size
+        self.page = page
+        self.page_param = page_param
+
+    def init_request(self, request: requests.Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params[self.page_param] = self.page
+
+    def update_state(self, response: requests.Response, data: Optional[list[Any]] = None) -> None:
+        # A short page (fewer rows than page_size, including empty) is the last page.
+        if data is None or len(data) < self.page_size:
+            self._has_next_page = False
+            return
+        self.page += 1
+        self._has_next_page = True
+
+    def update_request(self, request: requests.Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params[self.page_param] = self.page
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # self.page already points at the next page to fetch.
+        return {"page": self.page} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        page = state.get("page")
+        if page is not None:
+            self.page = int(page)
+            self._has_next_page = True
+
+
+class _CursorPaginator(BasePaginator):
+    """Cursor pagination carrying the next cursor in the response body.
+
+    Terminates on an empty page, a missing cursor, or a cursor unchanged from the request's — the
+    same guard the hand-rolled loop used so a server that keeps echoing its final cursor can't spin
+    forever.
+    """
+
+    def __init__(self, cursor_param: str = "cursor", cursor_key: str = "cursor") -> None:
+        super().__init__()
+        self.cursor_param = cursor_param
+        self.cursor_key = cursor_key
+        self._cursor: Optional[str] = None
+
+    def init_request(self, request: requests.Request) -> None:
+        if self._cursor is not None:
+            if request.params is None:
+                request.params = {}
+            request.params[self.cursor_param] = self._cursor
+
+    def update_state(self, response: requests.Response, data: Optional[list[Any]] = None) -> None:
+        if not data:
+            self._has_next_page = False
+            return
+        try:
+            next_cursor = response.json().get(self.cursor_key)
+        except Exception:
+            next_cursor = None
+        if not next_cursor or next_cursor == self._cursor:
+            self._has_next_page = False
+            return
+        self._cursor = next_cursor
+        self._has_next_page = True
+
+    def update_request(self, request: requests.Request) -> None:
+        if self._cursor is not None:
+            if request.params is None:
+                request.params = {}
+            request.params[self.cursor_param] = self._cursor
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._cursor} if self._has_next_page and self._cursor is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._cursor = cursor
+            self._has_next_page = True
+
+
+def _client_session(api_token: str) -> requests.Session:
+    # `redact_values` masks the bearer token in logged URLs and captured HTTP samples. `capture=False`
+    # keeps response bodies out of sample capture entirely: findings and secrets payloads carry
+    # security-sensitive detail (secret finding locations, free-form triage comments) the name-based
+    # scrubbers can't recognise. The Authorization header itself is added by the framework bearer auth.
+    return make_tracked_session(redact_values=(api_token,), capture=False)
+
+
+def _client_config(api_token: str, paginator: BasePaginator) -> ClientConfig:
     return {
-        "Authorization": f"Bearer {api_token}",
-        "Accept": "application/json",
+        "base_url": SEMGREP_BASE_URL,
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": api_token},
+        "session": _client_session(api_token),
+        "paginator": paginator,
     }
 
 
-def _make_session(api_token: str) -> requests.Session:
-    # `redact_values` masks the bearer token in logged URLs and captured HTTP samples so a failed
-    # or sampled request can never persist the raw Semgrep credential in PostHog's HTTP telemetry.
-    # `capture=False` keeps response bodies out of sample capture entirely: findings and secrets
-    # payloads carry security-sensitive detail (secret finding locations, free-form triage
-    # comments) the name-based scrubbers can't recognise.
-    return make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,), capture=False)
+def _rename_deployment_fields(row: dict[str, Any]) -> dict[str, Any]:
+    # include_from_parent prefixes injected parent fields; restore the flat names the table expects.
+    # Written last so they override any same-named field already on the child row.
+    if "_deployments_id" in row:
+        row["deployment_id"] = row.pop("_deployments_id")
+    if "_deployments_slug" in row:
+        row["deployment_slug"] = row.pop("_deployments_slug")
+    return row
 
 
-def _build_url(path: str, params: dict[str, Any]) -> str:
-    query = {key: value for key, value in params.items() if value is not None and value != ""}
-    if not query:
-        return f"{SEMGREP_BASE_URL}{path}"
-    return f"{SEMGREP_BASE_URL}{path}?{urlencode(query)}"
+def _fanout_paginator(config: SemgrepEndpointConfig) -> BasePaginator:
+    assert config.page_size is not None
+    if config.pagination == "cursor":
+        return _CursorPaginator()
+    return _PageNumberPaginator(page_size=config.page_size)
 
 
-@retry(
-    retry=retry_if_exception_type((SemgrepRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict[str, Any]:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise SemgrepRetryableError(f"Semgrep API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        # Don't log the response body: it can echo back request details we'd rather not persist.
-        logger.error(f"Semgrep API error: status={response.status_code}, url={url}")
-        response.raise_for_status()
-
-    data = response.json()
-    # Every endpoint wraps its rows in a JSON object. A non-object 200 is a permanent API-contract
-    # violation (proxy HTML, ...), not a transient failure — raise a plain ValueError so it
-    # surfaces immediately instead of burning the retry budget on something retries can't fix.
-    if not isinstance(data, dict):
-        raise ValueError(f"Semgrep API returned a non-object response: url={url}")
-    return data
+def _child_resolve_param(config: SemgrepEndpointConfig) -> tuple[str, str]:
+    # Path templates bind the deployment slug (projects/findings) or id (secrets); the resolve param
+    # name must match the path placeholder.
+    if "{deployment_id}" in config.path:
+        return "deployment_id", "id"
+    return "deployment_slug", "slug"
 
 
-def validate_credentials(api_token: str) -> bool:
-    # One cheap probe of the token itself: /deployments is the root resource every Web API token
-    # can read, and it's the same call the sync fans out from.
-    try:
-        response = _make_session(api_token).get(f"{SEMGREP_BASE_URL}/deployments", timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-def _list_deployments(session: requests.Session, logger: FilteringBoundLogger) -> list[dict[str, Any]]:
-    data = _fetch_page(session, f"{SEMGREP_BASE_URL}/deployments", logger)
-    return data.get("deployments") or []
-
-
-def _with_deployment(rows: list[dict[str, Any]], deployment: dict[str, Any]) -> list[dict[str, Any]]:
-    """Inject the parent deployment onto each fan-out row so rows stay unique table-wide."""
-    return [{**row, "deployment_id": deployment.get("id"), "deployment_slug": deployment.get("slug")} for row in rows]
-
-
-def _iter_paged_rows(
-    session: requests.Session,
-    path: str,
-    config: SemgrepEndpointConfig,
-    deployment: dict[str, Any],
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SemgrepResumeConfig],
-    start_page: int,
-) -> Iterator[list[dict[str, Any]]]:
-    page = start_page
-    while True:
-        url = _build_url(path, {**config.params, "page": page, "page_size": config.page_size})
-        data = _fetch_page(session, url, logger)
-        rows = data.get(config.data_key) or []
-        if not rows:
-            break
-
-        yield _with_deployment(rows, deployment)
-
-        # A short page means we've reached the end of the resource.
-        if config.page_size is not None and len(rows) < config.page_size:
-            break
-
-        page += 1
-        # Save AFTER yielding so a crash re-pulls from the last persisted page rather than
-        # skipping ahead; the merge dedupes any re-pulled rows on the primary key.
-        resumable_source_manager.save_state(SemgrepResumeConfig(deployment_id=str(deployment["id"]), page=page))
-
-
-def _iter_cursor_rows(
-    session: requests.Session,
-    path: str,
-    config: SemgrepEndpointConfig,
-    deployment: dict[str, Any],
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SemgrepResumeConfig],
-    start_cursor: str | None,
-) -> Iterator[list[dict[str, Any]]]:
-    cursor = start_cursor
-    while True:
-        params: dict[str, Any] = {**config.params, "limit": config.page_size}
-        if cursor:
-            params["cursor"] = cursor
-        data = _fetch_page(session, _build_url(path, params), logger)
-        rows = data.get(config.data_key) or []
-        if not rows:
-            break
-
-        yield _with_deployment(rows, deployment)
-
-        next_cursor = data.get("cursor")
-        # The API isn't explicit about the final page's cursor; treat a missing or unchanged
-        # cursor as the end so we can't loop on the same page forever.
-        if not next_cursor or next_cursor == cursor:
-            break
-        cursor = next_cursor
-        resumable_source_manager.save_state(SemgrepResumeConfig(deployment_id=str(deployment["id"]), cursor=cursor))
-
-
-def get_rows(
+def _fanout_source(
     api_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    config: SemgrepEndpointConfig,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[SemgrepResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = SEMGREP_ENDPOINTS[endpoint]
-    # One session reused across every page (and every deployment) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request.
-    session = _make_session(api_token)
+) -> Any:
+    assert config.page_size is not None
+    param_name, resolve_field = _child_resolve_param(config)
 
-    if config.pagination == "none":
-        data = _fetch_page(session, _build_url(config.path, dict(config.params)), logger)
-        rows = data.get(config.data_key) or []
-        if rows:
-            yield rows
-        return
+    child_params: dict[str, Any] = {
+        param_name: {"type": "resolve", "resource": "deployments", "field": resolve_field},
+        ("limit" if config.pagination == "cursor" else "page_size"): config.page_size,
+        **config.params,
+    }
 
-    deployments = _list_deployments(session, logger)
+    parent_resource: EndpointResource = {
+        "name": "deployments",
+        "endpoint": {
+            "path": "/deployments",
+            "data_selector": "deployments",
+            "data_selector_required": True,
+            "paginator": SinglePagePaginator(),
+        },
+    }
+    child_resource: EndpointResource = {
+        "name": endpoint,
+        "include_from_parent": ["id", "slug"],
+        "endpoint": {
+            "path": config.path,
+            "params": child_params,
+            "data_selector": config.data_key,
+            "data_selector_required": True,
+        },
+    }
 
-    # Resolve the saved deployment bookmark to the slice still to process. If the bookmarked
-    # deployment no longer exists, start over from the first one — merge dedupes re-pulled rows.
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    remaining = deployments
-    if resume is not None and resume.deployment_id is not None:
-        deployment_ids = [str(d.get("id")) for d in deployments]
-        if resume.deployment_id in deployment_ids:
-            remaining = deployments[deployment_ids.index(resume.deployment_id) :]
-            logger.debug(f"Semgrep: resuming {endpoint} from deployment_id={resume.deployment_id}")
-        else:
-            resume = None
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_token, _fanout_paginator(config)),
+        "resource_defaults": {},
+        "resources": [parent_resource, child_resource],
+    }
 
-    for index, deployment in enumerate(remaining):
-        path = config.path.format(deployment_slug=deployment.get("slug", ""), deployment_id=deployment.get("id", ""))
-        # Only the resumed-into deployment starts from the saved page/cursor; the rest start fresh.
-        start_page = resume.page if resume is not None else 0
-        start_cursor = resume.cursor if resume is not None else None
-        resume = None
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state is not None:
+            initial_paginator_state = resume.fanout_state
 
-        if config.pagination == "page":
-            yield from _iter_paged_rows(session, path, config, deployment, logger, resumable_source_manager, start_page)
-        else:
-            yield from _iter_cursor_rows(
-                session, path, config, deployment, logger, resumable_source_manager, start_cursor
-            )
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # The framework hands back the whole fan-out snapshot; persist it so a restart skips
+        # deployments already fully synced and resumes the one that was mid-page.
+        if state is not None:
+            resumable_source_manager.save_state(SemgrepResumeConfig(fanout_state=state))
 
-        # Advance the bookmark so a crash between deployments resumes at the next one.
-        if index + 1 < len(remaining):
-            resumable_source_manager.save_state(SemgrepResumeConfig(deployment_id=str(remaining[index + 1]["id"])))
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    child = next(r for r in resources if r.name == endpoint)
+    return child.add_map(_rename_deployment_fields)
+
+
+def _single_source(api_token: str, endpoint: str, config: SemgrepEndpointConfig, team_id: int, job_id: str) -> Any:
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_token, SinglePagePaginator()),
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "data_selector": config.data_key,
+                    "data_selector_required": True,
+                },
+            }
+        ],
+    }
+    return rest_api_resource(rest_config, team_id, job_id, None)
 
 
 def semgrep_source(
     api_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[SemgrepResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = SEMGREP_ENDPOINTS[endpoint]
 
+    if config.pagination == "none":
+        resource = _single_source(api_token, endpoint, config, team_id, job_id)
+    else:
+        resource = _fanout_source(api_token, endpoint, config, team_id, job_id, resumable_source_manager)
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_token=api_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -238,3 +290,14 @@ def semgrep_source(
         partition_keys=[config.partition_key] if config.partition_key else None,
         sort_mode=config.sort_mode,
     )
+
+
+def validate_credentials(api_token: str) -> bool:
+    # One cheap probe of the token itself: /deployments is the root resource every Web API token
+    # can read, and it's the same call the sync fans out from.
+    ok, _status = validate_via_probe(
+        lambda: _client_session(api_token),
+        f"{SEMGREP_BASE_URL}/deployments",
+        headers={"Authorization": f"Bearer {api_token}", "Accept": "application/json"},
+    )
+    return ok

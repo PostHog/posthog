@@ -1439,7 +1439,10 @@ export const getDesktopFileSystemCanvasPartialUpdateUrl = (projectId: string, id
  * Merges into the dashboard row's `meta` (never replaces it), so existing
  * keys like `channelId`/`templateId` survive. Appends a full-file version
  * snapshot and points `currentVersionId` at it — the server-side mirror of
- * the app's dashboardsService.saveFreeform.
+ * the app's dashboardsService.saveFreeform, including the linear-discard of
+ * any redo tail left behind by an undo. When the publisher passes
+ * `expected_current_version_id`, a publish based on a stale version is
+ * rejected with 409 `version_conflict` instead of overwriting the newer head.
  */
 export const desktopFileSystemCanvasPartialUpdate = async (
     projectId: string,

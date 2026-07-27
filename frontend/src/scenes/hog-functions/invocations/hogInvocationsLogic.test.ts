@@ -4,7 +4,12 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { buildSearchClause, hogInvocationsLogic, parentClauseFor } from './hogInvocationsLogic'
+import {
+    buildSearchClause,
+    hogInvocationsLogic,
+    isRerunnableHogFunctionType,
+    parentClauseFor,
+} from './hogInvocationsLogic'
 
 describe('hogInvocationsLogic', () => {
     describe('buildSearchClause', () => {
@@ -50,6 +55,27 @@ describe('hogInvocationsLogic', () => {
             const clause = buildSearchClause(props, { date_from: '-24h', search: 'a%b' }).raw
             expect(clause).toContain("invocation_id = 'a%b'")
             expect(clause).toContain("message ILIKE concat('%', 'a\\\\%b', '%')")
+        })
+    })
+
+    describe('isRerunnableHogFunctionType', () => {
+        // Drives whether the invocations UI offers re-run. Only types a cyclotron worker
+        // executes are rerunnable; classifying a source_webhook (or any other type) as
+        // rerunnable would surface a button that enqueues an invocation nothing can drain.
+        it.each(['destination', 'internal_destination'] as const)('is true for rerunnable type %s', (type) => {
+            expect(isRerunnableHogFunctionType(type)).toBe(true)
+        })
+
+        it.each(['source_webhook', 'transformation', 'site_app', 'site_destination', 'source'] as const)(
+            'is false for non-rerunnable type %s',
+            (type) => {
+                expect(isRerunnableHogFunctionType(type)).toBe(false)
+            }
+        )
+
+        it('is false when the type is unknown', () => {
+            expect(isRerunnableHogFunctionType(undefined)).toBe(false)
+            expect(isRerunnableHogFunctionType(null)).toBe(false)
         })
     })
 

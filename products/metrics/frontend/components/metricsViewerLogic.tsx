@@ -147,7 +147,7 @@ export const resolveDate = (value: string | null | undefined): string | null => 
 }
 
 // The picker reports raw ingest strings; only enum members may reach the API.
-const toKnownMetricType = (metricType: string | undefined): OtelMetricTypeEnumApi | null => {
+export const toKnownMetricType = (metricType: string | undefined): OtelMetricTypeEnumApi | null => {
     const known = Object.values(OtelMetricTypeEnumApi) as string[]
     return metricType && known.includes(metricType) ? (metricType as OtelMetricTypeEnumApi) : null
 }

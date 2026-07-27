@@ -1,29 +1,27 @@
 import re
 import base64
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
-from urllib.parse import urlencode
+from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.settings import CONFLUENCE_ENDPOINTS
 
 # Confluence Cloud sites always live under <subdomain>.atlassian.net. Building
 # the host ourselves from a validated subdomain (rather than accepting an
 # arbitrary host) keeps the API token from being sent anywhere off-Atlassian.
 _SUBDOMAIN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}$")
-
-REQUEST_TIMEOUT_SECONDS = 60
-
-
-class ConfluenceRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -51,21 +49,87 @@ def _get_headers(email: str, api_token: str) -> dict[str, str]:
     }
 
 
-def _build_initial_url(subdomain: str, path: str, limit: int) -> str:
-    return f"{_base_url(subdomain)}{path}?{urlencode({'limit': limit})}"
+class ConfluenceLinkPaginator(JSONResponsePaginator):
+    """Confluence v2 returns the next page as a site-relative path in ``_links.next``
+    (e.g. ``/wiki/api/v2/pages?cursor=...``); resolve it against the site origin so the
+    client requests an absolute URL. Absence of the key signals the last page."""
+
+    def __init__(self, site_origin: str) -> None:
+        super().__init__(next_url_path="_links.next")
+        self._site_origin = site_origin
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page and self._next_url and not self._next_url.startswith(("http://", "https://")):
+            self._next_url = f"{self._site_origin}{self._next_url}"
 
 
-def _resolve_next_url(subdomain: str, data: dict[str, Any]) -> str | None:
-    """Confluence v2 returns the next page as a site-relative path in
-    ``_links.next`` (e.g. ``/wiki/api/v2/pages?cursor=...``). Absence of the key
-    signals the last page."""
-    links = data.get("_links") or {}
-    next_path = links.get("next")
-    if not next_path:
-        return None
-    if next_path.startswith("http://") or next_path.startswith("https://"):
-        return next_path
-    return f"{_site_origin(subdomain)}{next_path}"
+def confluence_source(
+    subdomain: str,
+    email: str,
+    api_token: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[ConfluenceResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
+) -> SourceResponse:
+    config = CONFLUENCE_ENDPOINTS[endpoint]
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": _base_url(subdomain),
+            # Auth (HTTP Basic) is supplied via the framework auth config so the token is
+            # redacted from logs; only the non-secret Accept header is set here.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "http_basic", "username": email, "password": api_token},
+            "paginator": ConfluenceLinkPaginator(_site_origin(subdomain)),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"limit": config.limit},
+                    # v2 list endpoints wrap rows in `results`; a missing key means an empty page.
+                    "data_selector": "results",
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+        # the page we just emitted (merge dedupes on primary key) rather than skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(ConfluenceResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=[config.primary_key],
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
+    )
 
 
 def validate_credentials(
@@ -83,104 +147,22 @@ def validate_credentials(
             "Invalid Confluence subdomain. Use just the site name, e.g. 'your-domain' for your-domain.atlassian.net.",
         )
 
-    url = _build_initial_url(subdomain, CONFLUENCE_ENDPOINTS["spaces"].path, limit=1)
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(email, api_token), timeout=10)
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
+    url = f"{_base_url(subdomain)}{CONFLUENCE_ENDPOINTS['spaces'].path}?limit=1"
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_token,)),
+        url,
+        headers=_get_headers(email, api_token),
+    )
 
-    if response.status_code == 200:
+    if status == 200:
         return True, None
-    if response.status_code == 401:
+    if status == 401:
         return False, "Invalid Confluence credentials. Check your email and API token."
-    if response.status_code == 403:
+    if status == 403:
         if schema_name is None:
             return True, None
         return False, "Your Confluence account does not have permission to access this resource."
+    if status is None:
+        return False, None
 
-    return False, f"Confluence API returned status {response.status_code}: {response.text}"
-
-
-def get_rows(
-    subdomain: str,
-    email: str,
-    api_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[ConfluenceResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = CONFLUENCE_ENDPOINTS[endpoint]
-    headers = _get_headers(email, api_token)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
-        url: str = resume_config.next_url
-        logger.debug(f"Confluence: resuming from URL: {url}")
-    else:
-        url = _build_initial_url(subdomain, config.path, config.limit)
-
-    @retry(
-        retry=retry_if_exception_type((ConfluenceRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> dict[str, Any]:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise ConfluenceRetryableError(
-                f"Confluence API error (retryable): status={response.status_code}, url={page_url}"
-            )
-
-        if not response.ok:
-            logger.error(f"Confluence API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        data = fetch_page(url)
-
-        results = data.get("results", [])
-        next_url = _resolve_next_url(subdomain, data)
-
-        if results:
-            yield results
-
-        # Save state AFTER yielding so a crash re-fetches the page we just
-        # emitted (merge dedupes on primary key) rather than skipping it.
-        if not next_url:
-            break
-
-        resumable_source_manager.save_state(ConfluenceResumeConfig(next_url=next_url))
-        url = next_url
-
-
-def confluence_source(
-    subdomain: str,
-    email: str,
-    api_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[ConfluenceResumeConfig],
-) -> SourceResponse:
-    endpoint_config = CONFLUENCE_ENDPOINTS[endpoint]
-
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: get_rows(
-            subdomain=subdomain,
-            email=email,
-            api_token=api_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
-        primary_keys=[endpoint_config.primary_key],
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if endpoint_config.partition_key else None,
-        partition_format="week" if endpoint_config.partition_key else None,
-        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
-    )
+    return False, f"Confluence API returned status {status}."

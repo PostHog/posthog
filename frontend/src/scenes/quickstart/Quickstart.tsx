@@ -24,7 +24,7 @@ import {
     IconSparkles,
     IconTerminal,
 } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonSkeleton, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonSkeleton, LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -49,7 +49,10 @@ import {
     AIObservabilitySDKInstructions,
     AIObservabilitySDKTagOverrides,
 } from 'scenes/onboarding/legacy/sdks/ai-observability/AIObservabilitySDKInstructions'
-import { ErrorTrackingSDKInstructions } from 'scenes/onboarding/legacy/sdks/error-tracking/ErrorTrackingSDKInstructions'
+import {
+    ErrorTrackingSDKDocsLinkOverrides,
+    ErrorTrackingSDKInstructions,
+} from 'scenes/onboarding/legacy/sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { ExperimentsSDKInstructions } from 'scenes/onboarding/legacy/sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from 'scenes/onboarding/legacy/sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { useAdblockDetection } from 'scenes/onboarding/legacy/sdks/hooks/useAdblockDetection'
@@ -82,6 +85,7 @@ import {
     BillingProductV2Type,
     OnboardingStepKey,
     SDK,
+    SDKDocsLinkOverrides,
     SDKInstructionsMap,
     SDKKey,
     SDKTagOverrides,
@@ -311,7 +315,7 @@ function WorkspaceStrip(): JSX.Element {
                     icon={<IconSearch />}
                     onClick={() => {
                         captureQuickstartAction('open_search_shortcut')
-                        toggleCommand()
+                        toggleCommand('quickstart')
                     }}
                     data-attr="quickstart-search-shortcut"
                 >
@@ -826,12 +830,23 @@ function QuickstartProductCard({
 }
 
 const PRODUCT_SDK_SETUP: Partial<
-    Record<ProductKey, { instructionsMap: SDKInstructionsMap; tagOverrides?: SDKTagOverrides; verifyingName?: string }>
+    Record<
+        ProductKey,
+        {
+            instructionsMap: SDKInstructionsMap
+            docsLinkOverrides?: SDKDocsLinkOverrides
+            tagOverrides?: SDKTagOverrides
+            verifyingName?: string
+        }
+    >
 > = {
     [ProductKey.PRODUCT_ANALYTICS]: { instructionsMap: ProductAnalyticsSDKInstructions },
     [ProductKey.WEB_ANALYTICS]: { instructionsMap: WebAnalyticsSDKInstructions },
     [ProductKey.SESSION_REPLAY]: { instructionsMap: SessionReplaySDKInstructions },
-    [ProductKey.ERROR_TRACKING]: { instructionsMap: ErrorTrackingSDKInstructions },
+    [ProductKey.ERROR_TRACKING]: {
+        instructionsMap: ErrorTrackingSDKInstructions,
+        docsLinkOverrides: ErrorTrackingSDKDocsLinkOverrides,
+    },
     [ProductKey.SURVEYS]: { instructionsMap: SurveysSDKInstructions },
     [ProductKey.FEATURE_FLAGS]: { instructionsMap: FeatureFlagsSDKInstructions },
     [ProductKey.EXPERIMENTS]: { instructionsMap: ExperimentsSDKInstructions },
@@ -854,6 +869,7 @@ function ToolSetupModalContent({
     const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
     const {
         setAvailableSDKInstructionsMap,
+        setSDKDocsLinkOverrides,
         setSDKTagOverrides,
         selectSDK,
         setSelectedSDK,
@@ -864,10 +880,11 @@ function ToolSetupModalContent({
     const adblockResult = useAdblockDetection()
 
     useEffect(() => {
+        setSDKDocsLinkOverrides(setup?.docsLinkOverrides ?? {})
         setSDKTagOverrides(setup?.tagOverrides ?? {})
         setAvailableSDKInstructionsMap(setup?.instructionsMap ?? {})
         setSelectedSDK(null)
-    }, [setup, setAvailableSDKInstructionsMap, setSDKTagOverrides, setSelectedSDK])
+    }, [setup, setAvailableSDKInstructionsMap, setSDKDocsLinkOverrides, setSDKTagOverrides, setSelectedSDK])
 
     if (!setup) {
         return <p className="text-secondary mb-0">Follow the setup guide to get {product.name} running.</p>
@@ -1418,7 +1435,8 @@ function PublicationsSection(): JSX.Element | null {
 }
 
 export function Quickstart(): JSX.Element {
-    const { featuredProducts, additionalProducts, activeProductCount, totalProductCount } = useValues(quickstartLogic)
+    const { featuredProducts, additionalProducts, activeProductCount, totalProductCount, activationDataLoading } =
+        useValues(quickstartLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { openCompanionSetup } = useActions(quickstartLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -1497,6 +1515,7 @@ export function Quickstart(): JSX.Element {
                     />
                     <HeaderStat icon={<IconApps />}>
                         {activeProductCount} of {totalProductCount} live
+                        {activationDataLoading && <Spinner textColored />}
                     </HeaderStat>
                 </div>
                 {featuredProducts.length > 0 ? (
@@ -1529,7 +1548,7 @@ export function Quickstart(): JSX.Element {
             <section>
                 <SectionHeader
                     title="Guides, Products, and publications"
-                    subtitle="Open setup guides, configure Slack or MCP, install PostHog Code, and read recent publications."
+                    subtitle="Open setup guides, configure Slack or MCP, install PostHog Desktop, and read recent publications."
                 />
                 <div className="flex flex-col gap-6">
                     <div>
@@ -1607,13 +1626,13 @@ export function Quickstart(): JSX.Element {
                         </div>
                     </div>
                     <div>
-                        <SubsectionHeader title="Slack, MCP, and PostHog Code" />
+                        <SubsectionHeader title="Slack, MCP, and PostHog Desktop" />
                         <div className="grid grid-cols-1 @3xl/main-content:grid-cols-3 gap-4">
                             <LearnCard
                                 icon={<IconLogomark />}
-                                title="PostHog Code"
+                                title="PostHog Desktop"
                                 description="Use context from PostHog while querying data or changing code from your editor or terminal."
-                                buttonLabel="Get PostHog Code"
+                                buttonLabel="Get PostHog Desktop"
                                 to="https://posthog.com/code"
                                 targetBlank
                                 action="open_posthog_code"

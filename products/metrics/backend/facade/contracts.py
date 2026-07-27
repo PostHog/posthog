@@ -242,8 +242,8 @@ class InvestigationChartSpec:
 @dataclass(frozen=True, slots=True)
 class TraceExemplar:
     """A pointer from a metric sample into a concrete trace at the anomaly, for
-    the metric->trace pivot. Populated by the trace-pivot primitive once the
-    `metric_samples` table is live; empty until then.
+    the metric->trace pivot. Trace/span ids are hex, matching the tracing
+    product's contract, so they can be passed straight to a trace URL.
     """
 
     trace_id: str

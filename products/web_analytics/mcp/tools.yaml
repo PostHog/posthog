@@ -141,6 +141,9 @@ tools:
     saved-destroy:
         operation: saved_destroy
         enabled: false
+    saved-prewarm-create:
+        operation: saved_prewarm_create
+        enabled: false
     web-analytics-achievements-acknowledge-celebration:
         operation: web_analytics_achievements_acknowledge_celebration
         enabled: false

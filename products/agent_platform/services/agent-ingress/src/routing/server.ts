@@ -269,7 +269,13 @@ export function buildApp(opts: BuildAppOpts): Express {
     app.use(
         express.json({
             verify: (req: Request, _res, buf) => {
-                ;(req as Request & { rawBody?: string }).rawBody = buf.toString('utf-8')
+                const r = req as Request & { rawBody?: string; rawBodyBytes?: Buffer }
+                // Keep both: `rawBody` (string) for consumers that hash text
+                // (Slack), and `rawBodyBytes` for signature schemes that must
+                // hash the exact bytes the sender signed (a UTF-8 re-decode is
+                // lossy for non-UTF-8 payloads).
+                r.rawBody = buf.toString('utf-8')
+                r.rawBodyBytes = buf
             },
         })
     )
@@ -280,7 +286,13 @@ export function buildApp(opts: BuildAppOpts): Express {
         express.urlencoded({
             extended: false,
             verify: (req: Request, _res, buf) => {
-                ;(req as Request & { rawBody?: string }).rawBody = buf.toString('utf-8')
+                const r = req as Request & { rawBody?: string; rawBodyBytes?: Buffer }
+                // Keep both: `rawBody` (string) for consumers that hash text
+                // (Slack), and `rawBodyBytes` for signature schemes that must
+                // hash the exact bytes the sender signed (a UTF-8 re-decode is
+                // lossy for non-UTF-8 payloads).
+                r.rawBody = buf.toString('utf-8')
+                r.rawBodyBytes = buf
             },
         })
     )
@@ -419,7 +431,7 @@ export function buildApp(opts: BuildAppOpts): Express {
     }
 
     // Principal tool-approval decisions — the lightweight, identity-matched
-    // counterpart to the Slack interactivity handler, for posthog (PostHog Code)
+    // counterpart to the Slack interactivity handler, for posthog (PostHog Desktop)
     // and jwt principals. Authenticated by the same verifier the agent's
     // chat/mcp trigger uses, then required to BE the session principal — a
     // generic identity match, NOT a PostHog-authority check. `agent`-type
@@ -430,7 +442,7 @@ export function buildApp(opts: BuildAppOpts): Express {
         edited_args: z.record(z.string(), z.unknown()).optional(),
     })
     // Mount-relative (like the trigger routes) so a client appends it to the
-    // same per-agent ingress base it uses for `/send` (PostHog Code does). The
+    // same per-agent ingress base it uses for `/send` (PostHog Desktop does). The
     // `:slug` is unused — the row is resolved from the approval id, not the
     // slug — but keeping the path under the mount matches how clients address
     // the ingress. In domain mode the root mount makes it `/approvals/:id/decide`.

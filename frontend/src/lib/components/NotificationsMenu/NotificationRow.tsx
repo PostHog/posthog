@@ -218,7 +218,7 @@ export function NotificationRow({
                 </div>
             </div>
             <div className={`absolute bottom-1.5 right-1.5 flex items-center gap-1 ${ROW_ACTION_REVEAL_CLASSES}`}>
-                {archivingEnabled && !readOnly && notification.archivable && (
+                {archivingEnabled && !readOnly && (
                     <NotificationActionButton
                         icon={<IconArchive className="size-4" />}
                         tooltip="Archive"
