@@ -250,6 +250,16 @@ function VersionFields({ config, changed }: { config: VersionConfig; changed: Se
         value == null ? <span className="text-muted">Not recorded</span> : render()
     const rows: { field: string; label: string; value: JSX.Element }[] = [
         {
+            field: 'prompt',
+            label: 'Prompt',
+            // Same treatment as the Behavior card's prompt, so the two readouts match.
+            value: (
+                <div className="whitespace-pre-wrap bg-surface-secondary border rounded p-2">
+                    {String(config.scannerConfig.prompt ?? '') || <span className="text-muted">—</span>}
+                </div>
+            ),
+        },
+        {
             field: 'scannerType',
             label: 'Type',
             value: recorded(config.scannerType, () => (
@@ -336,7 +346,6 @@ function ConfigVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
                 {newestFirst.map((config) => {
                     const marker = byVersion.get(config.version)
                     const changes = changesByVersion.get(config.version)
-                    const prompt = String(config.scannerConfig.prompt ?? '')
                     return (
                         <div
                             key={config.version}
@@ -373,7 +382,6 @@ function ConfigVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
                             ) : (
                                 <div className="text-xs text-muted">Oldest version with scans.</div>
                             )}
-                            <div className="whitespace-pre-wrap font-mono text-xs">{prompt || '—'}</div>
                             <VersionFields
                                 config={config}
                                 changed={new Set((changes?.changes ?? []).map((change) => change.field))}
