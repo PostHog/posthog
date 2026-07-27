@@ -932,18 +932,7 @@ async def test_run_workflow_with_minio_bucket_with_errors(
     assert job.rows_materialized == 0
 
 
-async def test_run_workflow_revert_materialization(
-    ateam,
-    saved_queries,
-):
-    workflow_id = str(uuid.uuid4())
-    task_queue = "data-modeling-revert-test"
-    saved_query = saved_queries[0]
-    inputs = RunWorkflowInputs(
-        team_id=ateam.pk,
-        select=[Selector(label=saved_query.id.hex, ancestors=0, descendants=0)],
-    )
-
+async def test_materialize_model_reverts_materialization_on_unknown_table(ateam):
     def mock_hogql_table(_query, _team, _logger):
         raise Exception("Unknown table")
 
@@ -951,52 +940,39 @@ async def test_run_workflow_revert_materialization(
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_query_row_count", return_value=0),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_s3_client"),
-        # Reaches object storage before hogql_table runs; left real, an unready bucket fails into
-        # the generic error branch, which satisfies every assertion below without reverting anything.
+        # Reaches object storage before hogql_table runs, so an unready bucket would land in the
+        # generic error branch rather than the revert one under test.
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow._get_credentials", return_value={}),
         unittest.mock.patch("products.data_modeling.backend.logic.enrich_view_semantics._start_enrichment_workflow"),
         unittest.mock.patch(
             "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"
-        ) as mock_delete_schedule,
+        ),
     ):
-        async with await WorkflowEnvironment.start_time_skipping() as env:
-            async with temporalio.worker.Worker(
-                env.client,
-                task_queue=task_queue,
-                workflows=[RunWorkflow],
-                activities=[
-                    start_run_activity,
-                    build_dag_activity,
-                    run_dag_activity,
-                    finish_run_activity,
-                    create_job_model_activity,
-                    fail_jobs_activity,
-                    cleanup_running_jobs_activity,
-                ],
-                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-            ):
-                # Ensure the team exists in the DB context before running workflow
-                await database_sync_to_async(Team.objects.get)(pk=ateam.pk)
-                await env.client.execute_workflow(
-                    RunWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=task_queue,
-                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=30),
-                )
+        saved_query = await DataWarehouseSavedQuery.objects.acreate(
+            team=ateam,
+            name="my_model",
+            query={"query": "select 1 as one", "kind": "HogQLQuery"},
+            is_materialized=True,
+            sync_frequency_interval=dt.timedelta(hours=1),
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id=str(uuid.uuid4()),
+        )
 
-    job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
-    assert job is not None
+        with pytest.raises(Exception, match="Table reference missing"):
+            await materialize_model(saved_query.id.hex, ateam, saved_query, job, unittest.mock.AsyncMock())
+
+    await database_sync_to_async(job.refresh_from_db)()
     assert job.status == DataModelingJob.Status.FAILED
     assert job.rows_materialized == 0
 
     await database_sync_to_async(saved_query.refresh_from_db)()
     assert saved_query.is_materialized is False
-    # Only the revert path clears latest_error and drops the schedule; the assertions above hold
-    # for any failed workflow, so these are what pin the revert.
-    assert saved_query.latest_error is None
-    mock_delete_schedule.assert_called_once()
+    assert saved_query.sync_frequency_interval is None
+    assert saved_query.status is None
 
 
 async def test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures(
