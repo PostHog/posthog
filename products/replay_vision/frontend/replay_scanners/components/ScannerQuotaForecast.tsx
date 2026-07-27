@@ -57,7 +57,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const breakdown = (
         <div className="text-xs space-y-0.5">
             <div>
-                Spent this month: <strong>{formatCredits(used)}</strong>
+                Spent this period: <strong>{formatCredits(used)}</strong>
             </div>
             <div>
                 Projected from this scanner: <strong>~{formatCredits(projectedCredits ?? 0)}/month</strong>

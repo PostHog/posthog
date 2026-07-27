@@ -33,7 +33,10 @@ from products.analytics_platform.backend.lazy_computation.stale_policy import SH
 from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import (
     can_use_lazy_precompute as can_use_goals_lazy_precompute,
 )
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import BACKGROUND_WARMING_TRIGGERS
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    BACKGROUND_WARMING_TRIGGERS,
+    SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS,
+)
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     can_use_lazy_precompute as can_use_overview_lazy_precompute,
 )
@@ -259,14 +262,20 @@ def queries_to_keep_fresh(
     # to offline nodes, while the user traffic we want to replay lands on other
     # replicas. (metrics_query_log_mv only looks usable — its DDL in
     # posthog/models/query_metrics/sql.py was never migrated, the table does not
-    # exist in production.) Grouping by the query JSON alone collapses strategy
-    # variants of one shape into one replay, and demand is counted as distinct
-    # query_ids so duplicated log rows for one request can't inflate it. The
-    # per-shape hash is derived from the JSON we already read out of log_comment
-    # (cityHash64 of the group key) rather than normalizedQueryHash(query): the
-    # latter reads the full `query` SQL-text column — the largest column in
-    # query_log — across the whole window purely for a logging id, which over a
-    # multi-day scan dominates the read cost.
+    # exist in production.) Demand is grouped by the NORMALIZED shape — the query
+    # JSON with the range-varying and non-shape fields stripped
+    # (SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS: dateRange, compareFilter, limit, …) —
+    # which is the same set the precompute bucket namespace collapses to, so one
+    # warmed -30d bucket serves every date-range variant of a shape. Grouping by
+    # the raw JSON instead fragmented a shape queried across many date ranges into
+    # many sub-threshold entries that never cleared min-count, even though warming
+    # it once would serve them all; the largest, most date-varied teams were the
+    # worst hit. any(query_json_raw) keeps a representative to replay — its date
+    # range is widened to -30d anyway. Demand is counted as distinct query_ids so
+    # duplicated log rows for one request can't inflate it. The per-shape hash is
+    # cityHash64 of the group key rather than normalizedQueryHash(query), which
+    # would read the full `query` SQL-text column — the largest in query_log —
+    # across the whole window purely for a logging id.
     #
     # The scan spans the whole WEB_ANALYTICS_WARMING_DAYS window fleet-wide, which
     # exceeds the default max_bytes_to_read, so the cap is raised to
@@ -285,12 +294,44 @@ def queries_to_keep_fresh(
         f"""
         SELECT
             team_id,
-            query_json_raw,
-            uniqExact(query_id) AS query_count,
-            cityHash64(query_json_raw) AS normalized_query_hash
+            -- Representative = the shape's most-requested exact variant (its real
+            -- date range, modifiers, …). Picking the mode rather than an arbitrary
+            -- any() keeps a rare ineligible variant — an all-time range, a UUID
+            -- join mode requested once — from being the one that gets replayed.
+            argMax(query_json_raw, variant_count) AS representative_query_json,
+            -- Summed across variants so date/compare variants of one lazy shape
+            -- combine to clear the selection floor: one shared bucket serves them.
+            sum(variant_count) AS query_count,
+            -- The representative variant's OWN demand. The raw (ineligible) replay
+            -- path gates on this, not the sum, so an expensive variant can't
+            -- inherit a popular sibling's demand — raw replays aren't shared, so
+            -- each stale hour re-runs a full live query.
+            max(variant_count) AS representative_query_count,
+            cityHash64(normalized_shape) AS normalized_query_hash
         FROM (
             SELECT
+                team_id,
+                normalized_shape,
+                query_json_raw,
+                uniqExact(query_id) AS variant_count
+            FROM (
+            SELECT
                 JSONExtractInt(log_comment, 'team_id') AS team_id,
+                -- The shape key: every top-level query field except the range-
+                -- varying / non-shape ones the precompute namespace ignores, so
+                -- date-range and compare variants of one shape group together
+                -- (char(31)/char(30) are control-char separators that can't occur
+                -- in JSON keys). Sorted so field order in the payload is irrelevant.
+                arrayStringConcat(
+                    arraySort(arrayMap(
+                        kv -> concat(kv.1, char(31), kv.2),
+                        arrayFilter(
+                            kv -> NOT has(%(shape_ignored_fields)s, kv.1),
+                            JSONExtractKeysAndValuesRaw(JSONExtractRaw(log_comment, 'query'))
+                        )
+                    )),
+                    char(30)
+                ) AS normalized_shape,
                 -- aliased away from the native `query_kind` column so the PREWHERE
                 -- below binds to the column (Select/Insert/…), not this JSON kind
                 -- (WebOverviewQuery/…); with prefer_column_name_to_alias=0 a name
@@ -334,9 +375,14 @@ def queries_to_keep_fresh(
             -- selection and filled the cap with shapes no dashboard reader ever
             -- loads. UI and personal-API-key traffic are kept.
             AND request_kind != %(excluded_request_kind)s
+            GROUP BY
+                team_id,
+                normalized_shape,
+                query_json_raw
+        ) AS variants
         GROUP BY
             team_id,
-            query_json_raw
+            normalized_shape
         HAVING query_count >= %(minimum_query_count)s
         ORDER BY
             query_count DESC
@@ -349,6 +395,7 @@ def queries_to_keep_fresh(
             "minimum_query_count": minimum_query_count,
             "max_shapes": max_shapes,
             "max_shapes_per_team": MAX_SHAPES_PER_TEAM,
+            "shape_ignored_fields": sorted(SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS),
             "kind_prefix": WARMABLE_QUERY_KIND_PREFIX,
             "unwarmable_kinds": UNWARMABLE_QUERY_KINDS,
             "background_triggers": tuple(BACKGROUND_WARMING_TRIGGERS | SHARED_BACKGROUND_WARMING_TRIGGERS),
@@ -363,7 +410,8 @@ def queries_to_keep_fresh(
             "team_id": result[0],
             "query_json": json.loads(result[1]),
             "query_count": result[2],
-            "normalized_query_hash": result[3],
+            "representative_query_count": result[3],
+            "normalized_query_hash": result[4],
         }
         for result in results
     ]
@@ -387,7 +435,7 @@ def queries_to_keep_fresh(
 # selection query (new filter, different grouping) would otherwise keep replaying
 # a stale blob written by the old logic until its TTL expired. Bump the version
 # whenever the selection query changes so the new logic takes effect on deploy.
-_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v2.json.gz"
+_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v3.json.gz"
 
 
 def _read_cached_warmable_queries(
@@ -519,8 +567,11 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             # one cheap today-bucket refresh), but an ineligible shape replays as
             # a full live query every stale hour — with the min-2 floor a tenant
             # could mint MAX_SHAPES_PER_TEAM such shapes from two runs each and
-            # have the warmer amplify them outside request throttles.
-            if not lazy_eligible and query_info.get("query_count", 0) < RAW_REPLAY_MIN_QUERY_COUNT:
+            # have the warmer amplify them outside request throttles. Gate on the
+            # representative variant's own demand, not the shape-wide sum: raw
+            # replays aren't shared across variants, so a rarely-run expensive
+            # variant must not inherit a popular sibling's count.
+            if not lazy_eligible and query_info.get("representative_query_count", 0) < RAW_REPLAY_MIN_QUERY_COUNT:
                 WARMING_QUERIES_COUNTER.labels(outcome="skipped_raw_low_demand").inc()
                 return "skipped_raw_low_demand"
 

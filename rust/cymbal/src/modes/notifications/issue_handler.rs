@@ -21,8 +21,8 @@ pub async fn handle_issue_created(
     notification: IssueCreated,
 ) -> Result<(), UnhandledError> {
     if context
-        .issue_created_workflow_starter
-        .start_if_enabled(&notification)
+        .issue_lifecycle_workflow_starters
+        .start_created_if_enabled(&notification)
         .await?
     {
         let sentry_integration = notification
@@ -88,11 +88,21 @@ pub async fn handle_issue_reopened(
     context: &NotificationsContext,
     notification: IssueReopened,
 ) -> Result<(), UnhandledError> {
+    if context
+        .issue_lifecycle_workflow_starters
+        .start_reopened_if_enabled(&notification)
+        .await?
+    {
+        capture_issue_reopened(notification.meta.team_id, notification.issue.issue_id);
+        return Ok(());
+    }
+
     let IssueReopened {
         meta,
         issue,
         event_timestamp,
         assignee,
+        ..
     } = notification;
     let IssueNotificationContext {
         issue_id,
@@ -124,12 +134,21 @@ pub async fn handle_issue_spiking(
     context: &NotificationsContext,
     notification: IssueSpiking,
 ) -> Result<(), UnhandledError> {
+    if context
+        .issue_lifecycle_workflow_starters
+        .start_spiking_if_enabled(&notification)
+        .await?
+    {
+        return Ok(());
+    }
+
     let IssueSpiking {
         meta,
         issue,
         computed_baseline,
         current_bucket_value,
         assignee,
+        ..
     } = notification;
     let IssueNotificationContext {
         issue_id,
