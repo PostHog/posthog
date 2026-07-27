@@ -152,10 +152,12 @@ async def test_assume_role_step_passes_with_assumable_role(
     external_aws_role_arn: str,
     destination_aws_role_arn: str,
     aorganization,
+    bucket_name,
 ):
     """The assume role step passes when the role is assumable with the right external id."""
     test_step = S3AssumeRoleTestStep(
         aws_role_arn=destination_aws_role_arn,
+        bucket_name=bucket_name,
         organization_id=aorganization.id,
         max_attempts=ROLE_PROPAGATION_ATTEMPTS,
     )
@@ -163,7 +165,7 @@ async def test_assume_role_step_passes_with_assumable_role(
     with override_settings(BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN=external_aws_role_arn):
         result = await test_step.run()
 
-    assert result.status == Status.PASSED
+    assert result.status == Status.PASSED, result.message
     assert result.message is None
 
 
@@ -172,10 +174,13 @@ async def test_assume_role_step_fails_with_wrong_external_id(
     external_aws_role_arn: str,
     destination_aws_role_arn: str,
     external_id: str | None,
+    bucket_name: str,
     aorganization,
 ):
     """A mismatched external id surfaces an AccessDenied failure."""
-    test_step = S3AssumeRoleTestStep(aws_role_arn=destination_aws_role_arn, organization_id=aorganization.id)
+    test_step = S3AssumeRoleTestStep(
+        aws_role_arn=destination_aws_role_arn, bucket_name=bucket_name, organization_id=aorganization.id
+    )
 
     with override_settings(BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN=external_aws_role_arn):
         result = await test_step.run()
@@ -187,14 +192,12 @@ async def test_assume_role_step_fails_with_wrong_external_id(
 
 @pytest.mark.parametrize("external_id", [None], indirect=True)
 async def test_assume_role_step_fails_without_external_id_condition(
-    external_aws_role_arn: str,
-    destination_aws_role_arn: str,
-    external_id: str | None,
-    aorganization,
+    external_aws_role_arn: str, destination_aws_role_arn: str, external_id: str | None, aorganization, bucket_name: str
 ):
     """A role whose trust policy omits the external id condition is rejected."""
     test_step = S3AssumeRoleTestStep(
         aws_role_arn=destination_aws_role_arn,
+        bucket_name=bucket_name,
         organization_id=aorganization.id,
         max_attempts=ROLE_PROPAGATION_ATTEMPTS,
     )
