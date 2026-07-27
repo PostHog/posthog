@@ -233,6 +233,14 @@ _MASTER_WORKFLOWS = ("Backend CI", "Frontend CI", "Rust CI", "E2E Tests", "Lint"
 # Co-windowed with the merge spread: a day with merges but no seeded job cost would chart as $0/merge.
 _MASTER_DAYS = _MERGE_SPREAD_DAYS
 _MASTER_COMMITS_PER_DAY = 18
+# Each master push carries a downstream fork's open "sync from upstream" PR, because that is what
+# GitHub really sends: the association lists every PR in the fork network sharing the run's head SHA.
+# Seeding it keeps the demo honest about the only thing that makes a master run attributable — the
+# squash-merge suffix on its head commit, never the association (SPEC §6, "two PR keys, by design").
+_FORK_REPO_ID = 778592526
+_FORK_PR_NUMBER = 1379
+# Numbered above the fixture's real PRs so a seeded master commit's PR link reads as seeded.
+_MASTER_COMMIT_PR_BASE = 73_000
 
 
 def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
@@ -247,6 +255,7 @@ def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
         age_minutes = (total - 1 - commit_index) * spacing_minutes + (commit_index * 37) % 90
         commit_time = anchor - timedelta(minutes=age_minutes)
         sha = f"aa57e2{commit_index:04d}" + "e" * 30
+        commit_pr = _MASTER_COMMIT_PR_BASE + commit_index
         red_commit = commit_index % 9 == 4  # an occasional broken master push
         cancelled_commit = commit_index % 17 == 9  # a rare all-cancelled push (neutral dot)
         for wf_index, workflow in enumerate(_MASTER_WORKFLOWS):
@@ -275,7 +284,11 @@ def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
                     "updated_at": iso(start) if running else iso(start + duration),
                     "run_attempt": 1,
                     "repository": {"full_name": "PostHog/posthog"},
-                    "pull_requests": [],
+                    "pull_requests": [{"number": _FORK_PR_NUMBER, "base": {"repo": {"id": _FORK_REPO_ID}}}],
+                    "head_commit": {
+                        "message": f"feat: seeded master commit {commit_index} (#{commit_pr})",
+                        "author": {"name": "PostHog Bot", "email": "bot@posthog.com"},
+                    },
                 }
             )
     return demo_runs
