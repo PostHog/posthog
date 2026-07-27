@@ -1293,6 +1293,19 @@ R = TypeVar("R", bound=BaseModel)
 CR = TypeVar("CR", bound=GenericCachedQueryResponse)
 
 
+def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None:
+    # A series' display override for legends and tooltips. `custom_name` is set by the in-app
+    # "Rename graph series" modal; a `name` that differs from the raw event/action label is a rename
+    # applied via the query editor or API. Either should win over the raw event name.
+    custom_name = getattr(series, "custom_name", None)
+    if custom_name:
+        return custom_name
+    name = getattr(series, "name", None)
+    if name and name != raw_label:
+        return name
+    return None
+
+
 class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
     response: R
@@ -2135,10 +2148,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if not results or not isinstance(results, list):
             return cached_response, False
 
-        custom_names_by_order: dict[int, str | None] = {}
-        for i, s in enumerate(series):
-            custom_name = getattr(s, "custom_name", None)
-            custom_names_by_order[i] = custom_name
+        series_by_order = dict(enumerate(series))
+        # Only TrendsQuery surfaces a `name`-based rename into custom_name on the fresh path (see
+        # TrendsQueryRunner's use of resolve_series_custom_name). Stickiness/lifecycle use custom_name
+        # only, so honoring `name` here would desync their cached responses from a fresh computation.
+        honor_name = isinstance(self.query, TrendsQuery)
 
         was_modified = False
         for result in results:
@@ -2148,11 +2162,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if not isinstance(action, dict):
                 continue
             order = action.get("order")
-            if order is not None and order in custom_names_by_order:
-                new_name = custom_names_by_order[order]
-                if action.get("custom_name") != new_name:
-                    action["custom_name"] = new_name
-                    was_modified = True
+            if order is None or order not in series_by_order:
+                continue
+            s = series_by_order[order]
+            if honor_name:
+                # The cached action's `name` holds the raw event/action label (`series_label or "All events"`).
+                new_name = resolve_series_custom_name(s, action.get("name"))
+            else:
+                new_name = getattr(s, "custom_name", None)
+            if action.get("custom_name") != new_name:
+                action["custom_name"] = new_name
+                was_modified = True
 
         return cached_response, was_modified
 

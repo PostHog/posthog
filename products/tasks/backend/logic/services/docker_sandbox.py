@@ -35,6 +35,7 @@ from products.tasks.backend.models import SandboxSnapshot
 from .agentsh import (
     BASH_ENV_SCRIPT,
     ENV_WRAPPER_SCRIPT,
+    GH_GUARD_INSTALL_PATH,
     SESSION_ID_FILE,
     build_exec_prefix,
     build_setup_script,
@@ -42,6 +43,7 @@ from .agentsh import (
     generate_config_yaml,
     generate_env_wrapper,
     generate_policy_yaml,
+    read_gh_guard_script,
 )
 from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
 from .sandbox import (
@@ -874,6 +876,15 @@ class DockerSandbox(SandboxBase):
             return False
         return self._wait_for_health_check(max_attempts=20)
 
+    def _install_gh_guard(self) -> None:
+        """Install the gh PATH shim at runtime so it's present regardless of image age.
+
+        New base images bake it in, but a resume from a pre-shim filesystem snapshot (or any window
+        where the image lags this backend) would otherwise lack it, leaving gh with no token once the
+        frozen launch-env token is unset."""
+        self.write_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
+        self.execute(f"chmod +x {shlex.quote(GH_GUARD_INSTALL_PATH)}", timeout_seconds=30)
+
     def start_agent_server(
         self,
         repository: str | None,
@@ -920,6 +931,7 @@ class DockerSandbox(SandboxBase):
         # mid-session credential refreshes reach git/gh. Needed for both agentsh
         # and non-agentsh runs.
         self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
+        self._install_gh_guard()
 
         if allowed_domains is not None:
             self._setup_agentsh(WORKING_DIR, allowed_domains)
