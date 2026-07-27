@@ -2,6 +2,19 @@ import { dimensions, mockRect } from '../../testing'
 import { buildDimensions, sameDimensions, syncCanvasSize } from './canvas-size'
 import { DEFAULT_MARGINS } from './useChartMargins'
 
+/** Records assignments to an integer canvas dimension, which jsdom would otherwise apply silently. */
+function trackWrites(canvas: HTMLCanvasElement, prop: 'width' | 'height', writes: string[]): void {
+    let value = canvas[prop]
+    Object.defineProperty(canvas, prop, {
+        configurable: true,
+        get: () => value,
+        set: (next: number) => {
+            writes.push(`${prop}=${next}`)
+            value = next
+        },
+    })
+}
+
 describe('canvas-size', () => {
     describe('syncCanvasSize', () => {
         it.each([
@@ -12,9 +25,6 @@ describe('canvas-size', () => {
             const canvas = document.createElement('canvas')
             syncCanvasSize(canvas, { width, height }, dpr)
 
-            // Assigning canvas.width/height wipes the bitmap even when the value is identical, and
-            // the repaint only lands on the next animation frame — so a no-op sync must not write
-            // at all, or a container that keeps reporting resizes never shows a drawn frame.
             const writes: string[] = []
             trackWrites(canvas, 'width', writes)
             trackWrites(canvas, 'height', writes)
@@ -44,12 +54,40 @@ describe('canvas-size', () => {
             const canvas = document.createElement('canvas')
             syncCanvasSize(canvas, { width: 507.4, height: 400 }, 1)
 
-            // Both round to a 507px backing store, so there is nothing to reallocate — but the CSS
-            // size still moved. The style writes sit outside the `resized` bookkeeping on purpose;
-            // folding them into it would stretch a 507px bitmap over a stale CSS box.
+            // The style writes sit outside the `resized` bookkeeping on purpose; folding them into
+            // it would stretch a 507px bitmap over a stale CSS box.
             expect(syncCanvasSize(canvas, { width: 507.45, height: 400 }, 1)).toBe(false)
             expect(canvas.width).toBe(507)
             expect(canvas.style.width).toBe('507.45px')
+        })
+    })
+
+    describe('buildDimensions', () => {
+        it.each([
+            { name: 'a normal container', rect: mockRect, plotWidth: 736, plotHeight: 352 },
+            {
+                name: 'a width narrower than the horizontal margins',
+                rect: { width: 40, height: 400 },
+                plotWidth: 0,
+                plotHeight: 352,
+            },
+            {
+                name: 'a height shorter than the vertical margins',
+                rect: { width: 800, height: 40 },
+                plotWidth: 736,
+                plotHeight: 0,
+            },
+        ])('clamps the plot box to zero for $name', ({ rect, plotWidth, plotHeight }) => {
+            // Literal expectations on purpose: this is the only independent statement of the plot box,
+            // since `testing/jsdom.ts`'s shared `dimensions` fixture is itself built from this.
+            expect(buildDimensions(rect, DEFAULT_MARGINS)).toEqual({
+                width: rect.width,
+                height: rect.height,
+                plotLeft: 48,
+                plotTop: 16,
+                plotWidth,
+                plotHeight,
+            })
         })
     })
 
@@ -71,16 +109,3 @@ describe('canvas-size', () => {
         })
     })
 })
-
-/** Records assignments to an integer canvas dimension so a test can assert none happened. */
-function trackWrites(canvas: HTMLCanvasElement, prop: 'width' | 'height', writes: string[]): void {
-    let value = canvas[prop]
-    Object.defineProperty(canvas, prop, {
-        configurable: true,
-        get: () => value,
-        set: (next: number) => {
-            writes.push(`${prop}=${next}`)
-            value = next
-        },
-    })
-}

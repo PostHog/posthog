@@ -44,7 +44,9 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
             return
         }
 
-        const updateSize = (): void => {
+        // `forceRepaint` publishes fresh state even when nothing moved — for a restored context,
+        // whose bitmap came back blank while every value stayed identical.
+        const updateSize = (forceRepaint = false): void => {
             const canvas = canvasRef.current
             const overlayCanvas = overlayCanvasRef.current
             if (!canvas || !overlayCanvas) {
@@ -67,13 +69,14 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
             const overlayWiped = syncCanvasSize(overlayCanvas, rect, dpr)
 
             // The draw loops key on `dimensions` *identity*, so publishing a fresh object is what
-            // schedules a repaint. That matters when a reallocation wiped a bitmap without moving
-            // any value (a device-pixel-ratio change, or the `contextrestored` path below): the
-            // wipe flags are the only reason a new object goes out. Reusing `prev.dimensions` when
-            // the values match would silently reinstate the blank canvas.
+            // schedules a repaint. That matters whenever a bitmap was discarded without any value
+            // moving (a device-pixel-ratio change, a restored context): the wipe flags and
+            // `forceRepaint` are the only reasons a new object goes out. Reusing `prev.dimensions`
+            // when the values match would silently reinstate the blank canvas.
             const next = buildDimensions(rect, marginsRef.current)
             setCanvasState((prev) =>
                 prev &&
+                !forceRepaint &&
                 !staticWiped &&
                 !overlayWiped &&
                 prev.ctx === context &&
@@ -94,25 +97,18 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         // A 2D context can be lost when the browser reclaims canvas memory. Its bitmap comes back
         // blank on `contextrestored` and nothing repaints on its own, so the canvas stays empty
         // while every DOM overlay (axis labels, goal lines, tooltip) keeps rendering against valid
-        // dimensions. Zeroing the backing size makes `updateSize` treat it as a real resize, which
-        // repaints. `contextlost` is deliberately not handled: preventing its default tells the
-        // browser we'll restore the context ourselves, and then it never restores.
-        const restoreListeners = [canvasRef.current, overlayCanvasRef.current]
-            .filter((canvas): canvas is HTMLCanvasElement => !!canvas)
-            .map((canvas) => {
-                const onContextRestored = (): void => {
-                    canvas.width = 0
-                    updateSize()
-                }
-                canvas.addEventListener('contextrestored', onContextRestored)
-                return { canvas, onContextRestored }
-            })
+        // dimensions. Not supported everywhere: Firefox 125+ and Chrome 99+ fire it, Safari never
+        // does. `contextlost` is deliberately not handled — preventing its default tells the browser
+        // we'll restore the context ourselves, and then it never restores.
+        const onContextRestored = (): void => updateSize(true)
+        const restoreTargets = [canvasRef.current, overlayCanvasRef.current].filter(
+            (canvas): canvas is HTMLCanvasElement => !!canvas
+        )
+        restoreTargets.forEach((canvas) => canvas.addEventListener('contextrestored', onContextRestored))
 
         return () => {
             observer.disconnect()
-            restoreListeners.forEach(({ canvas, onContextRestored }) =>
-                canvas.removeEventListener('contextrestored', onContextRestored)
-            )
+            restoreTargets.forEach((canvas) => canvas.removeEventListener('contextrestored', onContextRestored))
         }
         // Bind the observer once. `marginsRef` is a ref so `updateSize` always reads the
         // latest margins; depending on `marginsRef.current` here would disconnect and re-run

@@ -1,7 +1,7 @@
 import { act } from '@testing-library/react'
 import React from 'react'
 
-import { renderHogChart } from '../../testing'
+import { mockRect, renderHogChart } from '../../testing'
 import { Chart } from '../Chart'
 import type { ChartDrawArgs, ChartScales, ChartTheme, Series } from '../types'
 
@@ -37,18 +37,12 @@ describe('useChartCanvas', () => {
         const canvas = renderChart(drawStatic)
         expect(drawStatic).toHaveBeenCalled()
 
-        // A restored context comes back with a blank bitmap and nothing else changes — no resize,
-        // no new data — so the repaint has to be driven off the event itself.
         drawStatic.mockClear()
         act(() => {
             canvas.dispatchEvent(new Event('contextrestored'))
         })
 
         expect(drawStatic).toHaveBeenCalled()
-        // Repainting is only useful if the backing store came back with it: the handler zeroes
-        // `canvas.width` to force the resize path, so a repaint that skipped restoring the size
-        // would leave the canvas just as blank.
-        expect(canvas.width).toBe(800)
-        expect(canvas.style.width).toBe('800px')
+        expect(canvas.width).toBe(mockRect.width)
     })
 })

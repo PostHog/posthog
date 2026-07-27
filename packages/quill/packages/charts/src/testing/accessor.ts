@@ -63,8 +63,7 @@ interface SlopeLegendItemSummary {
 export interface HogChart<Meta = unknown> {
     /** The wrapper div of this chart. */
     element: HTMLElement
-    /** The static (data) canvas. Use this to assert the backing store or to dispatch a
-     *  canvas-level event such as `contextrestored` — never `querySelector('canvas')`. */
+    /** The static (data) canvas, as opposed to the `aria-hidden` hover overlay. */
     canvas: HTMLCanvasElement
     /** Number of non-excluded data series rendered (read from the chart's aria-label). */
     seriesCount: number

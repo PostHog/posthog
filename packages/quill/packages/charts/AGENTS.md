@@ -55,8 +55,10 @@ Charts fill their container and need a parent with real dimensions — a `0`-hei
 
 Overlays (axis labels, axis titles, reference/goal lines, value labels, legend, tooltip) are DOM, positioned from the scales; the grid, axis lines, tick marks, and the series themselves are canvas.
 That split is the first thing to check when a chart looks broken: if the labels and goal lines render in the right places but the plot area is empty, the layout is fine and the canvas alone failed.
-The bitmap is only ever discarded by `syncCanvasSize` reallocating it (a real resize) or by the browser losing the 2D context, and `useChartCanvas` repaints after both — a blank plot under correct overlays means one of those two paths didn't schedule its repaint.
+Check the cheap causes first: `theme.skipDraw` suppresses all canvas painting by design, and a `drawStatic` that throws leaves the frame it was clearing empty.
+Beyond those, the bitmap is discarded either by `syncCanvasSize` reallocating it (a real resize) or by the browser losing the 2D context, and `useChartCanvas` repaints after both — so a blank plot under correct overlays means one of those paths didn't schedule its repaint.
 Note the browser does not report a lost 2D context everywhere: Firefox 125+ and Chrome 99+ fire `contextrestored`, Safari doesn't fire it at all, so a context lost on Safari stays blank.
+The backing store is rounded, not truncated, to device pixels, so a fractional CSS width at `dpr > 1` can shift the drawing scale by a fraction of a percent versus the raw multiply.
 
 ## Composition
 
