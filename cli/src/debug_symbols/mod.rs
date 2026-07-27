@@ -497,3 +497,29 @@ pub fn elf_debug_id(path: &Path) -> Result<String> {
         .map_err(|e| anyhow!("parse object in {}: {e}", path.display()))?;
     Ok(object.debug_id().to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The Android NDK-shaped fixture from cymbal's native tests: an
+    // aarch64-linux-android shared object with DWARF and a GNU build id.
+    // Discovery must accept it and mint the chunk id an Android SDK would
+    // derive from a tombstone's per-frame build id.
+    #[test]
+    fn discovers_android_shared_object() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../rust/cymbal/tests/static/native");
+        let report = discover(&dir).unwrap();
+        let android = report
+            .files
+            .iter()
+            .find(|f| {
+                f.path
+                    .file_name()
+                    .is_some_and(|n| n == "libtest_android.so")
+            })
+            .expect("libtest_android.so should be discovered");
+        assert_eq!(android.debug_id, "06cc4a52-afc9-d0e7-8c56-651f8bbd4a59");
+        assert_eq!(android.format, FileFormat::Elf);
+    }
+}
