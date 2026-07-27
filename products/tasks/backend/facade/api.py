@@ -5234,10 +5234,11 @@ def list_mentions(
 
 def project_thread_message_activity(message: TaskThreadMessage) -> None:
     """Project a new thread message onto the feed of everyone it concerns."""
-    if message.author_id is not None:
+    recipient_ids = {recipient_id for recipient_id in (message.author_id, message.task.created_by_id) if recipient_id}
+    for recipient_id in recipient_ids:
         TaskActivity.record(
             team_id=message.team_id,
-            user_id=message.author_id,
+            user_id=recipient_id,
             task_id=message.task_id,
             kind=TaskActivity.Kind.MESSAGE,
             activity_at=message.created_at,
@@ -5263,6 +5264,19 @@ def project_awaiting_input_activity(task_run: "TaskRun") -> None:
         task_id=task_run.task_id,
         kind=TaskActivity.Kind.AWAITING_INPUT,
         activity_at=django_timezone.now(),
+    )
+
+
+def project_completed_activity(task_run: "TaskRun") -> None:
+    creator_id = task_run.task.created_by_id
+    if creator_id is None:
+        return
+    TaskActivity.record(
+        team_id=task_run.task.team_id,
+        user_id=creator_id,
+        task_id=task_run.task_id,
+        kind=TaskActivity.Kind.COMPLETED,
+        activity_at=task_run.completed_at or django_timezone.now(),
     )
 
 

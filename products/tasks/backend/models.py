@@ -957,6 +957,7 @@ class TaskActivity(TeamScopedRootMixin):
         MENTION = "mention", "Mention"
         MESSAGE = "message", "Message"
         AWAITING_INPUT = "awaiting_input", "Awaiting input"
+        COMPLETED = "completed", "Completed"
 
     # uuid7 rather than the uuid4 the sibling task models use: rows are insert-heavy and
     # read newest-first, so a time-ordered key keeps the index appends local and makes the

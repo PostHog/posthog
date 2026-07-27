@@ -1510,11 +1510,11 @@ class TaskActivitySerializer(DataclassSerializer):
         help_text="Author of the thread message tied to the latest activity, when one applies.",
     )
     activity_kind = serializers.ChoiceField(
-        choices=["awaiting_input", "mention", "message", "created"],
+        choices=["awaiting_input", "completed", "mention", "message", "created"],
         help_text=(
             "What the latest activity on this task was: an agent run waiting on the requester "
-            "(awaiting_input), someone @-mentioning them (mention), their own reply (message), "
-            "or their creating the task (created)."
+            "(awaiting_input), a completed run (completed), someone @-mentioning them (mention), "
+            "a thread reply (message), or their creating the task (created)."
         ),
     )
     snippet = serializers.CharField(

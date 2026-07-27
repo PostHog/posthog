@@ -58,6 +58,7 @@ _COOLDOWN_SECONDS: dict[PushKind, int] = {
 
 def notify_task_run_completed(task_run: TaskRun) -> None:
     """Fire a push notification when ``task_run`` finishes successfully."""
+    _project_completed_activity(task_run)
     _enqueue(task_run, kind="completed", body=f'"{_task_title(task_run)}" finished')
 
 
@@ -86,11 +87,22 @@ def _project_awaiting_input_activity(task_run: TaskRun) -> None:
     never fail it.
     """
     try:
-        from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keeps the facade off the push import path
+        from products.tasks.backend.facade.api import (  # noqa: PLC0415 - keeps the facade off the push import path
             project_awaiting_input_activity,
         )
 
         project_awaiting_input_activity(task_run)
+    except Exception:
+        logger.warning("push_dispatcher.activity_projection_failed", run_id=str(task_run.id), exc_info=True)
+
+
+def _project_completed_activity(task_run: TaskRun) -> None:
+    try:
+        from products.tasks.backend.facade.api import (  # noqa: PLC0415 - keeps the facade off the push import path
+            project_completed_activity,
+        )
+
+        project_completed_activity(task_run)
     except Exception:
         logger.warning("push_dispatcher.activity_projection_failed", run_id=str(task_run.id), exc_info=True)
 

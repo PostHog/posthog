@@ -11,8 +11,9 @@ from rest_framework.test import APIClient
 
 from posthog.models import Organization, OrganizationMembership, Team, User
 
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskActivity, TaskRun, TaskThreadMessage
-from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input
+from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input, notify_task_run_completed
 
 
 class ChannelsAPITestCase(TestCase):
@@ -384,6 +385,15 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         self.assertEqual(row["snippet"], "looking into this")
         self.assertEqual(row["latest_author"]["id"], self.peer.id)
 
+    def test_agent_message_is_unread_for_the_task_creator(self):
+        tasks_facade._create_agent_thread_message(self.task, "Hello!", event="agent_message")
+
+        row = self._row_for(self.author_client, self.task)
+        self.assertEqual(row["activity_kind"], "message")
+        self.assertEqual(row["snippet"], "Hello!")
+        self.assertIsNone(row["latest_author"])
+        self.assertTrue(row["is_unread"])
+
     def test_mention_shows_as_mention_with_snippet(self):
         self._post_message(self.author_client, "cc @[Bob](peer@example.com) please look")
         row = self._row_for(self.peer_client, self.task)
@@ -398,6 +408,16 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         self.assertTrue(row["is_unread"])
         # Only the task's creator is being waited on.
         self.assertEqual(self._rows(self.peer_client), [])
+
+    def test_completed_run_replaces_awaiting_input_activity(self):
+        run = TaskRun.objects.create(team=self.team, task=self.task, status=TaskRun.Status.IN_PROGRESS)
+        with patch("products.tasks.backend.push_dispatcher._enqueue"):
+            notify_task_run_awaiting_input(run)
+            notify_task_run_completed(run)
+
+        row = self._row_for(self.author_client, self.task)
+        self.assertEqual(row["activity_kind"], "completed")
+        self.assertTrue(row["is_unread"])
 
     def test_multiple_signals_collapse_to_one_row_with_the_newest_winning(self):
         self._post_message(self.author_client, "cc @[Bob](peer@example.com)")

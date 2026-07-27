@@ -22,6 +22,7 @@ class Migration(migrations.Migration):
                             ("mention", "Mention"),
                             ("message", "Message"),
                             ("awaiting_input", "Awaiting input"),
+                            ("completed", "Completed"),
                         ],
                         max_length=32,
                     ),

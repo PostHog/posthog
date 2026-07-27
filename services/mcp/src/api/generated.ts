@@ -2198,6 +2198,7 @@ export namespace Schemas {
 
     /**
      * * `awaiting_input` - awaiting_input
+     * * `completed` - completed
      * * `mention` - mention
      * * `message` - message
      * * `created` - created
@@ -2207,6 +2208,7 @@ export namespace Schemas {
 
     export const ActivityKindEnum = {
       AwaitingInput: 'awaiting_input',
+      Completed: 'completed',
       Mention: 'mention',
       Message: 'message',
       Created: 'created',
@@ -66992,9 +66994,10 @@ export namespace Schemas {
       /** @nullable */
       channel_name: string | null;
       activity_at: string;
-      /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), someone @-mentioning them (mention), their own reply (message), or their creating the task (created).
+      /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a thread reply (message), or their creating the task (created).
        *
        * * `awaiting_input` - awaiting_input
+       * * `completed` - completed
        * * `mention` - mention
        * * `message` - message
        * * `created` - created */
