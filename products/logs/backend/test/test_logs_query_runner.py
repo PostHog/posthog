@@ -1264,7 +1264,7 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("12345", query_str)
         self.assertIn("67890", query_str)
 
-    def test_person_id_via_query_and_sparkline_apis(self):
+    def test_person_id_via_query_sparkline_and_facet_values_apis(self):
         # The logs endpoints hand-build LogsQuery from request data — a personId omitted
         # from that whitelist silently un-scopes the person tab.
         person = create_person(team=self.team, distinct_ids=["person-id-test-api"])
@@ -1285,3 +1285,10 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(sparkline_response.status_code, status.HTTP_200_OK)
         self.assertEqual(sum(bucket["count"] for bucket in sparkline_response.json()), 1)
+
+        facet_response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/facet_values",
+            data={"query": {**query_params, "facetField": "severity_text"}},
+        )
+        self.assertEqual(facet_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(facet_response.json()["results"], [{"value": "info", "count": 1}])

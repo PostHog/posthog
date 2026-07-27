@@ -70469,6 +70469,8 @@ export namespace Schemas {
       facetSearch?: string;
       /** Property filters for the query. */
       filterGroup?: _LogPropertyFilter[];
+      /** Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
     }
 
     export interface _LogsFacetValuesRequest {
@@ -70655,6 +70657,8 @@ export namespace Schemas {
       excludeAttributes?: boolean;
       /** Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field. */
       customColumns?: string[];
+      /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
     }
 
     export interface _LogsQueryRequest {
@@ -70775,6 +70779,8 @@ export namespace Schemas {
        * * `severity` - severity
        * * `service` - service */
       sparklineBreakdownBy?: SparklineBreakdownByEnum;
+      /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
     }
 
     export interface _LogsSparklineBucket {
