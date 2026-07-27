@@ -3,8 +3,8 @@ from posthog.test.base import BaseTest
 from django.core.cache import cache
 from django.test import override_settings
 
-from posthog.caching.cache_size_tracker import TeamCacheSizeTracker, get_team_cache_limit
 from posthog.models import Team
+from posthog.query_cache.size_tracker import TeamCacheSizeTracker, get_team_cache_limit
 
 
 class TestTeamCacheSizeTracker(BaseTest):
