@@ -66,7 +66,7 @@ jobs:
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             matrix_include: ${{ steps.build-matrix.outputs.include || '[]' }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
-            schema_cache_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
+            schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout.
@@ -364,7 +364,7 @@ jobs:
               with:
                   path: schema.sql.gz
                   # Prefer the shared content key; fall back to the exact merge-base SHA key.
-                  key: ${{ needs.changes.outputs.schema_cache_migrations_key || needs.changes.outputs.schema_cache_key }}
+                  key: ${{ needs.changes.outputs.schema_migrations_key || needs.changes.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.changes.outputs.schema_cache_key }}
 
