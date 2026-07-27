@@ -3,7 +3,9 @@ from unittest import mock
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostmarkSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postmark import (
+    PostmarkSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.postmark import PostmarkResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.source import PostmarkSource
@@ -104,6 +106,7 @@ class TestPostmarkSource:
         mock_postmark_source.assert_called_once_with(
             server_token=self.config.server_token,
             endpoint="messages_outbound",
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=manager,
         )

@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LumaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.luma import LumaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.luma.luma import (
     LumaResumeConfig,
     luma_source,
@@ -33,6 +33,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class LumaSource(ResumableSource[LumaSourceConfig, LumaResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.luma.com/reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -86,6 +89,7 @@ You can create an API key under **Settings → Developer** in [Luma](https://lum
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Luma's cursor pagination has no server-side
         # updated-since filter (list-events only bounds on event start time), so there is no
@@ -105,7 +109,7 @@ You can create an API key under **Settings → Developer** in [Luma](https://lum
         return schemas
 
     def validate_credentials(
-        self, config: LumaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: LumaSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # The API key grants read access to every endpoint on its calendar/organization, so a
         # single probe validates access to every schema.

@@ -83,7 +83,8 @@ export interface ProductOnboardingProvider {
     steps: StepProvider
     /**
      * Where to redirect when this product's onboarding completes (used when this
-     * product is the primary). Falls back to `urls.default()` if not provided.
+     * product is the primary). Falls back to the quickstart page (behind the
+     * quickstart-homepage flag) or the homepage if not provided.
      */
     completeRedirectUrl?: () => string
 }

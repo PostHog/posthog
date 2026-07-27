@@ -1,7 +1,7 @@
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -50,7 +50,7 @@ class _VisionActionAPITestCase(APIBaseTest):
             name=name,
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
 
     def _create_slack_integration(self, team: Team | None = None) -> Integration:
@@ -519,3 +519,94 @@ class TestVisionActionRunCrossTeamIDOR(_VisionActionAPITestCase):
         # The action belongs to another team, so the nested route must 404 rather than leak its runs.
         resp = self.client.get(f"/api/projects/{self.team.id}/vision/actions/{self.other_action.id}/runs/")
         self.assertEqual(resp.status_code, 404)
+
+
+class TestVisionActionRunNow(_VisionActionAPITestCase):
+    """POST /vision/actions/{id}/run/ starts the processing workflow now without touching the schedule."""
+
+    def _summary(self, **overrides: Any) -> VisionAction:
+        defaults: dict[str, Any] = {
+            "team_id": self.team.id,
+            "scanner": self.scanner,
+            "name": "daily digest",
+            "created_by": self.user,
+            "trigger_config": {"rrule": "FREQ=DAILY;BYHOUR=8", "timezone": "UTC"},
+        }
+        defaults.update(overrides)
+        return VisionAction.objects.for_team(self.team.id).create(**defaults)
+
+    def _run_url(self, action_id: str) -> str:
+        return f"{self.actions_url}{action_id}/run/"
+
+    @patch("products.replay_vision.backend.api.trigger.async_to_sync")
+    @patch("products.replay_vision.backend.api.trigger.sync_connect")
+    def test_run_starts_the_workflow_now_and_leaves_the_schedule_untouched(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        from products.replay_vision.backend.temporal.constants import (
+            PROCESS_VISION_ACTION_WORKFLOW_NAME,
+            build_process_vision_action_workflow_id,
+        )
+
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        action = self._summary()
+        next_run_before = action.next_run_at
+
+        resp = self.client.post(self._run_url(str(action.id)), format="json")
+        self.assertEqual(resp.status_code, 202, resp.content)
+        body = resp.json()
+        self.assertFalse(body["already_running"])
+        self.assertEqual(body["workflow_id"], build_process_vision_action_workflow_id(action.id))
+
+        args, kwargs = start_workflow.call_args
+        self.assertEqual(args[0], PROCESS_VISION_ACTION_WORKFLOW_NAME)
+        inputs = args[1]
+        self.assertEqual(inputs.vision_action_id, action.id)
+        self.assertEqual(inputs.mode, "group_summary")
+        self.assertIsNotNone(inputs.scheduled_at)  # anchors the window at "now"
+
+        # The run must not advance the recurring schedule — that only happens at scheduled claim time.
+        action.refresh_from_db()
+        self.assertEqual(action.next_run_at, next_run_before)
+
+    @patch("products.replay_vision.backend.api.trigger.async_to_sync")
+    @patch("products.replay_vision.backend.api.trigger.sync_connect")
+    def test_run_coalesces_onto_an_already_running_workflow(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        from temporalio.exceptions import WorkflowAlreadyStartedError
+
+        from products.replay_vision.backend.temporal.constants import (
+            PROCESS_VISION_ACTION_WORKFLOW_NAME,
+            build_process_vision_action_workflow_id,
+        )
+
+        action = self._summary()
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock(
+            side_effect=WorkflowAlreadyStartedError(
+                workflow_id=build_process_vision_action_workflow_id(action.id),
+                workflow_type=PROCESS_VISION_ACTION_WORKFLOW_NAME,
+            )
+        )
+
+        resp = self.client.post(self._run_url(str(action.id)), format="json")
+        self.assertEqual(resp.status_code, 202, resp.content)
+        self.assertTrue(resp.json()["already_running"])
+
+    @patch("products.replay_vision.backend.api.trigger.async_to_sync")
+    @patch("products.replay_vision.backend.api.trigger.sync_connect")
+    def test_run_rejects_alerts(self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock) -> None:
+        # Alerts check continuously on the sweep, so there's no meaningful on-demand run for them.
+        alert = self._summary(
+            name="rage alert",
+            mode="alert",
+            alert_config={"frequency": "every_match", "metric": "count"},
+        )
+        resp = self.client.post(self._run_url(str(alert.id)), format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
+        start_workflow = mock_async_to_sync.return_value
+        start_workflow.assert_not_called()

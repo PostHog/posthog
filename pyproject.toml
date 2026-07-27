@@ -58,7 +58,7 @@ dependencies = [
     "drf-extensions~=0.8.0",
     "drf-spectacular~=0.29.0",
     "geoip2==4.6.0",
-    "google-ads==29.2.0",
+    "google-ads==30.1.0",
     "google-cloud-bigquery==3.26",
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
@@ -100,7 +100,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.2.0",
     "protobuf~=5.29.6",
-    "posthoganalytics==7.20.4",
+    "posthoganalytics==7.27.0",
     "polars==1.37.1",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
@@ -485,7 +485,7 @@ exclude = [
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
-    "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs.py",
+    "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/**",
 ]
 
 # ---------------------------------------------------------------------------
@@ -518,6 +518,7 @@ ignore_imports = [
     "products.agent_platform.backend.presentation.serializers -> products.agent_platform.backend.models",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.db",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.generated",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.ingress_client",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.internal_jwt",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.janitor_client",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.kernel_skills",
@@ -565,6 +566,7 @@ ignore_imports = [
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_destinations",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_state_machine",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.models",
+    "products.logs.backend.presentation.views.metric_rules_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.sampling_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.views_api -> products.logs.backend.models",
     # logs presentation isolation (temporary): cross-product imports the moved viewsets
@@ -587,7 +589,9 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.python_analysis",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.query_validation",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_direct",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_references",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_runs",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_serializers",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",

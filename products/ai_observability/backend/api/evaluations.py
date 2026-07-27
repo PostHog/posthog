@@ -1,4 +1,3 @@
-import json
 from typing import Any
 
 from django.db import transaction
@@ -14,21 +13,30 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.hogql import ast
+from posthog.hogql.property import property_to_expr
+
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError, query_ai_events
+from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
+from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
+from posthog.temporal.ai_observability.run_trace_evaluation import run_hog_eval_over_recent_traces
 
 from ..hog import compile_ai_observability_hog
-from ..llm import DEFAULT_MODEL_BY_PROVIDER, TRIAL_MODEL_IDS
+from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
+    EVALUATION_TEST_LOOKBACK_DAYS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
     TRACE_EVAL_MAX_WINDOW_SECONDS,
     TRACE_EVAL_MIN_WINDOW_SECONDS,
@@ -424,47 +432,28 @@ class EvaluationSerializer(serializers.ModelSerializer):
         """Mirror the runtime model resolution for evals with no usable provider key (see
         `posthog/temporal/ai_observability/model_resolution.py`). A pinned key, or an explicit
         config's active-key fallback, is already handled by `_validate_can_run`; this covers what
-        is left: a null config resolves via the team's active key, else PostHog-funded trial
-        inference while the team is still grandfathered; an explicit config that reached here has
-        no active-key fallback, so it resolves via funded inference only, and only for models on
-        the trial allowlist."""
+        is left: a null config resolves via the team's active key, and anything else must add a
+        provider key of its own."""
         add_key_message = "Add a provider API key to enable this evaluation."
         team = self.context["get_team"]()
         config = EvaluationConfig.objects.filter(team=team).first()
-        is_grandfathered = config is not None and config.is_trial_grandfathered
 
         explicit_config = self._effective_model_configuration(data)
-        if explicit_config is None:
-            active_key = config.active_provider_key if config else None
-            if active_key is not None:
-                # DefaultModelSpec never falls back to funded inference when an active key exists,
-                # so an unhealthy key blocks the enable regardless of grandfathering.
-                if active_key.state != LLMProviderKey.State.OK:
-                    raise serializers.ValidationError(
-                        {"enabled": "Attach a working provider API key to enable this evaluation."}
-                    )
-                if DEFAULT_MODEL_BY_PROVIDER.get(active_key.provider) is None:
-                    raise serializers.ValidationError(
-                        {
-                            "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before enabling it."
-                        }
-                    )
-                return
-            if is_grandfathered:
-                return
+        if explicit_config is not None:
             raise serializers.ValidationError({"enabled": add_key_message})
 
-        if not is_grandfathered:
+        active_key = config.active_provider_key if config else None
+        if active_key is None:
             raise serializers.ValidationError({"enabled": add_key_message})
 
-        model = explicit_config.get("model")
-        if model and model not in TRIAL_MODEL_IDS:
+        if active_key.state != LLMProviderKey.State.OK:
+            raise serializers.ValidationError(
+                {"enabled": "Attach a working provider API key to enable this evaluation."}
+            )
+        if DEFAULT_MODEL_BY_PROVIDER.get(active_key.provider) is None:
             raise serializers.ValidationError(
                 {
-                    "enabled": (
-                        f"Model '{model}' is not available on the trial plan. "
-                        "Either choose a supported trial model or add a provider API key."
-                    )
+                    "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before enabling it."
                 }
             )
 
@@ -627,6 +616,16 @@ class EvaluationListSerializer(EvaluationSerializer):
         read_only_fields = [f for f in EvaluationSerializer.Meta.read_only_fields if f != "created_by"]
 
 
+class TestHogTargetConfigSerializer(serializers.Serializer):
+    window_seconds = serializers.IntegerField(
+        required=False,
+        default=TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+        min_value=TRACE_EVAL_MIN_WINDOW_SECONDS,
+        max_value=TRACE_EVAL_MAX_WINDOW_SECONDS,
+        help_text="Aggregation window for trace samples, in seconds.",
+    )
+
+
 class TestHogRequestSerializer(serializers.Serializer):
     source = serializers.CharField(
         required=True,
@@ -649,13 +648,39 @@ class TestHogRequestSerializer(serializers.Serializer):
         default=list,
         help_text="Optional trigger conditions to filter which events are sampled.",
     )
+    target = serializers.ChoiceField(
+        choices=EvaluationTarget.choices,
+        required=False,
+        default=EvaluationTarget.GENERATION,
+        help_text=(
+            "What the evaluation runs against: 'generation' samples individual generations, "
+            "'trace' samples whole traces and runs against trace-level globals — matching how the "
+            "evaluation runs online."
+        ),
+    )
+    target_config = TestHogTargetConfigSerializer(
+        required=False,
+        default=dict,
+        help_text=(
+            "Target-specific preview settings. For a trace target, set window_seconds between "
+            f"{TRACE_EVAL_MIN_WINDOW_SECONDS} and {TRACE_EVAL_MAX_WINDOW_SECONDS}."
+        ),
+    )
 
 
 class TestHogResultItemSerializer(serializers.Serializer):
-    event_uuid = serializers.CharField(help_text="UUID of the $ai_generation event.")
-    trace_id = serializers.CharField(allow_null=True, required=False, help_text="Trace ID if available.")
-    input_preview = serializers.CharField(help_text="First 200 chars of the generation input.")
-    output_preview = serializers.CharField(help_text="First 200 chars of the generation output.")
+    sample_id = serializers.CharField(help_text="Stable identifier for the sampled generation or trace.")
+    sample_type = serializers.ChoiceField(
+        choices=EvaluationTarget.choices,
+        help_text="Type of sampled unit: generation or trace.",
+    )
+    event_uuid = serializers.CharField(
+        allow_null=True,
+        help_text="UUID of the sampled $ai_generation event, or null for a trace sample.",
+    )
+    trace_id = serializers.CharField(allow_null=True, help_text="Trace ID if available.")
+    input_preview = serializers.CharField(help_text="First 200 characters of input from the sampled unit.")
+    output_preview = serializers.CharField(help_text="First 200 characters of output from the sampled unit.")
     result = serializers.BooleanField(allow_null=True, help_text="True = pass, False = fail, null = N/A or error.")
     reasoning = serializers.CharField(allow_null=True, help_text="Hog evaluation reasoning string, if any.")
     error = serializers.CharField(allow_null=True, help_text="Error message if the Hog code raised an exception.")
@@ -666,6 +691,76 @@ class TestHogResponseSerializer(serializers.Serializer):
     message = serializers.CharField(
         required=False, help_text="Optional message, e.g. when no recent events were found."
     )
+
+
+def _test_hog_over_traces(
+    *,
+    request: Request,
+    team: Team,
+    bytecode: list[Any],
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    allows_na: bool,
+    conditions: list[dict[str, Any]],
+    window_seconds: int,
+) -> Response:
+    """Trace-target variant of the `test_hog` action: sample recent whole traces and run the code
+    against trace-level globals, so the editor preview matches how a trace eval runs online."""
+    tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+    try:
+        trace_results = run_hog_eval_over_recent_traces(
+            team=team,
+            bytecode=bytecode,
+            condition_filter=condition_filter,
+            sample_count=sample_count,
+            allows_na=allows_na,
+            window_seconds=window_seconds,
+        )
+    except AIEventsUnavailableError:
+        trace_results = []
+
+    results = [
+        {
+            "sample_id": r.trace_id,
+            "sample_type": EvaluationTarget.TRACE.value,
+            "event_uuid": None,
+            "trace_id": r.trace_id,
+            "input_preview": r.input_preview,
+            "output_preview": r.output_preview,
+            "result": r.verdict,
+            "reasoning": r.reasoning,
+            "error": r.error,
+        }
+        for r in trace_results
+    ]
+
+    report_user_action(
+        request.user,
+        "llma evaluation hog code tested",
+        {
+            "sample_count": sample_count,
+            "allows_na": allows_na,
+            "condition_count": len(conditions),
+            "result_count": len(results),
+            "pass_count": sum(1 for r in results if r["result"] is True),
+            "fail_count": sum(1 for r in results if r["result"] is False),
+            "error_count": sum(1 for r in results if r["error"]),
+            "na_count": sum(1 for r in results if r["result"] is None and not r["error"]),
+            "no_events": not results,
+            "target": EvaluationTarget.TRACE.value,
+        },
+        team=team,
+        request=request,
+    )
+
+    if not results:
+        return Response(
+            {
+                "results": [],
+                "message": f"No recent AI traces found in the last {EVALUATION_TEST_LOOKBACK_DAYS} days",
+            }
+        )
+    return Response({"results": results})
 
 
 class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
@@ -868,13 +963,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         sample_count = serializer.validated_data["sample_count"]
         allows_na = serializer.validated_data["allows_na"]
         conditions = serializer.validated_data.get("conditions", [])
-
-        from posthog.hogql import ast
-        from posthog.hogql.property import property_to_expr
-        from posthog.hogql.query import execute_hogql_query
-
-        from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-        from posthog.models.team import Team
+        target = serializer.validated_data["target"]
+        target_config = serializer.validated_data["target_config"]
 
         try:
             bytecode = compile_ai_observability_hog(source, "destination")
@@ -886,7 +976,31 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
         team = Team.objects.get(id=self.team_id)
 
-        # Build WHERE clause from trigger conditions (OR between condition sets, AND within each)
+        # Build the trigger-condition filter once (OR between condition sets, AND within each).
+        # Both targets reuse it — for traces it filters which triggering generation qualifies.
+        condition_exprs: list[ast.Expr] = []
+        for condition in conditions:
+            props = condition.get("properties", [])
+            if props:
+                condition_exprs.append(property_to_expr(props, team))
+        condition_filter: ast.Expr | None = None
+        if len(condition_exprs) == 1:
+            condition_filter = condition_exprs[0]
+        elif condition_exprs:
+            condition_filter = ast.Or(exprs=condition_exprs)
+
+        if target == EvaluationTarget.TRACE.value:
+            return _test_hog_over_traces(
+                request=request,
+                team=team,
+                bytecode=bytecode,
+                condition_filter=condition_filter,
+                sample_count=sample_count,
+                allows_na=allows_na,
+                conditions=conditions,
+                window_seconds=target_config.get("window_seconds", TRACE_EVAL_DEFAULT_WINDOW_SECONDS),
+            )
+
         where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.In,
@@ -899,24 +1013,15 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 right=ast.ArithmeticOperation(
                     op=ast.ArithmeticOperationOp.Sub,
                     left=ast.Call(name="now", args=[]),
-                    right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=7)]),
+                    right=ast.Call(
+                        name="toIntervalDay",
+                        args=[ast.Constant(value=EVALUATION_TEST_LOOKBACK_DAYS)],
+                    ),
                 ),
             ),
         ]
-
-        # Apply property filters from conditions
-        condition_exprs: list[ast.Expr] = []
-        for condition in conditions:
-            props = condition.get("properties", [])
-            if props:
-                expr = property_to_expr(props, team)
-                condition_exprs.append(expr)
-
-        if condition_exprs:
-            if len(condition_exprs) == 1:
-                where_exprs.append(condition_exprs[0])
-            else:
-                where_exprs.append(ast.Or(exprs=condition_exprs))
+        if condition_filter is not None:
+            where_exprs.append(condition_filter)
 
         query = ast.SelectQuery(
             select=[
@@ -924,17 +1029,30 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 ast.Field(chain=["event"]),
                 ast.Field(chain=["properties"]),
                 ast.Field(chain=["distinct_id"]),
+                ast.Field(chain=["timestamp"]),
+                *[ast.Field(chain=[column_name]) for column_name in HEAVY_COLUMN_NAMES],
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(exprs=where_exprs),
+            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
+            where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
             limit=ast.Constant(value=sample_count),
         )
 
         tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
-        response = execute_hogql_query(query=query, team=team, limit_context=None)
+        try:
+            response = query_ai_events(
+                query=query,
+                placeholders={"where_clause": ast.And(exprs=where_exprs)},
+                team=team,
+                query_type="EvaluationTestHog",
+                fall_back_to_events=False,
+                limit_context=None,
+            )
+            query_results = response.results or []
+        except AIEventsUnavailableError:
+            query_results = []
 
-        if not response.results:
+        if not query_results:
             report_user_action(
                 request.user,
                 "llma evaluation hog code tested",
@@ -948,27 +1066,34 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                     "error_count": 0,
                     "na_count": 0,
                     "no_events": True,
+                    "target": target,
                 },
                 team=self.team,
                 request=self.request,
             )
-            return Response({"results": [], "message": "No recent AI events found in the last 7 days"})
+            return Response(
+                {
+                    "results": [],
+                    "message": f"No recent AI events found in the last {EVALUATION_TEST_LOOKBACK_DAYS} days",
+                }
+            )
 
         results = []
-        for row in response.results:
+        for row in query_results:
             event_uuid = str(row[0])
             event_type = row[1]
-            properties = row[2]
+            timestamp = row[4]
+            heavy_values = row[5 : 5 + len(HEAVY_COLUMN_NAMES)]
+            heavy_columns = dict(zip(HEAVY_COLUMN_NAMES, heavy_values, strict=True))
+            properties = merge_heavy_properties(row[2], heavy_columns)
             distinct_id = row[3]
-
-            if isinstance(properties, str):
-                properties = json.loads(properties)
 
             event_data = {
                 "uuid": event_uuid,
                 "event": event_type,
                 "properties": properties,
                 "distinct_id": distinct_id or "",
+                "timestamp": timestamp,
             }
 
             result = run_hog_eval(bytecode, event_data, allows_na=allows_na)
@@ -979,6 +1104,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
             results.append(
                 {
+                    "sample_id": event_uuid,
+                    "sample_type": EvaluationTarget.GENERATION.value,
                     "event_uuid": event_uuid,
                     "trace_id": properties.get("$ai_trace_id"),
                     "input_preview": input_preview,
@@ -1001,6 +1128,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "fail_count": sum(1 for r in results if r["result"] is False),
                 "error_count": sum(1 for r in results if r["error"]),
                 "na_count": sum(1 for r in results if r["result"] is None and not r["error"]),
+                "no_events": False,
+                "target": target,
             },
             team=self.team,
             request=self.request,

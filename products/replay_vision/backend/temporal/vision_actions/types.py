@@ -54,6 +54,7 @@ class AlertStatus(str, Enum):
     FIRED = "fired"  # condition held; message persisted on the run — deliver it
     NOT_BREACHED = "not_breached"  # condition did not hold; nothing to deliver
     STILL_BREACHED = "still_breached"  # condition holds but the previous check already notified
+    RECOVERED = "recovered"  # condition cleared after a breach; message persisted — visible in history, not delivered
 
 
 class EvaluateAlertInputs(BaseModel, frozen=True):

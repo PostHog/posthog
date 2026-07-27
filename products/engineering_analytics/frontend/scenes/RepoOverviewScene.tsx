@@ -2,7 +2,7 @@
 // attention, workflows, and cost as sections on one page.
 
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { LemonButton, LemonCard, LemonSkeleton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
@@ -29,11 +29,12 @@ import type { MasterFailureGroupApi } from '../generated/api.schemas'
 import { compactHoursLabel, compactMinutes, compactUsd, percent } from '../lib/format'
 import { githubCommitUrl } from '../lib/github'
 import { HUB_PREVIEW_MAX } from '../lib/preview'
+import { withCurrentScope, withScope } from '../lib/scope'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { repoOverviewLogic } from './repoOverviewLogic'
 
 function withSource(url: string, sourceId: string | null): string {
-    return combineUrl(url, sourceId ? { source: sourceId } : {}).url
+    return withCurrentScope(url, sourceId)
 }
 
 /** The page's thesis: is the pipeline healthy right now? Default-branch verdict plus open-PR backlog
@@ -516,14 +517,9 @@ export function RepoOverviewScene(): JSX.Element {
                             )}
                             <Link
                                 to={
-                                    // A bare link would reset the shared window/branch scope (the filters logic
-                                    // re-hydrates from the URL on every route) — carry it, plus the source.
-                                    combineUrl(urls.engineeringAnalyticsWorkflows(), {
-                                        ...(searchParams.date_from ? { date_from: searchParams.date_from } : {}),
-                                        ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
-                                        ...(searchParams.q ? { q: searchParams.q } : {}),
-                                        ...(sourceId ? { source: sourceId } : {}),
-                                    }).url
+                                    // A bare link would reset the shared window / branch / repo scope (the filters
+                                    // logic re-hydrates from the URL on every route) — carry it, plus the source.
+                                    withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId)
                                 }
                             >
                                 View all →

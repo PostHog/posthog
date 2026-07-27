@@ -493,9 +493,6 @@ export interface FeatureFlagApi {
     readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadataApi[]
     readonly surveys: FeatureFlagApiSurveys
     readonly features: FeatureFlagApiFeatures
-    rollback_conditions?: unknown
-    /** @nullable */
-    performed_rollback?: boolean | null
     readonly can_edit: boolean
     tags?: unknown[]
     evaluation_contexts?: unknown[]
@@ -1093,6 +1090,15 @@ export interface ActivityLogEntryApi {
     readonly item_id: string
     detail?: DetailApi
     readonly created_at: string
+    /** Whether the activity was performed by the system rather than a user. */
+    readonly is_system: boolean
+    /** Whether the acting user was being impersonated by PostHog staff. */
+    readonly was_impersonated: boolean
+    /**
+     * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+     * @nullable
+     */
+    readonly client: string | null
 }
 
 /**
@@ -1241,9 +1247,6 @@ export interface FeatureFlagVersionResponseApi {
      * @nullable
      */
     version?: number | null
-    rollback_conditions?: unknown
-    /** @nullable */
-    performed_rollback?: boolean | null
     /** @nullable */
     ensure_experience_continuity?: boolean | null
     /** @nullable */
@@ -1797,6 +1800,10 @@ export type FeatureFlagsListParams = {
      * Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.
      */
     has_evaluation_contexts?: FeatureFlagsListHasEvaluationContexts
+    /**
+     * Filter by exact feature flag key match. Case insensitive.
+     */
+    key?: string
     /**
      * Number of results to return per page.
      */

@@ -72,9 +72,9 @@ class OpenAIConfig:
         }
     )
 
-    # Models available to trial users (PostHog pays). Excludes expensive
+    # Models available in the PostHog-funded playground. Excludes expensive
     # "pro" tiers and includes one flagship model for quality evaluation.
-    TRIAL_MODELS: list[str] = [
+    PLAYGROUND_MODELS: list[str] = [
         "gpt-4.1",
         "gpt-4.1-mini",
         "gpt-4.1-nano",

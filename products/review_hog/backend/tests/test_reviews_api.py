@@ -5,6 +5,8 @@ from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
+from social_django.models import UserSocialAuth
+
 from posthog.models import Team, User
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
@@ -147,6 +149,25 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert rows[0]["github_url"] == mine.pr_url
         assert rows[0]["published"] is False
         assert "perspective_selection" not in rows[0]  # detail-only payload — the list stays lean
+
+    def test_mine_scope_includes_reviews_of_prs_i_authored(self) -> None:
+        # The incident this guards: a review a teammate triggers on your PR lands under THEIR
+        # acting_user, so without the author_login match it never reaches your "For you" tab — the
+        # findings are effectively invisible to you. The match rides the viewer's linked GitHub
+        # login (case-insensitively); without a linked login the old acting-user-only behavior holds.
+        other = User.objects.create_and_join(self.organization, "other-author-scope@posthog.com", None)
+        self._report(pr_number=1, acting_user=other, author_login="OctoCat")
+        self._report(pr_number=2, acting_user=other, author_login="someone-else")
+        self._report(pr_number=3, acting_user=self.user)
+
+        # No linked GitHub identity: only reviews where I'm the acting user.
+        assert {r["pr_number"] for r in self.client.get(self.url).json()["results"]} == {3}
+
+        # Linked identity (stored casing differs from the stamped login): authored PRs join the
+        # scope — for the list AND the perspective_stats aggregation, which share the filter.
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-1", extra_data={"login": "octocat"})
+        assert {r["pr_number"] for r in self.client.get(self.url).json()["results"]} == {1, 3}
+        assert self.client.get(f"{self.url}perspective_stats/").json()["report_count"] == 2
 
     def test_list_scope_everyone_covers_the_whole_project(self) -> None:
         # The "Entire project" switch: everyone-scope must include teammates' reviews but never
@@ -321,8 +342,12 @@ class TestRecentReviewsAPI(APIBaseTest):
 
     def test_retrieve_splits_findings_and_returns_the_published_body(self) -> None:
         # The drawer's contract: valid findings (most urgent first, validator override applied),
-        # dismissed ones separately, unjudged ones in neither, and the published body verbatim.
-        report = self._report(pr_number=7, acting_user=self.user, report_markdown="## Review body")
+        # dismissed ones separately, unjudged ones in neither, the published body verbatim, and the
+        # run's stored threshold (what the drawer buckets by — the viewer's setting is only a
+        # fallback for pre-column rows).
+        report = self._report(
+            pr_number=7, acting_user=self.user, report_markdown="## Review body", run_urgency_threshold="should_fix"
+        )
         self._finding(report, "1-low", priority=IssuePriority.CONSIDER)
         self._finding(report, "1-high", priority=IssuePriority.MUST_FIX, adjusted=IssuePriority.SHOULD_FIX)
         self._finding(report, "1-noise", priority=IssuePriority.SHOULD_FIX, is_valid=False)
@@ -333,6 +358,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert res.status_code == 200
         detail = res.json()
         assert detail["report_markdown"] == "## Review body"
+        assert detail["run_urgency_threshold"] == "should_fix"
         assert [f["title"] for f in detail["findings"]] == ["title 1-high", "title 1-low"]
         high = detail["findings"][0]
         assert (high["effective_priority"], high["reviewer_priority"]) == ("should_fix", "must_fix")
@@ -508,9 +534,10 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert rows[0]["in_progress"] is True
         assert {r["pr_number"] for r in rows[1:]} <= set(range(1, 6))
 
-    def test_perspective_stats_aggregate_latest_turns_of_my_reviews(self) -> None:
-        # Effectiveness must aggregate each report's LATEST turn only and never mix in a teammate's
-        # reviews — stale turns or foreign reports would inflate a perspective's record.
+    def test_perspective_stats_aggregate_latest_turns_per_scope(self) -> None:
+        # Effectiveness must aggregate each report's LATEST turn only and, on the default scope,
+        # never mix in a teammate's reviews — stale turns or foreign reports would inflate a
+        # perspective's record.
         logic = "review-hog-perspective-logic-correctness"
         blind = "review-hog-blind-spots-general"
         first = self._report(pr_number=1, acting_user=self.user, run_count=2)
@@ -532,6 +559,19 @@ class TestRecentReviewsAPI(APIBaseTest):
             {"skill_name": logic, "raised": 2, "kept": 1, "dismissed": 1},
             {"skill_name": blind, "raised": 1, "kept": 1, "dismissed": 0},
         ]
+
+        # scope=everyone folds the teammate's reviews in — the page-level "Entire project" switch;
+        # a filter regression here would keep project-wide stats silently personal.
+        res = self.client.get(f"{self.url}perspective_stats/?scope=everyone")
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["report_count"] == 3
+        assert data["perspectives"] == [
+            {"skill_name": blind, "raised": 2, "kept": 2, "dismissed": 0},
+            {"skill_name": logic, "raised": 2, "kept": 1, "dismissed": 1},
+        ]
+        assert self.client.get(f"{self.url}perspective_stats/?scope=everything").status_code == 400
 
     def test_retrieve_is_project_wide_but_never_cross_team(self) -> None:
         # Opening a teammate's review from the everyone-scope list must work, but another team's

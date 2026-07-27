@@ -7072,7 +7072,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        # Test 1: Without explicitDate, filtering last 7 days with monthly interval includes entire month
+        # Test 1: Without explicitDate, filtering last 7 days with monthly interval only includes events in range
         with freeze_time("2020-01-31 23:59:59"):
             response_default = TrendsQueryRunner(
                 query=TrendsQuery(
@@ -7085,9 +7085,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(1, len(response_default.results))
         self.assertEqual(
-            31,
+            8,
             response_default.results[0]["count"],
-            "Without explicitDate, includes entire month due to interval boundary adjustment",
+            "Without explicitDate, only includes events within the date range, not the entire month",
         )
 
         # Test 2: With explicitDate=True and explicit dates, STILL has issues (gets 6 instead of 7)
@@ -7511,6 +7511,32 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(16, response.results[0]["count"])
         # Label should show combined events
         self.assertEqual("$pageview, $pageleave", response.results[0]["label"])
+
+    @parameterized.expand(
+        [
+            # Zero / one effective filters previously bypassed the operator check via early returns.
+            ("zero_nodes", []),
+            ("one_node", [EventsNode(event="$pageview")]),
+            ("two_nodes", [EventsNode(event="$pageview"), EventsNode(event="$pageleave")]),
+        ]
+    )
+    def test_group_node_and_operator_is_rejected(self, _name, nodes):
+        # AND groups aren't supported yet. Must fail validation rather than silently drop the
+        # event filter (which would match every event and return wrong counts).
+        group_node = GroupNode(operator=FilterLogicalOperator.AND_, nodes=nodes)
+
+        with self.assertRaises(DRFValidationError):
+            TrendsQueryRunner(
+                query=TrendsQuery(
+                    dateRange=DateRange(
+                        date_from=self.default_date_from,
+                        date_to=self.default_date_to,
+                    ),
+                    interval=IntervalType.DAY,
+                    series=[group_node],
+                ),
+                team=self.team,
+            ).calculate()
 
     def test_group_node_with_actions(self):
         """Test that GroupNode works with ActionsNode"""

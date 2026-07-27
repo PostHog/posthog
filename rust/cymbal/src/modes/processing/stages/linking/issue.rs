@@ -15,12 +15,11 @@ use crate::{
     },
     metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
     modes::processing::rules::assignment::{try_assignment_rules, Assignment},
-    stages::{linking::LinkingStage, pipeline::HandledError},
+    stages::linking::LinkingStage,
     teams::TeamManager,
     types::{
-        exception_properties::ExceptionProperties,
-        operator::{OperatorResult, ValueOperator},
-        OutputErrProps,
+        exception_event::{ExceptionEvent, Fingerprinted, Linked, PipelineItem},
+        ProcessedExceptionProperties,
     },
 };
 
@@ -29,23 +28,23 @@ pub struct IssueLinker;
 
 impl IssueLinker {
     pub async fn fetch_or_create_issue(
-        input: &ExceptionProperties,
+        input: &ExceptionEvent<Fingerprinted>,
         ctx: Arc<AppContext>,
     ) -> Result<Issue, UnhandledError> {
         // Extract name and description for the issue
         let name = input
-            .proposed_issue_name
-            .clone()
-            .unwrap_or_else(|| input.exception_list[0].exception_type.clone());
+            .proposed_issue_name()
+            .map(str::to_string)
+            .unwrap_or_else(|| input.exception_list()[0].exception_type.clone());
 
         let description = input
-            .proposed_issue_description
-            .clone()
-            .unwrap_or_else(|| input.exception_list[0].exception_message.clone());
+            .proposed_issue_description()
+            .map(str::to_string)
+            .unwrap_or_else(|| input.exception_list()[0].exception_message.clone());
 
-        let event_timestamp = parse_datetime_assuming_utc(&input.timestamp).unwrap_or_else(|e| {
+        let event_timestamp = parse_datetime_assuming_utc(input.timestamp()).unwrap_or_else(|e| {
             warn!(
-                event = input.uuid.to_string(),
+                event = input.uuid().to_string(),
                 "Failed to get event timestamp, using current time, error: {:?}", e
             );
             Utc::now()
@@ -57,27 +56,33 @@ impl IssueLinker {
     }
 }
 
-impl ValueOperator for IssueLinker {
-    type Item = ExceptionProperties;
-    type Context = LinkingStage;
-    type HandledError = HandledError;
-    type UnhandledError = UnhandledError;
-
-    fn name(&self) -> &'static str {
+impl IssueLinker {
+    pub fn name(&self) -> &'static str {
         ISSUE_LINKER_OPERATOR
     }
 
-    async fn execute_value(&self, input: Self::Item, ctx: LinkingStage) -> OperatorResult<Self> {
-        let fingerprint = input
-            .fingerprint
-            .clone()
-            .ok_or_else(|| UnhandledError::Other("Missing fingerprint".into()))?;
-        let key = (input.team_id, fingerprint);
+    pub async fn execute(
+        &self,
+        item: PipelineItem<Fingerprinted>,
+        ctx: LinkingStage,
+    ) -> Result<PipelineItem<Linked>, UnhandledError> {
+        match item {
+            Err(error) => Ok(Err(error)),
+            Ok(input) => self.link(input, ctx).await.map(Ok),
+        }
+    }
+
+    async fn link(
+        &self,
+        input: ExceptionEvent<Fingerprinted>,
+        ctx: LinkingStage,
+    ) -> Result<ExceptionEvent<Linked>, UnhandledError> {
+        let key = (input.team_id(), input.fingerprint().value().to_string());
 
         // Wrap the (large) event in an `Arc` so the cache-loader closures capture a cheap
         // refcount bump instead of a full deep clone. The loaders only ever borrow the
         // event, and they don't run at all on the warm-cache path, so on the hot path this
-        // is one `Arc` allocation and no `ExceptionProperties` copies.
+        // is one `Arc` allocation and no event copies.
         let input = Arc::new(input);
 
         // Two-layer cache: per-batch dedup wraps the cross-request `issue_id` cache.
@@ -102,12 +107,8 @@ impl ValueOperator for IssueLinker {
         // The only `Arc` clones were captured by this call's loader closures, which have
         // all completed (or been dropped when moka deduped them), so we uniquely own the
         // event again and can reclaim it to write back the resolved issue.
-        let mut input =
-            Arc::into_inner(input).expect("input Arc uniquely held after cache resolution");
-        input.issue_id = Some(issue.id);
-        input.issue = Some(issue);
-
-        Ok(Ok(input))
+        let input = Arc::into_inner(input).expect("input Arc uniquely held after cache resolution");
+        Ok(input.into_linked(issue))
     }
 }
 
@@ -118,14 +119,11 @@ impl ValueOperator for IssueLinker {
 // - On cache hit we re-read by id (cheap PK lookup) and call `maybe_reopen` so
 //   suppression and reopen always see current PG state.
 async fn resolve_via_id_cache(
-    input: Arc<ExceptionProperties>,
+    input: Arc<ExceptionEvent<Fingerprinted>>,
     ctx: &LinkingStage,
 ) -> Result<Issue, UnhandledError> {
-    let fingerprint = input
-        .fingerprint
-        .clone()
-        .ok_or_else(|| UnhandledError::Other("Missing fingerprint".into()))?;
-    let key = (input.team_id, fingerprint.clone());
+    let fingerprint = input.fingerprint().value().to_string();
+    let key = (input.team_id(), fingerprint.clone());
 
     // `try_get_with` only returns the cached value (`Uuid`), so we stash the freshly
     // resolved Issue in a slot when we run the loader ourselves. That lets us reuse it
@@ -158,7 +156,7 @@ async fn resolve_via_id_cache(
     // Cache hit (or we were deduped against a concurrent caller). Refresh by id.
     match load_and_maybe_reopen(
         ctx.app_context.as_ref(),
-        input.team_id,
+        input.team_id(),
         issue_id,
         &fingerprint,
         &input,
@@ -183,7 +181,7 @@ async fn load_and_maybe_reopen(
     team_id: i32,
     issue_id: Uuid,
     fingerprint: &str,
-    event_properties: &ExceptionProperties,
+    event_properties: &ExceptionEvent<Fingerprinted>,
 ) -> Result<Option<Issue>, UnhandledError> {
     let mut conn = context.posthog_pool.acquire().await?;
     let Some(mut issue) = Issue::load(&mut *conn, team_id, issue_id).await? else {
@@ -196,15 +194,16 @@ async fn load_and_maybe_reopen(
 
     // Reopened — mirror the side effects from `resolve_issue`'s fast-path reopen branch.
     let event_timestamp =
-        parse_datetime_assuming_utc(&event_properties.timestamp).unwrap_or_else(|e| {
+        parse_datetime_assuming_utc(event_properties.timestamp()).unwrap_or_else(|e| {
             warn!(
-                event = event_properties.uuid.to_string(),
+                event = event_properties.uuid().to_string(),
                 "Failed to get event timestamp, using current time, error: {:?}", e
             );
             Utc::now()
         });
     let assignment =
-        process_assignment(&mut conn, &context.team_manager, &issue, event_properties).await?;
+        process_event_assignment(&mut conn, &context.team_manager, &issue, event_properties)
+            .await?;
     // We don't carry a per-fingerprint `first_seen` through this path (we loaded by id,
     // not by fingerprint), so fall back to the issue's creation time the same way
     // `resolve_issue` already does when the join returns no first_seen.
@@ -216,10 +215,17 @@ async fn load_and_maybe_reopen(
         issue.created_at,
     )
     .await?;
-    let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
+    let processed_properties: ProcessedExceptionProperties =
+        event_properties.processed_properties(&issue);
     drop(conn);
-    send_issue_reopened_notification(context, &issue, assignment, output_props, &event_timestamp)
-        .await?;
+    send_issue_reopened_notification(
+        context,
+        &issue,
+        assignment,
+        processed_properties,
+        &event_timestamp,
+    )
+    .await?;
 
     Ok(Some(issue))
 }
@@ -229,13 +235,10 @@ async fn resolve_issue(
     name: String,
     description: String,
     event_timestamp: DateTime<Utc>,
-    event_properties: &ExceptionProperties,
+    event_properties: &ExceptionEvent<Fingerprinted>,
 ) -> Result<Issue, UnhandledError> {
-    let team_id = event_properties.team_id;
-    let fingerprint = event_properties
-        .fingerprint
-        .clone()
-        .ok_or(UnhandledError::Other("Missing fingerprint".into()))?;
+    let team_id = event_properties.team_id();
+    let fingerprint = event_properties.fingerprint().value().to_string();
 
     let mut conn = context.posthog_pool.acquire().await?;
     // Fast path - just fetch the issue directly, and then reopen it if needed
@@ -244,9 +247,13 @@ async fn resolve_issue(
         let (mut issue, fingerprint_first_seen) = result.into_issue();
         if issue.maybe_reopen(&mut *conn).await? {
             let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
-            let assignment =
-                process_assignment(&mut conn, &context.team_manager, &issue, event_properties)
-                    .await?;
+            let assignment = process_event_assignment(
+                &mut conn,
+                &context.team_manager,
+                &issue,
+                event_properties,
+            )
+            .await?;
             send_fingerprint_issue_state(
                 context,
                 &issue,
@@ -255,13 +262,14 @@ async fn resolve_issue(
                 first_seen_for_state,
             )
             .await?;
-            let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
+            let processed_properties: ProcessedExceptionProperties =
+                event_properties.processed_properties(&issue);
             drop(conn);
             send_issue_reopened_notification(
                 context,
                 &issue,
                 assignment,
-                output_props,
+                processed_properties,
                 &event_timestamp,
             )
             .await?;
@@ -313,9 +321,13 @@ async fn resolve_issue(
         // Since we just loaded an issue, check if it needs to be reopened
         if issue.maybe_reopen(&mut *conn).await? {
             let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
-            let assignment =
-                process_assignment(&mut conn, &context.team_manager, &issue, event_properties)
-                    .await?;
+            let assignment = process_event_assignment(
+                &mut conn,
+                &context.team_manager,
+                &issue,
+                event_properties,
+            )
+            .await?;
             send_fingerprint_issue_state(
                 context,
                 &issue,
@@ -327,12 +339,13 @@ async fn resolve_issue(
 
             drop(conn);
 
-            let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
+            let processed_properties: ProcessedExceptionProperties =
+                event_properties.processed_properties(&issue);
             send_issue_reopened_notification(
                 context,
                 &issue,
                 assignment,
-                output_props,
+                processed_properties,
                 &event_timestamp,
             )
             .await?;
@@ -340,9 +353,10 @@ async fn resolve_issue(
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
         let assignment =
-            process_assignment(&mut txn, &context.team_manager, &issue, event_properties).await?;
+            process_event_assignment(&mut txn, &context.team_manager, &issue, event_properties)
+                .await?;
 
-        let output_props = event_properties.to_output(issue.id)?;
+        let processed_properties = event_properties.processed_properties(&issue);
         send_fingerprint_issue_state(
             context,
             &issue,
@@ -359,8 +373,8 @@ async fn resolve_issue(
             context,
             &issue,
             assignment,
-            output_props,
-            event_properties.uuid,
+            processed_properties,
+            event_properties.uuid(),
             &event_timestamp,
         )
         .await?;
@@ -369,15 +383,24 @@ async fn resolve_issue(
     Ok(issue)
 }
 
+async fn process_event_assignment(
+    conn: &mut PgConnection,
+    team_manager: &TeamManager,
+    issue: &Issue,
+    exception_props: &ExceptionEvent<Fingerprinted>,
+) -> Result<Option<Assignment>, UnhandledError> {
+    let processed_properties = exception_props.processed_properties(issue);
+    process_assignment(conn, team_manager, issue, &processed_properties).await
+}
+
 pub async fn process_assignment(
     conn: &mut PgConnection,
     team_manager: &TeamManager,
     issue: &Issue,
-    exception_props: &ExceptionProperties,
+    processed_properties: &ProcessedExceptionProperties,
 ) -> Result<Option<Assignment>, UnhandledError> {
-    let output_props = exception_props.to_output(issue.id)?;
     let new_assignment =
-        try_assignment_rules(conn, team_manager, issue.clone(), &output_props).await?;
+        try_assignment_rules(conn, team_manager, issue.clone(), processed_properties).await?;
 
     let assignment = if let Some(new_assignment) = new_assignment {
         Some(new_assignment.apply(&mut *conn, issue.id).await?)

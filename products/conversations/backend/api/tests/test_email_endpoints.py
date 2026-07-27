@@ -829,6 +829,98 @@ class TestEmailInboundMultiConfig(BaseTest):
         assert ticket.email_config_id == config2.id
 
 
+class TestEmailInboundContent(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="cc00dd11ee2233ff",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+        )
+
+    @parameterized.expand(
+        [
+            # Mailgun sometimes mis-classifies trailing content (e.g. a list of bare emails)
+            # as a signature — it must be reattached, not dropped.
+            (
+                "signature_reattached",
+                {"stripped-text": "Missing recordings for:", "stripped-signature": "a@gmail.com\nb@gmail.com"},
+                "Missing recordings for:\n\na@gmail.com\nb@gmail.com",
+            ),
+            (
+                "stripped_text_only",
+                {"stripped-text": "Just a question"},
+                "Just a question",
+            ),
+            (
+                "falls_back_to_body_plain",
+                {"body-plain": "Full body text"},
+                "Full body text",
+            ),
+            # A forwarded email's original content is inside the "quoted" block that
+            # Mailgun strips — on a new ticket the full body must be kept.
+            (
+                "new_ticket_keeps_forwarded_context",
+                {
+                    "stripped-text": "FYI, see below",
+                    "body-plain": "FYI, see below\n\n---------- Forwarded message ---------\nOriginal content",
+                },
+                "FYI, see below\n\n---------- Forwarded message ---------\nOriginal content",
+            ),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_inbound_content_extraction(
+        self, _name: str, body_fields: dict[str, str], expected_content: str, _mock_sig: MagicMock
+    ):
+        response = self.client.post(
+            "/api/conversations/v1/email/inbound",
+            {
+                "recipient": "team-cc00dd11ee2233ff@mg.posthog.com",
+                "from": "customer@test.com",
+                "Message-Id": f"<content-{_name}@test.com>",
+                "subject": "Help",
+                **body_fields,
+            },
+        )
+        assert response.status_code == 200
+
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert comment.content == expected_content
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_reply_strips_quoted_thread(self, _mock_sig: MagicMock):
+        base = {
+            "recipient": "team-cc00dd11ee2233ff@mg.posthog.com",
+            "from": "customer@test.com",
+            "subject": "Help",
+        }
+        self.client.post(
+            "/api/conversations/v1/email/inbound",
+            {**base, "Message-Id": "<thread-init@test.com>", "stripped-text": "Initial question"},
+        )
+        response = self.client.post(
+            "/api/conversations/v1/email/inbound",
+            {
+                **base,
+                "Message-Id": "<thread-reply@test.com>",
+                "In-Reply-To": "<thread-init@test.com>",
+                "stripped-text": "Thanks, that worked",
+                "body-plain": "Thanks, that worked\n\nOn Mon, Support wrote:\n> Initial question",
+            },
+        )
+        assert response.status_code == 200
+
+        reply = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")[1]
+        assert reply.content == "Thanks, that worked"
+
+
 class TestSendEmailReplyMultiConfig(BaseTest):
     def setUp(self):
         super().setUp()

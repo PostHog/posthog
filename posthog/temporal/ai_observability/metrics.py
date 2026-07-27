@@ -30,8 +30,6 @@ EVAL_ACTIVITY_TYPES = {
     "execute_sentiment_eval_activity",
     "emit_evaluation_event_activity",
     "emit_internal_telemetry_activity",
-    "increment_trial_eval_count_activity",
-    "send_trial_usage_email_activity",
     "update_key_state_activity",
     "emit_eval_signal_activity",
 }
@@ -63,7 +61,7 @@ def increment_verdict(verdict: str, evaluation_type: str = "llm_judge") -> None:
 
 
 def increment_key_type(key_type: str) -> None:
-    """Track BYOK vs PostHog trial usage."""
+    """Track BYOK vs PostHog-funded key usage."""
     meter = get_metric_meter({"key_type": key_type})
     counter = meter.create_counter("llma_eval_key_type", "API key type usage")
     counter.add(1)

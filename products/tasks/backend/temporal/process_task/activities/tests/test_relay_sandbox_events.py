@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import httpx_sse
@@ -18,6 +18,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
 from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import (
     RelaySandboxEventsInput,
     TaskRunRedisStream,
+    _flush_pending_text,
     _is_active_agent_update,
     _is_end_of_turn,
     _is_keepalive_event,
@@ -26,7 +27,6 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     _relay_loop,
     relay_sandbox_events,
 )
-from products.tasks.backend.temporal.process_task.activities.start_agent_server import StartAgentServerOutput
 from products.tasks.backend.temporal.process_task.workflow import (
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
     ProcessTaskWorkflow,
@@ -360,60 +360,6 @@ class TestRelaySandboxEventsMissingActor:
         relay_loop_mock.assert_not_awaited()
 
 
-class TestBrokerPermissionRequestStateRefresh:
-    @pytest.mark.django_db
-    def test_mode_downgrade_after_relay_start_escalates_instead_of_auto_approving(self) -> None:
-        from posthog.models import Organization, Team
-        from posthog.models.user import User
-
-        from products.tasks.backend.models import Task
-
-        organization = Organization.objects.create(name="broker-refresh-org")
-        team = Team.objects.create(organization=organization, name="broker-refresh-team")
-        creator = User.objects.create(email="broker-refresh@example.com")
-        task = Task.objects.create(
-            team=team,
-            title="Create a PDF",
-            created_by=creator,
-            origin_product=Task.OriginProduct.SLACK,
-        )
-        task_run = TaskRun.objects.create(
-            task=task,
-            team=team,
-            status=TaskRun.Status.IN_PROGRESS,
-            state={"sandbox_url": "https://sandbox.example.com", "slack_permission_mode": "full_auto"},
-        )
-        # The object the relay holds from its start; the user downgrades the mode mid-run.
-        stale_task_run = TaskRun.objects.select_related("task__created_by").get(id=task_run.id)
-        TaskRun.objects.filter(id=task_run.id).update(
-            state={"sandbox_url": "https://sandbox.example.com", "slack_permission_mode": "ask_before_write"}
-        )
-
-        permission_request = {
-            "request_id": "perm-1",
-            "tool_call": {"title": "Run tool", "rawInput": {"toolName": "Bash", "command": "rm -rf report.xlsx"}},
-            "options": [
-                {"optionId": "allow", "kind": "allow_once", "name": "Yes"},
-                {"optionId": "reject", "kind": "reject_once", "name": "No"},
-            ],
-        }
-
-        with (
-            patch(
-                "products.tasks.backend.logic.services.permission_broker.create_sandbox_connection_token",
-                return_value="sandbox-token",
-            ),
-            patch("products.tasks.backend.logic.services.permission_broker.send_agent_command") as mock_send,
-            patch(
-                "products.slack_app.backend.services.agent_permissions.post_slack_permission_request_for_task_run"
-            ) as mock_prompt,
-        ):
-            relay_sandbox_events_module._broker_permission_request(stale_task_run, permission_request)
-
-        mock_send.assert_not_called()
-        mock_prompt.assert_called_once()
-
-
 class TestRelaySandboxEventsErrorHandling:
     @parameterized.expand(
         [
@@ -603,7 +549,6 @@ class TestRelaySandboxEventsErrorHandling:
             {
                 "request_id": "perm-1",
                 "tool_call": {"_meta": {"claudeCode": {"toolName": "Bash"}}, "rawInput": {"command": "ls"}},
-                "tool_name": "Bash",
                 "options": [{"optionId": "allow", "kind": "allow_once", "name": ""}],
             },
         )
@@ -872,7 +817,8 @@ class TestRelaySandboxEventsWorkflowOptions:
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity_mock)
 
         await workflow._relay_sandbox_events(
-            StartAgentServerOutput(sandbox_url="https://sandbox.example", connect_token="connect-token"),
+            "https://sandbox.example",
+            "connect-token",
             sandbox_id="sandbox-123",
         )
 
@@ -880,3 +826,35 @@ class TestRelaySandboxEventsWorkflowOptions:
         args, kwargs = execute_activity_mock.await_args
         assert args[0] is relay_sandbox_events_module.relay_sandbox_events_deferred_completion
         assert kwargs["start_to_close_timeout"] == RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT
+
+
+class TestFlushPendingText:
+    """Coalescing many chunks into one agent_text_delta signal keeps the parent workflow's
+    history small enough to replay under the 2s deadlock budget."""
+
+    async def test_coalesces_buffered_parts_into_one_signal(self) -> None:
+        handle = AsyncMock()
+        parts = ["Hel", "lo, ", "world"]
+        last_flush = [0.0]
+
+        await _flush_pending_text(handle, parts, last_flush)
+
+        # One signal carrying the joined prose; buffer drained; flush time advanced.
+        handle.signal.assert_awaited_once_with("agent_text_delta", arg="Hello, world")
+        assert parts == []
+        assert last_flush[0] > 0.0
+
+    async def test_empty_buffer_sends_no_signal_but_records_flush(self) -> None:
+        handle = AsyncMock()
+        last_flush = [0.0]
+
+        await _flush_pending_text(handle, [], last_flush)
+
+        # Recording the flush time even on an empty buffer keeps the interval honest.
+        assert last_flush[0] > 0.0
+        handle.signal.assert_not_awaited()
+
+    async def test_no_handle_still_clears_buffer(self) -> None:
+        parts = ["dropped"]
+        await _flush_pending_text(None, parts, [0.0])
+        assert parts == []

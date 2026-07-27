@@ -1,12 +1,21 @@
 import React, { useCallback, useMemo, useRef } from 'react'
 
+import { ChartLegend } from '../../components/Legend/ChartLegend'
+import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { mixColors } from '../../core/color-utils'
 import type { RadialSlicePayload } from '../../core/hooks/useRadialInteraction'
 import { useRadialLayout } from '../../core/radial-context'
 import { RadialChart } from '../../core/RadialChart'
 import type { RadialLayoutBuilder } from '../../core/RadialChart'
-import type { ChartDrawArgs, ChartTheme, ResolvedSeries, Series, TooltipContext } from '../../core/types'
+import type {
+    ChartDrawArgs,
+    ChartLegendConfig,
+    ChartTheme,
+    ResolvedSeries,
+    Series,
+    TooltipContext,
+} from '../../core/types'
 import { computePieLayout } from './computePieLayout'
 import type { PieLayout } from './computePieLayout'
 import { PieTooltip } from './PieTooltip'
@@ -46,6 +55,9 @@ export interface PieChartConfig<Meta = unknown> {
     tooltip?: {
         enabled?: boolean
     }
+    /** Built-in legend, one row per slice. Hidden by default; toggling a row off removes the
+     *  slice and the rest rescale to the full circle. Same semantics as the other charts. */
+    legend?: ChartLegendConfig
 }
 
 export interface PieChartProps<Meta = unknown> {
@@ -143,9 +155,12 @@ function PieChartInner<Meta = unknown>({
         sort = null,
         sliceValue,
         tooltip: tooltipConfig,
+        legend,
     } = config ?? {}
 
     const showTooltip = tooltipConfig?.enabled !== false
+
+    const { visibleSeries, legendProps } = useChartLegend(series, theme, legend)
 
     const buildLayout = useCallback<RadialLayoutBuilder<Meta>>(
         (resolvedSeries, dimensions) =>
@@ -226,31 +241,33 @@ function PieChartInner<Meta = unknown>({
     )
 
     return (
-        <RadialChart<Meta>
-            series={series}
-            theme={theme}
-            buildLayout={buildLayout}
-            drawStatic={drawStatic}
-            drawHover={drawHover}
-            tooltip={renderTooltip}
-            showTooltip={showTooltip}
-            onSliceClick={onSliceClick}
-            hitOuterSlack={effectiveHoverGrowth}
-            hoverAnimationMs={effectiveHoverAnimationMs}
-            className={className}
-            dataAttr={dataAttr}
-        >
-            <SliceLabels
-                valueFormatter={valueFormatter}
-                showValueOnSlice={showValueOnSlice}
-                showLabelOnSlice={showLabelOnSlice}
-                minSlicePercentForLabel={minSlicePercentForLabel}
-                labelRadiusRatio={labelRadiusRatio}
-                isPercent={isPercent}
-            />
-            <PieCenterLabel>{centerLabel}</PieCenterLabel>
-            {children}
-        </RadialChart>
+        <ChartLegend {...legendProps} legendDataAttr="hog-chart-pie-legend">
+            <RadialChart<Meta>
+                series={visibleSeries}
+                theme={theme}
+                buildLayout={buildLayout}
+                drawStatic={drawStatic}
+                drawHover={drawHover}
+                tooltip={renderTooltip}
+                showTooltip={showTooltip}
+                onSliceClick={onSliceClick}
+                hitOuterSlack={effectiveHoverGrowth}
+                hoverAnimationMs={effectiveHoverAnimationMs}
+                className={className}
+                dataAttr={dataAttr}
+            >
+                <SliceLabels
+                    valueFormatter={valueFormatter}
+                    showValueOnSlice={showValueOnSlice}
+                    showLabelOnSlice={showLabelOnSlice}
+                    minSlicePercentForLabel={minSlicePercentForLabel}
+                    labelRadiusRatio={labelRadiusRatio}
+                    isPercent={isPercent}
+                />
+                <PieCenterLabel>{centerLabel}</PieCenterLabel>
+                {children}
+            </RadialChart>
+        </ChartLegend>
     )
 }
 

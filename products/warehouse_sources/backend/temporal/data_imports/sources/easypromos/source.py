@@ -30,13 +30,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EasypromosSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.easypromos import (
+    EasypromosSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class EasypromosSource(ResumableSource[EasypromosSourceConfig, EasypromosResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://easypromos-apiref.redoc.ly/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -92,6 +98,7 @@ Get the token from the **Utilities** menu of your Easypromos account. The REST A
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if EASYPROMOS_ENDPOINTS[endpoint].fan_out_over_promotions:
@@ -117,7 +124,11 @@ Get the token from the **Utilities** menu of your Easypromos account. The REST A
         return schemas
 
     def validate_credentials(
-        self, config: EasypromosSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: EasypromosSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_easypromos_credentials(config.access_token)
 
@@ -133,6 +144,7 @@ Get the token from the **Utilities** menu of your Easypromos account. The REST A
         return easypromos_source(
             access_token=config.access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

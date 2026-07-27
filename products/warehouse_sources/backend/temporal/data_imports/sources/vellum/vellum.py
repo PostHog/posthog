@@ -1,14 +1,24 @@
 import dataclasses
-from collections.abc import Callable, Iterator
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    OffsetPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.settings import (
     VELLUM_BASE_URL,
@@ -18,19 +28,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.set
 
 PAGE_SIZE = 100
 
-
-class VellumRetryableError(Exception):
-    pass
+# The workflow deployment that parents the execution-events fan-out.
+_FANOUT_PARENT = "workflow_deployments"
 
 
 @dataclasses.dataclass
 class VellumResumeConfig:
-    # Next `offset` to request for the resource currently being paginated.
+    # Next `offset` to request for a simple (non-fan-out) list endpoint. Seeds the OffsetPaginator's
+    # resume state; saved after each fully-yielded page so a crash re-fetches the last page (merge
+    # dedupes) rather than skipping it.
     offset: int = 0
-    # Fan-out only: the workflow deployment whose execution events we're partway through. A stable id
-    # bookmark (not a positional index) so deployments added/removed between a crash and the retry can't
-    # resume us into the wrong parent. None for the standard top-level endpoints.
+    # Legacy field kept only so pre-migration saved state still parses (dataclass(**saved)). The
+    # fan-out now checkpoints through `fanout_state`; an old-shape bookmark starts the fan-out fresh.
     deployment_id: str | None = None
+    # Fan-out resume state (framework shape): {"completed": [child_path, ...], "current": child_path |
+    # None, "child_state": {...} | None}. Skips fully-synced deployments and resumes the in-progress one.
+    fanout_state: dict[str, Any] | None = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -54,223 +67,177 @@ def check_credentials(api_key: str) -> tuple[bool, int | None]:
         return False, None
 
 
-@retry(
-    retry=retry_if_exception_type(
-        (
-            VellumRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    url: str,
-    headers: dict[str, str],
-    params: dict[str, Any],
-    logger: FilteringBoundLogger,
-) -> dict:
-    response = session.get(url, headers=headers, params=params, timeout=60)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise VellumRetryableError(f"Vellum API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        # 404 is expected during the execution-events fan-out (a deployment deleted mid-sync).
-        # Never log the response body: Vellum error payloads can echo synced execution data
-        # (workflow inputs/outputs), which must not leak into operational logs.
-        log = logger.warning if response.status_code == 404 else logger.error
-        log(f"Vellum API error: status={response.status_code}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
+def _list_paginator() -> OffsetPaginator:
+    # Vellum list responses carry `count`/`results`; page on offset and stop once the accumulated
+    # offset reaches `count` (a short final page also terminates via OffsetPaginator's built-in check).
+    return OffsetPaginator(limit=PAGE_SIZE, offset_param="offset", limit_param="limit", total_path="count")
 
 
-def _paginate(
-    session: requests.Session,
-    url: str,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    manager: ResumableSourceManager[VellumResumeConfig],
-    ordering: str | None,
-    start_offset: int,
-    deployment_id: str | None,
-    transform: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
-) -> Iterator[Any]:
-    """Walk a Vellum list endpoint via `limit`/`offset` and yield batches.
-
-    Vellum's list responses carry `count`/`results` (top-level endpoints also carry `next`/`previous`,
-    but the execution-events response does not), so we page purely on offset and stop when a page comes
-    back short or the accumulated offset reaches `count`. When a batch is yielded we save the *current*
-    page's offset (not the next page's): a crash then resumes by re-fetching this page and merge dedupes
-    the rows already yielded on the primary key. Advancing the saved offset past the current page could
-    skip its unyielded tail.
-    """
-    offset = start_offset
-    while True:
-        params: dict[str, Any] = {"limit": PAGE_SIZE, "offset": offset}
-        if ordering:
-            params["ordering"] = ordering
-
-        data = _fetch_page(session, url, headers, params, logger)
-        results = data.get("results", [])
-        count = data.get("count")
-
-        for item in results:
-            batcher.batch(transform(item) if transform else item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                manager.save_state(VellumResumeConfig(offset=offset, deployment_id=deployment_id))
-
-        offset += len(results)
-        if not results or (count is not None and offset >= count):
-            break
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": VELLUM_BASE_URL,
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-KEY", "location": "header"},
+        # capture=False: Vellum response bodies can echo user-authored content the name-based
+        # scrubbers can't recognise, so they must not enter HTTP sample capture. The api_key is still
+        # value-redacted (from the auth secret) in logs and raised error messages.
+        "session": make_tracked_session(redact_values=(api_key,), capture=False),
+    }
 
 
-def _iter_workflow_deployment_ids(
-    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
-) -> Iterator[str]:
-    """Page through /workflow-deployments (oldest-first) yielding each deployment id for the fan-out."""
-    offset = 0
-    while True:
-        params = {"limit": PAGE_SIZE, "offset": offset, "ordering": "created"}
-        data = _fetch_page(session, f"{VELLUM_BASE_URL}/workflow-deployments", headers, params, logger)
-        results = data.get("results", [])
-        if not results:
-            break
-        for item in results:
-            yield item["id"]
-        offset += len(results)
-        count = data.get("count")
-        if count is not None and offset >= count:
-            break
-
-
-def _get_execution_event_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    manager: ResumableSourceManager[VellumResumeConfig],
+def _simple_resource(
+    api_key: str,
     config: VellumEndpointConfig,
-) -> Iterator[Any]:
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[VellumResumeConfig],
+) -> Iterable[Any]:
+    params: dict[str, Any] = {"limit": PAGE_SIZE}
+    if config.ordering:
+        params["ordering"] = config.ordering
+
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_key),
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    "data_selector": "results",
+                    "paginator": _list_paginator(),
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.offset:
+            initial_paginator_state = {"offset": resume.offset}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(VellumResumeConfig(offset=int(state["offset"])))
+
+    return rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+
+def _fanout_resource(
+    api_key: str,
+    config: VellumEndpointConfig,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[VellumResumeConfig],
+) -> Iterable[Any]:
     """Fan out over every workflow deployment, pulling its execution events and stamping the parent id.
 
-    The parent id is injected under `config.parent_id_field` so the composite primary key
-    (`[workflow_deployment_id, span_id]`) is unique across the whole table. Full refresh: we can't
-    verify Vellum's `filters`/`ordering` params for this endpoint without a live key, so we don't rely
-    on them and merge dedupes across syncs.
+    The parent deployment id is injected into each child row under `parent_id_field` so the composite
+    primary key (`[workflow_deployment_id, span_id]`) stays unique table-wide. A deployment deleted
+    between enumeration and its fetch 404s — `response_actions` treats that as an empty page and skips
+    it rather than failing the whole sync; any other error propagates. Single dependent resource, so
+    the fan-out is resumable: fully-synced deployments are skipped and the in-progress one resumes.
     """
-    # Fan-out configs always set `parent_id_field`; assert it so the child-row injection is well-typed.
     parent_id_field = config.parent_id_field
     assert parent_id_field is not None, "fan-out endpoints must define parent_id_field"
 
-    deployment_ids = list(_iter_workflow_deployment_ids(session, headers, logger))
+    parent_config = VELLUM_ENDPOINTS[_FANOUT_PARENT]
+    parent_params: dict[str, Any] = {"limit": PAGE_SIZE}
+    if parent_config.ordering:
+        parent_params["ordering"] = parent_config.ordering
 
-    resume = manager.load_state() if manager.can_resume() else None
-    remaining = deployment_ids
-    resume_offset = 0
-    if resume is not None and resume.deployment_id is not None and resume.deployment_id in deployment_ids:
-        remaining = deployment_ids[deployment_ids.index(resume.deployment_id) :]
-        resume_offset = resume.offset
-        logger.debug(
-            f"Vellum: resuming execution events from deployment_id={resume.deployment_id}, offset={resume_offset}"
-        )
+    parent_resource: EndpointResource = {
+        "name": _FANOUT_PARENT,
+        "table_name": _FANOUT_PARENT,
+        "write_disposition": "replace",
+        "table_format": "delta",
+        "endpoint": {
+            "path": parent_config.path,
+            "params": parent_params,
+            "data_selector": "results",
+            "paginator": _list_paginator(),
+        },
+    }
 
-    for index, deployment_id in enumerate(remaining):
-        start_offset = resume_offset
-        resume_offset = 0  # only the resumed-into deployment uses the saved offset
-        url = f"{VELLUM_BASE_URL}{config.path.replace('{deployment_id}', deployment_id)}"
+    # The resolve param name must match the `{deployment_id}` placeholder in the child path.
+    child_resource: EndpointResource = {
+        "name": endpoint,
+        "table_name": endpoint,
+        "write_disposition": "replace",
+        "table_format": "delta",
+        "include_from_parent": ["id"],
+        "endpoint": {
+            "path": config.path,
+            "params": {
+                "deployment_id": {"type": "resolve", "resource": _FANOUT_PARENT, "field": "id"},
+                "limit": PAGE_SIZE,
+            },
+            "data_selector": "results",
+            "paginator": _list_paginator(),
+            # A deployment deleted mid-sync 404s; treat it as an empty page and move on.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        },
+    }
 
-        def _inject_parent_id(
-            item: dict[str, Any], _dep_id: str = deployment_id, _field: str = parent_id_field
-        ) -> dict[str, Any]:
-            item[_field] = _dep_id
-            return item
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_key),
+        "resource_defaults": {},
+        "resources": [parent_resource, child_resource],
+    }
 
-        try:
-            yield from _paginate(
-                session,
-                url,
-                headers,
-                logger,
-                batcher,
-                manager,
-                ordering=None,
-                start_offset=start_offset,
-                deployment_id=deployment_id,
-                transform=_inject_parent_id,
-            )
-        except requests.HTTPError as exc:
-            # A deployment deleted between enumeration and this fetch 404s. Skip it rather than failing
-            # the whole sync; any other HTTP error is re-raised.
-            if exc.response is not None and exc.response.status_code == 404:
-                logger.warning(f"Vellum: workflow deployment {deployment_id} not found while fetching events, skipping")
-            else:
-                raise
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state is not None:
+            initial_paginator_state = resume.fanout_state
 
-        # Advance the bookmark to the next deployment so a crash between deployments resumes correctly.
-        if index + 1 < len(remaining):
-            manager.save_state(VellumResumeConfig(offset=0, deployment_id=remaining[index + 1]))
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(VellumResumeConfig(fanout_state=state))
 
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[VellumResumeConfig],
-) -> Iterator[Any]:
-    config = VELLUM_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    # capture=False: Vellum bodies can echo user-authored content (workflow inputs/outputs,
-    # document metadata, descriptions) the name-based scrubbers can't recognise.
-    session = make_tracked_session(redact_values=(api_key,), capture=False)
-
-    if config.fan_out_over_workflow_deployments:
-        yield from _get_execution_event_rows(session, headers, logger, batcher, resumable_source_manager, config)
-    else:
-        resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-        start_offset = resume.offset if resume is not None else 0
-        if start_offset:
-            logger.debug(f"Vellum: resuming {endpoint} from offset={start_offset}")
-        yield from _paginate(
-            session,
-            f"{VELLUM_BASE_URL}{config.path}",
-            headers,
-            logger,
-            batcher,
-            resumable_source_manager,
-            ordering=config.ordering,
-            start_offset=start_offset,
-            deployment_id=None,
-        )
-
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    child = next(r for r in resources if r.name == endpoint)
+    # include_from_parent injects the parent id under `_workflow_deployments_id`; rename it to the
+    # composite-key column the child rows are expected to carry.
+    return child.add_map(rename_parent_fields(_FANOUT_PARENT, {"id": parent_id_field}))
 
 
 def vellum_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[VellumResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = VELLUM_ENDPOINTS[endpoint]
 
+    if config.fan_out_over_workflow_deployments:
+        resource = _fanout_resource(api_key, config, endpoint, team_id, job_id, resumable_source_manager)
+    else:
+        resource = _simple_resource(api_key, config, endpoint, team_id, job_id, resumable_source_manager)
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         sort_mode="asc",
         partition_count=1,

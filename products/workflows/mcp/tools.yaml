@@ -69,8 +69,20 @@ tools:
     hog-flows-publish-create:
         operation: hog_flows_publish_create
         enabled: false
+    hog-flows-reputation-retrieve:
+        operation: hog_flows_reputation_retrieve
+        enabled: false
     hog-flows-rerun-create:
         operation: hog_flows_rerun_create
+        enabled: false
+    hog-flows-revisions-list:
+        operation: hog_flows_revisions_list
+        enabled: false
+    hog-flows-revisions-restore-create:
+        operation: hog_flows_revisions_restore_create
+        enabled: false
+    hog-flows-revisions-retrieve:
+        operation: hog_flows_revisions_retrieve
         enabled: false
     hog-flows-schedules-create:
         operation: hog_flows_schedules_create
@@ -115,17 +127,17 @@ tools:
             first, then enable (workflows-enable) only with the user's explicit approval — from then on it runs on real
             people, and further content edits stage as a draft you must publish (workflows-publish) to take effect.
             Provide an actions array with exactly one type='trigger' (config.type:
-            event|webhook|manual|batch|tracking_pixel) plus action nodes (function/function_email/function_sms, delay,
-            conditional_branch, wait_until_condition, ...) connected by edges. Read the building-workflows skill for
-            node shapes before composing: a node that mismatches the per-type schema saves but breaks the visual editor.
-            Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper —
-            {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the
-            editor flags it and the branch won't evaluate your condition. (2) Never hand-author bytecode anywhere; send
-            properties/hash and the server compiles it. A 'batch' trigger broadcasts to an audience
-            (config.filters.properties: person-property conditions and/or cohort references), one run per matching
-            person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
-            workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is
-            unsupported; reject it and explain why.
+            event|webhook|manual|batch|tracking_pixel) plus action nodes
+            (function/function_email/function_sms/function_push, delay, conditional_branch, wait_until_condition, ...)
+            connected by edges. Read the building-workflows skill for node shapes before composing: a node that
+            mismatches the per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a
+            conditional_branch condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not
+            {properties:[...]} on the condition; omitting it passes save but the editor flags it and the branch won't
+            evaluate your condition. (2) Never hand-author bytecode anywhere; send properties/hash and the server
+            compiles it. A 'batch' trigger broadcasts to an audience (config.filters.properties: person-property
+            conditions and/or cohort references), one run per matching person, and does NOT fire on enable: dispatch
+            with workflows-run-batch or attach a schedule with workflows-schedule-create. Behavioral targeting ('did
+            event X at least N times over the last M days') is unsupported; reject it and explain why.
         ui_app: workflow
     workflows-discard-draft:
         operation: hog_flows_discard_draft_create
@@ -174,6 +186,20 @@ tools:
             Get a single workflow invocation by invocation_id, including invocation_globals — the raw triggering payload
             (event/person/groups) that the run executed against. Use after workflows-list-invocations to inspect exactly
             what input produced a failure.
+    workflows-get-revision:
+        operation: hog_flows_revisions_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get workflow revision
+        description: >
+            Get one revision of a workflow by version number, including its full content snapshot (actions, edges,
+            trigger, variables). Use to inspect what was live at that version before restoring it with
+            workflows-restore-revision.
     workflows-global-stats:
         operation: hog_flows_metrics_global_retrieve
         enabled: true
@@ -239,6 +265,21 @@ tools:
             failure view: filter status=failed to see who it failed for and why. Filter by distinct_id and time range.
             Distinct from workflows-list-batch-jobs (the dispatch ledger, which has no per-person outcome) — drill from
             a failed invocation into workflows-logs for the step-by-step trace.
+    workflows-list-revisions:
+        operation: hog_flows_revisions_list
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List workflow revisions
+        description: >
+            List a workflow's revision history, newest first. Every live-content change (publish, direct edit) appends a
+            version; each entry shows version, when, and by whom. Fetch a version's content with workflows-get-revision;
+            roll back with workflows-restore-revision.
     workflows-logs:
         operation: hog_flows_logs_retrieve
         enabled: true
@@ -290,11 +331,33 @@ tools:
         title: Publish workflow draft
         description: >
             Apply a workflow's staged draft to its live config. Two-step: call without confirm first — it returns
-            in_flight_runs (people mid-flow who will follow the new config once published) and draft_updated_at,
-            changing nothing. Echo that impact to the user and get their go-ahead, then call again with confirm=true and
-            that exact draft_updated_at; a 409 means the draft changed since you read it, so re-read and re-confirm.
+            in_flight_runs, a confirm_token, and an impact summary (per deleted step: about how many people are parked
+            there and whether they move to a surviving step or exit; variables that may render empty for runs that never
+            executed their new producer; schedules overriding removed variables), changing nothing. Echo the impact to
+            the user and get their go-ahead, then call again with confirm=true and that confirm_token. A 409 means the
+            draft changed since the preview and a 400 means the token expired — preview again and re-confirm either way.
             Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and
-            the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true).
+            the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true). Shortened
+            delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes
+            moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs
+            still parked shortly after publishing are normal, not a sign of a failed publish.
+    workflows-restore-revision:
+        operation: hog_flows_revisions_restore_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Restore workflow revision
+        description: >
+            Roll a workflow back (or forward) by copying a revision's content into its staged draft — the live config is
+            untouched until you publish. Then run the normal cycle: test with workflows-test-run (use_draft=true),
+            preview with workflows-publish, confirm. The preview shows exactly what the rollback does to people
+            in-flight. A 409 means a draft is already open — publish or discard it, or pass overwrite=true to replace
+            it. Note what a rollback can't undo: runs that already moved on while the newer version was live keep their
+            positions.
     workflows-stats:
         operation: hog_flows_metrics_retrieve
         enabled: true
@@ -327,9 +390,10 @@ tools:
             current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat.
             To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action
             after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}).
-            Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side
+            Async actions (HTTP/email/SMS/push) are mocked by default; set mock_async_functions=false to fire real side
             effects. Returns the step's execution trace. Set use_draft=true to test a workflow's staged draft instead of
-            its live config — always do this before workflows-publish.
+            its live config — always do this before workflows-publish. use_draft requires a staged draft to exist
+            (workflows-get shows it in 'draft'); on a workflow with nothing staged, omit it.
         exclude_params:
             - configuration
     workflows-update:
@@ -344,15 +408,17 @@ tools:
         enrich_url: '{id}/workflow'
         title: Update workflow
         description: >
-            Fallback editor. Prefer workflows-patch-graph for graph changes: it sends only the delta, is structurally
-            validated, and returns the full updated graph. Reach for workflows-update for top-level metadata a patch
-            can't express (name, description, exit_condition), or as an escape hatch to replace the whole workflow when
-            you can't get workflows-patch-graph to land a change. On an active workflow, content fields stage a draft
-            (published with workflows-publish) while name/description apply immediately; a rejection saying active
-            workflows can't be edited means draft editing isn't enabled for this project yet — then a live change means
-            recreating the workflow as a new draft. Status changes go through workflows-enable / workflows-archive.
+            Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion,
+            trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently
+            drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow,
+            content fields stage a draft (published with workflows-publish) while name/description apply immediately; a
+            rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet -
+            then a live change means recreating the workflow as a new draft. Status changes go through workflows-enable
+            / workflows-archive.
         exclude_params:
             - status
+            - actions
+            - edges
         ui_app: workflow
     workflows-update-schedule:
         operation: hog_flows_schedules_partial_update

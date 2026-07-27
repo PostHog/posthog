@@ -541,6 +541,12 @@ const externalDataSourcesCreateWebhookCreate = (): ToolBase<
         if (params.direct_query_enabled !== undefined) {
             body['direct_query_enabled'] = params.direct_query_enabled
         }
+        if (params.auto_sync_new_schemas !== undefined) {
+            body['auto_sync_new_schemas'] = params.auto_sync_new_schemas
+        }
+        if (params.auto_sync_schema_patterns !== undefined) {
+            body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
+        }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
         }
@@ -583,6 +589,12 @@ const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
         }
         if (params.direct_query_enabled !== undefined) {
             body['direct_query_enabled'] = params.direct_query_enabled
+        }
+        if (params.auto_sync_new_schemas !== undefined) {
+            body['auto_sync_new_schemas'] = params.auto_sync_new_schemas
+        }
+        if (params.auto_sync_schema_patterns !== undefined) {
+            body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
         }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
@@ -671,6 +683,12 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
         if (params.direct_query_enabled !== undefined) {
             body['direct_query_enabled'] = params.direct_query_enabled
         }
+        if (params.auto_sync_new_schemas !== undefined) {
+            body['auto_sync_new_schemas'] = params.auto_sync_new_schemas
+        }
+        if (params.auto_sync_schema_patterns !== undefined) {
+            body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
+        }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
         }
@@ -699,6 +717,12 @@ const externalDataSourcesRefreshSchemas = (): ToolBase<typeof ExternalDataSource
         if (params.direct_query_enabled !== undefined) {
             body['direct_query_enabled'] = params.direct_query_enabled
         }
+        if (params.auto_sync_new_schemas !== undefined) {
+            body['auto_sync_new_schemas'] = params.auto_sync_new_schemas
+        }
+        if (params.auto_sync_schema_patterns !== undefined) {
+            body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/refresh_schemas/`,
@@ -723,6 +747,12 @@ const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadS
         }
         if (params.direct_query_enabled !== undefined) {
             body['direct_query_enabled'] = params.direct_query_enabled
+        }
+        if (params.auto_sync_new_schemas !== undefined) {
+            body['auto_sync_new_schemas'] = params.auto_sync_new_schemas
+        }
+        if (params.auto_sync_schema_patterns !== undefined) {
+            body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -796,6 +826,12 @@ const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
         }
         if (params.direct_query_enabled !== undefined) {
             body['direct_query_enabled'] = params.direct_query_enabled
+        }
+        if (params.auto_sync_new_schemas !== undefined) {
+            body['auto_sync_new_schemas'] = params.auto_sync_new_schemas
+        }
+        if (params.auto_sync_schema_patterns !== undefined) {
+            body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
         }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs

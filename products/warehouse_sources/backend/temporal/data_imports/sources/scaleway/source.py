@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ScalewaySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scaleway import (
+    ScalewaySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway.scaleway import (
     ScalewayResumeConfig,
     probe_endpoint,
@@ -38,6 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ScalewaySource(ResumableSource[ScalewaySourceConfig, ScalewayResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://www.scaleway.com/en/developers/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -110,6 +113,7 @@ Grant the key the read permission sets for the data you want to sync, for exampl
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = SCALEWAY_ENDPOINTS[endpoint]
@@ -131,7 +135,11 @@ Grant the key the read permission sets for the data you want to sync, for exampl
         return schemas
 
     def validate_credentials(
-        self, config: ScalewaySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ScalewaySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not config.organization_id:
             return False, "Organization ID is required"
@@ -156,7 +164,7 @@ Grant the key the read permission sets for the data you want to sync, for exampl
         return False, f"Could not validate access to '{schema_name}' (HTTP {status})"
 
     def get_endpoint_permissions(
-        self, config: ScalewaySourceConfig, team_id: int, endpoints: list[str]
+        self, config: ScalewaySourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         # Only a genuine 403 denial marks a table as needing extra scopes; throttles, 5xx and network
         # blips are left reachable so a transient hiccup never blocks the picker.

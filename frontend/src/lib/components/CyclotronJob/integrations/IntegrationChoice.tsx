@@ -23,6 +23,7 @@ export type IntegrationConfigureProps = {
     schema?: { requiredScopes?: string }
     integration?: string
     beforeRedirect?: () => void
+    allowClear?: boolean
 }
 
 export function IntegrationChoice({
@@ -32,6 +33,7 @@ export function IntegrationChoice({
     integration,
     redirectUrl,
     beforeRedirect,
+    allowClear = true,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations, newIntegrationModalKind, slackAvailable } = useValues(integrationsLogic)
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
@@ -139,7 +141,7 @@ export function IntegrationChoice({
                             label: 'Manage integrations',
                             sideIcon: <IconExternal />,
                         },
-                        value
+                        value && allowClear
                             ? {
                                   onClick: () => onChange?.(null),
                                   label: 'Clear selection',

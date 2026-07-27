@@ -8,13 +8,23 @@ import { compactNumber, humanFriendlyCurrency, humanFriendlyNumber, percentage }
 import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
-const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled', 'currency', 'short'] as const
+const formats = [
+    'numeric',
+    'duration',
+    'duration_ms',
+    'duration_ns',
+    'percentage',
+    'percentage_scaled',
+    'currency',
+    'short',
+] as const
 export type AggregationAxisFormat = (typeof formats)[number]
 
 export const INSIGHT_UNIT_OPTIONS: LemonSelectOptionLeaf<AggregationAxisFormat>[] = [
     { value: 'numeric', label: 'None' },
     { value: 'duration', label: 'Duration (s)' },
     { value: 'duration_ms', label: 'Duration (ms)' },
+    { value: 'duration_ns', label: 'Duration (ns)' },
     { value: 'percentage', label: 'Percent (0-100)' },
     { value: 'percentage_scaled', label: 'Percent (0-1)' },
     { value: 'currency', label: 'Currency ($)' },
@@ -31,11 +41,27 @@ export const INSIGHT_UNIT_OPTIONS_SHORT: Record<AggregationAxisFormat, string> =
     numeric: '',
     duration: 's',
     duration_ms: 'ms',
+    duration_ns: 'ns',
     percentage: '%',
     percentage_scaled: '%',
     currency: '$',
     short: 'Short',
 }
+
+const formatNanoseconds = (value: number): string => {
+    if (value < 0) {
+        return `-${formatNanoseconds(-value)}`
+    }
+    const absoluteValue = Math.abs(value)
+    if (absoluteValue < 1_000) {
+        return `${humanFriendlyNumber(value)}ns`
+    }
+    if (absoluteValue < 1_000_000) {
+        return `${humanFriendlyNumber(value / 1_000)}µs`
+    }
+    return humanFriendlyDuration(value / 1_000_000_000, { secondsFixed: 1 })
+}
+
 // this function needs to support a trendsFilter as part of an insight query and
 // legacy trend filters, as we still return these as part of a data response
 export const formatAggregationAxisValue = (
@@ -66,6 +92,9 @@ export const formatAggregationAxisValue = (
                 break
             case 'duration_ms':
                 formattedValue = humanFriendlyDuration(value / 1000, { secondsFixed: 1 })
+                break
+            case 'duration_ns':
+                formattedValue = formatNanoseconds(value)
                 break
             case 'percentage':
                 formattedValue = percentage(value / 100, maxDecimalPlaces)

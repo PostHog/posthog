@@ -5,7 +5,6 @@ import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/data
 import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
 import type {
-    AnyResponseType,
     DataNode,
     DateRange,
     ErrorTrackingIssueAssignee,
@@ -114,9 +113,9 @@ export interface issuesDataNodeLogicActions {
         value: true
     } // nodeLogic
     loadData: (
-        refresh?: RefreshType,
-        alreadyRunningQueryId?: string,
-        overrideQuery?: DataNode<Record<string, any>>
+        refresh?: RefreshType | undefined,
+        alreadyRunningQueryId?: string | undefined,
+        overrideQuery?: DataNode<Record<string, any>> | undefined
     ) => {
         overrideQuery: DataNode<Record<string, any>> | undefined
         pollOnly: boolean
@@ -147,12 +146,14 @@ export interface issuesDataNodeLogicActions {
             | TraceSpansQueryResponse
             | null
             | undefined,
-        payload?: {
-            overrideQuery: DataNode<Record<string, any>> | undefined
-            pollOnly: boolean
-            queryId: string
-            refresh: RefreshType | undefined
-        }
+        payload?:
+            | {
+                  overrideQuery: DataNode<Record<string, any>> | undefined
+                  pollOnly: boolean
+                  queryId: string
+                  refresh: RefreshType | undefined
+              }
+            | undefined
     ) => {
         payload?: {
             overrideQuery: DataNode<Record<string, any>> | undefined
@@ -178,7 +179,23 @@ export interface issuesDataNodeLogicActions {
             | undefined
     } // nodeLogic
     setResponse: (
-        response: Exclude<AnyResponseType, undefined>
+        response:
+            | ErrorTrackingQueryResponse
+            | EventsQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogsQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
+            | Record<string, any>
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
     ) =>
         | ErrorTrackingQueryResponse
         | EventsQueryResponse

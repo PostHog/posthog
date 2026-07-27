@@ -299,8 +299,10 @@ const slackEscape = (text) => String(text).replace(/&/g, '&amp;').replace(/</g, 
 
 // A workflow's run history on master, in engineering analytics — where you can see all of its
 // runs at a glance. The path key is the workflow's GitHub display name (e.g. "Backend CI").
+// Detail pages live under a `repos/` prefix, mirroring GitHub's REST shape — see that product's
+// manifest `urls.engineeringAnalyticsWorkflowRuns`, which this must stay in step with.
 function runsUrlFor(owner, repo, workflowName) {
-    return `${ENG_ANALYTICS_BASE}/${owner}/${repo}/actions/workflows/${encodeURIComponent(workflowName)}?q=master`
+    return `${ENG_ANALYTICS_BASE}/repos/${owner}/${repo}/actions/workflows/${encodeURIComponent(workflowName)}?q=master`
 }
 
 // Read-boundary normalizer for persisted incident workflows: tolerate an older

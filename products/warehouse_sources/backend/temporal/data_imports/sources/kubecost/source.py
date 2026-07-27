@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KubecostSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kubecost import (
+    KubecostSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.kubecost import (
     KubecostResumeConfig,
     hostname_of,
@@ -38,6 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class KubecostSource(ResumableSource[KubecostSourceConfig, KubecostResumeConfig], ValidateDatabaseHostMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.kubecost.com/apis"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -105,6 +108,7 @@ Enter the URL where your Kubecost cost-model API is reachable (e.g. `https://kub
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -123,7 +127,11 @@ Enter the URL where your Kubecost cost-model API is reachable (e.g. `https://kub
         return schemas
 
     def validate_credentials(
-        self, config: KubecostSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: KubecostSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             host_valid, host_error = self.is_database_host_valid(hostname_of(config.host), team_id)

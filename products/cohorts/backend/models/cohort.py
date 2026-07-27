@@ -286,15 +286,17 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Keep `condition_type` derived from `filters` on every save, so any creation path
         (the cohorts API, management commands, or a direct `Cohort.objects.create(...)`)
-        ends up with a consistent classification, not just the API serializer's flow."""
+        ends up with a consistent classification, not just the API serializer's flow.
+
+        `cohort_type` isn't derived here — it's computed by the API serializer
+        (`validate_filters_and_compute_realtime_support`) — so a direct `Cohort.objects.create(...)`
+        gets a fresh `condition_type` but a stale/absent `cohort_type`."""
         # update_fields can arrive positionally (4th positional, after force_insert/force_update/using)
         # or as a keyword. Intercept it so _maintain_behavioral_shape can extend the frozen set.
         update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
-        if update_fields is None:
+        if update_fields is None or "filters" in update_fields:
             self.condition_type = Cohort.compute_condition_type(self.filters)
-        elif "filters" in update_fields:
-            self.condition_type = Cohort.compute_condition_type(self.filters)
-            if "condition_type" not in update_fields:
+            if update_fields is not None and "condition_type" not in update_fields:
                 update_fields = [*update_fields, "condition_type"]
 
         maintained_update_fields = self._maintain_behavioral_shape(update_fields)
@@ -565,7 +567,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
 
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
-        from products.cohorts.backend.models.util import recalculate_cohortpeople
+        from products.cohorts.backend.models.util import recalculate_cohortpeople, save_recovery_bookkeeping
 
         logger.info(
             "cohort_calculation_started",
@@ -576,6 +578,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         start_time = time.monotonic()
 
         cohort_type_cleared = False
+        # Snapshot the current error count while the connection is healthy so the error-path
+        # increment below is a concrete int, not an F() expression. save_recovery_bookkeeping
+        # may replay the finally-save, and a replayed F("errors_calculating") + 1 would count a
+        # single failure twice if the first write committed before the connection dropped.
+        starting_errors_calculating = self.errors_calculating or 0
         try:
             count = recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id)
             self.count = count
@@ -598,7 +605,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             self.errors_calculating = 0
             self.last_error_at = None
         except Exception:
-            self.errors_calculating = F("errors_calculating") + 1
+            self.errors_calculating = starting_errors_calculating + 1
             self.last_error_at = timezone.now()
 
             logger.warning(
@@ -611,13 +618,29 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             raise
         finally:
-            # Save fields modified during calculation, but exclude is_calculating to prevent race condition
-            self.save(
-                update_fields=["last_calculation", "errors_calculating", "last_error_at", "cohort_type", "groups"]
+            # Save fields modified during calculation, but exclude is_calculating to prevent race
+            # condition. `groups` is included because accessing self.properties during calculation
+            # normalizes deprecated inline group properties in place, and that normalization must be
+            # persisted. Persist resiliently: a Postgres connection dropped mid-recalculation would
+            # otherwise make this save fail with "connection is closed", masking the real error and
+            # leaving the cohort stuck calculating (the reconnect also lets the is_calculating reset
+            # below succeed).
+            save_recovery_bookkeeping(
+                lambda: self.save(
+                    update_fields=["last_calculation", "errors_calculating", "last_error_at", "cohort_type", "groups"]
+                ),
+                cohort_id=self.pk,
+                team_id=self.team_id,
             )
-            # Only set is_calculating = False if this is the highest pending version
-            # This prevents the flag from being reset while other higher-version calculations are still running
-            self._safe_reset_calculating_state(completed_version=pending_version)
+            # Only set is_calculating = False if this is the highest pending version. This prevents the
+            # flag from being reset while other higher-version calculations are still running. Route it
+            # through the same reconnect-and-retry: it is a bookkeeping write on the same connection, so
+            # an unguarded failure here would mask the real error and leave is_calculating stuck True.
+            save_recovery_bookkeeping(
+                lambda: self._safe_reset_calculating_state(completed_version=pending_version),
+                cohort_id=self.pk,
+                team_id=self.team_id,
+            )
 
         self.refresh_from_db()
 
@@ -634,6 +657,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         *,
         team_id: Optional[int] = None,
         batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE,
+        raise_on_error: bool = False,
     ) -> int:
         """
         Insert a list of users identified by their distinct ID into the cohort, for the given team.
@@ -642,6 +666,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             items: List of distinct IDs of users to be inserted into the cohort.
             team_id: ID of the team for which to insert the users. Defaults to `self.team`, because of a lot of existing usage in tests.
             batch_size: Number of records to process in each batch. Defaults to 1000.
+            raise_on_error: When True, a batch insert failure is re-raised and terminal cohort
+                state is left for the caller to finalize, instead of being swallowed and
+                recorded on the cohort here. Use when the caller must not treat a partial
+                insert as success.
         """
         if team_id is None:
             team_id = self.team_id
@@ -661,7 +689,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 return get_person_uuids_by_distinct_ids(team_id, items[start_idx:end_idx])
 
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
-        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
+        return self._insert_users_list_with_batching(
+            batch_iterator, insert_in_clickhouse=True, team_id=team_id, raise_on_error=raise_on_error
+        )
 
     def insert_users_list_by_uuid(
         self,

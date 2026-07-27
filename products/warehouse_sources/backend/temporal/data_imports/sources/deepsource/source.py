@@ -31,7 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource
     DEEPSOURCE_ENDPOINTS,
     ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DeepsourceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepsource import (
+    DeepsourceSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
@@ -48,6 +50,7 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 @SourceRegistry.register
 class DeepsourceSource(ResumableSource[DeepsourceSourceConfig, DeepsourceResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.deepsource.com/docs/developers/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -138,6 +141,7 @@ The account login is the organization or user name exactly as it appears in Deep
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # No DeepSource connection accepts a server-side timestamp filter (Relay cursor args
         # only), so every schema is full refresh — see settings.py.
@@ -158,7 +162,11 @@ The account login is the organization or user name exactly as it appears in Deep
         return schemas
 
     def validate_credentials(
-        self, config: DeepsourceSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DeepsourceSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_deepsource_credentials(config.api_token, config.account_login, config.vcs_provider)
 

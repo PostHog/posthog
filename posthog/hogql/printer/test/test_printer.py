@@ -2201,6 +2201,57 @@ class TestPrinter(BaseTest):
 
         self.assertNotIn("enable_analyzer=1", result)
 
+    @parameterized.expand(
+        [
+            (
+                "bare_column_table_join",
+                "SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event",
+                "ON equals(q1.event, q2.event)",
+            ),
+            (
+                "cte_join",
+                "WITH exposed AS (SELECT event, distinct_id FROM events), "
+                "first_event AS (SELECT event, distinct_id FROM events) "
+                "SELECT e.distinct_id FROM exposed AS e JOIN first_event AS f USING (distinct_id)",
+                "ON equals(e.distinct_id, f.distinct_id)",
+            ),
+            (
+                "multiple_columns_subquery_join",
+                "SELECT a.event FROM (SELECT event, distinct_id FROM events) AS a "
+                "JOIN (SELECT event, distinct_id FROM events) AS b USING (event, distinct_id)",
+                "ON and(equals(a.event, b.event), equals(a.distinct_id, b.distinct_id))",
+            ),
+            (
+                "aliasless_subquery_right_join",
+                "SELECT a.event FROM events AS a JOIN (SELECT event FROM events) USING event",
+                "AS __using_join_1 ON equals(a.event, __using_join_1.event)",
+            ),
+            (
+                "aliasless_subquery_left_join",
+                "SELECT 1 FROM (SELECT event FROM events) JOIN events AS e USING event",
+                "ON equals(__using_join_1.event, e.event)",
+            ),
+            (
+                "aliasless_subqueries_both_sides",
+                "SELECT 1 FROM (SELECT event FROM events) JOIN (SELECT event FROM events) USING event",
+                "AS __using_join_2 ON equals(__using_join_1.event, __using_join_2.event)",
+            ),
+        ],
+    )
+    def test_join_using_desugars_to_on_constraint(self, _name: str, query: str, expected_constraint: str):
+        printed = self._select(query)
+        self.assertIn(expected_constraint, printed)
+        self.assertNotIn("USING", printed)
+
+    def test_join_using_unknown_right_column_raises(self):
+        with self.assertRaisesMessage(
+            QueryError, "Unable to resolve USING column 'event' on the right-hand table \"b\" of the join"
+        ):
+            self._select(
+                "SELECT a.event FROM (SELECT event FROM events) AS a "
+                "JOIN (SELECT distinct_id FROM events) AS b USING event"
+            )
+
     def test_select_array_join(self):
         self.assertEqual(
             self._select("select 1, a from events array join [1,2,3] as a"),
@@ -3142,29 +3193,30 @@ class TestPrinter(BaseTest):
             "hogql_val_8": "Bool",
         }
 
-    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
-    def test_ai_trace_id_optimizations(self, mock_get_mat_col):
+    @patch("posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table")
+    def test_ai_trace_id_optimizations(self, mock_matcols_by_table):
         """Test that $ai_trace_id uses the active storage path without wrappers that block skip indexes."""
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        # The column is in the registry either way; JSON-backed event properties must ignore it.
+        mat_col = MaterializedColumn(
+            name="mat_$ai_trace_id",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="$ai_trace_id", is_disabled=False
+            ),
+            is_nullable=True,
+        )
+        mock_matcols_by_table.return_value = {"events": {("$ai_trace_id", "properties"): mat_col}}
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            mock_get_mat_col.side_effect = AssertionError(
-                "JSON-backed event properties should not use materialized columns"
-            )
             expected_expr = "events.properties.`$ai_trace_id`"
         else:
-            from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
-
-            mock_get_mat_col.return_value = MaterializedColumn(
-                name="mat_$ai_trace_id",
-                details=MaterializedColumnDetails(
-                    table_column="properties", property_name="$ai_trace_id", is_disabled=False
-                ),
-                is_nullable=True,
-            )
             expected_expr = "events.`mat_$ai_trace_id`"
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
 
         sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id = 'trace123'", context)
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertNotIn("mat_$ai_trace_id", sql)
 
         # Find the placeholder that holds our value (index varies with number of joins)
         trace_param_key = next((k for k, v in context.values.items() if v == "trace123"), None)
@@ -3204,10 +3256,7 @@ class TestPrinter(BaseTest):
         self.assertNotIn("ifNull(notIn", sql)
 
         # Dynamic properties use JSON subcolumns under the new schema and JSON extraction under legacy.
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            mock_get_mat_col.assert_not_called()
-        else:
-            mock_get_mat_col.return_value = None
+        # `other_prop` is not in the materialized-column registry, so it stays on the JSON path.
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
 
         sql = self._select("SELECT * FROM events WHERE properties.other_prop = 'value'", context)
@@ -3218,7 +3267,6 @@ class TestPrinter(BaseTest):
             other_prop_expr = self._json_dynamic_property_expr("other_prop")
             self.assertIn(f"ifNull(equals({other_prop_expr}, %({value_param_key})s), 0)", sql)
             self.assertNotIn("JSONExtractRaw(events.properties,", sql)
-            mock_get_mat_col.assert_not_called()
         else:
             other_prop_param_key = next((k for k, v in context.values.items() if v == "other_prop"), None)
             assert other_prop_param_key is not None, "Expected 'other_prop' to be recorded as a parameter value"
@@ -3227,25 +3275,24 @@ class TestPrinter(BaseTest):
                 sql,
             )
 
-    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
-    def test_ai_session_id_optimizations(self, mock_get_mat_col):
+    @patch("posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table")
+    def test_ai_session_id_optimizations(self, mock_matcols_by_table):
         """Test that $ai_session_id uses the active storage path without wrappers that block skip indexes."""
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        # The column is in the registry either way; JSON-backed event properties must ignore it.
+        mat_col = MaterializedColumn(
+            name="mat_$ai_session_id",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="$ai_session_id", is_disabled=False
+            ),
+            is_nullable=True,
+        )
+        mock_matcols_by_table.return_value = {"events": {("$ai_session_id", "properties"): mat_col}}
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            mock_get_mat_col.side_effect = AssertionError(
-                "JSON-backed event properties should not use materialized columns"
-            )
             expected_expr = "events.properties.`$ai_session_id`"
         else:
-            from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
-
-            mock_get_mat_col.return_value = MaterializedColumn(
-                name="mat_$ai_session_id",
-                details=MaterializedColumnDetails(
-                    table_column="properties", property_name="$ai_session_id", is_disabled=False
-                ),
-                is_nullable=True,
-            )
             expected_expr = "events.`mat_$ai_session_id`"
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
 
@@ -3276,57 +3323,53 @@ class TestPrinter(BaseTest):
         self.assertIn(f"in({expected_expr}, tuple(%({session1_param_key})s, %({session2_param_key})s))", sql)
         self.assertNotIn("ifNull(in", sql)
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            mock_get_mat_col.assert_not_called()
+            self.assertNotIn("mat_$ai_session_id", sql)
 
-    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
-    def test_materialized_property_through_column_aliased_table(self, mock_get_mat_col):
+    @patch("posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table")
+    def test_materialized_property_through_column_aliased_table(self, mock_matcols_by_table):
         # A property read through a column-renamed table (`FROM events AS e (...)`, a ColumnAliasedTableType) must still
         # resolve to the active storage path. Property resolution has to unwrap that table type to reach the real table; if
         # it doesn't, the read silently falls back to a slow JSONExtract over the raw blob.
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            mock_get_mat_col.side_effect = AssertionError(
-                "JSON-backed event properties should not use materialized columns"
-            )
-        else:
-            from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
-            mock_get_mat_col.return_value = MaterializedColumn(
-                name="mat_foo",
-                details=MaterializedColumnDetails(table_column="properties", property_name="foo", is_disabled=False),
-                is_nullable=False,
-            )
+        # The column is in the registry either way; JSON-backed event properties must ignore it.
+        mat_col = MaterializedColumn(
+            name="mat_foo",
+            details=MaterializedColumnDetails(table_column="properties", property_name="foo", is_disabled=False),
+            is_nullable=False,
+        )
+        mock_matcols_by_table.return_value = {"events": {("foo", "properties"): mat_col}}
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         sql = self._select("SELECT e.properties.foo FROM events AS e (a, b)", context)
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             self.assertIn(self._json_dynamic_property_expr("foo", "e"), sql)
             self.assertIn("FROM events_json AS e", sql)
             self.assertNotIn("mat_foo", sql)
-            mock_get_mat_col.assert_not_called()
         else:
             self.assertIn("mat_foo", sql)
         self.assertNotIn("JSONExtractRaw(events.properties", sql)
 
-    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
-    def test_deep_key_materialized_read_prints_shared_json_extract_shape(self, mock_get_mat_col):
+    @patch("posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table")
+    def test_deep_key_materialized_read_prints_shared_json_extract_shape(self, mock_matcols_by_table):
         # Legacy materialized columns store the first key as a raw JSON string, so deeper reads must extract the tail
         # keys with the same SQL shape as ingest and backfill. JSON subcolumns can address the full string-key path
         # directly.
         from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        # The column is in the registry either way; JSON-backed event properties must ignore it.
+        mat_col = MaterializedColumn(
+            name="mat_foo",
+            details=MaterializedColumnDetails(table_column="properties", property_name="foo", is_disabled=False),
+            is_nullable=False,
+        )
+        mock_matcols_by_table.return_value = {"events": {("foo", "properties"): mat_col}}
+
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            mock_get_mat_col.side_effect = AssertionError(
-                "JSON-backed event properties should not use materialized columns"
-            )
             expected = self._json_dynamic_subcolumn_path_expr("events.properties", ["foo", "bar"])
             expected_values = {}
         else:
-            from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
-
-            mock_get_mat_col.return_value = MaterializedColumn(
-                name="mat_foo",
-                details=MaterializedColumnDetails(table_column="properties", property_name="foo", is_disabled=False),
-                is_nullable=False,
-            )
             head = "nullIf(nullIf(events.mat_foo, ''), 'null')"
             expected = json_extract_trim_quotes(head, "%(hogql_val_0)s")
             expected_values = {"hogql_val_0": "bar"}
@@ -3335,7 +3378,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(printed, expected)
         self.assertEqual(context.values, expected_values)
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            mock_get_mat_col.assert_not_called()
+            self.assertNotIn("mat_foo", printed)
 
     def _print_constant(self, node: ast.Constant) -> str:
         return print_prepared_ast(
@@ -5387,11 +5430,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             assert f"less(parseDateTime64BestEffortOrNull(events.{mat_col.name}," in printed
             assert f"less(events.{mat_col.name}," not in printed
 
-    @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
-    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
-    def test_materialized_column_range_comparison_uses_typed_numeric_source(
-        self, mock_resolution_get_mat_col, mock_planner_get_mat_col
-    ) -> None:
+    @patch("posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table")
+    def test_materialized_column_range_comparison_uses_typed_numeric_source(self, mock_matcols_by_table) -> None:
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
         PropertyDefinition.objects.create(
@@ -5410,8 +5450,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             column_type="Nullable(Float64)",
             has_minmax_index=True,
         )
-        mock_resolution_get_mat_col.return_value = mock_mat_col
-        mock_planner_get_mat_col.return_value = mock_mat_col
+        mock_matcols_by_table.return_value = {"events": {("numeric_test_prop", "properties"): mock_mat_col}}
 
         printed = self._expr("properties.numeric_test_prop < 5")
 
@@ -5424,11 +5463,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             assert "mat_numeric_test_prop" in printed
             assert "accurateCastOrNull" not in printed
 
-    @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
-    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
-    def test_materialized_column_range_comparison_uses_typed_datetime_source(
-        self, mock_resolution_get_mat_col, mock_planner_get_mat_col
-    ) -> None:
+    @patch("posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table")
+    def test_materialized_column_range_comparison_uses_typed_datetime_source(self, mock_matcols_by_table) -> None:
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
         PropertyDefinition.objects.create(
@@ -5447,8 +5483,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             column_type="Nullable(DateTime64(6, 'UTC'))",
             has_minmax_index=True,
         )
-        mock_resolution_get_mat_col.return_value = mock_mat_col
-        mock_planner_get_mat_col.return_value = mock_mat_col
+        mock_matcols_by_table.return_value = {"events": {("datetime_test_prop", "properties"): mock_mat_col}}
 
         printed = self._expr("properties.datetime_test_prop < '2024-01-15'")
 
@@ -5462,10 +5497,9 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             assert "toDateTime64(" in printed
             assert "parseDateTime64BestEffortOrNull" not in printed
 
-    @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
-    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
+    @patch("posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table")
     def test_materialized_column_range_comparison_skips_non_nullable_numeric_source(
-        self, mock_resolution_get_mat_col, mock_planner_get_mat_col
+        self, mock_matcols_by_table
     ) -> None:
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
@@ -5485,8 +5519,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             column_type="Float64",
             has_minmax_index=True,
         )
-        mock_resolution_get_mat_col.return_value = mock_mat_col
-        mock_planner_get_mat_col.return_value = mock_mat_col
+        mock_matcols_by_table.return_value = {"events": {("numeric_test_prop", "properties"): mock_mat_col}}
 
         printed = self._expr("properties.numeric_test_prop < 5")
 
@@ -6442,13 +6475,13 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             else:
                 assert printed == f"nullIf(nullIf(events.{mat_col.name}, ''), 'null')"
 
-    @patch("posthog.hogql.transforms.property_types.get_materialized_column_for_property")
-    def test_jsonextractstring_not_rewritten_for_non_string_mat_column(self, mock_get_mat_col) -> None:
+    @patch("posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table")
+    def test_jsonextractstring_not_rewritten_for_non_string_mat_column(self, mock_matcols_by_table) -> None:
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
         # JSONExtractString has string semantics, so a numeric-typed materialized column must not be
         # substituted for it — that would emit a bare Float64 column where a string is expected.
-        mock_get_mat_col.return_value = MaterializedColumn(
+        mat_col = MaterializedColumn(
             name="mat_numeric_prop",
             details=MaterializedColumnDetails(
                 table_column="properties", property_name="numeric_prop", is_disabled=False
@@ -6457,6 +6490,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             column_type="Nullable(Float64)",
             has_minmax_index=True,
         )
+        mock_matcols_by_table.return_value = {"events": {("numeric_prop", "properties"): mat_col}}
         printed = self._expr("JSONExtractString(properties, 'numeric_prop')")
 
         assert "mat_numeric_prop" not in printed

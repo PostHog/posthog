@@ -178,9 +178,6 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         db_index=False,
     )
 
-    rollback_conditions = models.JSONField(null=True, blank=True)
-    performed_rollback = models.BooleanField(null=True, blank=True)
-
     ensure_experience_continuity = models.BooleanField(default=False, null=True, blank=True)
     usage_dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
     analytics_dashboards: models.ManyToManyField = models.ManyToManyField(

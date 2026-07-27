@@ -27,8 +27,9 @@ pub enum FormatConfig {
     },
 }
 
-pub type ParserFn =
-    Box<dyn Fn(Vec<u8>) -> Result<Parsed<Vec<InternallyCapturedEvent>>, Error> + Send + Sync>;
+pub type ParserFnFor<T> = Box<dyn Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error> + Send + Sync>;
+
+pub type ParserFn = ParserFnFor<InternallyCapturedEvent>;
 
 impl FormatConfig {
     pub async fn get_parser(
@@ -139,6 +140,19 @@ pub fn newline_delim<T: Send>(
     skip_blank_lines: bool,
     inner: impl Fn(&str) -> Result<T, Error> + Sync,
 ) -> impl Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error> {
+    newline_delim_lines(skip_blank_lines, move |line, _is_complete| inner(line))
+}
+
+/// Like [`newline_delim`], but the inner closure also receives whether the line
+/// was newline-terminated (`true`) or is the chunk's trailing remainder
+/// (`false`). The remainder is usually a line split at the chunk boundary, so an
+/// error-tolerant parser (the trial path) must still return `Err` for it — that
+/// leaves it unconsumed for the next chunk to re-read — while recording parse
+/// errors on complete lines inline instead of failing the whole chunk.
+pub fn newline_delim_lines<T: Send>(
+    skip_blank_lines: bool,
+    inner: impl Fn(&str, bool) -> Result<T, Error> + Sync,
+) -> impl Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error> {
     move |data: Vec<u8>| {
         // A zero-length chunk (e.g. a read at or past the end of a part) has nothing
         // to consume. Reporting any consumed bytes for it would advance the caller's
@@ -186,12 +200,12 @@ pub fn newline_delim<T: Send>(
         // as consumed so the caller's offset can reach the end of the part - at the end
         // of a stream-decompressed part there is no next chunk to re-read it from.
         let remainder_is_blank = remainder_str.is_some_and(|r| r.trim().is_empty());
-        let remainder = remainder_str.map(&inner);
+        let remainder = remainder_str.map(|r| inner(r, false));
 
         let mut output = Vec::with_capacity(lines.len());
         let intermediate: Vec<_> = lines
             .into_par_iter()
-            .map(|(end_byte_idx, line)| (end_byte_idx, inner(line)))
+            .map(|(end_byte_idx, line)| (end_byte_idx, inner(line, true)))
             .collect();
 
         drop(data);

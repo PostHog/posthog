@@ -20,14 +20,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.flowlu import (
     FlowluResumeConfig,
     flowlu_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.settings import ENDPOINTS, FLOWLU_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FlowluSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.settings import (
+    ENDPOINTS,
+    FLOWLU_ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flowlu import FlowluSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Flowlu account subdomains are alphanumeric with optional internal hyphens (a valid DNS label:
@@ -37,6 +44,7 @@ SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 
 @SourceRegistry.register
 class FlowluSource(ResumableSource[FlowluSourceConfig, FlowluResumeConfig]):
+    api_docs_url = "https://www.flowlu.com/api/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -106,25 +114,19 @@ You can create an API key under **Portal Settings → API Settings** in Flowlu. 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Flowlu's list endpoints expose no documented
-        # server-side timestamp filter, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # server-side timestamp filter, so there is no incremental cursor to advance
+        # (INCREMENTAL_FIELDS is empty, so every schema comes back full-refresh only).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: FlowluSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FlowluSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not SUBDOMAIN_REGEX.match(config.subdomain):
             return False, "Flowlu account subdomain is invalid"
@@ -148,6 +150,7 @@ You can create an API key under **Portal Settings → API Settings** in Flowlu. 
             api_key=config.api_key,
             subdomain=config.subdomain,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

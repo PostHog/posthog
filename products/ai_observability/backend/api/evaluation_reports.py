@@ -32,6 +32,7 @@ from products.ai_observability.backend.models.evaluation_reports import (
     EvaluationReportQuerySet,
     EvaluationReportRun,
 )
+from products.ai_observability.backend.models.evaluations import EvaluationTarget
 from products.workflows.backend.utils.rrule_utils import validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -371,15 +372,15 @@ class EvaluationReportSectionSerializer(serializers.Serializer):
 class EvaluationReportCitationSerializer(serializers.Serializer):
     generation_id = serializers.CharField(
         required=False,
-        help_text="Generation UUID referenced by this citation.",
+        help_text="Optional generation UUID for generation-target report citations.",
     )
     trace_id = serializers.CharField(
         required=False,
-        help_text="Trace identifier containing the referenced generation.",
+        help_text="Identifier of the trace cited by this report.",
     )
     reason = serializers.CharField(
         required=False,
-        help_text="Short explanation of why the generation is cited.",
+        help_text="Short explanation of why this example is cited.",
     )
 
 
@@ -440,6 +441,11 @@ class EvaluationReportMetricsSerializer(serializers.Serializer):
 
 
 class EvaluationReportRunContentSerializer(serializers.Serializer):
+    evaluation_target = serializers.ChoiceField(
+        choices=EvaluationTarget.choices,
+        required=False,
+        help_text="Evaluation target analyzed by this report run. Legacy runs without this field targeted generations.",
+    )
     title = serializers.CharField(
         required=False,
         help_text="Agent-generated report headline.",
@@ -452,7 +458,7 @@ class EvaluationReportRunContentSerializer(serializers.Serializer):
     citations = EvaluationReportCitationSerializer(
         many=True,
         required=False,
-        help_text="Trace references grounding findings in the report.",
+        help_text="References grounding findings in the report.",
     )
     metrics = EvaluationReportMetricsSerializer(
         required=False,

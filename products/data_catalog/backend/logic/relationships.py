@@ -106,10 +106,8 @@ def propose_relationship(
     existing = RelationshipProposal.objects.for_team(team.id).filter(undirected_fingerprint=fingerprint).first()
     if existing is not None:
         raise CatalogConflict(
-            detail={
-                "error": f"A proposal for this join pair already exists (status: {existing.status}).",
-                "proposal_id": str(existing.id),
-            }
+            detail=f"A proposal for this join pair already exists (status: {existing.status}).",
+            extra={"proposal_id": str(existing.id)},
         )
 
     try:
@@ -132,10 +130,8 @@ def propose_relationship(
         # race the logic check alone cannot).
         existing = RelationshipProposal.objects.for_team(team.id).filter(undirected_fingerprint=fingerprint).first()
         raise CatalogConflict(
-            detail={
-                "error": "A proposal for this join pair already exists.",
-                "proposal_id": str(existing.id) if existing else None,
-            }
+            detail="A proposal for this join pair already exists.",
+            extra={"proposal_id": str(existing.id) if existing else None},
         )
 
     _capture(user, team, "data catalog relationship proposed", proposal)

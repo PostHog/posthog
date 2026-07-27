@@ -191,6 +191,18 @@ pub struct Config {
     /// Defaults to redis_connection_timeout_ms if unset.
     pub global_rate_limit_redis_connection_timeout_ms: Option<u64>,
 
+    /// Redis key holding the dynamic custom per-key rate-limit thresholds
+    /// (JSON object of `{key: threshold}`), written by Django. When set, the
+    /// per-(token, distinct_id) limiter refreshes its custom thresholds from
+    /// this key on a timer, overriding the static CSV overrides. Sourced from
+    /// the same Redis as event restrictions (`event_restrictions_redis_url`).
+    /// When unset, the limiter uses only the static CSV overrides.
+    pub global_rate_limit_custom_threshold_key: Option<String>,
+
+    /// How often to refresh the dynamic custom thresholds from Redis (seconds).
+    #[envconfig(default = "60")]
+    pub global_rate_limit_custom_threshold_refresh_secs: u64,
+
     // Event restrictions configuration (reads from Redis, synced by Django)
     #[envconfig(default = "false")]
     pub event_restrictions_enabled: bool,
@@ -306,6 +318,20 @@ pub struct Config {
     #[envconfig(default = "")]
     pub ai_secondary_kafka_client_id: String,
 
+    // --- Dedicated $ai_* topic routing on analytics deployments ---
+    /// Routing mode for `$ai_*` events into the dedicated AI topic
+    /// (`kafka.capture_analytics_ai_events_topic`, i.e. `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`): `primary` (default)
+    /// diverts nothing, `secondary` diverts all `$ai_*` events, and
+    /// `secondary_allowlist` diverts only tokens listed in
+    /// `capture_analytics_ai_events_allowlist_tokens`. The topic is required whenever the
+    /// mode is not `primary`.
+    #[envconfig(default = "primary")]
+    pub capture_analytics_ai_events_mode: AiSinkMode,
+
+    /// Comma-separated project API tokens whose `$ai_*` events are diverted to
+    /// `capture_analytics_ai_events_topic` when `capture_analytics_ai_events_mode` is `secondary_allowlist`.
+    pub capture_analytics_ai_events_allowlist_tokens: Option<String>,
+
     // HTTP/1 header read timeout in milliseconds - closes connections that don't
     // send complete headers within this duration (slow loris protection).
     // Set env var to enable; unset to disable.
@@ -342,6 +368,34 @@ pub struct Config {
     /// Batch size threshold for parallel scatter-gather serialization; 0 disables fanout.
     #[envconfig(default = "8")]
     pub capture_v1_scatter_gather_min_batch: usize,
+
+    // --- Ingestion warnings emitter (fire-and-forget, best-effort) ---
+    // Warnings are emitted as `$$client_ingestion_warning` events onto the
+    // existing `client_ingestion_warning` topic on the main event cluster
+    // (see `KAFKA_CLIENT_INGESTION_WARNING_TOPIC`), so the producer reuses the
+    // main cluster's hosts/TLS — but it gets its OWN dedicated
+    // `common_kafka::config::KafkaConfig` (below) with fire-and-forget
+    // acks/retries and a small queue, so a saturated or slow warnings topic
+    // can never behave like — or contend with — the main event producer.
+    // Defaults off (fail open).
+    #[envconfig(default = "false")]
+    pub capture_ingestion_warnings_enabled: bool,
+
+    // The producer's fire-and-forget policy (acks, retries, linger, queue
+    // depth in messages, message timeout) is fixed in code — see the
+    // `WARNINGS_KAFKA_*` constants in `setup.rs` — not env-configurable, since
+    // those define the "a warning is worth less than the cost of retrying it"
+    // contract rather than operator knobs. Only the two capacity/safety limits
+    // below stay tunable.
+    #[envconfig(default = "16")]
+    pub capture_ingestion_warnings_kafka_queue_mib: u32,
+
+    // rdkafka "message.max.bytes": a hard per-message ceiling, independent of
+    // the main producer's, so an oversized warning envelope (e.g. built from
+    // attacker-controlled input) cannot inflate past this regardless of what
+    // the main event producer allows.
+    #[envconfig(default = "1048576")]
+    pub capture_ingestion_warnings_kafka_message_max_bytes: u32,
 }
 
 #[derive(Envconfig, Clone)]
@@ -382,6 +436,21 @@ pub struct KafkaConfig {
     pub kafka_replay_overflow_topic: String,
     #[envconfig(default = "events_plugin_ingestion_dlq")]
     pub kafka_dlq_topic: String,
+    /// Dedicated Kafka topic for `$ai_*` events (env: `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`).
+    /// Unlike the `ai_secondary_*` family on `Config` (which picks a secondary
+    /// CLUSTER on `CaptureMode::Ai` deployments), this picks a TOPIC on the
+    /// same sink: per `Config::capture_analytics_ai_events_mode`, both the v0 pipeline
+    /// (via `DataType::AiEvents`) and the v1 pipeline (via
+    /// `Destination::AiEvents`) divert `$ai_*` events here instead of the
+    /// analytics main topic. Setup also injects it into every v1 sink config.
+    pub capture_analytics_ai_events_topic: Option<String>,
+    /// Optional overflow topic for the AI lane (env: `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`).
+    /// Unset means AI events never overflow (the pre-overflow behavior). When
+    /// set, the AI lane participates in the same overflow limiter and
+    /// restriction-driven force_overflow as the analytics main lane, rerouting
+    /// here instead of the analytics overflow topic. Settable in advance of
+    /// the AI routing mode, so no startup validation ties it to the mode.
+    pub capture_analytics_ai_events_overflow_topic: Option<String>,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
     #[envconfig(default = "")]
@@ -456,8 +525,60 @@ pub struct KafkaConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{AiRouting, AiSinkMode};
+    use super::{AiRouting, AiSinkMode, Config};
+    use std::collections::HashMap;
     use std::str::FromStr;
+
+    fn required_config_env() -> HashMap<String, String> {
+        [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+    }
+
+    #[test]
+    fn capture_analytics_ai_events_topic_defaults() {
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
+        assert_eq!(config.kafka.capture_analytics_ai_events_topic, None);
+        assert_eq!(config.capture_analytics_ai_events_mode, AiSinkMode::Primary);
+        assert_eq!(config.capture_analytics_ai_events_allowlist_tokens, None);
+    }
+
+    #[test]
+    fn capture_analytics_ai_events_topic_parses() {
+        let mut env = required_config_env();
+        env.insert(
+            "CAPTURE_ANALYTICS_AI_EVENTS_TOPIC".into(),
+            "ai_events".into(),
+        );
+        env.insert(
+            "CAPTURE_ANALYTICS_AI_EVENTS_MODE".into(),
+            "secondary_allowlist".into(),
+        );
+        env.insert(
+            "CAPTURE_ANALYTICS_AI_EVENTS_ALLOWLIST_TOKENS".into(),
+            "tok_a,tok_b".into(),
+        );
+        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+        assert_eq!(
+            config.kafka.capture_analytics_ai_events_topic.as_deref(),
+            Some("ai_events")
+        );
+        assert_eq!(
+            config.capture_analytics_ai_events_mode,
+            AiSinkMode::SecondaryAllowlist
+        );
+        assert_eq!(
+            config
+                .capture_analytics_ai_events_allowlist_tokens
+                .as_deref(),
+            Some("tok_a,tok_b")
+        );
+    }
 
     #[test]
     fn ai_sink_mode_from_str() {

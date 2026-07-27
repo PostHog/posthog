@@ -1,28 +1,27 @@
-import base64
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    OffsetPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.settings import QUALAROO_ENDPOINTS
 
 QUALAROO_BASE_URL = "https://api.qualaroo.com/api/v1"
 # The Reporting API caps a page at 500 records; the largest page minimises round trips.
 PAGE_SIZE = 500
-REQUEST_TIMEOUT_SECONDS = 60
 # Cheap endpoint used to confirm the credentials are genuine. The API key/secret pair is
 # account-wide, so one probe validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/nudges.json"
-
-
-class QualarooRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -32,133 +31,89 @@ class QualarooResumeConfig:
     offset: int = 0
 
 
-def _basic_auth_token(api_key: str, api_secret: str) -> str:
-    # Qualaroo uses HTTP Basic auth with the API key as username and the API secret as password.
-    return base64.b64encode(f"{api_key}:{api_secret}".encode()).decode("ascii")
-
-
-def _headers(api_key: str, api_secret: str) -> dict[str, str]:
-    return {"Authorization": f"Basic {_basic_auth_token(api_key, api_secret)}", "Accept": "application/json"}
-
-
-@retry(
-    retry=retry_if_exception_type((QualarooRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    path: str,
-    offset: int,
-    limit: int,
-    logger: FilteringBoundLogger,
-) -> list[dict[str, Any]]:
-    response = session.get(
-        f"{QUALAROO_BASE_URL}{path}",
-        params={"limit": limit, "offset": offset},
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise QualarooRetryableError(f"Qualaroo API error (retryable): status={response.status_code}, path={path}")
-
-    if not response.ok:
-        logger.error(f"Qualaroo API error: status={response.status_code}, body={response.text}, path={path}")
-        response.raise_for_status()
-
-    data = response.json()
-    # Qualaroo list endpoints return a bare JSON array of records.
-    if not isinstance(data, list):
-        raise QualarooRetryableError(f"Qualaroo returned an unexpected payload for {path}: {type(data).__name__}")
-    return data
-
-
-def get_rows(
-    api_key: str,
-    api_secret: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[QualarooResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = QUALAROO_ENDPOINTS[endpoint]
-    session = make_tracked_session(
-        headers=_headers(api_key, api_secret),
-        redact_values=(api_key, api_secret, _basic_auth_token(api_key, api_secret)),
-    )
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    offset = resume.offset if resume else 0
-    if resume and resume.offset > 0:
-        logger.debug(f"Qualaroo: resuming {endpoint} from offset {offset}")
-
-    while True:
-        items = _fetch_page(session, config.path, offset, PAGE_SIZE, logger)
-        if items:
-            yield items
-
-        # A short page (or an empty one) means we've reached the end of the collection.
-        if len(items) < PAGE_SIZE:
-            break
-
-        offset += PAGE_SIZE
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(QualarooResumeConfig(offset=offset))
-
-
 def qualaroo_source(
     api_key: str,
     api_secret: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[QualarooResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = QUALAROO_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": QUALAROO_BASE_URL,
+            "headers": {"Accept": "application/json"},
+            # Qualaroo uses HTTP Basic auth with the API key as username and the secret as password.
+            "auth": {"type": "http_basic", "username": api_key, "password": api_secret},
+            # Qualaroo has no top-level `total`; termination is a short/empty page (OffsetPaginator default).
+            "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None),
+        },
+        # Per-resource settings are fully specified below, so no shared defaults are needed.
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    # Qualaroo list endpoints return a bare JSON array; a 200 whose body isn't a list
+                    # is treated as a transient shape glitch and retried (not failed loud).
+                    "data_selector_malformed_retryable": True,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"offset": resume.offset}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on `id`) rather than skipping it.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(QualarooResumeConfig(offset=int(state["offset"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            api_secret=api_secret,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
+        column_hints=resource.column_hints,
     )
-
-
-def check_access(api_key: str, api_secret: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Optional[str]]:
-    """Probe a single endpoint to validate the credentials.
-
-    Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
-    connection problem, other HTTP status otherwise.
-    """
-    session = make_tracked_session(
-        headers=_headers(api_key, api_secret),
-        redact_values=(api_key, api_secret, _basic_auth_token(api_key, api_secret)),
-    )
-    try:
-        response = session.get(f"{QUALAROO_BASE_URL}{path}", params={"limit": 1, "offset": 0}, timeout=15)
-    except Exception as e:
-        return 0, f"Could not connect to Qualaroo: {e}"
-
-    if response.status_code in (401, 403):
-        return response.status_code, None
-
-    if not response.ok:
-        return response.status_code, f"Qualaroo returned HTTP {response.status_code}"
-
-    return 200, None
 
 
 def validate_credentials(api_key: str, api_secret: str) -> tuple[bool, str | None]:
-    status, message = check_access(api_key, api_secret)
-    if status == 200:
+    """Probe a single endpoint to validate the account-wide key/secret pair.
+
+    Maps the probe result to the same messages the hand-rolled implementation returned: 200 valid,
+    401/403 bad credentials, any other status surfaced verbatim, and an unreachable probe reported
+    as an unvalidated (rather than failed) source.
+    """
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key, api_secret)),
+        f"{QUALAROO_BASE_URL}{DEFAULT_PROBE_PATH}?limit=1&offset=0",
+        auth=HTTPBasicAuth(api_key, api_secret),
+        headers={"Accept": "application/json"},
+    )
+    if ok:
         return True, None
     if status in (401, 403):
         return False, "Invalid Qualaroo API key or secret"
-    return False, message or "Could not validate Qualaroo credentials"
+    if status is None:
+        return False, "Could not validate Qualaroo credentials"
+    return False, f"Qualaroo returned HTTP {status}"

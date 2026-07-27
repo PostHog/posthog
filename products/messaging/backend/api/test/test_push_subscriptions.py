@@ -40,6 +40,14 @@ class TestPushSubscriptionsAPI(BaseTest):
             content_type="application/json",
         )
 
+    def _delete(self, data: dict, api_key: str | None = None):
+        payload = {**data, "api_key": api_key or self.team.api_token}
+        return self.client.delete(
+            "/api/push_subscriptions/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_register_android_token(self, mock_capture: MagicMock):
         mock_capture.return_value = MagicMock(status_code=200)
@@ -129,6 +137,63 @@ class TestPushSubscriptionsAPI(BaseTest):
         # It should be a non-empty string (Fernet token)
         assert isinstance(encrypted_value, str)
         assert len(encrypted_value) > 0
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_unregister_unsets_the_subscription_property(self, mock_capture: MagicMock):
+        mock_capture.return_value = MagicMock(status_code=200)
+
+        response = self._delete(
+            {
+                "distinct_id": "user-1",
+                "device_token": "fcm-device-token-abc",
+                "platform": "android",
+                "app_id": "my-firebase-project",
+            }
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["distinct_id"] == "user-1"
+        assert data["platform"] == "android"
+
+        mock_capture.assert_called_once()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["token"] == self.team.api_token
+        assert call_kwargs["distinct_id"] == "user-1"
+        assert call_kwargs["event_name"] == "$set"
+        assert call_kwargs["process_person_profile"] is True
+        # Unregister clears the property instead of storing a token.
+        assert call_kwargs["properties"] == {"$unset": ["$device_push_subscription_my-firebase-project"]}
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_unregister_ios_token(self, mock_capture: MagicMock):
+        mock_capture.return_value = MagicMock(status_code=200)
+
+        response = self._delete(
+            {
+                "distinct_id": "user-1",
+                "device_token": "apns-device-token-abc",
+                "platform": "ios",
+                "app_id": "com.example.app",
+            }
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["properties"]["$unset"] == ["$device_push_subscription_com.example.app"]
+
+    def test_unregister_integration_not_found(self):
+        response = self._delete(
+            {
+                "distinct_id": "user-1",
+                "device_token": "device-token",
+                "platform": "android",
+                "app_id": "nonexistent-project",
+            }
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "integration" in response.json()["detail"].lower()
 
     def test_missing_api_key_returns_401(self):
         response = self.client.post(

@@ -20,15 +20,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TeamworkSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamwork import (
+    TeamworkSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
-    TEAMWORK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.teamwork import (
     TeamworkResumeConfig,
@@ -41,6 +45,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TeamworkSource(ResumableSource[TeamworkSourceConfig, TeamworkResumeConfig]):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://apidocs.teamwork.com"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TEAMWORK
@@ -101,24 +109,16 @@ Find your API key under **Profile → Edit my details → API & Mobile** in Team
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=(inc := INCREMENTAL_FIELDS.get(endpoint)) is not None,
-                supports_append=inc is not None,
-                incremental_fields=inc or [],
-                should_sync_default=TEAMWORK_ENDPOINTS[endpoint].should_sync_default,
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: TeamworkSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TeamworkSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         host = normalize_host(config.site)
 
@@ -153,7 +153,8 @@ Find your API key under **Profile → Edit my details → API & Mobile** in Team
             host=host,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

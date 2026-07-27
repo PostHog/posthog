@@ -253,7 +253,9 @@ export function TaxonomicPropertyFilter({
             ? cohortName || `Cohort #${filter?.value}`
             : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
               ? filter.label || `Group ${filter?.value}`
-              : filter?.type === PropertyFilterType.Flag && filter?.label
+              : (filter?.type === PropertyFilterType.Flag ||
+                      filter?.type === PropertyFilterType.AccountCustomProperty) &&
+                  filter?.label
                 ? filter.label
                 : filter?.key && (
                       <PropertyKeyInfo

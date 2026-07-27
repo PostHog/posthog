@@ -133,21 +133,40 @@ class StamphogInstallInfoSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the "
-            "App, or blank if the App slug is unconfigured."
+            "App, or blank if the App slug is unconfigured. Used for the genuinely-not-installed case; the "
+            "primary 'Connect' button uses authorize_url instead."
+        ),
+    )
+    authorize_url = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "GitHub authorize URL (github.com/login/oauth/authorize) the 'Connect' button opens. "
+            "Authorize-first: an already-installed user is redirected straight back with an OAuth code (no "
+            "installation_id), and sync_installation then discovers their installations server-side. Blank "
+            "if the App client id is unconfigured."
         ),
     )
 
 
 class StamphogSyncInstallationRequestSerializer(serializers.Serializer):
-    """Request body for binding a completed GitHub App installation to the current team.
+    """Request body for binding a GitHub App installation to the current team.
 
-    Requires both the ``installation_id`` and the user-to-server OAuth ``code`` from the post-install
-    redirect: the code proves the caller actually owns the installation, without which any caller could
-    bind another org's installation to their own team.
+    Always requires the user-to-server OAuth ``code`` (the ownership proof) and the ``state`` token.
+    ``installation_id`` is optional: when present (the fresh-install redirect) exactly that installation
+    is verified and synced; when absent or blank (the authorize-first redirect) the caller's accessible
+    installations are discovered server-side from the code, so the client never has to supply a
+    forgeable id.
     """
 
     installation_id = serializers.CharField(
-        help_text="GitHub App installation ID returned on the post-install Setup URL redirect.",
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "GitHub App installation ID from the fresh-install Setup URL redirect. Optional: absent or "
+            "blank means discover the caller's installations from the OAuth code instead (authorize-first "
+            "flow). The id is not trusted on its own — ownership is always proven via the code."
+        ),
     )
     code = serializers.CharField(
         help_text=(
@@ -165,6 +184,15 @@ class StamphogSyncInstallationRequestSerializer(serializers.Serializer):
     )
 
 
+class StamphogDiscoveredInstallationSerializer(serializers.Serializer):
+    """One installation of the App the authorizing user can reach, offered for an explicit pick."""
+
+    id = serializers.CharField(read_only=True, help_text="GitHub installation id, as a string.")
+    account_login = serializers.CharField(
+        read_only=True, help_text="Login of the org or user account the installation lives on."
+    )
+
+
 class StamphogSyncInstallationResponseSerializer(serializers.Serializer):
     """Result of syncing an installation: rows created/kept for this team, plus conflicting repos skipped."""
 
@@ -177,6 +205,24 @@ class StamphogSyncInstallationResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         read_only=True,
         help_text="Repository full names skipped because another team already owns them under this installation.",
+    )
+    app_not_installed = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True only on the discovery path (no installation_id) when the caller can reach no installation "
+            "of this App — it isn't installed anywhere they can see. The frontend should route the user to "
+            "the GitHub install page (install_url). Always false on the explicit installation_id path."
+        ),
+    )
+    installations = StamphogDiscoveredInstallationSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Populated only on the discovery path when the caller can reach MORE than one installation of "
+            "this App: nothing was bound, and the user must pick which installation to connect. The "
+            "frontend re-runs the authorize flow and calls back with the chosen installation_id, which the "
+            "explicit path verifies. Empty whenever a bind happened (or nothing was found)."
+        ),
     )
 
 
@@ -344,6 +390,17 @@ class ReviewRunSerializer(serializers.ModelSerializer):
 
 
 class DigestChannelSerializer(serializers.ModelSerializer):
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        # audience_key is the bucket this channel is bound to. Editing it on an existing row re-points
+        # the channel at a different audience — and can effectively re-open an audience a human opted out
+        # of, since the disabled tombstone row keying off the old audience_key would no longer match.
+        # Create-only, same pattern as the repo config's provider/repository identity fields.
+        # self.instance is set only for updates (schema generation and creates leave it None).
+        if self.instance is not None:
+            fields["audience_key"].read_only = True
+        return fields
+
     resolution_source = serializers.ChoiceField(
         choices=[(s.value, s.name) for s in ChannelResolutionSource],
         read_only=True,
@@ -372,7 +429,12 @@ class DigestChannelSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "last_digest_at", "created_at", "updated_at"]
         extra_kwargs = {
-            "audience_key": {"help_text": "Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'."},
+            "audience_key": {
+                "help_text": (
+                    "Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable "
+                    "after creation — it anchors the audience and its opt-out tombstone."
+                )
+            },
             "slack_integration_id": {
                 "help_text": "ID of the team's Slack integration used to post the digest.",
             },

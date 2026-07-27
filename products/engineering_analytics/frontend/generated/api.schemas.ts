@@ -92,6 +92,37 @@ export interface BrokenTestsResultApi {
     limit: number
 }
 
+/**
+ * * `running` - RUNNING
+ * * `completed` - COMPLETED
+ * * `failed` - FAILED
+ */
+export type SyncStatusEnumApi = (typeof SyncStatusEnumApi)[keyof typeof SyncStatusEnumApi]
+
+export const SyncStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface CISignalsConfigApi {
+    /** Whether this project has ever configured CI signals. */
+    configured: boolean
+    /** Whether every CI signal detector is enabled. */
+    enabled: boolean
+    /** Aggregate sync status for pull requests, workflow runs, and workflow jobs.
+     *
+     * * `running` - RUNNING
+     * * `completed` - COMPLETED
+     * * `failed` - FAILED */
+    sync_status: SyncStatusEnumApi | null
+}
+
+export interface CISignalsConfigUpdateApi {
+    /** Enable or disable every CI signal detector atomically. */
+    enabled: boolean
+}
+
 export interface CICardSummaryApi {
     /** Count of open pull requests. */
     open_prs: number
@@ -167,31 +198,49 @@ export interface CurrentBranchHealthApi {
     failing_workflow_names: string[]
 }
 
+/**
+ * * `confirmed_flake` - CONFIRMED_FLAKE
+ * * `suspected_regression` - SUSPECTED_REGRESSION
+ * * `quarantined` - QUARANTINED
+ */
+export type FlakyTestItemClassificationEnumApi =
+    (typeof FlakyTestItemClassificationEnumApi)[keyof typeof FlakyTestItemClassificationEnumApi]
+
+export const FlakyTestItemClassificationEnumApi = {
+    ConfirmedFlake: 'confirmed_flake',
+    SuspectedRegression: 'suspected_regression',
+    Quarantined: 'quarantined',
+} as const
+
 export interface FlakyTestItemApi {
     /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable selector — use `selector` to run or quarantine the test. */
     nodeid: string
     /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
     selector: string
-    /** Times the test failed, then passed on an automatic retry — the strongest flaky signal. Only CI lanes running with reruns enabled emit it; a flake in a no-rerun lane shows up in failed_count instead. */
-    rerun_passed_count: number
-    /** Spans whose final outcome was 'failed' or 'error' in the window. An absolute count, not a rate — fast passing runs are not emitted, so denominators are biased. */
-    failed_count: number
-    /** Distinct pull requests among the failed/error spans. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_count). */
+    /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
+     *
+     * * `confirmed_flake` - CONFIRMED_FLAKE
+     * * `suspected_regression` - SUSPECTED_REGRESSION
+     * * `quarantined` - QUARANTINED */
+    classification: FlakyTestItemClassificationEnumApi
+    /** Runs where one commit both failed and passed the test: a 'Re-run failed jobs' attempt went green on the same commit, or an in-job pytest retry (tests hand-marked @pytest.mark.flaky(reruns=N)) recovered it. A pass in a different run is a different commit and never counts. */
+    same_commit_recovery_run_count: number
+    /** Distinct CI runs whose recorded outcome was failed or error. A run counts once however many matrix legs it failed in. */
+    failed_run_count: number
+    /** Distinct pull requests among the failed runs. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_run_count). */
     failed_pr_count: number
-    /** Failed/error spans on the default branch (master/main approximation) — the 'matters right now' signal that a flake is breaking the trunk, not just PR branches. */
-    master_failed_count: number
-    /** Distinct git branches across all of the test's flaky-signal spans in the window. */
-    branch_count: number
-    /** Runs where the test failed while quarantined (xfail) — already masked in CI but still flaky. */
-    xfailed_count: number
-    /** Most recent flaky-signal span for this test in the window. */
-    last_seen_at: string
+    /** Failed runs on the default branch (master/main approximation): the 'matters right now' signal that a test is breaking the trunk, not just PR branches. */
+    master_failed_run_count: number
+    /** Runs where the test failed while quarantined (xfail): already masked in CI, still failing. */
+    quarantined_failed_run_count: number
+    /** Most recent failure, recovery, or xfail run for this test in the window. */
+    last_signal_at: string
 }
 
 export interface FlakyTestListApi {
-    /** Qualifying tests ranked by flakiness signal, strongest first, capped at `limit`. */
+    /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. */
     items: FlakyTestItemApi[]
-    /** True when more tests qualified than the cap; `items` is the strongest `limit` rows. */
+    /** True when more tests qualified than the cap; `items` is the highest-ranked `limit` rows. */
     truncated: boolean
     /** Maximum number of tests returned in `items`. */
     limit: number
@@ -896,12 +945,14 @@ export interface RunFailureLogsApi {
 }
 
 export interface GitHubSourceApi {
-    /** Source id — pass as `source_id` to the other endpoints to read this source. */
+    /** Source id — pass back as `source_id` (with `repo`) to read this repository. */
     id: string
-    /** Connected repository as 'owner/name', or '' if unknown. */
+    /** Repository as 'owner/name' — pass back as `repo` to scope to it. One entry per repository a source syncs; '' if unknown. */
     repo: string
     /** User-chosen warehouse table-name prefix for this source, or '' when none. */
     prefix: string
+    /** Whether this repo has both pull_requests and workflow_runs synced (readable now). Default the picker to the first synced entry so its label matches the resolved repo. */
+    synced?: boolean
 }
 
 export interface TeamTestSignalApi {
@@ -909,11 +960,11 @@ export interface TeamTestSignalApi {
     nodeid: string
     /** Runnable pytest selector; exact when the CI reporter emitted it. */
     selector: string
-    /** Failed + error + pass-on-retry spans in the current window (xfail excluded). */
+    /** Runs in the current window where the test failed, errored, or a retry recovered it (xfail excluded). */
     signal_count: number
     /** Same count over the equal-length window before date_from. */
     signal_count_prior: number
-    /** Most recent signal span for this test, either window. */
+    /** Most recent failure, recovery, or xfail run for this test, either window. */
     last_seen_at: string
 }
 
@@ -929,23 +980,27 @@ export interface TeamCIActivityApi {
 export interface TeamCIHealthItemApi {
     /** Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
     owner_team: string
-    /** Owned tests meeting the flaky-leaderboard bar in the window (passed on retry or failed on enough distinct PRs). Compare with flaky_test_count_prior for the delta. */
+    /** Owned tests one commit was seen both failing and passing in the window: the same proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with flaky_test_count_prior for the delta. */
     flaky_test_count: number
     /** Same count over the equal-length window immediately before date_from. */
     flaky_test_count_prior: number
-    /** Signal spans on owned tests with final outcome 'failed' or 'error' in the window. An absolute count, not a rate: fast passing runs are not emitted. */
-    failed_count: number
+    /** Owned tests that failed with no recorded same-commit recovery and still hit the blast-radius bar (a master/main failure, or min_failed_prs distinct PRs). Not flakes: absence of proof, not proof. */
+    regression_test_count: number
     /** Same count over the prior window. */
-    failed_count_prior: number
-    /** Spans on owned tests that failed, then passed on an automatic retry, the strongest flaky signal. Only rerun-enabled CI lanes emit it. */
-    rerun_passed_count: number
+    regression_test_count_prior: number
+    /** CI runs (not spans) where an owned test's recorded outcome was failed or error. An absolute count, not a rate: fast passing runs are not emitted. */
+    failed_run_count: number
     /** Same count over the prior window. */
-    rerun_passed_count_prior: number
-    /** Spans on owned tests that failed while quarantined (xfail): masked in CI but still flaky. */
-    xfailed_count: number
+    failed_run_count_prior: number
+    /** Runs where one commit both failed and passed an owned test: a re-run attempt went green, or an in-job retry recovered it. */
+    same_commit_recovery_run_count: number
     /** Same count over the prior window. */
-    xfailed_count_prior: number
-    /** Most recent signal span across the team's owned tests, either window. */
+    same_commit_recovery_run_count_prior: number
+    /** Runs where an owned test failed while quarantined (xfail): masked in CI, still failing. */
+    quarantined_failed_run_count: number
+    /** Same count over the prior window. */
+    quarantined_failed_run_count_prior: number
+    /** Most recent failure, recovery, or xfail run across the team's owned tests, either window. */
     last_seen_at: string
 }
 
@@ -1006,6 +1061,8 @@ export interface WorkflowHealthItemApi {
     workflow_name: string
     /** Total runs started in the window. */
     run_count: number
+    successful_run_count: number
+    conclusive_run_count: number
     /**
      * Fraction of completed runs that succeeded (0-1). Null if no completed runs.
      * @nullable
@@ -1036,6 +1093,10 @@ export interface WorkflowHealthItemApi {
      * @nullable
      */
     latest_run_conclusion: string | null
+    /** @nullable */
+    latest_run_id: number | null
+    /** @nullable */
+    latest_run_attempt: number | null
     /** Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'. */
     granularity: string
     /**
@@ -1055,6 +1116,7 @@ export interface WorkflowHealthItemApi {
      * @nullable
      */
     success_rate_prev?: number | null
+    percentile_run_count?: number
 }
 
 export interface WorkflowJobApi {
@@ -1127,6 +1189,10 @@ export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
      */
     date_to?: string
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -1134,12 +1200,20 @@ export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
 
 export type EngineeringAnalyticsBrokenTestsParams = {
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
 }
 
 export type EngineeringAnalyticsCiCardsParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -1163,6 +1237,10 @@ export type EngineeringAnalyticsCiFailureLogsParams = {
 
 export type EngineeringAnalyticsCurrentBranchHealthParams = {
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -1182,13 +1260,13 @@ export type EngineeringAnalyticsFlakyTestsParams = {
      */
     limit?: number
     /**
-     * A test qualifies once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.
+     * A test with no recorded recovery qualifies once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3.
      */
     min_failed_prs?: number
     /**
-     * A test qualifies once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
-    min_rerun_passes?: number
+    repo?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -1208,6 +1286,10 @@ export type EngineeringAnalyticsJobAggregatesParams = {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -1231,6 +1313,10 @@ export type EngineeringAnalyticsMasterFailuresParams = {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -1292,6 +1378,10 @@ export type EngineeringAnalyticsPullRequestsParams = {
      */
     date_from?: string
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -1322,6 +1412,10 @@ export type EngineeringAnalyticsRepoOverviewParams = {
      */
     include_series?: boolean
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -1340,6 +1434,10 @@ export type EngineeringAnalyticsRepoRunActivityParams = {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -1366,6 +1464,10 @@ export type EngineeringAnalyticsResolveBranchParams = {
 }
 
 export type EngineeringAnalyticsRunFailureLogsParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
     /**
      * Workflow run id whose failure logs to fetch.
      */
@@ -1413,13 +1515,9 @@ export type EngineeringAnalyticsTeamCiHealthParams = {
      */
     limit?: number
     /**
-     * A test counts as flaky once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.
+     * An unrecovered test counts toward regression_test_count once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3. Does not affect flaky_test_count, which needs proof, not a threshold.
      */
     min_failed_prs?: number
-    /**
-     * A test counts as flaky once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
-     */
-    min_rerun_passes?: number
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -1459,6 +1557,10 @@ export type EngineeringAnalyticsWorkflowHealthParams = {
      */
     date_to?: string
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.
      */
     run_scope?: EngineeringAnalyticsWorkflowHealthRunScope
@@ -1478,6 +1580,10 @@ export const EngineeringAnalyticsWorkflowHealthRunScope = {
 
 export type EngineeringAnalyticsWorkflowJobsParams = {
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Which re-run attempt to scope jobs to. Omit to use the run's latest attempt; pass an explicit attempt to avoid mixing jobs across a re-run's attempts.
      */
     run_attempt?: number
@@ -1492,6 +1598,10 @@ export type EngineeringAnalyticsWorkflowJobsParams = {
 }
 
 export type EngineeringAnalyticsWorkflowRunParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
     /**
      * GitHub Actions run id to inspect.
      */

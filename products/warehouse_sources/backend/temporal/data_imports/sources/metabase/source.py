@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetabaseSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metabase import (
+    MetabaseSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.metabase import (
     API_KEY_AUTH,
     HOST_NOT_ALLOWED_ERROR,
@@ -148,6 +150,7 @@ The API key (or user) needs read access to the data you want to sync.""",
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Metabase exposes no server-side timestamp filter or pagination cursor, so every endpoint
         # is full refresh only.
@@ -166,7 +169,11 @@ The API key (or user) needs read access to the data you want to sync.""",
         return schemas
 
     def validate_credentials(
-        self, config: MetabaseSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MetabaseSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_metabase_credentials(config.host, self._build_auth(config), team_id, schema_name)
 
@@ -177,6 +184,7 @@ The API key (or user) needs read access to the data you want to sync.""",
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

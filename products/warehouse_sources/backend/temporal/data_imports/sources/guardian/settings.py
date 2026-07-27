@@ -18,6 +18,9 @@ class GuardianEndpointConfig:
     extra_params: dict[str, str] = field(default_factory=dict)
     # Only the /search endpoint honors from-date/order-by=oldest as a server-side forward cursor.
     supports_incremental: bool = False
+    # `search` / `tags` report `pages`/`currentPage` and paginate; `sections` / `editions` return
+    # every row in one response with no pagination metadata, so they're a single page.
+    paginated: bool = False
 
 
 # The Guardian Open Platform Content API (https://open-platform.theguardian.com/documentation/).
@@ -29,6 +32,7 @@ GUARDIAN_ENDPOINTS: dict[str, GuardianEndpointConfig] = {
         path="/search",
         partition_key="webPublicationDate",
         supports_incremental=True,
+        paginated=True,
         # `show-fields=all` / `show-tags=all` pull the article body, byline, wordcount, associated
         # tags etc. that the API omits by default. `order-by=oldest` + `order-date=published` yields
         # ascending `webPublicationDate` order so the incremental watermark advances correctly.
@@ -52,6 +56,7 @@ GUARDIAN_ENDPOINTS: dict[str, GuardianEndpointConfig] = {
         name="tags",
         path="/tags",
         incremental_fields=[],
+        paginated=True,
     ),
     "sections": GuardianEndpointConfig(
         name="sections",

@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { IconCornerDownRight, IconPlayFilled } from '@posthog/icons'
 
@@ -13,6 +13,7 @@ import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { countTextLines, outputHeightForShape } from './notebookNodeOutputHeight'
 import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
@@ -66,6 +67,7 @@ const Component = ({
         isStale,
         isChainRunning,
         staleDownstreamCount,
+        pendingKernelStart,
     } = useValues(dataLogic)
     const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
 
@@ -84,11 +86,33 @@ const Component = ({
         ? pageResult.has_more
         : (result?.has_more ?? (result?.first_page ?? []).length >= SQL_V2_DEFAULT_PAGE_SIZE)
 
+    const hasStreamOutput = !!(result?.stdout || result?.stderr || result?.media?.length)
+
+    // Grow a still-too-short node to fit the output each run lands, so it's readable without a
+    // manual resize. Sized to what came back — a printed value stays compact, a table or figure
+    // grows up to a cap. Only grows, and only for a run we haven't sized yet, so a deliberate
+    // resize (or a reload of an already-sized cell) is left untouched.
+    const sizedRunIdRef = useRef<string | null | undefined>(result ? (attributes.runId ?? null) : undefined)
+    useEffect(() => {
+        const runId = attributes.runId ?? null
+        if (!result || runId === sizedRunIdRef.current) {
+            return
+        }
+        sizedRunIdRef.current = runId
+        const target = outputHeightForShape({
+            rowCount: result.columns?.length ? (result.first_page ?? []).length : 0,
+            textLines: countTextLines(result.stdout, result.stderr),
+            hasMedia: !!result.media?.length,
+        })
+        if (target !== null && (typeof attributes.height !== 'number' || attributes.height < target)) {
+            updateAttributes({ height: target })
+        }
+        // oxlint-disable-next-line exhaustive-deps
+    }, [result, attributes.runId])
+
     if (!expanded) {
         return null
     }
-
-    const hasStreamOutput = !!(result?.stdout || result?.stderr || result?.media?.length)
 
     return (
         <div data-attr="notebook-node-python-v2" className="flex h-full min-h-0 flex-col">
@@ -109,6 +133,9 @@ const Component = ({
                             disabledReason={isRunning ? 'This cell is running' : (operationBlockReason ?? undefined)}
                         />
                     </div>
+                ) : null}
+                {isRunning && pendingKernelStart ? (
+                    <div className="shrink-0 px-2 pt-1 text-xs text-muted">Starting compute sandbox…</div>
                 ) : null}
                 {hasStreamOutput ? (
                     <div className="shrink-0 space-y-2 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
@@ -140,6 +167,9 @@ const Component = ({
                             page={page}
                             pageSize={pageSize}
                             hasMore={hasMorePages}
+                            // Wide text columns (long strings, JSON blobs) shouldn't make every
+                            // row tall; clamp to one line here and let the user open a cell.
+                            truncateCells
                             paginationDisabledReason={
                                 pageLoading
                                     ? 'Fetching page…'

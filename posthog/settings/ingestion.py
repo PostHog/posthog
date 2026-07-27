@@ -60,6 +60,10 @@ CAPTURE_REPLAY_INTERNAL_URL = os.getenv("CAPTURE_REPLAY_INTERNAL_URL", "http://l
 # empty = emission disabled (the activity skips/raises rather than shipping to the wrong place); set
 # per-region via charts in prod, and to the local capture proxy when testing locally.
 OTLP_LOGS_INGEST_ENDPOINT = os.getenv("OTLP_LOGS_INGEST_ENDPOINT", "")
+# Project token used as the OTLP Bearer for first-party log emission to a fixed internal project
+# (dogfooding a product's own backend logs), not a per-team token. Pairs with
+# OTLP_LOGS_INGEST_ENDPOINT. Both empty means emission is disabled. Mirrors OTEL_METRICS_EXPORT_TOKEN.
+OTLP_LOGS_INGEST_TOKEN = os.getenv("OTLP_LOGS_INGEST_TOKEN", "")
 
 # Internal OTLP/HTTP endpoint for first-party metric emission into the Metrics product (the
 # `capture-logs` service, path `/i/v1/metrics`), with a project token as the OTLP Bearer.

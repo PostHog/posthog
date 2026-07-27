@@ -9,7 +9,11 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
-from posthog.hogql_queries.ai.ai_column_rewriter import rewrite_expr_for_events_table, rewrite_query_for_events_table
+from posthog.hogql_queries.ai.ai_column_rewriter import (
+    EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
+    rewrite_expr_for_events_table,
+    rewrite_query_for_events_table,
+)
 from posthog.hogql_queries.ai.ai_property_rewriter import rewrite_expr_for_ai_events_table
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.ph_client import feature_enabled_or_false
@@ -123,20 +127,26 @@ def query_ai_events(
 
         events_schema = use_new_events_schema(team.pk)
         events_query = rewrite_query_for_events_table(query)
-        events_placeholders = {key: rewrite_expr_for_events_table(value) for key, value in placeholders.items()}
-        kwargs["context"] = HogQLContext(team_id=team.pk, use_new_events_schema=events_schema)
+        events_placeholders = {k: rewrite_expr_for_events_table(v) for k, v in placeholders.items()}
+        events_kwargs = {
+            **kwargs,
+            "context": HogQLContext(
+                team_id=team.pk,
+                use_new_events_schema=events_schema,
+                property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
+            ),
+        }
 
         if fall_back_to_events:
             tag_queries(ai_query_source="shared_table_fallback")
             AI_EVENTS_QUERY_TOTAL.labels(source="shared_table_fallback").inc()
             with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="shared_table_fallback").time():
-                result = execute_hogql_query(query=events_query, placeholders=events_placeholders, **kwargs)
-            return result
+                return execute_hogql_query(query=events_query, placeholders=events_placeholders, **events_kwargs)
 
         # The caller can't use heavy-column-stripped events rows, so probe events solely to
         # tell "aged past the TTL" apart from "never existed" and raise the matching error.
         with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="retention_probe").time():
-            probe = execute_hogql_query(query=events_query, placeholders=events_placeholders, **kwargs)
+            probe = execute_hogql_query(query=events_query, placeholders=events_placeholders, **events_kwargs)
         if probe.results:
             tag_queries(ai_query_source="expired")
             AI_EVENTS_QUERY_TOTAL.labels(source="expired").inc()

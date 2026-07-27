@@ -43,6 +43,7 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
 from products.experiments.backend.hogql_queries.experiment_query_runner import (
     experiment_has_min_runtime_for_precomputation,
     experiment_precompute_ttl_schedule,
+    has_uncalculated_cohorts,
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
 from products.experiments.backend.models.experiment import Experiment
@@ -164,6 +165,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 self.experiment.start_date,
                 self.experiment.end_date,
             )
+            and not has_uncalculated_cohorts(self.team, self.exposure_criteria)
         ):
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):

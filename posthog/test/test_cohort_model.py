@@ -329,6 +329,58 @@ class TestCohort(BaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            (
+                # Regression: the realtime-cohort builder stores value="performed_event_multiple_times",
+                # not BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE's "performed_event_multiple".
+                # Property(**leaf) used to raise KeyError for this, silently dropping the leaf.
+                "multiple_times_suffixed_value",
+                {
+                    "key": "$pageview",
+                    "type": "behavioral",
+                    "value": "performed_event_multiple_times",
+                    "negation": False,
+                    "operator": "gte",
+                    "event_type": "events",
+                    "time_value": 3650,
+                    "time_interval": "day",
+                    "operator_value": 1,
+                },
+                "performed_event_multiple",
+            ),
+            (
+                # Regression: an unbounded realtime-compiled condition ("did this person ever do X")
+                # carries bytecode/conditionHash/event_filters but no time_value/time_interval/
+                # explicit_datetime. Property(**leaf) used to raise ValueError ("Missing required
+                # parameters"), silently dropping the leaf.
+                "bytecode_only_unbounded_condition",
+                {
+                    "key": "$pageview",
+                    "type": "behavioral",
+                    "value": "performed_event",
+                    "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
+                    "negation": False,
+                    "event_type": "events",
+                    "conditionHash": "f9c616030a87e68f",
+                    "event_filters": [
+                        {"key": "$current_url", "type": "event", "value": "some-path", "operator": "icontains"}
+                    ],
+                },
+                "performed_event",
+            ),
+        ]
+    )
+    def test_properties_flat_includes_realtime_style_behavioral_leaf(self, _name, behavioral_leaf, expected_value):
+        cohort = Cohort(
+            team=self.team,
+            filters={"properties": {"type": "AND", "values": [behavioral_leaf]}},
+        )
+
+        behavioral_props = [p for p in cohort.properties.flat if p.type == "behavioral"]
+        self.assertEqual(len(behavioral_props), 1)
+        self.assertEqual(behavioral_props[0].value, expected_value)
+
     def test_insert_users_list_by_uuid(self):
         # These are some fine uuids.
         uuids = [

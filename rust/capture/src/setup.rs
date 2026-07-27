@@ -4,6 +4,9 @@ use std::time::Duration;
 
 use anyhow::Context;
 use axum::Router;
+use common_ingestion_warnings::{observe_delivery, KafkaWarningEmitter, WarningEmitter};
+use common_kafka::config::KafkaConfig as WarningsKafkaConfig;
+use common_kafka::kafka_producer::create_threaded_kafka_producer;
 use common_redis::RedisClient;
 use tracing::{info, warn};
 
@@ -33,6 +36,7 @@ pub struct LifecycleHandles {
     pub sink: Option<lifecycle::Handle>,
     pub advisory: Option<lifecycle::Handle>,
     pub event_restrictions: Option<lifecycle::Handle>,
+    pub ingestion_warnings: Option<lifecycle::Handle>,
     pub v1_sinks: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
     pub readiness: lifecycle::ReadinessHandler,
     pub liveness: lifecycle::LivenessHandler,
@@ -79,6 +83,21 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
             None
         };
 
+    // Advisory: the warnings producer is best-effort, so a stalled or dead
+    // producer must never gate pod liveness/readiness or trigger shutdown.
+    let ingestion_warnings = if config.capture_ingestion_warnings_enabled {
+        Some(
+            manager.register(
+                "ingestion-warnings",
+                lifecycle::ComponentOptions::new()
+                    .with_liveness_deadline(Duration::from_secs(30))
+                    .is_advisory(true),
+            ),
+        )
+    } else {
+        None
+    };
+
     let v1_sinks: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle> =
         if !config.capture_v1_sinks.is_empty() {
             crate::v1::sinks::parse_sink_names(&config.capture_v1_sinks)
@@ -108,6 +127,7 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
         sink,
         advisory,
         event_restrictions,
+        ingestion_warnings,
         v1_sinks,
         readiness,
         liveness,
@@ -132,6 +152,7 @@ pub async fn build_components(
         sink: sink_handle,
         advisory: advisory_handle,
         event_restrictions: event_restrictions_handle,
+        ingestion_warnings: ingestion_warnings_handle,
         v1_sinks: v1_sink_handles,
         readiness,
         liveness,
@@ -157,6 +178,9 @@ pub async fn build_components(
         .expect("failed to create redis client"),
     );
 
+    // The dynamic custom-threshold refresh loop is owned by the common limiter:
+    // when GLOBAL_RATE_LIMIT_CUSTOM_THRESHOLD_KEY is set, `build()` wires a Redis
+    // source into the limiter, which spawns and manages the refresh task itself.
     let global_rate_limiter_token_distinctid = if config.global_rate_limit_enabled {
         let limiter = GlobalRateLimiter::try_from_config(&config, redis_client.clone())
             .await
@@ -210,7 +234,7 @@ pub async fn build_components(
         if config.export_prometheus {
             let partition = partition.clone();
             tokio::spawn(async move {
-                partition.report_metrics().await;
+                partition.report_metrics("analytics").await;
             });
         }
 
@@ -348,6 +372,79 @@ pub async fn build_components(
         None
     };
 
+    // Deployment-level policy for diverting `$ai_*` events to a dedicated
+    // topic, shared by the v0 and v1 analytics pipelines. Distinct from the AI
+    // secondary CLUSTER routing above: this stays on the same sink and only
+    // changes the destination topic.
+    let ai_routing = match config.capture_analytics_ai_events_mode {
+        AiSinkMode::Primary => AiRouting::Primary,
+        AiSinkMode::Secondary => AiRouting::Secondary,
+        AiSinkMode::SecondaryAllowlist => AiRouting::SecondaryAllowlist(
+            config
+                .capture_analytics_ai_events_allowlist_tokens
+                .as_deref()
+                .map(parse_token_allowlist)
+                .unwrap_or_default(),
+        ),
+    };
+    assert!(
+        config.capture_analytics_ai_events_mode == AiSinkMode::Primary
+            || config
+                .kafka
+                .capture_analytics_ai_events_topic
+                .as_deref()
+                .is_some_and(|t| !t.is_empty()),
+        "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_TOPIC must be set when CAPTURE_ANALYTICS_AI_EVENTS_MODE is not primary (got {:?})",
+        config.capture_analytics_ai_events_mode,
+    );
+    // The AI overflow valve: settable in advance of the routing mode (or
+    // absent), so it is deliberately not validated against it.
+    let ai_events_overflow_enabled = config
+        .kafka
+        .capture_analytics_ai_events_overflow_topic
+        .as_deref()
+        .is_some_and(|t| !t.is_empty());
+    info!(
+        ai_routing = ?ai_routing,
+        capture_analytics_ai_events_topic = ?config.kafka.capture_analytics_ai_events_topic,
+        capture_analytics_ai_events_overflow_topic = ?config.kafka.capture_analytics_ai_events_overflow_topic,
+        ai_events_overflow_enabled,
+        "AI events topic routing policy"
+    );
+
+    // The AI lane gets its own limiter instance with the same knobs: the
+    // governor state (per-`token:distinct_id` budgets) is what must stay
+    // isolated, so analytics volume can never push a key's AI events into
+    // AI overflow and AI volume never burns the analytics budget.
+    let ai_events_overflow_limiter: Option<Arc<OverflowLimiter>> =
+        if config.overflow_enabled && ai_events_overflow_enabled {
+            let limiter = OverflowLimiter::new(
+                config.overflow_per_second_limit,
+                config.overflow_burst_limit,
+                config.ingestion_force_overflow_by_token_distinct_id.clone(),
+                config.overflow_preserve_partition_locality,
+            );
+
+            if config.export_prometheus {
+                let limiter = limiter.clone();
+                tokio::spawn(async move {
+                    limiter.report_metrics("ai").await;
+                });
+            }
+
+            {
+                // Keep the governor's per-key state from growing unbounded.
+                let limiter = limiter.clone();
+                tokio::spawn(async move {
+                    limiter.clean_state().await;
+                });
+            }
+
+            Some(Arc::new(limiter))
+        } else {
+            None
+        };
+
     let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
         Some(
             create_v1_sink_router(&config, &sink_env, v1_sink_handles)
@@ -356,6 +453,9 @@ pub async fn build_components(
     } else {
         None
     };
+
+    let ingestion_warning_emitter =
+        create_ingestion_warning_emitter(&config, ingestion_warnings_handle).await;
 
     let app = router::router(
         crate::time::SystemTime {},
@@ -383,10 +483,14 @@ pub async fn build_components(
         config.capture_v1_max_compressed_body_bytes,
         config.capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
+        ai_events_overflow_limiter,
         replay_overflow_limiter,
         v1_sink_router.clone(),
         config.capture_v1_scatter_gather_min_batch,
         config.ai_gateway_signing_secret.clone(),
+        ai_routing,
+        ai_events_overflow_enabled,
+        ingestion_warning_emitter,
     );
 
     info!(
@@ -437,16 +541,29 @@ fn parse_token_allowlist(csv: &str) -> HashSet<String> {
         .collect()
 }
 
+/// Builds the v1 sink router. The dedicated `$ai_*` topics are
+/// deployment-level config (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` and `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`),
+/// so they are injected into every sink config here; the overwrite is
+/// unconditional so a stray per-sink `TOPIC_AI`/`TOPIC_AI_OVERFLOW` env var
+/// cannot diverge from the shared policy.
 fn create_v1_sink_router(
     config: &Config,
     sink_env: &HashMap<String, String>,
     handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
 ) -> anyhow::Result<Arc<crate::v1::sinks::Router>> {
-    let sinks_cfg = crate::v1::sinks::load_sinks_from(&config.capture_v1_sinks, sink_env)
+    let mut sinks_cfg = crate::v1::sinks::load_sinks_from(&config.capture_v1_sinks, sink_env)
         .context("failed to parse CAPTURE_V1_SINKS")?;
     sinks_cfg
         .validate()
         .context("v1 sink config validation failed")?;
+
+    for cfg in sinks_cfg.configs.values_mut() {
+        cfg.kafka.topic_ai = config.kafka.capture_analytics_ai_events_topic.clone();
+        cfg.kafka.topic_ai_overflow = config
+            .kafka
+            .capture_analytics_ai_events_overflow_topic
+            .clone();
+    }
 
     let mut sink_map: HashMap<crate::v1::sinks::SinkName, Box<dyn crate::v1::sinks::sink::Sink>> =
         HashMap::new();
@@ -527,6 +644,146 @@ async fn create_sink(
 
         Ok(Box::new(kafka_sink))
     }
+}
+
+// Fixed fire-and-forget tuning for the warnings producer. These are
+// deliberately not env-configurable: they define the "a warning is worth less
+// than the cost of retrying it" contract, not knobs an operator should turn.
+// (Queue size in MiB and the per-message byte ceiling stay env-configurable in
+// `Config` because they're capacity/safety limits, not the delivery policy.)
+const WARNINGS_KAFKA_CLIENT_ID: &str = "capture-ingestion-warnings";
+// rdkafka "acks": leader ack only, trading durability for latency.
+const WARNINGS_KAFKA_ACKS: &str = "1";
+// rdkafka "retries": never retry a dropped warning.
+const WARNINGS_KAFKA_RETRIES: u32 = 0;
+// Small batching window, in ms.
+const WARNINGS_KAFKA_LINGER_MS: u32 = 100;
+// Bound the in-flight local backlog by message count.
+const WARNINGS_KAFKA_QUEUE_MESSAGES: u32 = 10_000;
+// Drop a message not delivered within this many ms.
+const WARNINGS_KAFKA_MESSAGE_TIMEOUT_MS: u32 = 5_000;
+
+/// Build the dedicated, warnings-only Kafka config. Reuses only the
+/// destination cluster (`hosts`/`tls`) from capture's main Kafka config;
+/// everything else is the fixed fire-and-forget policy (client id, acks,
+/// retries, linger, queue depth, message timeout) plus the two tunable limits
+/// (`queue_mib`, `message_max_bytes`). `..Default::default()` supplies the
+/// shared-crate defaults (compression codec, empty client rack) and — critically
+/// — leaves every opt-in producer tuning knob at `None`, so warnings never
+/// inherit the main event producer's batching/idempotence tuning.
+fn build_warnings_kafka_config(
+    kafka_hosts: String,
+    kafka_tls: bool,
+    queue_mib: u32,
+    message_max_bytes: u32,
+) -> WarningsKafkaConfig {
+    WarningsKafkaConfig {
+        kafka_hosts,
+        kafka_tls,
+        kafka_client_id: WARNINGS_KAFKA_CLIENT_ID.to_string(),
+        kafka_producer_acks: Some(WARNINGS_KAFKA_ACKS.to_string()),
+        kafka_producer_retries: Some(WARNINGS_KAFKA_RETRIES),
+        kafka_producer_linger_ms: WARNINGS_KAFKA_LINGER_MS,
+        kafka_producer_queue_messages: WARNINGS_KAFKA_QUEUE_MESSAGES,
+        kafka_message_timeout_ms: WARNINGS_KAFKA_MESSAGE_TIMEOUT_MS,
+        kafka_producer_queue_mib: queue_mib,
+        kafka_producer_message_max_bytes: Some(message_max_bytes),
+        ..Default::default()
+    }
+}
+
+/// Build the optional v2 ingestion warnings emitter. Best-effort by contract:
+/// any misconfiguration or producer-creation failure logs and returns `None`
+/// (capture runs without warnings) instead of failing startup. The producer
+/// is a `common_kafka` `ThreadedProducer`, built via
+/// `common_kafka::kafka_producer::create_threaded_kafka_producer` from a
+/// dedicated, warnings-only `common_kafka::config::KafkaConfig` (fire-and-forget
+/// acks/retries, a small queue) with `observe_delivery` as its delivery
+/// callback — it shares only the destination cluster (hosts/TLS) and the
+/// `client_ingestion_warning` topic with capture's main event producer, never
+/// its tuning or connection. When built, a background task heartbeats the
+/// advisory lifecycle handle, sweeps the throttle's per-key state, and flushes
+/// the producer once at shutdown.
+///
+/// Fail-open note: unlike the previous bespoke producer (which never pinged
+/// brokers at startup), `create_threaded_kafka_producer` does a one-time
+/// metadata fetch. If brokers are unreachable at boot, the emitter stays
+/// disabled for the pod's life rather than retrying.
+async fn create_ingestion_warning_emitter(
+    config: &Config,
+    handle: Option<lifecycle::Handle>,
+) -> Option<Arc<dyn WarningEmitter>> {
+    if !config.capture_ingestion_warnings_enabled {
+        return None;
+    }
+
+    if config.kafka.kafka_hosts.is_empty() {
+        warn!("ingestion warnings enabled but KAFKA_HOSTS is empty; emitter disabled");
+        return None;
+    }
+
+    let Some(handle) = handle else {
+        warn!(
+            "ingestion warnings enabled but no lifecycle handle was registered; emitter disabled"
+        );
+        return None;
+    };
+
+    let warnings_kafka_config = build_warnings_kafka_config(
+        config.kafka.kafka_hosts.clone(),
+        config.kafka.kafka_tls,
+        config.capture_ingestion_warnings_kafka_queue_mib,
+        config.capture_ingestion_warnings_kafka_message_max_bytes,
+    );
+
+    let producer = match create_threaded_kafka_producer(
+        &warnings_kafka_config,
+        handle.clone(),
+        observe_delivery,
+    )
+    .await
+    {
+        Ok(producer) => producer,
+        Err(e) => {
+            tracing::error!(
+                "failed to create ingestion warnings producer, emitter disabled: {e:#}"
+            );
+            return None;
+        }
+    };
+
+    let emitter = Arc::new(KafkaWarningEmitter::new(
+        producer,
+        config.kafka.kafka_client_ingestion_warning_topic.clone(),
+    ));
+
+    let emitter_bg = emitter.clone();
+    tokio::spawn(async move {
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(10));
+        let mut sweep = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            tokio::select! {
+                _ = heartbeat.tick() => handle.report_healthy(),
+                _ = sweep.tick() => emitter_bg.sweep_throttle(),
+                _ = handle.shutdown_recv() => break,
+            }
+        }
+        // Advisory flush: rdkafka flush blocks, so keep it off the async
+        // workers. Dropping the handle after shutdown signals completion.
+        let flush_result = tokio::task::spawn_blocking(move || {
+            emitter_bg.flush(Duration::from_secs(2));
+        })
+        .await;
+        if let Err(e) = flush_result {
+            warn!("ingestion warnings flush task panicked: {e}");
+        }
+    });
+
+    info!(
+        topic = config.kafka.kafka_client_ingestion_warning_topic.as_str(),
+        "ingestion warnings emitter enabled"
+    );
+    Some(emitter)
 }
 
 fn create_event_restriction_service(
@@ -642,6 +899,49 @@ mod tests {
             msg.contains("msk"),
             "error should name the failing sink: {msg}"
         );
+    }
+
+    #[test]
+    fn warnings_kafka_config_is_isolated_from_main_producer_tuning() {
+        let cfg = build_warnings_kafka_config("broker:9092".to_string(), true, 16, 1_048_576);
+
+        // Reuses only the destination cluster from the main config.
+        assert_eq!(cfg.kafka_hosts, "broker:9092");
+        assert!(cfg.kafka_tls);
+
+        // Fixed fire-and-forget policy (not env-configurable).
+        assert_eq!(cfg.kafka_client_id, WARNINGS_KAFKA_CLIENT_ID);
+        assert_eq!(
+            cfg.kafka_producer_acks.as_deref(),
+            Some(WARNINGS_KAFKA_ACKS)
+        );
+        assert_eq!(cfg.kafka_producer_retries, Some(WARNINGS_KAFKA_RETRIES));
+        assert_eq!(cfg.kafka_producer_linger_ms, WARNINGS_KAFKA_LINGER_MS);
+        assert_eq!(
+            cfg.kafka_producer_queue_messages,
+            WARNINGS_KAFKA_QUEUE_MESSAGES
+        );
+        assert_eq!(
+            cfg.kafka_message_timeout_ms,
+            WARNINGS_KAFKA_MESSAGE_TIMEOUT_MS
+        );
+
+        // The two tunable capacity/safety limits pass through unchanged.
+        assert_eq!(cfg.kafka_producer_queue_mib, 16);
+        assert_eq!(cfg.kafka_producer_message_max_bytes, Some(1_048_576));
+
+        // Critically: none of the main event producer's opt-in tuning leaks in
+        // — `..Default::default()` must leave every WarpStream knob at `None`.
+        assert_eq!(cfg.kafka_producer_batch_size, None);
+        assert_eq!(cfg.kafka_producer_batch_num_messages, None);
+        assert_eq!(cfg.kafka_producer_enable_idempotence, None);
+        assert_eq!(
+            cfg.kafka_producer_max_in_flight_requests_per_connection,
+            None
+        );
+        assert_eq!(cfg.kafka_producer_topic_metadata_refresh_interval_ms, None);
+        assert_eq!(cfg.kafka_producer_sticky_partitioning_linger_ms, None);
+        assert_eq!(cfg.kafka_producer_partitioner, None);
     }
 
     #[test]

@@ -34,12 +34,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks
     FORMBRICKS_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FormbricksSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.formbricks import (
+    FormbricksSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class FormbricksSource(ResumableSource[FormbricksSourceConfig, FormbricksResumeConfig]):
+    api_docs_url = "https://formbricks.com/docs/api-reference/rest-api"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -113,6 +117,7 @@ For self-hosted Formbricks, set your instance URL (for example `https://formbric
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -129,7 +134,11 @@ For self-hosted Formbricks, set your instance URL (for example `https://formbric
         return schemas
 
     def validate_credentials(
-        self, config: FormbricksSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FormbricksSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key grants access to its whole environment, so one probe validates every schema.
         return validate_formbricks_credentials(config.host, config.api_key, team_id)

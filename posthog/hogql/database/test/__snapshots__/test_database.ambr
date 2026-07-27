@@ -315,6 +315,8 @@
          "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."direct_query_enabled",
+         "posthog_externaldatasource"."auto_sync_new_schemas",
+         "posthog_externaldatasource"."auto_sync_schema_patterns",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -655,6 +657,8 @@
          "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."direct_query_enabled",
+         "posthog_externaldatasource"."auto_sync_new_schemas",
+         "posthog_externaldatasource"."auto_sync_schema_patterns",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -2406,6 +2410,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "product": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "product",
+                  "id": null,
+                  "name": "product",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "read_rows": {
                   "chain": null,
@@ -11171,6 +11185,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "product": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "product",
+                  "id": null,
+                  "name": "product",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "read_rows": {
                   "chain": null,

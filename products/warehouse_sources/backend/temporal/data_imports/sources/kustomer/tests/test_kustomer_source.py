@@ -1,14 +1,26 @@
+import json
+from collections.abc import Iterable
+from typing import Any, cast
+from urllib.parse import urlparse
+
 import pytest
 from unittest import mock
+
+from requests import Response
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KustomerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kustomer import (
+    KustomerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.kustomer import KustomerResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source import KustomerSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+# The REST framework builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 
 
 class TestKustomerSource:
@@ -105,6 +117,12 @@ class TestKustomerSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is KustomerResumeConfig
 
+    def test_version_declaration_keeps_v1_default_with_v2_supported(self):
+        # v2 is declared but dormant; new sources stay stamped v1 until a /v2/ path is confirmed live.
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.default_version == "v1"
+        assert self.source.deprecated_versions == ()
+
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source.kustomer_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_kustomer_source):
         inputs = mock.MagicMock()
@@ -119,3 +137,38 @@ class TestKustomerSource:
         assert kwargs["api_key"] == "api-key"
         assert kwargs["endpoint"] == "customers"
         assert kwargs["resumable_source_manager"] is manager
+
+    @pytest.mark.parametrize("pinned_version", [None, "v1", "v2"])
+    @pytest.mark.parametrize("endpoint", ENDPOINTS)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_requests_v1_rest_paths_for_every_version(self, mock_session, endpoint, pinned_version):
+        # Every list resource is served at /v1/ for both vendor versions; a v2 pin
+        # must not switch to /v2/, which would 404 the stream. Covering all six also
+        # guards against a per-resource /v2/ typo in the endpoint catalog.
+        session = mock_session.return_value
+        session.headers = {}
+        captured: list[str] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            captured.append(request.url)
+            prepared = mock.MagicMock()
+            prepared.url = request.url
+            return prepared
+
+        session.prepare_request.side_effect = _prepare
+        page = Response()
+        page.status_code = 200
+        page._content = json.dumps({"data": [], "links": {}}).encode()
+        session.send.return_value = page
+
+        inputs = mock.MagicMock()
+        inputs.schema_name = endpoint
+        inputs.api_version = pinned_version
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        response = self.source.source_for_pipeline(self.config, manager, inputs)
+        list(cast(Iterable[Any], response.items()))
+
+        assert captured, "expected at least one request"
+        assert urlparse(captured[0]).path == f"/v1/{endpoint}"

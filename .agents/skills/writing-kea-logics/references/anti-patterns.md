@@ -358,7 +358,7 @@ type FooState = ReturnType<typeof fooLogic.build>['values']
 
 ```ts
 // do
-import type { fooLogicType } from './fooLogicType'
+import type { fooLogicType } from './fooLogic'
 type FooState = fooLogicType['values']
 ```
 
