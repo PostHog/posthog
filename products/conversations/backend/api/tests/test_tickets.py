@@ -1076,6 +1076,41 @@ class TestTicketAssignment(APIBaseTest):
         returned_ids = {result["id"] for result in response.json()["results"]}
         self.assertEqual(returned_ids, {str(tickets[key].id) for key in expected_keys})
 
+    def test_filter_by_me_resolves_to_requesting_user(self):
+        """The dynamic `me` token filters to whoever is making the request."""
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+
+        other_user = User.objects.create_and_join(self.organization, "other-me@posthog.com", None)
+        other_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-session",
+            distinct_id="other-user",
+        )
+        TicketAssignment.objects.create(ticket=other_ticket, user=other_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assignee=me")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_filter_by_me_combined_with_unassigned(self):
+        """`me` composes with other assignee entries in a match-any list."""
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+        unassigned_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="unassigned-session",
+            distinct_id="unassigned-user",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assignee=me,unassigned")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = {result["id"] for result in response.json()["results"]}
+        self.assertEqual(returned_ids, {str(self.ticket.id), str(unassigned_ticket.id)})
+
     def test_assignment_logs_activity(self):
         """Test that assignment changes are logged in activity log."""
         response = self.client.patch(
