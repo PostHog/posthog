@@ -795,13 +795,9 @@ class Database(BaseModel):
         and its parent source's access applies, so restricting a source covers all its tables while a
         table-specific grant still overrides it.
         """
-        from posthog.rbac.user_access_control import access_level_satisfied_for_resource  # noqa: PLC0415
-
         uac = self.user_access_control
-        if uac is not None:
-            level = uac.warehouse_table_effective_level(table, table.external_data_source)
-            if level is not None and access_level_satisfied_for_resource("warehouse_table", level, "viewer"):
-                return False
+        if uac is not None and uac.check_warehouse_table_access(table, table.external_data_source, "viewer"):
+            return False
 
         # Add table names to denied tables so the query raises "You don't have access" instead of "Unknown table"
         self._denied_tables.add(table.name)

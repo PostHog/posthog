@@ -802,8 +802,8 @@ class UserAccessControl:
         """Effective access to a synced table, most-specific first. An object rule on the table itself
         wins outright. Otherwise the more restrictive of the table's and the source's access applies,
         each resolved from its own object and resource-level rules. `table` is None before the first
-        sync, `source` is None for self-managed tables. Used by the query gate,
-        WarehouseTableSyncPermission, and the schema serializer."""
+        sync, `source` is None for self-managed tables. Exposed for the schema serializer;
+        enforcement should call `check_warehouse_table_access`."""
         table_level = None if table is None else self.get_user_access_level(table)
         if table is not None and self.has_object_rules("warehouse_table", str(table.pk)):
             return table_level
@@ -812,6 +812,14 @@ class UserAccessControl:
             return table_level if source_level is None else source_level
         order = ACCESS_CONTROL_LEVELS_RESOURCE
         return source_level if order.index(source_level) <= order.index(table_level) else table_level
+
+    def check_warehouse_table_access(
+        self, table: Optional[Model], source: Optional[Model], required_level: AccessControlLevel
+    ) -> bool:
+        """Whether the user reaches `required_level` on a synced table, per
+        `warehouse_table_effective_level`. Entry point for the query gate and the sync permission."""
+        level = self.warehouse_table_effective_level(table, source)
+        return level is not None and access_level_satisfied_for_resource("warehouse_table", level, required_level)
 
     def check_can_modify_access_levels_for_object(self, obj: Model) -> bool:
         """

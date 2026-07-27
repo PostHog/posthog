@@ -22,7 +22,7 @@ from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.permissions import is_service_auth
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import (
@@ -1351,8 +1351,7 @@ class WarehouseTableSyncPermission(BasePermission):
         uac = view.user_access_control
         if uac is None or uac.is_organization_admin:
             return True
-        level = uac.warehouse_table_effective_level(obj.table, obj.source)
-        return level is not None and access_level_satisfied_for_resource("warehouse_table", level, "editor")
+        return uac.check_warehouse_table_access(obj.table, obj.source, "editor")
 
 
 @extend_schema(extensions={"x-product": "warehouse_sources"})
