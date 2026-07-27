@@ -566,6 +566,10 @@ build:
         cmd: python products/posthog_ai/scripts/build_skills.py
         description: Build agent skills from products/*/skills/ into dist/skills/ and
             dist/skills.zip
+    build:product-capabilities:
+        click: hogli_commands.product.capabilities.build:cmd_build
+        description: Derive the product capability spec (surfaces and data sources per
+            product) into dist/product-capabilities.json
     init:skill:
         cmd: python products/posthog_ai/scripts/build_skills.py --init
         description: Scaffold a new agent skill directory with SKILL.md boilerplate
@@ -820,6 +824,9 @@ quality:
     lint:skills:
         cmd: python products/posthog_ai/scripts/build_skills.py --lint
         description: Validate agent skill sources (syntax, frontmatter, depth constraints)
+    lint:product-capabilities:
+        click: hogli_commands.product.capabilities.build:cmd_lint
+        description: Validate product capability derivation sources without writing output
     lint:python:fix:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues

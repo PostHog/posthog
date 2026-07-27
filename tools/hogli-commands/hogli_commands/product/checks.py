@@ -1047,6 +1047,117 @@ class OrphanedTestFilesCheck(ProductCheck):
         return result
 
 
+class CapabilitySourcesCheck(ProductCheck):
+    """Validates that this product's capability-spec inputs parse.
+
+    The capability spec is derived from files products already own (mcp/tools.yaml,
+    skill frontmatter). A malformed one does not break the product, so nothing else
+    catches it — it just quietly drops the product's facts out of the published spec.
+    """
+
+    label = "capability spec sources"
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        import yaml
+
+        result = CheckResult()
+
+        tools_yaml = ctx.product_dir / "mcp" / "tools.yaml"
+        if tools_yaml.exists():
+            try:
+                parsed = yaml.safe_load(tools_yaml.read_text())
+            except yaml.YAMLError as exc:
+                result.issues.append(f"mcp/tools.yaml does not parse: {exc}")
+                result.file = f"products/{ctx.name}/mcp/tools.yaml"
+            else:
+                if not isinstance(parsed, dict):
+                    result.issues.append("mcp/tools.yaml must be a YAML mapping")
+                    result.file = f"products/{ctx.name}/mcp/tools.yaml"
+
+        skills_dir = ctx.product_dir / "skills"
+        if skills_dir.is_dir():
+            for skill in sorted(skills_dir.iterdir()):
+                skill_md = skill / "SKILL.md"
+                if not skill.is_dir() or not skill_md.exists():
+                    continue
+                match = re.match(r"^---\s*\n(.*?)\n---\s*\n", skill_md.read_text(), re.DOTALL)
+                if not match:
+                    result.issues.append(f"skills/{skill.name}/SKILL.md has no YAML frontmatter")
+                    result.file = f"products/{ctx.name}/skills/{skill.name}/SKILL.md"
+                    continue
+                try:
+                    yaml.safe_load(match.group(1))
+                except yaml.YAMLError as exc:
+                    result.issues.append(f"skills/{skill.name}/SKILL.md frontmatter does not parse: {exc}")
+                    result.file = f"products/{ctx.name}/skills/{skill.name}/SKILL.md"
+
+        result.lines.append("✓ ok" if not result.issues else f"✗ {len(result.issues)} issue(s)")
+        return result
+
+
+class ScoutScopeAttributionCheck(ProductCheck):
+    """A Signals scout's `metadata.scope` must name a real product directory.
+
+    Scope is how the capability spec attributes self-driving coverage to a product. A
+    scope naming a directory that does not exist is a stale reference: the scout keeps
+    running, but its product silently shows no coverage. Scopes that name no directory at
+    all are a separate, known gap (tracked as `unattributed.scout_scopes`) and are not
+    flagged here — only ones that look like a rename that was half-applied.
+    """
+
+    label = "scout scope attribution"
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        import yaml
+
+        skills_dir = ctx.product_dir / "skills"
+        scouts = (
+            [d for d in sorted(skills_dir.iterdir()) if d.is_dir() and d.name.startswith("signals-scout-")]
+            if skills_dir.is_dir()
+            else []
+        )
+        if not scouts:
+            return CheckResult(skip=True)
+
+        from .paths import PRODUCTS_DIR
+
+        product_dirs = {d.name for d in PRODUCTS_DIR.iterdir() if d.is_dir() and (d / "__init__.py").exists()}
+        aliases_path = PRODUCTS_DIR / "product-aliases.json"
+        aliases = json.loads(aliases_path.read_text()).get("aliases", {}) if aliases_path.exists() else {}
+
+        result = CheckResult()
+        for scout in scouts:
+            skill_md = scout / "SKILL.md"
+            if not skill_md.exists():
+                continue
+            match = re.match(r"^---\s*\n(.*?)\n---\s*\n", skill_md.read_text(), re.DOTALL)
+            if not match:
+                continue
+            try:
+                frontmatter = yaml.safe_load(match.group(1)) or {}
+            except yaml.YAMLError:
+                continue  # CapabilitySourcesCheck reports the parse failure
+            metadata = frontmatter.get("metadata") if isinstance(frontmatter, dict) else None
+            scope = metadata.get("scope") if isinstance(metadata, dict) else None
+            if not isinstance(scope, str) or not scope:
+                continue
+            resolved = aliases.get(scope, scope)
+            if resolved in product_dirs:
+                continue
+            # Only flag a scope that looks like it *meant* a directory — i.e. one whose
+            # alias target is missing. A scope with no directory anywhere is the known
+            # open-world gap, not a broken reference.
+            if scope in aliases:
+                result.issues.append(
+                    f"skills/{scout.name}: metadata.scope '{scope}' aliases to '{resolved}', "
+                    "which is not a product directory"
+                )
+                result.file = f"products/{ctx.name}/skills/{scout.name}/SKILL.md"
+
+        result.lines.append("✓ ok" if not result.issues else f"✗ {len(result.issues)} stale scope(s)")
+        return result
+
+
 CHECKS: list[ProductCheck] = [
     ProductYamlCheck(),
     RequiredRootFilesCheck(),
@@ -1056,4 +1167,6 @@ CHECKS: list[ProductCheck] = [
     TachCheck(),
     IsolationChainCheck(),
     OrphanedTestFilesCheck(),
+    CapabilitySourcesCheck(),
+    ScoutScopeAttributionCheck(),
 ]

@@ -1,0 +1,158 @@
+name: Publish product capability spec
+
+# Master-only by design. The artifact is derived from the repo and consumed by
+# posthog.com; nothing in this repo reads it, so there is nothing for a PR to drift
+# against. Keeping `pull_request` off means ordinary product PRs pay nothing for it — no
+# extra required check, no merge latency, and no additional per-PR workflow dispatch.
+#
+# The PR-side guard rails live elsewhere: `hogli product:lint --all` (already running in
+# ci-backend.yml) validates that every product's capability inputs parse.
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - 'products/*/product.yaml'
+            - 'products/*/mcp/tools.yaml'
+            - 'products/*/skills/**'
+            - 'products/signals/skills/**'
+            - 'products/product-aliases.json'
+            - 'docs/onboarding/**'
+            - 'cli/src/**'
+            - 'posthog/cdp/templates/slack/**'
+            - 'products/signals/backend/enums.py'
+            - 'tools/hogli-commands/hogli_commands/product/capabilities/**'
+            - '.github/workflows/publish-product-capabilities.yml'
+    # Lets us cut a fresh artifact without waiting for a qualifying commit.
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.sha }}
+    cancel-in-progress: false
+
+jobs:
+    current-master:
+        name: Check current master
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: github.repository_owner == 'PostHog'
+        outputs:
+            is-current: ${{ steps.current-master.outputs.is_current }}
+        permissions:
+            contents: read
+        steps:
+            # Two pushes landing close together would otherwise race to publish, and the
+            # loser would overwrite `-latest` with an older build.
+            - name: Check current master
+              id: current-master
+              env:
+                  GIT_SHA: ${{ github.sha }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  REMOTE_MASTER=$(git ls-remote "https://github.com/${REPOSITORY}.git" refs/heads/master || true)
+                  CURRENT_MASTER=$(printf '%s\n' "$REMOTE_MASTER" | awk '{print $1}')
+                  if [ "$CURRENT_MASTER" = "$GIT_SHA" ]; then
+                      echo "is_current=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "is_current=false" >> "$GITHUB_OUTPUT"
+                      echo "Skipping capability spec release for stale master SHA $GIT_SHA"
+                  fi
+
+    publish:
+        name: Publish capability spec
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        needs: current-master
+        if: github.repository_owner == 'PostHog' && needs.current-master.outputs.is-current == 'true'
+        permissions:
+            contents: write
+        steps:
+            # Depth 1 is enough: `git rev-parse HEAD` (which stamps commit_sha) and the
+            # `git ls-remote --tags` version lookup both work without local history.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # No Docker, Postgres, Rust or Django: the derivation reads YAML, markdown
+            # frontmatter and directory listings only. Keep it that way — this job exists
+            # to be cheap.
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+                  token: ${{ github.token }}
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: false
+
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Validate derivation sources
+              run: ./bin/hogli lint:product-capabilities
+
+            - name: Run capability spec tests
+              run: pytest tools/hogli-commands/hogli_commands/tests/test_product_capabilities.py -q
+
+            - name: Build capability spec
+              run: ./bin/hogli build:product-capabilities --release
+
+            # A surface flipping to `unavailable` is usually a real product regression
+            # (a deleted tools.yaml, a removed onboarding flow) rather than an intended
+            # change. Informational only — publishing must not block on it.
+            - name: Report availability regressions
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  if gh release download product-capabilities-latest \
+                      --pattern product-capabilities.json --output /tmp/previous.json 2>/dev/null; then
+                      python .github/scripts/diff-product-capabilities.py \
+                          /tmp/previous.json dist/product-capabilities.json || true
+                  else
+                      echo "No previous release to compare against."
+                  fi
+
+            - name: Determine next version
+              id: version
+              run: |
+                  REMOTE_TAGS=$(git ls-remote --tags --refs origin 'refs/tags/product-capabilities-v*')
+                  LATEST_TAG=$(printf '%s\n' "$REMOTE_TAGS" | awk '{print $2}' | sed 's#refs/tags/##' | grep -E '^product-capabilities-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+                  if [ -z "$LATEST_TAG" ]; then LATEST_TAG="product-capabilities-v0.0.0"; fi
+                  MINOR=$(echo "${LATEST_TAG#product-capabilities-v}" | cut -d. -f2)
+                  echo "tag=product-capabilities-v0.$((MINOR + 1)).0" >> "$GITHUB_OUTPUT"
+
+            - name: Create versioned release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RELEASE_TAG: ${{ steps.version.outputs.tag }}
+              run: |
+                  gh release create "$RELEASE_TAG" \
+                      dist/product-capabilities.json \
+                      --title "Product capability spec $RELEASE_TAG" \
+                      --notes "Build from ${{ github.sha }}" \
+                      --target "${{ github.sha }}" \
+                      --latest=false
+
+            # Consumers that do not want to resolve a version pin fetch this instead:
+            #   .../releases/download/product-capabilities-latest/product-capabilities.json
+            - name: Update latest release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RELEASE_TAG: ${{ steps.version.outputs.tag }}
+              run: |
+                  if gh release view product-capabilities-latest >/dev/null 2>&1; then
+                      gh release upload product-capabilities-latest \
+                          dist/product-capabilities.json --clobber
+                      gh release edit product-capabilities-latest \
+                          --notes "Latest build — same as $RELEASE_TAG"
+                  else
+                      gh release create product-capabilities-latest \
+                          dist/product-capabilities.json \
+                          --title "Product capability spec (Latest)" \
+                          --notes "Latest build — same as $RELEASE_TAG" \
+                          --target "${{ github.sha }}" \
+                          --latest=false
+                  fi

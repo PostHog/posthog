@@ -1,0 +1,7 @@
+{
+    "$comment": "Historical names that map to a product directory, for tooling that joins an external token (an OpenAPI x-product value, a scout scope, an agent-mode filename) back to products/<dir>. Read by services/mcp/scripts/scaffold-yaml.ts and the product capability generator. Keys are aliases, values are real directory names under products/.",
+    "aliases": {
+        "llm_analytics": "ai_observability",
+        "session_replay": "replay"
+    }
+}

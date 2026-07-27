@@ -30,9 +30,14 @@ const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
 const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 
-const productAliases: Record<string, string> = {
-    llm_analytics: 'ai_observability',
-}
+// Shared with the product capability generator, which performs the same alias-aware
+// join from an external token back to a products/<dir>. Kept in one file so the two
+// cannot drift apart.
+const productAliases: Record<string, string> = (
+    JSON.parse(fs.readFileSync(path.resolve(PRODUCTS_DIR, 'product-aliases.json'), 'utf-8')) as {
+        aliases: Record<string, string>
+    }
+).aliases
 
 // ------------------------------------------------------------------
 // Types
