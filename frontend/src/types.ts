@@ -111,6 +111,7 @@ export enum AvailableFeature {
     DATA_PIPELINES = 'data_pipelines',
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
     SESSION_REPLAY_DATA_RETENTION = 'session_replay_data_retention',
+    LOGS_RETENTION_30D = 'logs_retention_30d',
     CONSOLE_LOGS = 'console_logs',
     RECORDINGS_PERFORMANCE = 'recordings_performance',
     SESSION_REPLAY_NETWORK_PAYLOADS = 'session_replay_network_payloads',
@@ -7573,6 +7574,12 @@ export interface FeaturePreviewGateConfig {
     title: string
     description: string
     docsURL?: string
+    /**
+     * Support ticket target area for the "Request access" action. Set this for betas that aren't
+     * self-serve early-access features, so the gated state offers a way to request access instead
+     * of dead-ending on the feature previews page.
+     */
+    supportTargetArea?: string
 }
 
 export interface ProductManifest {
