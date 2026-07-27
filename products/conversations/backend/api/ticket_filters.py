@@ -91,7 +91,18 @@ def normalize_assignee_filter(value: Any) -> list[Any]:
     }
 )
 class TicketViewAssigneeFilterField(serializers.Field):
+    """Lenient by default so legacy stored blobs still apply (an unrecognized entry is
+    dropped, and the legacy 'all' sentinel means no filter). Writes pass
+    context={"strict_writes": True}: silently dropping a malformed entry there would
+    save a view that quietly matches more assignees than the caller asked for."""
+
     def to_internal_value(self, data: Any) -> list[Any]:
+        if self.context.get("strict_writes"):
+            entries = data if isinstance(data, list) else [data]
+            if any(not _is_assignee_entry(entry) and entry != "all" for entry in entries):
+                raise serializers.ValidationError(
+                    "Each assignee entry must be 'me', 'unassigned', or an object with type ('user' or 'role') and id."
+                )
         return normalize_assignee_filter(data)
 
     def to_representation(self, value: Any) -> Any:

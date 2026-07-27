@@ -139,7 +139,7 @@ class TestTicketViewAPI(APIBaseTest):
             "priority": ["high", "medium"],
             "channel": "slack",
             "sla": "breached",
-            "assignee": "user:1",
+            "assignee": [{"type": "user", "id": 1}],
             "tags": ["bug", "urgent"],
             "dateFrom": "-7d",
             "dateTo": None,
@@ -160,12 +160,21 @@ class TestTicketViewAPI(APIBaseTest):
         response = self.client.post(self.base_url, payload, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_rejects_invalid_filter_values(self):
+    @parameterized.expand(
+        [
+            ("bad_status", {"status": ["bogus"]}),
+            # A dropped assignee entry would save a view matching more tickets than
+            # asked for, so writes must reject malformed entries outright.
+            ("assignee_string_token", {"assignee": ["user:1"]}),
+            ("assignee_unknown_type", {"assignee": [{"type": "team", "id": 1}]}),
+        ]
+    )
+    def test_create_rejects_invalid_filter_values(self, _label, filters):
         # Wiring guard: the endpoint must run TicketViewFiltersSerializer, so a filter
         # value the canonical shape rejects never reaches the database.
         response = self.client.post(
             self.base_url,
-            {"name": "Bad view", "filters": {"status": ["bogus"]}},
+            {"name": "Bad view", "filters": filters},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -354,6 +363,38 @@ class TestTicketViewFiltersValidation(SimpleTestCase):
     def test_rejects_invalid_filter_values(self, _label, filters):
         serializer = TicketViewFiltersSerializer(data=filters)
         assert not serializer.is_valid()
+
+    @parameterized.expand(
+        [
+            ("string_token", ["user:1"], []),
+            ("mixed_entries", ["me", "user:1"], ["me"]),
+            ("legacy_all", "all", []),
+        ]
+    )
+    def test_lenient_mode_drops_invalid_assignee_entries(self, _label, assignee, expected):
+        # The ?view= read path validates stored blobs without strict_writes: a legacy or
+        # corrupted assignee entry must not 400 the whole view, just fall away.
+        serializer = TicketViewFiltersSerializer(data={"assignee": assignee})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["assignee"] == expected
+
+    @parameterized.expand(
+        [
+            ("string_token", ["user:1"]),
+            ("single_bogus_string", "bogus"),
+            ("unknown_type", [{"type": "team", "id": 1}]),
+            ("missing_id", [{"type": "user"}]),
+        ]
+    )
+    def test_strict_writes_rejects_invalid_assignee_entries(self, _label, assignee):
+        serializer = TicketViewFiltersSerializer(data={"assignee": assignee}, context={"strict_writes": True})
+        assert not serializer.is_valid()
+        assert "assignee" in serializer.errors
+
+    def test_strict_writes_accepts_legacy_all_sentinel(self):
+        serializer = TicketViewFiltersSerializer(data={"assignee": "all"}, context={"strict_writes": True})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["assignee"] == []
 
     def test_field_rejects_oversized_payload(self):
         field = TicketViewFiltersField()

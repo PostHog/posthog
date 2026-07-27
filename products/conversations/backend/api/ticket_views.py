@@ -30,7 +30,7 @@ class TicketViewFiltersField(serializers.JSONField):
             raise serializers.ValidationError("Expected a JSON object.")
         if len(json.dumps(value)) > MAX_FILTERS_SIZE_BYTES:
             raise serializers.ValidationError("Filters payload is too large.")
-        filters_serializer = TicketViewFiltersSerializer(data=value)
+        filters_serializer = TicketViewFiltersSerializer(data=value, context={"strict_writes": True})
         filters_serializer.is_valid(raise_exception=True)
         return value
 
