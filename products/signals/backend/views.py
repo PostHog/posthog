@@ -2437,15 +2437,11 @@ def append_suggested_reviewers(
                 if isinstance(prior_reason, str):
                     prior_reason_by_login[login] = prior_reason
 
-        # A human added these reviewers (this path is user-attributed and app-only). Newly-added
-        # colleagues carry no routing evidence, so stamp them with who added them and when — in the
-        # report's project timezone — so the inbox UI shows a "why" in the same slot that
-        # auto-suggested reviewers use for their commit evidence.
-        prior_login_set = set(prior_logins)
+        # Newly-added reviewers carry no routing evidence, so record who added them and when
+        # (this path is always attributed to request.user). Dates use the report's project timezone.
         actor = cast(User, request.user)
-        actor_name = actor.get_full_name().strip() or actor.email
         added_on = timezone.now().astimezone(team.timezone_info).strftime("%b %-d, %Y")
-        manual_add_reason = f"Added as a reviewer by {actor_name} on {added_on}"
+        manual_add_reason = f"Added as a reviewer by {actor.get_full_name().strip() or actor.email} on {added_on}"
 
         # Dedupe by canonical login, preserve first-seen order.
         new_content: list[dict] = []
@@ -2455,11 +2451,10 @@ def append_suggested_reviewers(
             seen.add(login_lc)
             # If the client supplied github_name (incl. ""), honour it. Otherwise
             # carry over the prior one so kept reviewers don't lose their name.
-            # Same rule for reason.
+            # Same rule for reason, falling back to the manual-add note for brand-new reviewers.
             effective_name = github_name if explicit_name else prior_name_by_login.get(login_lc)
             effective_reason = reason if explicit_reason else prior_reason_by_login.get(login_lc)
-            # A brand-new reviewer with no supplied or prior reason is a manual human add; record it.
-            if effective_reason is None and login_lc not in prior_login_set:
+            if effective_reason is None and login_lc not in prior_logins:
                 effective_reason = manual_add_reason
             new_content.append(
                 {
