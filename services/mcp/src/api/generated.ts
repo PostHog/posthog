@@ -14171,6 +14171,8 @@ export namespace Schemas {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
+     * * `ultracode` - ultracode
+     * * `ultrathink` - ultrathink
      */
     export type ReasoningEffortEnum = typeof ReasoningEffortEnum[keyof typeof ReasoningEffortEnum];
 
@@ -14181,6 +14183,20 @@ export namespace Schemas {
       High: 'high',
       Xhigh: 'xhigh',
       Max: 'max',
+      Ultracode: 'ultracode',
+      Ultrathink: 'ultrathink',
+    } as const;
+
+    /**
+     * * `200k` - 200k
+     * * `1m` - 1m
+     */
+    export type ContextWindowEnum = typeof ContextWindowEnum[keyof typeof ContextWindowEnum];
+
+
+    export const ContextWindowEnum = {
+      '200k': '200k',
+      '1m': '1m',
     } as const;
 
     /**
@@ -14268,8 +14284,20 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode
+       * * `ultrathink` - ultrathink */
       reasoning_effort?: ReasoningEffortEnum;
+      /** Context window size for models that support the 1M window.
+       *
+       * * `200k` - 200k
+       * * `1m` - 1m */
+      context_window?: ContextWindowEnum;
+      /**
+         * Enable fast mode for models that support it.
+         * @nullable
+         */
+      fast_mode?: boolean | null;
       /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Claude runtimes.
@@ -14639,8 +14667,20 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode
+       * * `ultrathink` - ultrathink */
       reasoning_effort?: ReasoningEffortEnum;
+      /** Context window size for models that support the 1M window.
+       *
+       * * `200k` - 200k
+       * * `1m` - 1m */
+      context_window?: ContextWindowEnum;
+      /**
+         * Enable fast mode for models that support it.
+         * @nullable
+         */
+      fast_mode?: boolean | null;
       /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Codex runtimes.
@@ -38309,7 +38349,9 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode
+       * * `ultrathink` - ultrathink */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
@@ -44945,7 +44987,9 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode
+       * * `ultrathink` - ultrathink */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * Presigned S3 URL for log access (valid for 1 hour).
@@ -49858,7 +49902,9 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode
+       * * `ultrathink` - ultrathink */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
@@ -53051,7 +53097,9 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode
+       * * `ultrathink` - ultrathink */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -67389,7 +67437,9 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode
+       * * `ultrathink` - ultrathink */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -67758,8 +67808,20 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode
+       * * `ultrathink` - ultrathink */
       reasoning_effort?: ReasoningEffortEnum;
+      /** Context window size for models that support the 1M window.
+       *
+       * * `200k` - 200k
+       * * `1m` - 1m */
+      context_window?: ContextWindowEnum;
+      /**
+         * Enable fast mode for models that support it.
+         * @nullable
+         */
+      fast_mode?: boolean | null;
       /** Ephemeral GitHub user token from PostHog Desktop for user-authored cloud pull requests. */
       github_user_token?: string;
       /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
@@ -68371,7 +68433,9 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode
+       * * `ultrathink` - ultrathink */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -69588,7 +69652,9 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode
+       * * `ultrathink` - ultrathink */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * Optional sandbox environment to provision before the task is submitted.
