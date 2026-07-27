@@ -26,6 +26,9 @@ Done when a build session can start without further product decisions.
 
 <!-- one line per closed ticket: gist + link -->
 
+- [Draft-work autopsy](issues/01-draft-work-autopsy.md) — PR #29364 is a complete, mostly-tested vertical slice of a separate `PathsV2Query` (5 steps × 3 rows defaults, gap-based sessions, "other" bucketing) whose tip doesn't compile; master since evolved the very scene files it rewrites, moved the v1 runner to `products/product_analytics/`, and changed codegen — generated schema must be regenerated, not rebased.
+- [Funnels machinery map](issues/02-funnels-machinery-map.md) — all funnels run through one Rust UDF (`aggregate_funnel_v12`) counting unique actors per step in a step-1-anchored window; drill-downs and v1 `FunnelPathsFilter` wrap the same UDF subquery (consistency by construction); today's "view funnel" from paths is lossy; path-edge==funnel equality needs per-actor semantics or a new UDF mode; reusable: `FunnelEventQuery`, step exprs, window helpers, actors stack, `journeys_for`.
+
 ## Not yet specified
 
 - **Aggregation by sessions/groups** ("event journeys", [#33488](https://github.com/PostHog/posthog/issues/33488)) — direction named in the tracking issue; spec waits on [Counting semantics](issues/03-counting-semantics.md).
