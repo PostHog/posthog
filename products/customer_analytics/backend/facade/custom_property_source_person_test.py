@@ -54,6 +54,25 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         assert row.column_property_map == {"plan": "plan_tier", "seats": "seat_count"}
         assert row.saved_query_id is None
 
+    def test_create_person_source_stores_and_cleans_column_descriptions(self):
+        view = self._create(
+            column_property_map={"plan": "plan_tier", "seats": "seat_count"},
+            # 'plan' kept and trimmed; 'seats' blank -> dropped; 'unmapped' -> dropped (no such column).
+            column_descriptions={"plan": "  The plan tier  ", "seats": "   ", "unmapped": "ignored"},
+        )
+
+        assert view.column_descriptions == {"plan": "The plan tier"}
+        row = CustomPropertySource.objects.unscoped().get(id=view.id)
+        assert row.column_descriptions == {"plan": "The plan tier"}
+
+    def test_create_person_source_defaults_descriptions_to_empty(self):
+        view = self._create()
+        assert view.column_descriptions == {}
+
+    def test_person_source_rejects_non_object_column_descriptions(self):
+        with self.assertRaisesMessage(api.CustomPropertySourceValidationError, "must be an object"):
+            self._create(column_descriptions=["not", "an", "object"])
+
     @parameterized.expand(
         [
             (
@@ -181,6 +200,20 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
                 user_access_control=self._uac(allowed=False),
             )
 
+    def test_delete_person_source_requires_warehouse_source_editor(self):
+        # Deleting a person source permanently stops its billable warehouse-driven updates, so it needs
+        # external_data_source editor access, not account-scope editor alone.
+        source = self._create(user_access_control=self._uac(allowed=True))
+        with self.assertRaises(api.ResourceForbiddenError):
+            api.delete_custom_property_source(
+                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=False)
+            )
+        assert CustomPropertySource.objects.filter(id=source.id).exists()
+        assert api.delete_custom_property_source(
+            team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+        )
+        assert not CustomPropertySource.objects.filter(id=source.id).exists()
+
     def test_disabling_source_does_not_require_warehouse_source_editor(self):
         # Disabling never triggers a backfill, so it must not demand warehouse editor access.
         source = self._create(user_access_control=self._uac(allowed=True))
@@ -197,7 +230,11 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
 
         self.schema.sync_frequency_interval = timedelta(hours=6)
         self.schema.save(update_fields=["sync_frequency_interval"])
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(
+            user_access_control=self._uac(allowed=True),
+            # Column descriptions come from the warehouse source's information_schema, so they're gated too.
+            column_descriptions={"plan": "internal warehouse column note"},
+        )
         # Warehouse-derived sync status, including the raw error text from the backfill/sync activity.
         CustomPropertySource.objects.filter(id=source.id).update(
             last_sync_error="boom: internal warehouse detail", consecutive_failures=3
@@ -208,11 +245,14 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         assert denied.sync_frequency_interval_seconds is None and denied.next_sync_at is None
         # Status fields must be redacted too, not just the schedule — the raw error can leak warehouse detail.
         assert denied.last_sync_error is None and denied.consecutive_failures == 0
+        # Column descriptions leak warehouse metadata to a caller without warehouse-source access.
+        assert denied.column_descriptions == {}
 
         allowed = api.get_custom_property_source(self.team.id, source.id, user_access_control=self._uac(allowed=True))
         assert allowed is not None
         assert allowed.sync_frequency_interval_seconds == timedelta(hours=6).total_seconds()
         assert allowed.last_sync_error == "boom: internal warehouse detail" and allowed.consecutive_failures == 3
+        assert allowed.column_descriptions == {"plan": "internal warehouse column note"}
 
     def test_list_sync_runs_requires_warehouse_source_viewer(self):
         source = self._create(user_access_control=self._uac(allowed=True))

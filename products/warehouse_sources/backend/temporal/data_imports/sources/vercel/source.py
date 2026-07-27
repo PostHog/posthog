@@ -104,6 +104,12 @@ To sync resources owned by a team, also enter the team's ID (found under **Team 
             "404 Client Error: Not Found for url: https://api.vercel.com/v1/billing/charges": "Vercel couldn't find billing data for the configured team. Check that the Team ID is correct and that your access token's user still belongs to that team, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A 429 or 5xx is retried internally by `_fetch_page`/`_open_billing_stream`; if those
+        # retries still exhaust, the failure is transient and self-recovering, so let Temporal
+        # retry the activity without surfacing it as tracked exception noise.
+        return {"Vercel API error (retryable)"}
+
     def get_schemas(
         self,
         config: VercelSourceConfig,

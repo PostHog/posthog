@@ -83,6 +83,16 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     "ExternalDataJob matching query does not exist",
 )
 
+# Subset of the non-retryable errors that are expected upstream/customer conditions rather than
+# pipeline bugs. The run still fails with an actionable message, but the engine skips
+# error-tracking capture for these so they don't drown real bugs. Kept deliberately narrow.
+EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
+    # a source column's type changed upstream and no longer fits the stored Delta column
+    # (SchemaColumnTypeChangedException) — delta-rs can't widen in place, so the fix is a
+    # user-driven reset and full re-sync, not a code change
+    "Source column type changed",
+)
+
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.
 # Dead results never expire — a terminal job never comes back to life — and eviction
 # drops alive entries first, so a dead verdict survives until the cache overflows
@@ -462,6 +472,10 @@ class DeltaBatchConsumerAdapter:
     def is_retryable_error(self, err: Exception) -> bool:
         message = str(err)
         return not any(pattern in message for pattern in NON_RETRYABLE_ERROR_PATTERNS)
+
+    def is_expected_user_error(self, err: Exception) -> bool:
+        message = str(err)
+        return any(pattern in message for pattern in EXPECTED_USER_ERROR_PATTERNS)
 
     async def after_batch_processed(
         self,

@@ -5,6 +5,9 @@ from collections.abc import Sequence
 import pytest
 from unittest.mock import MagicMock
 
+from django.conf import settings
+from django.test import override_settings
+
 import temporalio.worker
 import temporalio.converter
 from temporalio import activity as temporal_activity
@@ -243,6 +246,47 @@ async def test_prepare_data_imports_ducklake_metadata_activity_basic(ateam, monk
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "schema_name,s3_folder_name,expected_leaf",
+    [
+        ("orders", None, "orders"),
+        # Folder-pinned source: the loader wrote the Delta table under the resolved folder
+        # ("users"), not the schema's normalized name ("public_users"). Reading normalized_name
+        # points at a prefix with no _delta_log -> "No files in log segment".
+        ("public.users", "users", "users"),
+    ],
+)
+async def test_prepare_resolves_source_table_uri_from_written_folder(
+    ateam, monkeypatch, schema_name, s3_folder_name, expected_leaf
+):
+    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: [])
+
+    source = await database_sync_to_async(ExternalDataSource.objects.create)(
+        team=ateam,
+        source_id="test_source",
+        connection_id="test_connection",
+        source_type="Postgres",
+        status="Running",
+    )
+    schema = await database_sync_to_async(ExternalDataSchema.objects.create)(
+        team=ateam,
+        name=schema_name,
+        source=source,
+        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        s3_folder_name=s3_folder_name,
+    )
+
+    inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job-uri", schema_ids=[schema.id])
+
+    result = await prepare_data_imports_ducklake_metadata_activity(inputs)
+
+    assert len(result) == 1
+    folder_path = await database_sync_to_async(schema.folder_path)()
+    assert result[0].source_table_uri == f"{settings.BUCKET_URL}/{folder_path}/{expected_leaf}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_prepare_data_imports_ducklake_metadata_activity_no_partition(ateam, monkeypatch):
     # Mock Delta partition detection - returns empty list when no partitions
     monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: [])
@@ -424,6 +468,11 @@ def test_copy_data_imports_to_ducklake_activity_via_duckdb(monkeypatch):
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.HeartbeaterSync",
         MagicMock(return_value=mock_heartbeater),
     )
+    mock_close_old_connections = MagicMock()
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.close_old_connections",
+        mock_close_old_connections,
+    )
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
         MagicMock(return_value=True),
@@ -471,8 +520,14 @@ def test_copy_data_imports_to_ducklake_activity_via_duckdb(monkeypatch):
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
-    copy_data_imports_to_ducklake_activity(inputs)
+    # TEST=False: the close_old_connections() call is skipped under settings.TEST (matching
+    # database_sync_to_async's convention) so it never trips pytest-django's db-access guard
+    # in tests that don't need the database; override it here to prove the call still fires
+    # outside tests, i.e. in the real long-lived worker thread.
+    with override_settings(TEST=False):
+        copy_data_imports_to_ducklake_activity(inputs)
 
+    mock_close_old_connections.assert_called_once()
     mock_configure_connection.assert_called_once_with(mock_conn)
     mock_ensure_bucket.assert_called_once_with(config={"DUCKLAKE_BUCKET": "ducklake-dev"}, team_id=1)
     mock_attach_catalog.assert_called_once_with(mock_conn, {"DUCKLAKE_BUCKET": "ducklake-dev"}, alias="ducklake")
@@ -574,6 +629,11 @@ def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_querie
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.HeartbeaterSync",
         MagicMock(return_value=mock_heartbeater),
     )
+    mock_close_old_connections = MagicMock()
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.close_old_connections",
+        mock_close_old_connections,
+    )
 
     metadata = DuckLakeCopyDataImportsMetadata(
         model_label="postgres_customers",
@@ -587,9 +647,14 @@ def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_querie
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
-    results = verify_data_imports_ducklake_copy_activity(inputs)
+    # TEST=False: see the comment in test_copy_data_imports_to_ducklake_activity_via_duckdb.
+    with override_settings(TEST=False):
+        results = verify_data_imports_ducklake_copy_activity(inputs)
 
     assert results == []
+    # Same long-lived worker thread caveat as copy_data_imports_to_ducklake_activity:
+    # this must run even on the early-return path, before any DB access is attempted.
+    mock_close_old_connections.assert_called_once()
 
 
 def test_verify_data_imports_ducklake_copy_activity_uses_duckdb_in_dev(monkeypatch):
@@ -924,6 +989,23 @@ def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeyp
     assert results[0].passed is True
     assert results[1].name == "outside_tolerance"
     assert results[1].passed is False
+
+
+def test_cleanup_data_imports_staging_activity_closes_stale_connections_before_querying(monkeypatch):
+    """Same long-lived worker thread caveat as copy_data_imports_to_ducklake_activity:
+    a connection killed by the DB/proxy is never detected and closed before reuse
+    unless the activity does it itself."""
+    mock_close_old_connections = MagicMock()
+    monkeypatch.setattr(ducklake_module, "close_old_connections", mock_close_old_connections)
+    monkeypatch.setattr(ducklake_module, "get_duckgres_server_by_team_org", MagicMock(return_value=None))
+
+    inputs = DuckLakeDataImportsStagingCleanupInputs(team_id=1, staging_uri="s3://bucket/__posthog_staging/team_1")
+
+    # TEST=False: see the comment in test_copy_data_imports_to_ducklake_activity_via_duckdb.
+    with override_settings(TEST=False):
+        ducklake_module.cleanup_data_imports_staging_activity(inputs)
+
+    mock_close_old_connections.assert_called_once()
 
 
 _DUCKGRES_CURSOR_DESCRIPTION = [_FakeColumn("id", 20), _FakeColumn("name", 25)]

@@ -51,9 +51,19 @@ class TestWordpressSource:
         assert pass_field.required is False
         assert pass_field.secret is True
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", "404 Client Error"])
+    @pytest.mark.parametrize(
+        "expected_key", ["401 Client Error", "403 Client Error", "404 Client Error", "Non-JSON response from"]
+    )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
+
+    def test_non_json_response_message_matches_non_retryable_error(self):
+        # A 2xx non-JSON body surfaces as "Non-JSON response from <url>"; the classifier matches on
+        # the stable prefix, so the variable URL must not stop it being recognised as non-retryable.
+        errors = self.source.get_non_retryable_errors()
+        raised = "Non-JSON response from https://example.com/wp-json/wp/v2/posts"
+        matches = [friendly for key, friendly in errors.items() if key in raised]
+        assert matches and matches[0] is not None
 
     def test_get_schemas_returns_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

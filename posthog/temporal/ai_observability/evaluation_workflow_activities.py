@@ -253,11 +253,12 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_key_id"] = result.get("key_id")
 
     if result["result_type"] == "sentiment":
-        properties["$ai_sentiment_label"] = result.get("sentiment_label")
-        properties["$ai_sentiment_score"] = result.get("sentiment_score")
-        properties["$ai_sentiment_scores"] = result.get("sentiment_scores")
-        properties["$ai_sentiment_messages"] = result.get("sentiment_messages")
-        properties["$ai_sentiment_message_count"] = result.get("sentiment_message_count")
+        if not result.get("skipped"):
+            properties["$ai_sentiment_label"] = result.get("sentiment_label")
+            properties["$ai_sentiment_score"] = result.get("sentiment_score")
+            properties["$ai_sentiment_scores"] = result.get("sentiment_scores")
+            properties["$ai_sentiment_messages"] = result.get("sentiment_messages")
+            properties["$ai_sentiment_message_count"] = result.get("sentiment_message_count")
     else:
         properties["$ai_evaluation_allows_na"] = allows_na
         if allows_na:
