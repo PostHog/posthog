@@ -144,8 +144,24 @@ class Ticket(UUIDTModel):
             models.Index(fields=["team", "status", "-updated_at"], name="posthog_con_status_upd_idx"),
             # SLA sort/filter queries
             models.Index(fields=["team", "sla_due_at"], name="posthog_con_team_sla_idx"),
+            # SLA descending sort. The dashboard sorts by "sla_due_at DESC NULLS LAST, ticket_number
+            # DESC"; the plain ascending index above can't serve that (a backward scan gives NULLS
+            # FIRST), so without this Postgres full-sorts the mostly-NULL table on every page.
+            models.Index(
+                models.F("team_id"),
+                models.F("sla_due_at").desc(nulls_last=True),
+                models.F("ticket_number").desc(),
+                name="posthog_con_sla_desc_idx",
+            ),
             # Snooze: dashboard filter/sort by team
             models.Index(fields=["team", "snoozed_until"], name="posthog_con_team_snooze_idx"),
+            # Snooze descending sort — same NULLS LAST shape as the SLA descending index above.
+            models.Index(
+                models.F("team_id"),
+                models.F("snoozed_until").desc(nulls_last=True),
+                models.F("ticket_number").desc(),
+                name="posthog_con_snooze_desc_idx",
+            ),
             # Snooze: wake task (cross-team, only non-null rows)
             models.Index(
                 fields=["snoozed_until"],
