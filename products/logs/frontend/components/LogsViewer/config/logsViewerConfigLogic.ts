@@ -11,7 +11,7 @@ import {
     normalizeColumns,
 } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { LogsViewerConfig, LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
-import type { GroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import type { LogsGroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
 import { AttributeColumnConfig, LogsOrderBy } from 'products/logs/frontend/types'
 
 import type { DateRange, LogSeverityLevel } from '../../../../../../frontend/src/queries/schema/schema-general'
@@ -43,8 +43,12 @@ export interface LogsViewerGroupBy {
     key: string
     // Where the key lives, in the group-by endpoint's vocabulary: "log" / "resource"
     // attribute maps, or "column" for top-level log fields (severity_level, trace_id, span_id).
-    source: GroupBySourceEnumApi
+    source: LogsGroupBySourceEnumApi
 }
+
+// Mirrors the endpoint's MAX_GROUP_DIMENSIONS (group_by_query_runner.py) — the picker must
+// not offer a combination the API would reject.
+export const MAX_GROUP_BY_DIMENSIONS = 4
 
 export interface LogsViewerConfigProps {
     id: string
@@ -59,7 +63,7 @@ export interface logsViewerConfigLogicValues {
     customColumns: string[] | undefined
     facetRailCollapsed: boolean
     filters: LogsViewerFilters
-    groupBy: LogsViewerGroupBy | null
+    groupBys: LogsViewerGroupBy[]
     orderBy: LogsOrderBy
     sparklineBreakdownBy: LogsSparklineBreakdownBy
     sparklineCollapsed: boolean
@@ -71,6 +75,9 @@ export interface logsViewerConfigLogicActions {
     addColumn: (column: LogsColumnConfig) => {
         column: LogsColumnConfig
     }
+    addGroupBy: (groupBy: LogsViewerGroupBy) => {
+        groupBy: LogsViewerGroupBy
+    }
     moveColumn: (
         id: string,
         direction: 'left' | 'right'
@@ -80,6 +87,16 @@ export interface logsViewerConfigLogicActions {
     }
     removeColumn: (id: string) => {
         id: string
+    }
+    removeGroupByAt: (index: number) => {
+        index: number
+    }
+    replaceGroupByAt: (
+        index: number,
+        groupBy: LogsViewerGroupBy
+    ) => {
+        groupBy: LogsViewerGroupBy
+        index: number
     }
     setBaselineMode: (mode: PatternsBaselineMode) => {
         mode: PatternsBaselineMode
@@ -110,8 +127,8 @@ export interface logsViewerConfigLogicActions {
     setFilters: (filters: LogsViewerFilters) => {
         filters: LogsViewerFilters
     }
-    setGroupBy: (groupBy: LogsViewerGroupBy | null) => {
-        groupBy: LogsViewerGroupBy | null
+    setGroupBys: (groupBys: LogsViewerGroupBy[]) => {
+        groupBys: LogsViewerGroupBy[]
     }
     setOrderBy: (
         orderBy: LogsOrderBy,
@@ -163,7 +180,10 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
         toggleSparklineCollapsed: true,
         setFacetRailCollapsed: (facetRailCollapsed: boolean) => ({ facetRailCollapsed }),
         setViewMode: (viewMode: LogsViewerViewMode) => ({ viewMode }),
-        setGroupBy: (groupBy: LogsViewerGroupBy | null) => ({ groupBy }),
+        setGroupBys: (groupBys: LogsViewerGroupBy[]) => ({ groupBys }),
+        addGroupBy: (groupBy: LogsViewerGroupBy) => ({ groupBy }),
+        removeGroupByAt: (index: number) => ({ index }),
+        replaceGroupByAt: (index: number, groupBy: LogsViewerGroupBy) => ({ index, groupBy }),
         setCompareEnabled: (enabled: boolean) => ({ enabled }),
         setBaselineMode: (mode: PatternsBaselineMode) => ({ mode }),
 
@@ -222,7 +242,7 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
         ],
         // Compare state lives here (not in logsPatternsLogic) so the choice survives
         // Logs↔Patterns switches within a visit — the patterns logic unmounts when leaving
-        // the lens. Not persisted, like viewMode and groupBy.
+        // the lens. Not persisted, like viewMode and groupBys.
         compareEnabled: [
             false,
             {
@@ -256,14 +276,28 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
                 },
             },
         ],
-        // The Group view's configuration: which key to group by (behind the logs-group-by flag).
-        // Kept separate from viewMode so the key survives switching lenses within a visit —
-        // Logs and back returns to the same grouping. null = no key chosen yet (empty state).
-        // Not persisted across visits — grouping is an explicit, per-visit exploration like Patterns.
-        groupBy: [
-            null as LogsViewerGroupBy | null,
+        // The Group view's configuration: the ordered dimensions to group by (behind the
+        // logs-group-by flag). Kept separate from viewMode so the choice survives switching
+        // lenses within a visit — Logs and back returns to the same grouping. Empty = no key
+        // chosen yet (empty state). Not persisted across visits — grouping is an explicit,
+        // per-visit exploration like Patterns.
+        groupBys: [
+            [] as LogsViewerGroupBy[],
             {
-                setGroupBy: (_, { groupBy }) => groupBy,
+                setGroupBys: (_, { groupBys }) => groupBys,
+                // Cap and duplicate guards live here, not in the UI: the picker disables
+                // in-use keys and hides the add affordance at the cap, but the reducer is
+                // what guarantees the API never sees a combination it would reject.
+                addGroupBy: (state, { groupBy }) =>
+                    state.length >= MAX_GROUP_BY_DIMENSIONS ||
+                    state.some((d) => d.key === groupBy.key && d.source === groupBy.source)
+                        ? state
+                        : [...state, groupBy],
+                removeGroupByAt: (state, { index }) => state.filter((_, i) => i !== index),
+                replaceGroupByAt: (state, { index, groupBy }) =>
+                    state.some((d, i) => i !== index && d.key === groupBy.key && d.source === groupBy.source)
+                        ? state
+                        : state.map((d, i) => (i === index ? groupBy : d)),
             },
         ],
     }),

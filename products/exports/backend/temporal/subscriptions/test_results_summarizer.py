@@ -192,6 +192,9 @@ class TestBuildResultsSummaryValueFormat:
         [
             ({"format": "duration"}, [360000], ["latest=4d 4h"]),
             ({"format": "duration_ms"}, [360000000], ["latest=4d 4h"]),
+            ({"format": "duration_ns"}, [500000], ["latest=500µs"]),
+            ({"format": "duration_ns"}, [1500000000], ["latest=1.5s"]),
+            ({"format": "duration_ns"}, [360000000000000], ["latest=4d 4h"]),
             ({"format": "percentage"}, [37], ["latest=37%"]),
             ({"format": "percentage_scaled"}, [0.37], ["latest=37%"]),
             ({"prefix": "$"}, [1200], ["latest=$1,200"]),

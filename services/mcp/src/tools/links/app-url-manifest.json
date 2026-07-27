@@ -185,12 +185,12 @@
         "scope": "project"
     },
     "alert": {
-        "template": "/insights",
+        "template": "/alerts",
         "params": [],
         "scope": "project"
     },
     "alerts": {
-        "template": "/insights",
+        "template": "/alerts",
         "params": [],
         "scope": "project"
     },

@@ -1,1 +1,1 @@
-1257_datadeletionrequest_approved_automatically_and_more
+1264_delete_revenue_analytics_user_product_list

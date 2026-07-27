@@ -135,7 +135,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     )
     @freeze_time("2020-01-10T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_conversion_window_extends_to_last_exposure(self, name, use_precomputation):
+    def test_conversion_window_anchored_on_first_exposure(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
@@ -170,7 +170,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         distinct_id = "user_control_window"
         _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
 
-        # First exposure happens before the conversion window, second exposure extends it.
+        # Re-exposed on Jan 5, but the conversion window is measured from first exposure (Jan 2).
         for timestamp in ["2020-01-02T00:00:00Z", "2020-01-05T00:00:00Z"]:
             _create_event(
                 team=self.team,
@@ -184,13 +184,23 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
                 },
             )
 
-        # Purchase happens outside the first window but within last exposure + window.
+        # Purchase sits inside first_exposure + window, so it counts.
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=distinct_id,
+            timestamp="2020-01-02T12:00:00Z",
+            properties={feature_flag_property: "control", "amount": 25},
+        )
+
+        # Purchase sits outside first_exposure + window (but inside last_exposure + window),
+        # so it must not count once inclusion is anchored on first exposure.
         _create_event(
             team=self.team,
             event="purchase",
             distinct_id=distinct_id,
             timestamp="2020-01-05T12:00:00Z",
-            properties={feature_flag_property: "control", "amount": 25},
+            properties={feature_flag_property: "control", "amount": 100},
         )
 
         flush_persons_and_events()
@@ -201,6 +211,107 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         assert result.baseline is not None
         self.assertEqual(result.baseline.sum, 25)
         self.assertEqual(result.baseline.number_of_samples, 1)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    def test_matured_user_value_stable_across_re_exposure(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 15, 0, 0, 0),
+        )
+        experiment.stats_config = {"method": "frequentist"}
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            conversion_window=1,
+            conversion_window_unit=FunnelConversionWindowTimeUnit.DAY,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.only_count_matured_users = True
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+        distinct_id = "user_re_exposed"
+        _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+
+        # First exposure Jan 2; the user matures at Jan 3 (first_exposure + 1 day).
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id=distinct_id,
+            timestamp="2020-01-02T00:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        # Purchase inside the first-exposure window is the entity's whole value.
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=distinct_id,
+            timestamp="2020-01-02T12:00:00Z",
+            properties={feature_flag_property: "control", "amount": 25},
+        )
+        # Backend flag re-evaluated Jan 5, with another purchase in its wake.
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id=distinct_id,
+            timestamp="2020-01-05T00:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=distinct_id,
+            timestamp="2020-01-05T12:00:00Z",
+            properties={feature_flag_property: "control", "amount": 100},
+        )
+
+        flush_persons_and_events()
+
+        # Re-run right after the user matures, then again after the re-exposure. The
+        # matured user's value must not grow just because the flag was re-evaluated.
+        with freeze_time("2020-01-04T00:00:00Z"):
+            early = cast(
+                ExperimentQueryResponse,
+                ExperimentQueryRunner(query=experiment_query, team=self.team).calculate(),
+            )
+        with freeze_time("2020-01-07T00:00:00Z"):
+            late = cast(
+                ExperimentQueryResponse,
+                ExperimentQueryRunner(query=experiment_query, team=self.team).calculate(),
+            )
+
+        assert early.baseline is not None
+        assert late.baseline is not None
+        self.assertEqual(early.baseline.sum, 25)
+        self.assertEqual(late.baseline.sum, 25)
 
     @parameterized.expand(
         [

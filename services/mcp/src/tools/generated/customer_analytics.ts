@@ -35,6 +35,25 @@ import {
     CustomPropertyDefinitionsPartialUpdateBody,
     CustomPropertyDefinitionsPartialUpdateParams,
     CustomPropertyDefinitionsRetrieveParams,
+    CustomPropertySourcesBackfillParams,
+    CustomPropertySourcesCreateBody,
+    CustomPropertySourcesDestroyParams,
+    CustomPropertySourcesListQueryParams,
+    CustomPropertySourcesPartialUpdateBody,
+    CustomPropertySourcesPartialUpdateParams,
+    CustomPropertySourcesRetrieveParams,
+    CustomPropertySourcesRunsListParams,
+    CustomPropertySourcesRunsListQueryParams,
+    CustomPropertySourcesSyncParams,
+    EventStreamsAddAccountCreateBody,
+    EventStreamsAddAccountCreateParams,
+    EventStreamsCreateBody,
+    EventStreamsDestroyParams,
+    EventStreamsPartialUpdateBody,
+    EventStreamsPartialUpdateParams,
+    EventStreamsRemoveAccountCreateBody,
+    EventStreamsRemoveAccountCreateParams,
+    EventStreamsSendTestMessageCreateParams,
     GroupsTypesMetricsCreateBody,
     GroupsTypesMetricsCreateParams,
     GroupsTypesMetricsDestroyParams,
@@ -526,6 +545,9 @@ const customPropertyDefinitionsCreate = (): ToolBase<
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
         }
+        if (params.group_type_index !== undefined) {
+            body['group_type_index'] = params.group_type_index
+        }
         if (params.is_big_number !== undefined) {
             body['is_big_number'] = params.is_big_number
         }
@@ -603,6 +625,9 @@ const customPropertyDefinitionsPartialUpdate = (): ToolBase<
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
         }
+        if (params.group_type_index !== undefined) {
+            body['group_type_index'] = params.group_type_index
+        }
         if (params.is_big_number !== undefined) {
             body['is_big_number'] = params.is_big_number
         }
@@ -631,6 +656,349 @@ const customPropertyDefinitionsRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.CustomPropertyDefinition>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_definitions/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesBackfillSchema = CustomPropertySourcesBackfillParams.omit({ project_id: true })
+
+const customPropertySourcesBackfill = (): ToolBase<typeof CustomPropertySourcesBackfillSchema, unknown> => ({
+    name: 'custom-property-sources-backfill',
+    schema: CustomPropertySourcesBackfillSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesBackfillSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/backfill/`,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesCreateSchema = CustomPropertySourcesCreateBody
+
+const customPropertySourcesCreate = (): ToolBase<
+    typeof CustomPropertySourcesCreateSchema,
+    Schemas.CustomPropertySource
+> => ({
+    name: 'custom-property-sources-create',
+    schema: CustomPropertySourcesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.definition !== undefined) {
+            body['definition'] = params.definition
+        }
+        if (params.saved_query !== undefined) {
+            body['saved_query'] = params.saved_query
+        }
+        if (params.external_data_schema !== undefined) {
+            body['external_data_schema'] = params.external_data_schema
+        }
+        if (params.source_column !== undefined) {
+            body['source_column'] = params.source_column
+        }
+        if (params.column_property_map !== undefined) {
+            body['column_property_map'] = params.column_property_map
+        }
+        if (params.column_descriptions !== undefined) {
+            body['column_descriptions'] = params.column_descriptions
+        }
+        if (params.key_column !== undefined) {
+            body['key_column'] = params.key_column
+        }
+        if (params.is_enabled !== undefined) {
+            body['is_enabled'] = params.is_enabled
+        }
+        const result = await context.api.request<Schemas.CustomPropertySource>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesDestroySchema = CustomPropertySourcesDestroyParams.omit({ project_id: true })
+
+const customPropertySourcesDestroy = (): ToolBase<typeof CustomPropertySourcesDestroySchema, unknown> => ({
+    name: 'custom-property-sources-destroy',
+    schema: CustomPropertySourcesDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesListSchema = CustomPropertySourcesListQueryParams
+
+const customPropertySourcesList = (): ToolBase<
+    typeof CustomPropertySourcesListSchema,
+    WithPostHogUrl<Schemas.PaginatedCustomPropertySourceList>
+> => ({
+    name: 'custom-property-sources-list',
+    schema: CustomPropertySourcesListSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedCustomPropertySourceList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer-analytics')
+    },
+})
+
+const CustomPropertySourcesPartialUpdateSchema = CustomPropertySourcesPartialUpdateParams.omit({
+    project_id: true,
+}).extend(CustomPropertySourcesPartialUpdateBody.shape)
+
+const customPropertySourcesPartialUpdate = (): ToolBase<
+    typeof CustomPropertySourcesPartialUpdateSchema,
+    Schemas.CustomPropertySource
+> => ({
+    name: 'custom-property-sources-partial-update',
+    schema: CustomPropertySourcesPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_column !== undefined) {
+            body['source_column'] = params.source_column
+        }
+        if (params.key_column !== undefined) {
+            body['key_column'] = params.key_column
+        }
+        if (params.is_enabled !== undefined) {
+            body['is_enabled'] = params.is_enabled
+        }
+        const result = await context.api.request<Schemas.CustomPropertySource>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesRetrieveSchema = CustomPropertySourcesRetrieveParams.omit({ project_id: true })
+
+const customPropertySourcesRetrieve = (): ToolBase<
+    typeof CustomPropertySourcesRetrieveSchema,
+    Schemas.CustomPropertySource
+> => ({
+    name: 'custom-property-sources-retrieve',
+    schema: CustomPropertySourcesRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomPropertySource>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesRunsListSchema = CustomPropertySourcesRunsListParams.omit({ project_id: true }).extend(
+    CustomPropertySourcesRunsListQueryParams.shape
+)
+
+const customPropertySourcesRunsList = (): ToolBase<
+    typeof CustomPropertySourcesRunsListSchema,
+    WithPostHogUrl<Schemas.PaginatedCustomPropertySyncRunList>
+> => ({
+    name: 'custom-property-sources-runs-list',
+    schema: CustomPropertySourcesRunsListSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesRunsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedCustomPropertySyncRunList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/runs/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer-analytics')
+    },
+})
+
+const CustomPropertySourcesSyncSchema = CustomPropertySourcesSyncParams.omit({ project_id: true })
+
+const customPropertySourcesSync = (): ToolBase<typeof CustomPropertySourcesSyncSchema, unknown> => ({
+    name: 'custom-property-sources-sync',
+    schema: CustomPropertySourcesSyncSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesSyncSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/sync/`,
+        })
+        return result
+    },
+})
+
+const EventStreamsAddAccountSchema = EventStreamsAddAccountCreateParams.omit({ project_id: true }).extend(
+    EventStreamsAddAccountCreateBody.shape
+)
+
+const eventStreamsAddAccount = (): ToolBase<typeof EventStreamsAddAccountSchema, Schemas.EventStream> => ({
+    name: 'event-streams-add-account',
+    schema: EventStreamsAddAccountSchema,
+    handler: async (context: Context, params: z.infer<typeof EventStreamsAddAccountSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.account_id !== undefined) {
+            body['account_id'] = params.account_id
+        }
+        const result = await context.api.request<Schemas.EventStream>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/event_streams/${encodeURIComponent(String(params.id))}/add_account/`,
+            body,
+        })
+        return result
+    },
+})
+
+const EventStreamsCreateSchema = EventStreamsCreateBody
+
+const eventStreamsCreate = (): ToolBase<typeof EventStreamsCreateSchema, Schemas.EventStream> => ({
+    name: 'event-streams-create',
+    schema: EventStreamsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof EventStreamsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.event_names !== undefined) {
+            body['event_names'] = params.event_names
+        }
+        if (params.slack_integration !== undefined) {
+            body['slack_integration'] = params.slack_integration
+        }
+        if (params.slack_channel_id !== undefined) {
+            body['slack_channel_id'] = params.slack_channel_id
+        }
+        if (params.slack_channel_name !== undefined) {
+            body['slack_channel_name'] = params.slack_channel_name
+        }
+        const result = await context.api.request<Schemas.EventStream>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/event_streams/`,
+            body,
+        })
+        return result
+    },
+})
+
+const EventStreamsDestroySchema = EventStreamsDestroyParams.omit({ project_id: true })
+
+const eventStreamsDestroy = (): ToolBase<typeof EventStreamsDestroySchema, unknown> => ({
+    name: 'event-streams-destroy',
+    schema: EventStreamsDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof EventStreamsDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/event_streams/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const EventStreamsListSchema = z.object({})
+
+const eventStreamsList = (): ToolBase<typeof EventStreamsListSchema, Schemas.EventStream[]> => ({
+    name: 'event-streams-list',
+    schema: EventStreamsListSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof EventStreamsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EventStream[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/event_streams/`,
+        })
+        return result
+    },
+})
+
+const EventStreamsPartialUpdateSchema = EventStreamsPartialUpdateParams.omit({ project_id: true }).extend(
+    EventStreamsPartialUpdateBody.shape
+)
+
+const eventStreamsPartialUpdate = (): ToolBase<typeof EventStreamsPartialUpdateSchema, Schemas.EventStream> => ({
+    name: 'event-streams-partial-update',
+    schema: EventStreamsPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof EventStreamsPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.event_names !== undefined) {
+            body['event_names'] = params.event_names
+        }
+        if (params.slack_integration !== undefined) {
+            body['slack_integration'] = params.slack_integration
+        }
+        if (params.slack_channel_id !== undefined) {
+            body['slack_channel_id'] = params.slack_channel_id
+        }
+        if (params.slack_channel_name !== undefined) {
+            body['slack_channel_name'] = params.slack_channel_name
+        }
+        const result = await context.api.request<Schemas.EventStream>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/event_streams/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const EventStreamsRemoveAccountSchema = EventStreamsRemoveAccountCreateParams.omit({ project_id: true }).extend(
+    EventStreamsRemoveAccountCreateBody.shape
+)
+
+const eventStreamsRemoveAccount = (): ToolBase<typeof EventStreamsRemoveAccountSchema, Schemas.EventStream> => ({
+    name: 'event-streams-remove-account',
+    schema: EventStreamsRemoveAccountSchema,
+    handler: async (context: Context, params: z.infer<typeof EventStreamsRemoveAccountSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.account_id !== undefined) {
+            body['account_id'] = params.account_id
+        }
+        const result = await context.api.request<Schemas.EventStream>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/event_streams/${encodeURIComponent(String(params.id))}/remove_account/`,
+            body,
+        })
+        return result
+    },
+})
+
+const EventStreamsSendTestMessageSchema = EventStreamsSendTestMessageCreateParams.omit({ project_id: true })
+
+const eventStreamsSendTestMessage = (): ToolBase<
+    typeof EventStreamsSendTestMessageSchema,
+    Schemas.EventStreamTestMessage
+> => ({
+    name: 'event-streams-send-test-message',
+    schema: EventStreamsSendTestMessageSchema,
+    handler: async (context: Context, params: z.infer<typeof EventStreamsSendTestMessageSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EventStreamTestMessage>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/event_streams/${encodeURIComponent(String(params.id))}/send_test_message/`,
         })
         return result
     },
@@ -823,6 +1191,21 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'custom-property-definitions-list': customPropertyDefinitionsList,
     'custom-property-definitions-partial-update': customPropertyDefinitionsPartialUpdate,
     'custom-property-definitions-retrieve': customPropertyDefinitionsRetrieve,
+    'custom-property-sources-backfill': customPropertySourcesBackfill,
+    'custom-property-sources-create': customPropertySourcesCreate,
+    'custom-property-sources-destroy': customPropertySourcesDestroy,
+    'custom-property-sources-list': customPropertySourcesList,
+    'custom-property-sources-partial-update': customPropertySourcesPartialUpdate,
+    'custom-property-sources-retrieve': customPropertySourcesRetrieve,
+    'custom-property-sources-runs-list': customPropertySourcesRunsList,
+    'custom-property-sources-sync': customPropertySourcesSync,
+    'event-streams-add-account': eventStreamsAddAccount,
+    'event-streams-create': eventStreamsCreate,
+    'event-streams-destroy': eventStreamsDestroy,
+    'event-streams-list': eventStreamsList,
+    'event-streams-partial-update': eventStreamsPartialUpdate,
+    'event-streams-remove-account': eventStreamsRemoveAccount,
+    'event-streams-send-test-message': eventStreamsSendTestMessage,
     'usage-metrics-create': usageMetricsCreate,
     'usage-metrics-destroy': usageMetricsDestroy,
     'usage-metrics-list': usageMetricsList,

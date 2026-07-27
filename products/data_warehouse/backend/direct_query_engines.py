@@ -1,12 +1,12 @@
-"""Engine-keyed adapters for direct-query table materialization.
+"""Engine-keyed adapters for SQL-source engine behaviour.
 
-The presentation layer must not branch on source type. Direct-query behaviour varies by SQL
-*engine* (postgres/mysql/snowflake/redshift), not by source type, and the same engine can back
-more than one source type, so it dispatches here via ``source.direct_engine``
-(``DIRECT_ENGINE_BY_SOURCE_TYPE``). Each adapter bundles the engine-specific pieces of building a
-live-query ``DataWarehouseTable``: resolving the upstream location, mapping columns, and
-creating / reprojecting / hiding the row. Warehouse-domain orchestration (filtering enabled
-columns, saving the row) stays in the view.
+The presentation layer must not branch on source type. This behaviour varies by SQL *engine*
+(postgres/mysql/snowflake/redshift), not by source type, and the same engine can back more than
+one source type, so it dispatches here via ``source.direct_engine`` (``DIRECT_ENGINE_BY_SOURCE_TYPE``,
+defined for every SQL source regardless of access method). Each adapter bundles the engine-specific
+pieces of: building a live-query ``DataWarehouseTable`` (resolving the upstream location, mapping
+columns, creating / reprojecting / hiding the row) and reconciling schema rows on refresh. Warehouse
+-domain orchestration (filtering enabled columns, saving the row) stays in the view.
 """
 
 from abc import ABC, abstractmethod
@@ -16,16 +16,26 @@ from products.data_warehouse.backend.direct_mysql import hide_direct_mysql_table
 from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table, upsert_direct_postgres_table
 from products.data_warehouse.backend.direct_redshift import hide_direct_redshift_table, upsert_direct_redshift_table
 from products.data_warehouse.backend.direct_snowflake import hide_direct_snowflake_table, upsert_direct_snowflake_table
-from products.data_warehouse.backend.mysql_helpers import get_mysql_source_location, reproject_direct_mysql_table
+from products.data_warehouse.backend.mysql_helpers import (
+    get_mysql_source_location,
+    reconcile_mysql_schemas,
+    reproject_direct_mysql_table,
+)
 from products.data_warehouse.backend.postgres_helpers import (
     get_postgres_source_location,
+    reconcile_postgres_schemas,
     reproject_direct_postgres_table,
 )
+from products.data_warehouse.backend.postgres_warehouse_migration import reconcile_refresh_name_substitutions
 from products.data_warehouse.backend.redshift_helpers import (
     get_redshift_source_location,
+    reconcile_redshift_schemas,
     reproject_direct_redshift_table,
 )
-from products.data_warehouse.backend.snowflake_helpers import reproject_direct_snowflake_table
+from products.data_warehouse.backend.snowflake_helpers import (
+    reconcile_snowflake_schemas,
+    reproject_direct_snowflake_table,
+)
 from products.warehouse_sources.backend.facade.api import (
     mysql_columns_to_dwh_columns,
     postgres_columns_to_dwh_columns,
@@ -92,6 +102,21 @@ class DirectQueryEngine(ABC):
     def hide_table(self, table: Any) -> None:
         raise NotImplementedError()
 
+    @abstractmethod
+    def reconcile_schemas(self, *, source: Any, source_schemas: list[Any], team_id: int) -> list[str]:
+        """Dedupe/rebuild this engine's schema rows against discovered schemas on refresh; returns
+        the extra schema names deleted during reconciliation."""
+        raise NotImplementedError()
+
+    def refresh_name_substitutions(
+        self, *, source: Any, source_schemas: list[Any], team_id: int
+    ) -> dict[str, str] | None:
+        """Engine-specific legacy-row name remapping applied before schema sync. ``None`` means the
+        engine has none, so the caller falls back to the generic multi-schema migration. Only
+        Postgres overrides this (its bespoke legacy-dedup); an empty dict from Postgres still counts
+        as "handled" and suppresses the generic path."""
+        return None
+
 
 class _PostgresEngine(DirectQueryEngine):
     engine = "postgres"
@@ -123,6 +148,12 @@ class _PostgresEngine(DirectQueryEngine):
 
     def hide_table(self, table):
         hide_direct_postgres_table(table)
+
+    def reconcile_schemas(self, *, source, source_schemas, team_id):
+        return reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
+    def refresh_name_substitutions(self, *, source, source_schemas, team_id):
+        return reconcile_refresh_name_substitutions(source=source, source_schemas=source_schemas, team_id=team_id)
 
 
 class _MySQLEngine(DirectQueryEngine):
@@ -158,6 +189,9 @@ class _MySQLEngine(DirectQueryEngine):
 
     def hide_table(self, table):
         hide_direct_mysql_table(table)
+
+    def reconcile_schemas(self, *, source, source_schemas, team_id):
+        return reconcile_mysql_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
 
 class _SnowflakeEngine(DirectQueryEngine):
@@ -199,6 +233,9 @@ class _SnowflakeEngine(DirectQueryEngine):
     def hide_table(self, table):
         hide_direct_snowflake_table(table)
 
+    def reconcile_schemas(self, *, source, source_schemas, team_id):
+        return reconcile_snowflake_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
 
 class _RedshiftEngine(DirectQueryEngine):
     engine = "redshift"
@@ -233,6 +270,9 @@ class _RedshiftEngine(DirectQueryEngine):
 
     def hide_table(self, table):
         hide_direct_redshift_table(table)
+
+    def reconcile_schemas(self, *, source, source_schemas, team_id):
+        return reconcile_redshift_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
 
 _ENGINES: dict[str, DirectQueryEngine] = {

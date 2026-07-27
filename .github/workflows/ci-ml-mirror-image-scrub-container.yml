@@ -3,7 +3,6 @@ name: Build and deploy ml-mirror-image-scrub container image
 on:
     workflow_dispatch:
     pull_request:
-    merge_group:
     push:
         branches:
             - 'master'
@@ -19,7 +18,7 @@ jobs:
             contents: read
             pull-requests: read
         timeout-minutes: 5
-        if: github.repository_owner == 'PostHog' && github.event_name != 'merge_group'
+        if: github.repository_owner == 'PostHog'
         name: Determine need to run ml-mirror-image-scrub Docker build
         outputs:
             scrub_files: ${{ steps.filter.outputs.scrub_files }}
@@ -46,9 +45,7 @@ jobs:
     test:
         needs: changes
         name: Unit-test ml-mirror-image-scrub
-        if: |
-            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.scrub_files == 'true') ||
-            github.event_name == 'merge_group'
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.scrub_files == 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         permissions:
@@ -87,10 +84,9 @@ jobs:
         name: Build and push ml-mirror-image-scrub image
         if: |
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.scrub_files == 'true') ||
-            github.event_name == 'merge_group' ||
             (github.event_name == 'workflow_dispatch' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true') ||
             (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.scrub_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -133,7 +129,7 @@ jobs:
                   buildx-fallback: false
                   # Depot project "replay-vision-ingestion-ml-mirror-image-scrub".
                   project: 'hmrgpk84ch'
-                  push: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' || vars.CD_DEPLOY_ENABLED == 'true' }}
+                  push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   file: Dockerfile.ml-mirror-image-scrub
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}

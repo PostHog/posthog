@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.dynatrace import DynatraceResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.source import DynatraceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DynatraceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynatrace import (
+    DynatraceSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"problems", "events", "audit_logs"}
@@ -139,7 +141,7 @@ class TestDynatraceSource:
             api_token="dt0c01.token",
             endpoint="metrics",
             team_id=99,
-            logger=inputs.logger,
+            job_id="job-1",
             resumable_source_manager=manager,
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,

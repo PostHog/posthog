@@ -59,7 +59,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
     BigQueryDatasetProjectConfig,
     BigQueryKeyFileConfig,
     BigQuerySourceConfig,
@@ -1742,3 +1742,40 @@ def test_bigquery_resources_exceeded_is_non_retryable():
 
     assert matching, "resourcesExceeded query failure should be recognised as non-retryable"
     assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+def test_bigquery_source_declares_v2_as_default():
+    # The core of this PR: v2 is a supported version and the default for new sources, while the
+    # legacy label stays supported so existing pins keep resolving. Guards a revert of the default
+    # bump or an accidental drop of a supported label (base-class pin resolution itself is already
+    # covered by the registry-invariant suite).
+    source = BigQuerySource()
+    assert source.supported_versions == ("v1", "v2")
+    assert source.default_version == "v2"
+
+
+@pytest.mark.parametrize("pin,expected_segment", [("v1", "v2"), ("v2", "v2"), (None, "v2"), ("v99", "v2")])
+def test_bigquery_rest_api_version_maps_labels_to_v2(pin, expected_segment):
+    # Both supported labels (and any fallback) resolve to BigQuery's single stable REST path
+    # segment — a wrong mapping would point the client at a nonexistent /bigquery/<x>/ endpoint.
+    assert bq_module._bigquery_rest_api_version(pin) == expected_segment
+
+
+@pytest.mark.parametrize("pin", ["v1", "v2"])
+def test_bigquery_build_pipeline_threads_resolved_rest_api_version(pin):
+    # The source's version pin must reach the request layer (the REST segment the read/query
+    # clients run under); dropping it would stop a future version from dispatching.
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
+        ),
+        mock.patch.object(
+            BigQueryImplementation, "_build_source_response", return_value=mock.MagicMock()
+        ) as mock_build,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_table",
+        ),
+    ):
+        BigQuerySource().source_for_pipeline(_make_config(), _make_inputs(api_version=pin))
+
+    assert mock_build.call_args.kwargs["rest_api_version"] == "v2"

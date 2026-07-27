@@ -19,20 +19,35 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KustomerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kustomer import (
+    KustomerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.kustomer import (
     KustomerResumeConfig,
     kustomer_source,
     validate_credentials as validate_kustomer_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class KustomerSource(ResumableSource[KustomerSourceConfig, KustomerResumeConfig]):
-    supported_versions = ("v1",)
+    # Kustomer exposes both a v1.0 and a v2 API version, but the resources we sync
+    # (customers, conversations, users, teams, tags, brands) are served under `/v1/`
+    # for both — the "v2" docs toggle keeps these list endpoints at `/v1/`. So the
+    # version is a pin recorded on the source, not a request-layer branch: every
+    # version resolves to the same `/v1/<resource>` requests (see settings.py).
+    # v2 stays declared-but-dormant and the default remains v1 until a `/v2/<resource>`
+    # endpoint is confirmed to serve these resources, rather than 404.
+    supported_versions = ("v1", "v2")
     default_version = "v1"
     api_docs_url = "https://developer.kustomer.com"
 
@@ -103,26 +118,18 @@ Your organization name is the first part of your Kustomer URL — for `myorg.kus
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # GET list endpoints have no updated-since filter; full refresh only.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        # GET list endpoints have no updated-since filter; full refresh only
+        # (INCREMENTAL_FIELDS is empty, so every schema is non-incremental).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: KustomerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: KustomerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_kustomer_credentials(config.org_name, config.api_key):
             return True, None
@@ -142,6 +149,8 @@ Your organization name is the first part of your Kustomer URL — for `myorg.kus
             org_name=config.org_name,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Kustomer endpoint is full refresh
         )

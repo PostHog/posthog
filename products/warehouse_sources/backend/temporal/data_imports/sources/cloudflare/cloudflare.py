@@ -1,69 +1,135 @@
-from collections.abc import Iterator
-from typing import Any
-from urllib.parse import quote, urlencode
+from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.settings import CLOUDFLARE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.settings import (
+    CLOUDFLARE_ENDPOINTS,
+    CloudflareEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
+    find_values,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 
 CLOUDFLARE_BASE_URL = "https://api.cloudflare.com/client/v4"
 # Cloudflare list pages cap at 50 by default; most endpoints allow more.
 PAGE_SIZE = 50
-REQUEST_TIMEOUT_SECONDS = 60
-# 1200 req/5min global API rate limit; a 429 stays rate-limited until the window
-# resets, so we honor the Retry-After header it carries instead of guessing.
-MAX_RETRY_ATTEMPTS = 5
-# Cap how long a single Retry-After can stall us, so a misbehaving header can't
-# pin the activity open for the full 5-minute window times every attempt.
-MAX_RETRY_AFTER_SECONDS = 120
-# Stateless backoff used when a retryable error carries no Retry-After hint.
-_FALLBACK_WAIT = wait_exponential_jitter(initial=1, max=60)
 # A token can list zones (account-level Zone:Read) without holding DNS:Read on
 # every one of them. Per-zone 403/404s mean "this zone is inaccessible/gone" —
 # skip it and keep syncing the rest rather than failing the whole stream.
-ZONE_SKIP_STATUS_CODES = frozenset({403, 404})
+ZONE_SKIP_STATUS_CODES = (403, 404)
 
 
-class CloudflareRetryableError(Exception):
-    def __init__(self, message: str, retry_after: float | None = None) -> None:
-        super().__init__(message)
-        # Seconds Cloudflare asked us to wait (from a 429 Retry-After), if any.
-        self.retry_after = retry_after
+class CloudflarePaginator(PageNumberPaginator):
+    """Cloudflare page-number pagination: stop via ``result_info.total_pages``,
+    with a short-page fallback for responses that omit it."""
+
+    def __init__(self) -> None:
+        super().__init__(base_page=1, page_param="page", total_path="result_info.total_pages")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if not self._has_next_page or not data:
+            return
+        try:
+            values = find_values(self.total_path, response.json())
+        except Exception:
+            values = []
+        total_pages = values[0] if values else None
+        # Without a total-pages hint, a short page is the last one — stop rather
+        # than paying an extra empty-page request.
+        if total_pages is None and len(data) < PAGE_SIZE:
+            self._has_next_page = False
 
 
-def _parse_retry_after(response: requests.Response) -> float | None:
-    """Cloudflare sends Retry-After as delta-seconds on 429s; ignore other forms."""
-    raw = response.headers.get("Retry-After")
-    if raw is None:
-        return None
-    try:
-        seconds = float(raw)
-    except (TypeError, ValueError):
-        return None
-    return max(0.0, seconds)
+def _client_config(api_token: str) -> ClientConfig:
+    return {
+        "base_url": CLOUDFLARE_BASE_URL,
+        "auth": {"type": "bearer", "token": api_token},
+        "paginator": CloudflarePaginator(),
+    }
 
 
-def _wait_strategy(retry_state: RetryCallState) -> float:
-    """Honor a 429's Retry-After when present, else fall back to jittered backoff."""
-    exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
-    if isinstance(exc, CloudflareRetryableError) and exc.retry_after is not None:
-        return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
-    return _FALLBACK_WAIT(retry_state)
+def _list_resource(name: str, path: str) -> EndpointResource:
+    return {
+        "name": name,
+        "endpoint": {
+            "path": path,
+            "params": {"per_page": PAGE_SIZE},
+            "data_selector": "result",
+        },
+    }
 
 
-def _get_session(api_token: str) -> requests.Session:
-    return make_tracked_session(headers={"Authorization": f"Bearer {api_token}"}, redact_values=(api_token,))
+def _flat_resource(
+    api_token: str, endpoint: str, config: CloudflareEndpointConfig, team_id: int, job_id: str
+) -> Resource:
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_token),
+        "resource_defaults": {},
+        "resources": [_list_resource(endpoint, config.path)],
+    }
+    return rest_api_resource(rest_config, team_id, job_id, None)
+
+
+def _zone_fanout_resource(
+    api_token: str, endpoint: str, config: CloudflareEndpointConfig, team_id: int, job_id: str
+) -> Resource:
+    assert config.parent_key is not None, (
+        f"Zone-scoped endpoint '{endpoint}' must define parent_key in CLOUDFLARE_ENDPOINTS"
+    )
+    parent_key = config.parent_key
+
+    child: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {
+            "path": config.path,
+            "params": {
+                "per_page": PAGE_SIZE,
+                "zone_id": {"type": "resolve", "resource": "zones", "field": "id"},
+            },
+            "data_selector": "result",
+            "response_actions": [{"status_code": status, "action": "ignore"} for status in ZONE_SKIP_STATUS_CODES],
+        },
+        "include_from_parent": ["id"],
+    }
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_token),
+        "resource_defaults": {},
+        "resources": [_list_resource("zones", "/zones"), child],
+    }
+    resources = {r.name: r for r in rest_api_resources(rest_config, team_id, job_id, None)}
+    # A zone row without an id can't be fanned out — skip it rather than failing the stream.
+    resources["zones"].add_filter(lambda zone: bool(zone.get("id")))
+
+    def _rename_parent_key(row: dict[str, Any]) -> dict[str, Any]:
+        if "_zones_id" in row:
+            row[parent_key] = row.pop("_zones_id")
+        return row
+
+    return resources[endpoint].add_map(_rename_parent_key)
 
 
 def validate_credentials(api_token: str) -> bool:
     """Confirm the API token is valid with Cloudflare's token verify endpoint."""
     try:
-        response = _get_session(api_token).get(
+        response = make_tracked_session(redact_values=(api_token,)).get(
             f"{CLOUDFLARE_BASE_URL}/user/tokens/verify",
+            headers={"Authorization": f"Bearer {api_token}"},
             timeout=10,
         )
         return response.status_code == 200 and bool(response.json().get("success"))
@@ -71,88 +137,22 @@ def validate_credentials(api_token: str) -> bool:
         return False
 
 
-def get_rows(
-    api_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    config = CLOUDFLARE_ENDPOINTS[endpoint]
-    session = _get_session(api_token)
-
-    @retry(
-        retry=retry_if_exception_type((CloudflareRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=_wait_strategy,
-        reraise=True,
-    )
-    def fetch(path: str, page: int) -> dict[str, Any]:
-        url = f"{CLOUDFLARE_BASE_URL}{path}?{urlencode({'page': page, 'per_page': PAGE_SIZE})}"
-        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise CloudflareRetryableError(
-                f"Cloudflare API error (retryable): status={response.status_code}, url={url}",
-                retry_after=_parse_retry_after(response) if response.status_code == 429 else None,
-            )
-
-        if not response.ok:
-            logger.error(f"Cloudflare API error: status={response.status_code}, body={response.text}, url={url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    def iterate_pages(path: str) -> Iterator[list[dict[str, Any]]]:
-        page = 1
-        while True:
-            body = fetch(path, page)
-            items = body.get("result", []) or []
-            if items:
-                yield items
-            total_pages = (body.get("result_info") or {}).get("total_pages")
-            if not items or (isinstance(total_pages, int) and page >= total_pages):
-                return
-            if total_pages is None and len(items) < PAGE_SIZE:
-                return
-            page += 1
-
-    if not config.zone_scoped:
-        yield from iterate_pages(config.path)
-        return
-
-    assert config.parent_key is not None, (
-        f"Zone-scoped endpoint '{endpoint}' must define parent_key in CLOUDFLARE_ENDPOINTS"
-    )
-    zone_ids = [zone["id"] for page in iterate_pages("/zones") for zone in page if zone.get("id")]
-    for zone_id in zone_ids:
-        path = config.path.replace("{zone_id}", quote(zone_id))
-        try:
-            for page_items in iterate_pages(path):
-                yield [{**item, config.parent_key: zone_id} for item in page_items]
-        except requests.HTTPError as e:
-            status_code = e.response.status_code if e.response is not None else None
-            if status_code in ZONE_SKIP_STATUS_CODES:
-                logger.warning(
-                    f"Skipping Cloudflare zone {zone_id} for endpoint '{endpoint}': "
-                    f"token lacks access (status={status_code})"
-                )
-                continue
-            raise
-
-
 def cloudflare_source(
     api_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
 ) -> SourceResponse:
     config = CLOUDFLARE_ENDPOINTS[endpoint]
 
+    if config.zone_scoped:
+        resource = _zone_fanout_resource(api_token, endpoint, config, team_id, job_id)
+    else:
+        resource = _flat_resource(api_token, endpoint, config, team_id, job_id)
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_token=api_token,
-            endpoint=endpoint,
-            logger=logger,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         partition_count=1,
         partition_size=1,

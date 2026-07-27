@@ -13,6 +13,7 @@ import { AvailableFeature, CyclotronJobInputSchemaType } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
+import { redactSecretHogFunctionInputs, truncateHogFunctionContext } from '../../hog-function-utils'
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 
 export function HogFunctionInputs(): JSX.Element {
@@ -43,10 +44,17 @@ export function HogFunctionInputs(): JSX.Element {
     useAttachedContext([
         {
             type: 'hog_function_inputs_schema',
-            value: JSON.stringify({
-                inputs_schema: configuration.inputs_schema ?? [],
-                hog_code: configuration.hog ?? '',
-            }),
+            value: truncateHogFunctionContext(
+                JSON.stringify({
+                    inputs_schema: configuration.inputs_schema ?? [],
+                    // Secret values never leave the scene: a freshly typed secret is cleartext in form state.
+                    inputs: redactSecretHogFunctionInputs(
+                        configuration.inputs ?? {},
+                        configuration.inputs_schema ?? []
+                    ),
+                    hog_code: configuration.hog ?? '',
+                })
+            ),
             label: 'Current inputs schema',
         },
     ])

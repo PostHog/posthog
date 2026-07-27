@@ -29,8 +29,8 @@ single-agent flow:
 
 1. **A human is reachable.** Ask a clarifying question if the scope is
    ambiguous (whole fleet vs a subset, time window). The `focus_*` /
-   `toast` client tools work when the user is in PostHog Code — use
-   them to follow along as you sweep; outside PostHog Code they degrade
+   `toast` client tools work when the user is in PostHog Desktop — use
+   them to follow along as you sweep; outside PostHog Desktop they degrade
    to text. Don't use `set_secret` mid-sweep — credential fixes are
    recommendations for the user to action after (see step 4).
 2. **No promotes, ever — propose, don't dispose.** Even with the user

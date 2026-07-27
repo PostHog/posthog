@@ -86,8 +86,8 @@ ORDER BY tool_calls DESC
 LIMIT 500
 `
 
-// Mirrors products/mcp_analytics/backend/templates/tool_quality.sql for the
-// compact reliability matrix on the overview. Limited columns + 50 rows.
+// Mirrors MCPToolQualityRowsQueryRunner (products/mcp_analytics/backend/hogql_queries/tool_quality_tables.py)
+// for the compact reliability matrix on the overview. Limited columns + 50 rows.
 const TOOL_ROWS_QUERY = `
 SELECT
     toString(properties.$mcp_tool_name) AS tool,

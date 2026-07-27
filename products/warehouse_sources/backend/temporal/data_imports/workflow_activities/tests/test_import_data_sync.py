@@ -5,7 +5,13 @@ from datetime import datetime
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    SchemaColumnTypeChangedException,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import import_data_sync as module
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
@@ -96,7 +102,7 @@ async def test_non_retryable_setup_error_routes_through_handler():
             await import_data_activity_sync(_inputs())
 
     handle_mock.assert_awaited_once()
-    assert handle_mock.await_args.args[3] is error
+    assert handle_mock.await_args.args[5] is error
 
 
 @pytest.mark.asyncio
@@ -126,8 +132,96 @@ async def test_unparseable_config_routes_through_handler():
             await import_data_activity_sync(_inputs())
 
     handle_mock.assert_awaited_once()
-    assert handle_mock.await_args.args[3] is error
+    assert handle_mock.await_args.args[5] is error
     source.source_for_pipeline.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_source_classified_retryable_error_logged_as_warning_not_exception():
+    # A rate-limit / transient error the source retries internally reaches _handle_import_error only
+    # once those retries exhaust. Temporal retries the whole activity, so it must be logged at
+    # warning (not aexception, which mints error-tracking noise) while still being re-raised.
+    error = Exception("Mixpanel API error (retryable): status=429, url=https://data.mixpanel.com/api/2.0/export")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = {"Mixpanel API error (retryable)"}
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(Exception, match="retryable"):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_rest_client_non_retryable_error_routes_through_handler_without_source_opt_in():
+    # RESTClientNonRetryableError is the REST engine's "retrying can never help" signal (a non-JSON
+    # body on an otherwise-successful response). It must be honored by type even when the source's
+    # get_non_retryable_errors doesn't list the message, so any REST-based source stops instead of
+    # retrying the deterministic failure to the activity max and minting error-tracking noise.
+    error = RESTClientNonRetryableError("Non-JSON response from https://api.example.com/v1/data/leads")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[5] is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_schema_column_type_changed_routes_through_handler_without_source_opt_in():
+    # SchemaColumnTypeChangedException is raised in shared pipeline code when incoming data can't be
+    # cast into the stored Delta column type — a deterministic failure that only a reset and re-sync
+    # fixes. It must be non-retryable by type for every source, not just the SQL sources that list
+    # "Source column type changed" in get_non_retryable_errors, so non-SQL sources stop retrying it.
+    error = SchemaColumnTypeChangedException(
+        "Source column type changed: 'val' has values that no longer fit its stored type int32 "
+        "(incoming data is now string). Reset and fully re-sync this table to adopt the new type."
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    # autospec enforces handle_non_retryable_error's real signature, so a call with the wrong
+    # positional args (as this branch once had) fails here instead of only at runtime.
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[5] is error
+    logger.aexception.assert_not_awaited()
 
 
 def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -> mock.MagicMock:

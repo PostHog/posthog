@@ -14,7 +14,11 @@ from posthog.models.organization import Organization
 from posthog.settings.utils import get_from_env
 
 from products.replay_vision.backend.billing import observation_credits_for_model
-from products.replay_vision.backend.models.replay_observation import IN_FLIGHT_STATUSES, ReplayObservation
+from products.replay_vision.backend.models.replay_observation import (
+    IN_FLIGHT_STATUSES,
+    ObservationStatus,
+    ReplayObservation,
+)
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_quota_grant import ReplayQuotaGrant
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -60,13 +64,63 @@ def next_month_start(now: datetime) -> datetime:
     return start_of_month(now) + relativedelta(months=1)
 
 
-def _current_month_bounds(now: datetime) -> tuple[datetime, datetime]:
-    return start_of_month(now), next_month_start(now)
+@dataclass(frozen=True)
+class BillingPeriod:
+    """Half-open [start, end) window observations are counted against."""
+
+    start: datetime
+    end: datetime
+
+
+def _current_month_bounds(now: datetime) -> BillingPeriod:
+    return BillingPeriod(start=start_of_month(now), end=next_month_start(now))
 
 
 def _as_utc(value: datetime) -> datetime:
     """Treat a tz-naive billing timestamp as UTC so it can be compared against tz-aware now."""
     return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _current_period_bounds(organization: Organization | None, now: datetime) -> BillingPeriod:
+    """The org's active billing period when synced and current, else the calendar month containing `now`."""
+    billing_period = organization.current_billing_period if organization else None
+    if billing_period:
+        synced = BillingPeriod(start=_as_utc(billing_period[0]), end=_as_utc(billing_period[1]))
+        if synced.start <= now < synced.end:
+            return synced
+    return _current_month_bounds(now)
+
+
+def current_period_bounds(organization_id: UUID) -> BillingPeriod:
+    """The org's active billing period when synced and current, else the current calendar month."""
+    organization = Organization.objects.filter(pk=organization_id).only("usage").first()
+    return _current_period_bounds(organization, datetime.now(UTC))
+
+
+def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> dict[UUID, int]:
+    """Credits each scanner's succeeded observations consumed in the current billing period.
+
+    Priced at current rates from each observation's frozen snapshot model. Receipts freeze prices
+    at success time, so these totals can drift from the billed ledger after a mid-period price
+    change. Scanners with no spend are omitted.
+    """
+    if not scanner_ids:
+        return {}
+    period = current_period_bounds(organization_id)
+    period_start, period_end = period.start, period.end
+    pairs = Counter(
+        ReplayObservation.objects.filter(
+            scanner_id__in=scanner_ids,
+            team__organization_id=organization_id,
+            status=ObservationStatus.SUCCEEDED,
+            created_at__gte=period_start,
+            created_at__lt=period_end,
+        ).values_list("scanner_id", "scanner_snapshot__model")
+    )
+    totals: dict[UUID, int] = {}
+    for (scanner_id, model), count in pairs.items():
+        totals[scanner_id] = totals.get(scanner_id, 0) + observation_credits_for_model(model or "") * count
+    return totals
 
 
 def sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanner_id: UUID | None = None) -> int:
@@ -107,13 +161,8 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
     now = datetime.now(UTC)
     organization = Organization.objects.filter(pk=organization_id).only("usage").first()
     # Billing is the source of truth once synced, falling back to the env cap and calendar months otherwise.
-    billing_period = organization.current_billing_period if organization else None
-    if billing_period:
-        billing_period = (_as_utc(billing_period[0]), _as_utc(billing_period[1]))
-    if billing_period and billing_period[0] <= now < billing_period[1]:
-        period_start, period_end = billing_period
-    else:
-        period_start, period_end = _current_month_bounds(now)
+    period = _current_period_bounds(organization, now)
+    period_start, period_end = period.start, period.end
     # Permanently-spent (succeeded) from the immutable ledger; deletes can't refund it.
     consumed = ReplayObservationUsage.objects.filter(
         organization_id=organization_id,

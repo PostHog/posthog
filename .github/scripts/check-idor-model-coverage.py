@@ -302,6 +302,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # --- Infra / no tenant data ---
         "EventBuffer",
         "EventIngestionRestrictionConfig",
+        "GlobalRateLimitThresholdConfig",
         "MessagingRecord",
     }
 

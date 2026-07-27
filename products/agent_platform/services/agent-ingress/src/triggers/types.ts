@@ -58,7 +58,7 @@ export interface TriggerDeps {
      */
     approvals?: ApprovalStore
     /**
-     * Per-session credential broker. Chat trigger consumes it on /run + /send;
+     * Per-session credential broker. Chat and MCP triggers persist caller credentials before queueing;
      * other triggers ignore it. Required — prod wires `PgCredentialBroker`,
      * tests wire the same against the test DB.
      */

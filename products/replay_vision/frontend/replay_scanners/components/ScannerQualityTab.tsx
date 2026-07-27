@@ -1,18 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import {
-    IconChevronDown,
-    IconChevronRight,
-    IconExpand45,
-    IconRefresh,
-    IconRewindPlay,
-    IconSparkles,
-} from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconRefresh, IconRewindPlay, IconSparkles } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
-    LemonModal,
     LemonSegmentedButton,
     LemonTable,
     LemonTag,
@@ -25,15 +17,12 @@ import { BarChart, useChartLayout } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { getColorVar } from 'lib/colors'
-import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ObservationResultSummary } from '../../components/ObservationCard'
 import type {
@@ -44,6 +33,7 @@ import type {
 } from '../../generated/api.schemas'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCredits } from '../../utils/credits'
 import { buildChartDayFormatter, fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
 import { readConfidence } from '../../utils/observation'
@@ -51,12 +41,14 @@ import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { LABEL_CHART_DAYS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from '../scannerQualityLogic'
 import { OBSERVATION_CREDITS_BY_MODEL } from '../types'
+import { ConfigChangeCards } from './ConfigChangeCards'
 import { versionTag } from './ScannerObservationsTable'
 
-const RATED_FILTER_OPTIONS: { value: RatedFilterValue; label: string }[] = [
-    { value: 'unrated', label: 'Unrated' },
-    { value: 'rated', label: 'Rated' },
-    { value: 'all', label: 'All' },
+// data-attr must live on each option: LemonSegmentedButton renders no element of its own that takes one.
+const RATED_FILTER_OPTIONS: { value: RatedFilterValue; label: string; 'data-attr': string }[] = [
+    { value: 'unrated', label: 'Unrated', 'data-attr': 'vision-quality-rated-filter-unrated' },
+    { value: 'rated', label: 'Rated', 'data-attr': 'vision-quality-rated-filter-rated' },
+    { value: 'all', label: 'All', 'data-attr': 'vision-quality-rated-filter-all' },
 ]
 
 const SUGGESTION_STATUS_TAGS: Record<string, { type: LemonTagType; label: string; tooltip: string }> = {
@@ -94,111 +86,27 @@ function SuggestionStatusTag({ status }: { status: string }): JSX.Element | null
     )
 }
 
-/** The bordered side-by-side diff with labeled panes, rendered inline and inside the fullscreen modal. */
-function SuggestionDiffPanes({
-    suggestion,
-    beforeLabel,
-    isDarkModeOn,
-    editorHeight,
-    onExpand,
-}: {
-    suggestion: ReplayScannerPromptSuggestionApi
-    beforeLabel: string
-    isDarkModeOn: boolean
-    editorHeight?: string
-    onExpand?: () => void
-}): JSX.Element {
-    return (
-        <div className="border rounded overflow-hidden">
-            <div className="flex items-center border-b bg-surface-secondary text-xs font-medium">
-                <div className="flex-1 px-3 py-1.5 border-r">{beforeLabel}</div>
-                <div className="flex-1 px-3 py-1.5 flex items-center justify-between">
-                    <span>Suggested prompt</span>
-                    {onExpand && (
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconExpand45 />}
-                            tooltip="Expand diff to full screen"
-                            onClick={onExpand}
-                            data-attr="vision-quality-expand-diff"
-                        />
-                    )}
-                </div>
-            </div>
-            <MonacoDiffEditor
-                original={suggestion.base_prompt}
-                modified={suggestion.suggested_prompt}
-                language="markdown"
-                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
-                height={editorHeight}
-                options={{
-                    readOnly: true,
-                    renderSideBySide: true,
-                    useInlineViewWhenSpaceIsLimited: false,
-                    // Keep both panes at exactly half width on resize, in lockstep with the header row.
-                    enableSplitViewResizing: false,
-                    splitViewDefaultRatio: 0.5,
-                    automaticLayout: true,
-                    wordWrap: 'on',
-                    lineNumbers: 'off',
-                    folding: false,
-                    renderOverviewRuler: false,
-                    scrollBeyondLastLine: false,
-                    diffAlgorithm: 'advanced',
-                }}
-            />
-        </div>
-    )
-}
-
-/** The pane-labeled prompt diff plus the model's rationale, shared by the current card and history entries. */
+/** The change cards plus the model's rationale, shared by the current card and history entries. History
+ *  entries render read-only; the current card is editable per field. */
 function SuggestionDetails({
     suggestion,
-    beforeLabel,
     isDarkModeOn,
+    scannerId,
+    readOnly = false,
 }: {
     suggestion: ReplayScannerPromptSuggestionApi
-    beforeLabel: string
     isDarkModeOn: boolean
+    scannerId: string
+    readOnly?: boolean
 }): JSX.Element {
-    const [isDiffExpanded, setIsDiffExpanded] = useState(false)
     return (
         <>
-            {suggestion.base_prompt ? (
-                <>
-                    <SuggestionDiffPanes
-                        suggestion={suggestion}
-                        beforeLabel={beforeLabel}
-                        isDarkModeOn={isDarkModeOn}
-                        onExpand={() => setIsDiffExpanded(true)}
-                    />
-                    <LemonModal
-                        isOpen={isDiffExpanded}
-                        onClose={() => setIsDiffExpanded(false)}
-                        title="Prompt recommendation"
-                        fullScreen
-                    >
-                        <div className="space-y-4">
-                            <SuggestionDiffPanes
-                                suggestion={suggestion}
-                                beforeLabel={beforeLabel}
-                                isDarkModeOn={isDarkModeOn}
-                                editorHeight="calc(100vh - 16rem)"
-                            />
-                            {suggestion.rationale && (
-                                <div>
-                                    <h4 className="text-sm font-semibold m-0 mb-1">Why</h4>
-                                    <p className="text-sm text-muted m-0">{suggestion.rationale}</p>
-                                </div>
-                            )}
-                        </div>
-                    </LemonModal>
-                </>
-            ) : (
-                <div className="border rounded bg-surface-secondary p-2 font-mono text-xs whitespace-pre-wrap max-h-48 overflow-y-auto">
-                    {suggestion.suggested_prompt}
-                </div>
-            )}
+            <ConfigChangeCards
+                suggestion={suggestion}
+                isDarkModeOn={isDarkModeOn}
+                scannerId={scannerId}
+                readOnly={readOnly}
+            />
             {suggestion.rationale && (
                 <div>
                     <h4 className="text-sm font-semibold m-0 mb-1">Why</h4>
@@ -224,19 +132,25 @@ const EVALUATION_OUTCOME_TAGS: Record<string, { type: LemonTagType; label: strin
     regressed: { type: 'danger', label: 'Regressed' },
     still_wrong: { type: 'danger', label: 'Still wrong' },
     error: { type: 'muted', label: 'Error' },
+    preview: { type: 'muted', label: 'Preview' },
 }
 
 /** Test-before-apply results: the suggested prompt re-run against rated sessions. */
 function SuggestionEvaluationPanel({
     suggestion,
+    preview,
+    editedSinceTest,
 }: {
     suggestion: ReplayScannerPromptSuggestionApi
+    preview: boolean
+    editedSinceTest: boolean
 }): JSX.Element | null {
     const [detailsOpen, setDetailsOpen] = useState(false)
     const evaluation = suggestion.evaluation
     if (!evaluation) {
         return null
     }
+    const isPreview = preview || evaluation.results.some((result) => result.outcome === 'preview')
 
     if (evaluation.status === 'running') {
         return (
@@ -265,23 +179,37 @@ function SuggestionEvaluationPanel({
     const chargedCount = evaluation.results.filter((result) => result.outcome !== 'error').length
     return (
         <div className="border rounded p-3 space-y-2">
+            {editedSinceTest && (
+                <p className="text-xs text-warning m-0">
+                    You have edited fields since this test ran. Test again to see the updated result.
+                </p>
+            )}
             <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-medium">Tested against {evaluation.results.length} rated sessions:</span>
-                {downTotal > 0 && (
-                    <Tooltip title="Rated-wrong sessions whose result changed under the suggested prompt">
-                        <LemonTag type={summary.fixed > 0 ? 'success' : 'muted'}>
-                            {summary.fixed}/{downTotal} wrong now different
-                        </LemonTag>
-                    </Tooltip>
+                {isPreview ? (
+                    <span className="font-medium">
+                        Tested {evaluation.results.length} rated session
+                        {evaluation.results.length === 1 ? '' : 's'}. Compare before and after below.
+                    </span>
+                ) : (
+                    <>
+                        <span className="font-medium">Tested against {evaluation.results.length} rated sessions:</span>
+                        {downTotal > 0 && (
+                            <Tooltip title="Rated-wrong sessions whose result changed under the suggested prompt">
+                                <LemonTag type={summary.fixed > 0 ? 'success' : 'muted'}>
+                                    {summary.fixed}/{downTotal} wrong now different
+                                </LemonTag>
+                            </Tooltip>
+                        )}
+                        {upTotal > 0 && (
+                            <Tooltip title="Rated-right sessions whose result is unchanged under the suggested prompt">
+                                <LemonTag type={summary.regressed > 0 ? 'danger' : 'success'}>
+                                    {summary.kept}/{upTotal} right unchanged
+                                </LemonTag>
+                            </Tooltip>
+                        )}
+                        {summary.errors > 0 && <LemonTag type="muted">{summary.errors} failed to run</LemonTag>}
+                    </>
                 )}
-                {upTotal > 0 && (
-                    <Tooltip title="Rated-right sessions whose result is unchanged under the suggested prompt">
-                        <LemonTag type={summary.regressed > 0 ? 'danger' : 'success'}>
-                            {summary.kept}/{upTotal} right unchanged
-                        </LemonTag>
-                    </Tooltip>
-                )}
-                {summary.errors > 0 && <LemonTag type="muted">{summary.errors} failed to run</LemonTag>}
                 <Tooltip title="Only sessions that ran successfully count against the monthly Replay Vision quota">
                     <span className="text-muted text-xs">
                         Used {chargedCount} observation{chargedCount === 1 ? '' : 's'} of quota
@@ -315,7 +243,12 @@ function SuggestionEvaluationPanel({
                                 title: 'Session',
                                 key: 'session',
                                 render: (_, result) => (
-                                    <Link to={urls.replaySingle(result.session_id)} className="font-mono">
+                                    // New tab like the results table links, so reviewers keep their place.
+                                    <Link
+                                        to={urls.replaySingle(result.session_id)}
+                                        target="_blank"
+                                        className="font-mono"
+                                    >
                                         {result.session_id.slice(0, 8)}…
                                     </Link>
                                 ),
@@ -352,7 +285,7 @@ function SuggestionEvaluationPanel({
     )
 }
 
-function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.Element {
+function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = scannerQualityLogic({ scannerId })
     const {
         currentSuggestion,
@@ -367,6 +300,9 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         evaluating,
         suggestionHistory,
         suggestionHistoryLoading,
+        assembledConfig,
+        recommendationEditedSinceTest,
+        applyIsNoop,
     } = useValues(logic)
     const {
         generateSuggestion,
@@ -379,16 +315,15 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { quota } = useValues(visionQuotaLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    // Only scanner types with a discrete outcome (verdict, tags) can be diffed against ratings.
-    const evaluationSupported = scanner?.scanner_type === 'monitor' || scanner?.scanner_type === 'classifier'
+    // Scorer and summarizer have no discrete outcome, so they preview raw before/after instead of a verdict.
+    const previewEvaluation = scanner?.scanner_type === 'scorer' || scanner?.scanner_type === 'summarizer'
+    const evaluationSupported =
+        scanner?.scanner_type === 'monitor' || scanner?.scanner_type === 'classifier' || previewEvaluation
     // Each re-run is charged like a normal observation of the scanner's model.
     const creditsPerTestSession = scanner ? (OBSERVATION_CREDITS_BY_MODEL[scanner.model] ?? 0) : 0
     const plannedTestCredits = plannedTestSessions * creditsPerTestSession
     const [historyOpen, setHistoryOpen] = useState(false)
-    const editDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.SessionRecording,
-        AccessControlLevel.Editor
-    )
+    const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
     const pastSuggestions = suggestionHistory.filter((s) => s.id !== currentSuggestion?.id)
 
@@ -410,7 +345,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
             <div className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span className="text-muted text-sm">
                     {ratedCount === 0
-                        ? 'Rate results below to get AI-recommended prompt improvements here.'
+                        ? 'Rate results below to get PostHog AI recommendations here.'
                         : 'No recommendation yet for the current ratings.'}
                 </span>
                 <LemonButton
@@ -432,8 +367,8 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         body = (
             <div className="space-y-3">
                 <p className="text-sm m-0">
-                    Your scanner configuration looks good! The AI reviewed the rated sessions and has no prompt changes
-                    to recommend.
+                    Your scanner configuration looks good! PostHog AI reviewed the rated sessions and has no prompt
+                    changes to recommend.
                 </p>
                 {currentSuggestion.rationale && <p className="text-sm text-muted m-0">{currentSuggestion.rationale}</p>}
                 <SuggestionMeta suggestion={currentSuggestion} />
@@ -444,10 +379,17 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
             <div className="space-y-3">
                 <SuggestionDetails
                     suggestion={currentSuggestion}
-                    beforeLabel={`Current prompt (v${currentSuggestion.scanner_version})`}
                     isDarkModeOn={isDarkModeOn}
+                    scannerId={scannerId}
+                    readOnly={currentSuggestion.status !== 'pending'}
                 />
-                {currentSuggestion.status === 'pending' && <SuggestionEvaluationPanel suggestion={currentSuggestion} />}
+                {currentSuggestion.status === 'pending' && (
+                    <SuggestionEvaluationPanel
+                        suggestion={currentSuggestion}
+                        preview={previewEvaluation}
+                        editedSinceTest={recommendationEditedSinceTest}
+                    />
+                )}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <SuggestionMeta suggestion={currentSuggestion} />
                     <div className="flex items-center gap-2">
@@ -467,7 +409,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                             : undefined)
                                 }
                                 tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying. Each tested session is charged like a normal observation. Pick how many below."
-                                onClick={() => evaluateSuggestion(currentSuggestion.id)}
+                                onClick={() => evaluateSuggestion(currentSuggestion.id, assembledConfig)}
                                 data-attr="vision-quality-evaluate-suggestion"
                             >
                                 {currentSuggestion.evaluation ? 'Re-test' : 'Test against rated sessions'}
@@ -490,8 +432,11 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 size="small"
                                 type="primary"
                                 loading={applying}
-                                disabledReason={editDisabledReason ?? undefined}
-                                tooltip="Writes this prompt to the scanner as a new version"
+                                disabledReason={
+                                    editDisabledReason ??
+                                    (applyIsNoop ? 'Your edits match the current config' : undefined)
+                                }
+                                tooltip="Writes this config to the scanner as a new version"
                                 onClick={() => applySuggestion(currentSuggestion.id)}
                                 data-attr="vision-quality-apply-suggestion"
                             >
@@ -531,7 +476,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium">Prompt recommendation</span>
+                <span className="text-sm font-medium">Recommendation</span>
                 {currentSuggestion && <SuggestionStatusTag status={currentSuggestion.status} />}
                 {suggestionStale && currentSuggestion && (
                     <Tooltip title="Refreshes automatically about once a day; regenerate to update now">
@@ -592,8 +537,9 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                         </div>
                                         <SuggestionDetails
                                             suggestion={suggestion}
-                                            beforeLabel={`Prompt then (v${suggestion.scanner_version})`}
                                             isDarkModeOn={isDarkModeOn}
+                                            scannerId={scannerId}
+                                            readOnly
                                         />
                                     </div>
                                 )
@@ -635,16 +581,18 @@ function VersionBadgeBridge({
 
 type ChartMode = 'session' | 'rating'
 
-const CHART_MODE_OPTIONS: { value: ChartMode; label: string; tooltip: string }[] = [
+const CHART_MODE_OPTIONS: { value: ChartMode; label: string; tooltip: string; 'data-attr': string }[] = [
     {
         value: 'session',
         label: 'By session day',
         tooltip: 'Ratings placed on the day the session was scanned: how scanner quality trends over time',
+        'data-attr': 'vision-quality-chart-mode-session',
     },
     {
         value: 'rating',
         label: 'By rating day',
         tooltip: "Ratings placed on the day they were given or changed: the team's rating activity",
+        'data-attr': 'vision-quality-chart-mode-rating',
     },
 ]
 
@@ -704,13 +652,7 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                         : `last ${LABEL_CHART_DAYS} days`}
                 </span>
                 <div className="ml-auto">
-                    <LemonSegmentedButton
-                        size="xsmall"
-                        value={mode}
-                        onChange={setMode}
-                        options={CHART_MODE_OPTIONS}
-                        data-attr="vision-quality-chart-mode"
-                    />
+                    <LemonSegmentedButton size="xsmall" value={mode} onChange={setMode} options={CHART_MODE_OPTIONS} />
                 </div>
             </div>
             {versionAccuracy.length > 0 && (
@@ -860,7 +802,7 @@ function FeedbackThemeChips({
 }
 
 /**
- * The scanner's Quality tab: the current prompt recommendation (with history), quality over time,
+ * The scanner's Quality tab: the current config recommendation (with history), quality over time,
  * and the results still awaiting a rating.
  */
 export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Element {
@@ -876,8 +818,11 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
             key: 'session',
             width: 260,
             render: (_, obs) => (
+                // Open in a new tab so labelers keep their place in the list while reviewing a recording.
                 <Link
                     to={urls.replayVisionObservation(obs.id)}
+                    target="_blank"
+                    targetBlankIcon={false}
                     className="font-mono text-xs text-primary truncate block"
                 >
                     {obs.session_id}
@@ -888,7 +833,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
             title: 'Result',
             key: 'result',
             render: (_, obs) => (
-                <Link to={urls.replayVisionObservation(obs.id)} className="block">
+                <Link to={urls.replayVisionObservation(obs.id)} target="_blank" className="block">
                     <div className="min-w-[16rem] max-w-xl">
                         <ObservationResultSummary observation={obs} />
                     </div>
@@ -921,6 +866,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                     observationId={obs.id}
                     initialLabel={obs.label}
                     onChange={(label) => labelChanged(obs.id, label)}
+                    scannerUserAccessLevel={scanner?.user_access_level}
                 />
             ),
         },
@@ -933,6 +879,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                     observationId={obs.id}
                     initialLabel={obs.label}
                     onChange={(label) => labelChanged(obs.id, label)}
+                    scannerUserAccessLevel={scanner?.user_access_level}
                 />
             ),
         },
@@ -970,6 +917,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                     type="secondary"
                     icon={<IconRewindPlay />}
                     to={urls.replaySingle(obs.session_id)}
+                    targetBlank
                     className="whitespace-nowrap"
                     data-attr="vision-quality-view-recording"
                 >
@@ -983,10 +931,10 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
         <div className="flex flex-col gap-6">
             <p className="text-muted m-0 max-w-2xl">
                 Rate scanner results with a thumbs up or down, and optionally add feedback explaining why. Your team's
-                ratings power the AI prompt recommendation below.
+                ratings power the PostHog AI recommendation below.
             </p>
 
-            <PromptRecommendationPanel scannerId={scannerId} />
+            <ConfigRecommendationPanel scannerId={scannerId} />
 
             <RatingsOverTimePanel scannerId={scannerId} />
 
@@ -1005,7 +953,6 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                             value={ratedFilter}
                             onChange={setRatedFilter}
                             options={RATED_FILTER_OPTIONS}
-                            data-attr="vision-quality-rated-filter"
                         />
                     </div>
                 </div>
@@ -1024,6 +971,9 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                         entryCount: total,
                         onForward: () => setPage(page + 1),
                         onBackward: () => setPage(page - 1),
+                        // Page state lives in scannerQualityLogic; without this the control also pushes a
+                        // `page` URL param that nothing reads and that goes stale on filter or tab changes.
+                        useUrl: false,
                     }}
                     sorting={sort}
                     onSort={(next) => setSort(next)}

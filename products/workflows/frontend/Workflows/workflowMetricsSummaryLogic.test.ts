@@ -3,6 +3,10 @@ import { AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetri
 import {
     type EmailMetric,
     buildEmailMetricInvocationSearchParams,
+    buildEmailMetricRows,
+    buildPushMetricRows,
+    channelSentLabel,
+    detectMessagingChannels,
     subtractSeries,
     withDisplayName,
 } from './workflowMetricsSummaryLogic'
@@ -109,4 +113,94 @@ describe('buildEmailMetricInvocationSearchParams', () => {
             expect(buildEmailMetricInvocationSearchParams(metricKey, dateFrom, dateTo)).toBeNull()
         }
     )
+})
+
+describe('detectMessagingChannels', () => {
+    // Only the `*_sent` series flip a channel on — this guards the exact metric names the tile keys off.
+    it.each([
+        { name: 'no trends', input: null, expected: { hasEmail: false, hasPush: false } },
+        {
+            name: 'email only',
+            input: series(['d1'], ['email_sent', [3]]),
+            expected: { hasEmail: true, hasPush: false },
+        },
+        { name: 'push only', input: series(['d1'], ['push_sent', [2]]), expected: { hasEmail: false, hasPush: true } },
+        {
+            name: 'both channels',
+            input: series(['d1'], ['email_sent', [3]], ['push_sent', [2]]),
+            expected: { hasEmail: true, hasPush: true },
+        },
+        {
+            name: 'ignores non-sent series',
+            input: series(['d1'], ['email_delivered', [3]], ['push_skipped', [1]]),
+            expected: { hasEmail: false, hasPush: false },
+        },
+    ])('$name', ({ input, expected }) => {
+        expect(detectMessagingChannels(input)).toEqual(expected)
+    })
+})
+
+describe('channelSentLabel', () => {
+    it.each([
+        [{ hasEmail: true, hasPush: true }, 'Messages sent'],
+        [{ hasEmail: false, hasPush: true }, 'Push notifications sent'],
+        [{ hasEmail: true, hasPush: false }, 'Emails sent'],
+        [{ hasEmail: false, hasPush: false }, 'Emails sent'],
+    ])('%o -> %s', (channels, expected) => {
+        expect(channelSentLabel(channels)).toBe(expected)
+    })
+})
+
+describe('buildEmailMetricRows', () => {
+    it('maps each metric key onto the row, preferring the reported email_delivered', () => {
+        const rows = buildEmailMetricRows([{ id: 'a1', name: 'Welcome email' }], {
+            a1: {
+                email_sent: 100,
+                email_delivered: 85, // reported value wins over the derived sent - bounced - blocked (= 90)
+                email_opened: 40,
+                email_link_clicked: 12,
+                email_bounced: 6,
+                email_bounce_prevented: 2,
+                email_blocked: 4,
+            },
+        })
+        expect(rows).toEqual([
+            {
+                id: 'a1',
+                email: 'Welcome email',
+                sent: 100,
+                delivered: 85,
+                opened: 40,
+                linkClicked: 12,
+                bounced: 6,
+                bouncePrevented: 2,
+                blocked: 4,
+            },
+        ])
+    })
+
+    // delivered falls back to sent - bounced - blocked (clamped at 0) when it wasn't collected.
+    it.each<{ totals: Partial<Record<EmailMetric, number>>; delivered: number }>([
+        { totals: { email_sent: 10, email_bounced: 3, email_blocked: 2 }, delivered: 5 },
+        { totals: { email_sent: 1, email_bounced: 5 }, delivered: 0 },
+        { totals: {}, delivered: 0 },
+    ])('derives delivered=$delivered when email_delivered is absent', ({ totals, delivered }) => {
+        expect(buildEmailMetricRows([{ id: 'a1', name: 'E' }], { a1: totals })[0].delivered).toBe(delivered)
+    })
+})
+
+describe('buildPushMetricRows', () => {
+    it('maps sent/skipped/failed per action and defaults missing totals to 0', () => {
+        const rows = buildPushMetricRows(
+            [
+                { id: 'p1', name: 'Reminder' },
+                { id: 'p2', name: 'Promo' },
+            ],
+            { p1: { push_sent: 50, push_skipped: 20, push_failed: 3 } }
+        )
+        expect(rows).toEqual([
+            { id: 'p1', push: 'Reminder', sent: 50, skipped: 20, failed: 3 },
+            { id: 'p2', push: 'Promo', sent: 0, skipped: 0, failed: 0 },
+        ])
+    })
 })

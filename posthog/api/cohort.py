@@ -84,6 +84,7 @@ from products.cohorts.backend.models.cohort import (
     Cohort,
     CohortOrEmpty,
     CohortType,
+    Group,
 )
 from products.cohorts.backend.models.dependencies import get_flag_excluded_behavioral_cohort_ids
 from products.cohorts.backend.models.util import (
@@ -556,6 +557,9 @@ class CohortFiltersField(serializers.JSONField):
     pass
 
 
+# Keep in sync with CohortConditionFlags / Cohort.compute_condition_type in
+# products/cohorts/backend/models/cohort.py — pydantic can't share that TypedDict directly,
+# so a new flag added to one won't raise a type error if the other is missed.
 class CohortConditionTypeFlags(BaseModel, extra="forbid"):
     person_properties: bool = Field(description="The filters include a person property or person_metadata condition.")
     behavioral: bool = Field(
@@ -994,6 +998,23 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         else:
             raise ValidationError(f"Query must be an ActorsQuery or HogQLQuery. Got: {query.get('kind')}")
         return query
+
+    def validate_groups(self, groups: Optional[list]) -> Optional[list]:
+        # Legacy `groups` payloads are turned into `Group` objects during creation, where a group
+        # missing all of properties/action_id/event_id (or carrying unexpected keys) raises a plain
+        # exception. Validate here so bad input returns a 400 instead of surfacing as a 500.
+        if groups is None:
+            return groups
+        if not isinstance(groups, list):
+            raise ValidationError("Groups must be a list of cohort group definitions.")
+        for index, group in enumerate(groups):
+            if not isinstance(group, dict):
+                raise ValidationError(f"Cohort group at index {index} must be an object.")
+            try:
+                Group(**group)
+            except (ValueError, TypeError) as exc:
+                raise ValidationError(f"Invalid cohort group at index {index}: {exc}")
+        return groups
 
     def _cohort_will_be_static(self) -> bool:
         if "is_static" in self.initial_data:

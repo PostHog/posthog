@@ -128,13 +128,35 @@ def _fake_update_schema_sync_type_config(schema, *, updates=None, removes=None, 
             setattr(schema, field, value)
 
 
+def _fake_complete_schema_run(schema, *, last_synced_at):
+    """Stand-in for complete_schema_run mirroring its contract on the in-memory mock schema:
+    a broken marker blocks the repaint, otherwise the paused marker clears and the schema
+    repaints COMPLETED. The real locked-transaction semantics are covered by
+    tests/test_models.py::TestCompleteSchemaRun."""
+    config = schema.sync_type_config or {}
+    if config.get("cdc_broken"):
+        return False
+    config.pop("cdc_extraction_paused", None)
+    schema.sync_type_config = config
+    schema.status = ExternalDataSchema.Status.COMPLETED
+    schema.latest_error = None
+    schema.last_synced_at = last_synced_at
+    return True
+
+
 @pytest.fixture(autouse=True)
 def _stub_sync_type_config_merge():
     """Route every activity sync_type_config write onto the in-memory mock schema (no DB)."""
-    with patch.object(
-        CDCExtractActivity,
-        "_update_schema_sync_type_config",
-        side_effect=_fake_update_schema_sync_type_config,
+    with (
+        patch.object(
+            CDCExtractActivity,
+            "_update_schema_sync_type_config",
+            side_effect=_fake_update_schema_sync_type_config,
+        ),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.complete_schema_run",
+            side_effect=_fake_complete_schema_run,
+        ),
     ):
         yield
 
@@ -205,7 +227,7 @@ def _setup_mocks(
     MockJob.Status.FAILED = "Failed"
 
     mock_activity.heartbeat = MagicMock()
-    mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1")
+    mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
 
     return mock_reader, mock_s3, mock_producer, mock_job
 
@@ -352,8 +374,11 @@ class TestBackpressureGuard:
         with patch("psycopg.Connection.connect", side_effect=Exception("queue db down")):
             assert act._previous_load_still_pending() is False
 
+    # close_old_connections is real Django connection housekeeping: without the patch this
+    # non-django_db test blows up whenever a django_db test ran earlier in the same process.
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     @patch("psycopg.Connection.connect")
-    def test_run_skips_tick_without_touching_schemas_or_reader(self, mock_connect):
+    def test_run_skips_tick_without_touching_schemas_or_reader(self, mock_connect, _mock_close_conns):
         act = self._activity()
 
         with (
@@ -1081,7 +1106,7 @@ class TestCDCExtractActivity:
         mock_get_adapter.return_value = mock_adapter
 
         mock_activity.heartbeat = MagicMock()
-        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1")
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
 
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         cdc_extract_activity(inputs)
@@ -1841,11 +1866,18 @@ class TestErrorClassification:
         mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
 
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
-        with pytest.raises(NonRetryableException):
+        with (
+            patch("products.data_warehouse.backend.facade.tasks.schedule_external_data_failure_digest") as mock_digest,
+            pytest.raises(NonRetryableException),
+        ):
             cdc_extract_activity(inputs)
 
         assert schema.status == "Failed"
         assert schema.latest_error == cdc_error_info(CDCErrorCategory.AUTH_FAILED).friendly_message
+        # The schedule pause leaves no DB trace of its own; this marker is what tells the failure
+        # digest email "paused, action required" instead of "will retry".
+        assert schema.sync_type_config["cdc_extraction_paused"]["reason"] == "auth_failed"
+        mock_digest.assert_called_once_with(1, trigger="cdc")
 
         mock_posthoganalytics.capture.assert_called_once()
         captured = mock_posthoganalytics.capture.call_args.kwargs
@@ -1929,6 +1961,9 @@ class TestErrorClassification:
             mock_mark_broken.assert_called_once()
             assert mock_mark_broken.call_args.args[0] is source
             assert mock_mark_broken.call_args.args[1] == expected_reason
+            # This run backfills its own FAILED rows; mark_cdc_broken adding a second set would
+            # show every incident as two identical failed runs.
+            assert mock_mark_broken.call_args.kwargs["create_visibility_jobs"] is False
             mock_pause.assert_not_called()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_cdc_broken")
@@ -2575,6 +2610,40 @@ class _ScriptedReader:
 
     def close(self):
         pass
+
+
+class TestSuccessRepaintGuards:
+    """A run finishing after the sweeper marked the source broken must not repaint the schema
+    healthy — that hides the breakage from the UI and from the failure digest email."""
+
+    def _activity_with(self, *schemas):
+        source = schemas[0].source
+        act = _make_extract_activity(source)
+        act.cdc_schemas = list(schemas)
+        return act
+
+    @pytest.mark.parametrize("finalize", ["success", "no_changes"])
+    def test_broken_schema_keeps_failed_state_and_paused_marker_clears(self, finalize):
+        source = _make_source()
+        broken = _make_schema("broken_table", source=source)
+        broken.status = "Failed"
+        broken.sync_type_config["cdc_broken"] = {"reason": "auto_dropped_critical_lag"}
+        recovered = _make_schema("recovered_table", source=source)
+        recovered.sync_type_config["cdc_extraction_paused"] = {"reason": "auth_failed"}
+        act = self._activity_with(broken, recovered)
+
+        if finalize == "success":
+            act._finalize_success()
+        else:
+            act.reader = MagicMock(last_commit_end_lsn=None)
+            act._handle_no_changes([])
+
+        assert broken.status == "Failed"
+        assert "cdc_broken" in broken.sync_type_config
+        assert recovered.status == ExternalDataSchema.Status.COMPLETED
+        # A successful run proves extraction resumed; the stale pause marker must not keep the
+        # digest email reporting "paused, action required".
+        assert "cdc_extraction_paused" not in recovered.sync_type_config
 
 
 class TestCDCBoundedReadLoop:

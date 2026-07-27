@@ -20,7 +20,8 @@ from posthog.utils_cors import cors_response
 
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.web_experiment import WebExperiment
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.facade.api import create_flag, update_flag
+from products.feature_flags.backend.facade.filters import replace_variant_distribution
 
 # XSS vector patterns, paired with the error message shown when one matches:
 # script tags (opening and closing), event handlers (onclick, onerror, etc.),
@@ -181,29 +182,25 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
             "multivariate": self.get_variants_for_feature_flag(validated_data),
         }
 
-        # Ensure the request method is set correctly for validation
-        self.context["request"].method = "POST"
-
-        feature_flag_serializer = FeatureFlagSerializer(
-            data={
+        team = self.context["get_team"]()
+        feature_flag = create_flag(
+            {
                 "key": self.get_feature_flag_name(validated_data.get("name", "")),
                 "name": f"Feature Flag for Experiment {validated_data['name']}",
                 "filters": filters,
                 "active": False,
                 "creation_context": "web_experiments",
             },
-            context=self.context,
+            team=team,
+            user=self.context["request"].user,
+            request=self.context["request"],
         )
-
-        feature_flag_serializer.is_valid(raise_exception=True)
-        feature_flag = feature_flag_serializer.save()
 
         # Get team's default stats method setting
         from posthog.models.team.extensions import get_or_create_team_extension
 
         from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
-        team = Team.objects.get(id=self.context["team_id"])
         config = get_or_create_team_extension(team, TeamExperimentsConfig)
         default_method = config.default_experiment_stats_method or "bayesian"
         stats_config = {
@@ -228,21 +225,17 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         variants = validated_data.get("variants", None)
         if variants is not None and isinstance(variants, dict):
             feature_flag = instance.feature_flag
-            filters = {
-                "groups": feature_flag.filters.get("groups", None),
-                "multivariate": self.get_variants_for_feature_flag(validated_data),
-            }
-
-            # Ensure the request method is set correctly for validation
-            self.context["request"].method = "PATCH"
-            existing_flag_serializer = FeatureFlagSerializer(
-                feature_flag,
-                data={"filters": filters},
-                partial=True,
-                context=self.context,
+            filters = replace_variant_distribution(
+                feature_flag.get_filters(),
+                self.get_variants_for_feature_flag(validated_data)["variants"],
             )
-            existing_flag_serializer.is_valid(raise_exception=True)
-            existing_flag_serializer.save()
+            update_flag(
+                feature_flag,
+                {"filters": filters},
+                team=self.context["get_team"](),
+                user=self.context["request"].user,
+                request=self.context["request"],
+            )
 
         instance = super().update(instance, validated_data)
         return instance

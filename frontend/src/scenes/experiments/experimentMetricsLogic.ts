@@ -41,6 +41,12 @@ export interface ExperimentMetricsLogicProps {
 
 const RECALCULATION_POLL_INTERVAL_MS = 2000
 const MAX_POLL_RETRIES = 5
+/**
+ * Mirrors the backend's 30-minute staleness threshold (_STALE_RECALC_THRESHOLD): a run still non-terminal
+ * past it is a zombie whose worker died, and the backend will force-fail it on the next trigger. Without
+ * this cap every tab that resumed the run would poll its id (and the per-tick live-progress query) forever.
+ */
+const MAX_POLL_DURATION_MS = 30 * 60 * 1000
 
 export const RECALCULATION_STATUSES = {
     pending: 'pending',
@@ -50,6 +56,16 @@ export const RECALCULATION_STATUSES = {
 } as const
 
 export type RecalculationStatuses = (typeof RECALCULATION_STATUSES)[keyof typeof RECALCULATION_STATUSES]
+
+/** Transient per-metric retry state written by the calc activity between failed attempts. */
+export interface MetricRetryInfo {
+    attempt: number
+    max_attempts: number
+    error_type: string
+    /** The server error that triggered the retry, surfaced so the UI can show why. */
+    message?: string
+    next_retry_at?: string
+}
 
 /**
  * transform shared metrics into experiment metrics.
@@ -145,6 +161,13 @@ export interface experimentMetricsLogicValues {
     isMetricRecalculating: (metricUuid: string | undefined) => boolean
     isRecalculating: boolean
     lastRefresh: string | null
+    liveRowsProgress: {
+        estimatedRows: number
+        recalculationId: string
+        rowsRead: number
+    } | null
+    metricRetries: Record<string, MetricRetryInfo>
+    nextRetryAt: string | null
     primaryMetricsResults: CachedNewExperimentQueryResponse[]
     primaryMetricsResultsErrors: (unknown | null)[]
     recalculatingMetricUuids: string[]
@@ -251,6 +274,10 @@ export interface experimentMetricsLogicMeta {
         }
         totalMetricsCount: (arg: any) => number
         lastRefresh: (currentRecalculation: ExperimentMetricsRecalculationApi | null) => string | null
+        metricRetries: (
+            currentRecalculation: ExperimentMetricsRecalculationApi | null
+        ) => Record<string, MetricRetryInfo>
+        nextRetryAt: (metricRetries: Record<string, MetricRetryInfo>) => string | null
         recalculationDisplayState: (
             recalculationLoading: boolean,
             currentRecalculation: ExperimentMetricsRecalculationApi | null
@@ -332,6 +359,25 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 setRecalculatingMetricUuids: (_, { uuids }) => uuids,
             },
         ],
+        liveRowsProgress: [
+            null as { recalculationId: string; rowsRead: number; estimatedRows: number } | null,
+            {
+                setCurrentRecalculation: (state, { recalculation }) => {
+                    if (!recalculation) {
+                        return null
+                    }
+                    const rowsRead = recalculation.rows_read ?? 0
+                    if (rowsRead > 0) {
+                        return {
+                            recalculationId: recalculation.id,
+                            rowsRead,
+                            estimatedRows: recalculation.estimated_rows_total ?? 0,
+                        }
+                    }
+                    return state?.recalculationId === recalculation.id ? state : null
+                },
+            },
+        ],
     }),
     selectors({
         // True while a recalculation is being fetched or is still running.
@@ -361,6 +407,27 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         lastRefresh: [
             (s) => [s.currentRecalculation],
             (recalc: ExperimentMetricsRecalculationApi | null): string | null => recalc?.query_to ?? null,
+        ],
+        metricRetries: [
+            (s) => [s.currentRecalculation],
+            (recalc: ExperimentMetricsRecalculationApi | null): Record<string, MetricRetryInfo> => {
+                const raw = (recalc?.metric_retries ?? {}) as Record<string, MetricRetryInfo>
+                const landed = new Set([
+                    ...(recalc?.results ?? []).map(({ metric_uuid }) => metric_uuid),
+                    ...Object.keys((recalc?.metric_errors as Record<string, unknown> | null) ?? {}),
+                ])
+                return Object.fromEntries(Object.entries(raw).filter(([uuid]) => !landed.has(uuid)))
+            },
+        ],
+        nextRetryAt: [
+            (s) => [s.metricRetries],
+            (metricRetries: Record<string, MetricRetryInfo>): string | null => {
+                const upcoming = Object.values(metricRetries)
+                    .map(({ next_retry_at }) => next_retry_at)
+                    .filter((value): value is string => !!value)
+                    .sort()
+                return upcoming[0] ?? null
+            },
         ],
         recalculationDisplayState: [
             (s) => [s.recalculationLoading, s.currentRecalculation],
@@ -553,6 +620,28 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     applyResults(recalculation)
 
                     /**
+                     * if there's an active recalculation running, schedule polling of
+                     * the active recalculation status
+                     */
+                    if (recalculation.active_run) {
+                        actions.setRecalculatingMetricUuids(
+                            metricUuidsToDim(
+                                props.experiment,
+                                values.primaryMetricsResults,
+                                values.secondaryMetricsResults,
+                                values.primaryMetricsResultsErrors,
+                                values.secondaryMetricsResultsErrors
+                            )
+                        )
+                        cache.activeRecalculationId = recalculation.active_run.id
+                        cache.recalcStartMs = Date.now()
+                        cache.pollCount = 0
+                        cache.pollRetryCount = 0
+                        actions.pollRecalculation(recalculation.active_run.id)
+                        return
+                    }
+
+                    /**
                      * Timeseries fallback is a placeholder: it may cover only some metrics and is cumulative
                      * daily data, not a fresh point-in-time result. Always trigger a real cold_run to fill the
                      * gaps and refresh; the placeholder stays visible and cells update in place as it polls.
@@ -675,6 +764,11 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         applyResults(recalculation)
                         emitTerminalEvent(recalculation)
                     } else {
+                        if (trigger === 'manual' && !recalculation.is_existing) {
+                            lemonToast.info(
+                                'Recalculating metrics in the background. Results will update as they finish.'
+                            )
+                        }
                         actions.pollRecalculation(recalculation.id)
                     }
                 } catch (error: any) {
@@ -709,6 +803,12 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 }
                 cache.activeRecalculationId = recalculationId
 
+                if (Date.now() - (cache.recalcStartMs ?? Date.now()) > MAX_POLL_DURATION_MS) {
+                    actions.setRecalculatingMetricUuids([])
+                    lemonToast.error('Recalculation appears stuck. Please reload to try again.')
+                    return
+                }
+
                 // Pace this tick; aborts here if a newer poll superseded us or the logic unmounted.
                 await breakpoint(RECALCULATION_POLL_INTERVAL_MS)
 
@@ -742,6 +842,18 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                  */
                 if (cache.activeRecalculationId !== recalculationId) {
                     return
+                }
+
+                /**
+                 * Anchor duration telemetry (and the zombie cap) to the run's actual start, not the moment
+                 * this tab triggered or resumed it. Once per run: the first successful poll wins.
+                 */
+                if (cache.recalcAnchoredId !== recalculationId) {
+                    const runStartMs = Date.parse(recalculation.started_at ?? recalculation.created_at)
+                    if (!Number.isNaN(runStartMs)) {
+                        cache.recalcStartMs = runStartMs
+                    }
+                    cache.recalcAnchoredId = recalculationId
                 }
 
                 /**

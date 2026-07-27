@@ -5,9 +5,10 @@ on:
         # (the merge gate). ready_for_review re-triggers the full run on the
         # current head when a PR leaves draft. To force the full matrix on a
         # draft, add the `run-ci-frontend` label — labeled/unlabeled re-trigger
-        # the run so it starts without needing a new push.
+        # the run so it starts without needing a new push. The `no-ci` label does
+        # the opposite: it silences this workflow on a draft entirely (prototypes),
+        # until the label is removed or the PR is marked ready for review.
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
-    merge_group:
     push:
         branches:
             - master
@@ -32,6 +33,13 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
+        # every other job needs this one, and the gates treat skipped as success.
+        # ready_for_review re-runs everything, so the merge gate is unaffected.
+        if: >-
+            github.event_name != 'pull_request'
+            || github.event.pull_request.draft != true
+            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run frontend checks
         # A snapshot-only bot push (Visual Review auto-commits frontend/snapshots.yml after
         # approval) skips ci-storybook and ci-e2e-playwright (the snapshot-baseline-dependent
@@ -162,7 +170,7 @@ jobs:
 
     # Pick which jest tests to run on draft PRs by passing changed files to
     # `jest --findRelatedTests` (jest's resolver walks the import graph for us).
-    # Skipped on ready PRs, master push, and merge_group; the jest job falls back
+    # Skipped on ready PRs and master pushes; the jest job falls back
     # to its full FOSS×EE × chunk matrix in those cases. The ready-for-review
     # full run is the merge gate. The run-ci-frontend label forces the full
     # matrix on a draft. When selection can't be trusted on a draft (config
@@ -332,7 +340,7 @@ jobs:
     frontend-bundle-size:
         name: Frontend bundle size
         needs: [changes]
-        if: needs.changes.outputs.frontend_code == 'true' && github.event_name != 'merge_group'
+        if: needs.changes.outputs.frontend_code == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 10
         steps:
@@ -409,6 +417,15 @@ jobs:
             - name: Check toolbar graph stays inside its module boundary
               run: pnpm --filter=@posthog/frontend check-toolbar-graph
 
+            # Keep the PR-side poster available after the base reset below. This is especially
+            # important on the PR that introduces or updates the poster itself.
+            - name: Preserve PR toolbar report poster
+              if: github.event_name == 'pull_request'
+              run: |
+                  if [ -f frontend/bin/post-toolbar-size-comment.mjs ]; then
+                      cp frontend/bin/post-toolbar-size-comment.mjs frontend/bin/post-toolbar-size-comment-pr.mjs
+                  fi
+
             - name: Build base branch for size comparison
               # A broken base build (install/esbuild — which --report-only does not cover) must
               # only cost the vs-base delta, never redden every open PR's job. The comment steps
@@ -476,6 +493,19 @@ jobs:
                       node frontend/bin/post-dist-size-comment.mjs
                   else
                       echo "Skipping dist size section — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — toolbar bundle
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-toolbar-size-comment-pr.mjs ]; then
+                      node frontend/bin/post-toolbar-size-comment-pr.mjs
+                  elif [ -f frontend/bin/post-toolbar-size-comment.mjs ]; then
+                      node frontend/bin/post-toolbar-size-comment.mjs
+                  else
+                      echo "Skipping toolbar bundle section — script not present on this checkout"
                   fi
 
             - name: Check eager graph budgets (warn only)
@@ -621,7 +651,7 @@ jobs:
             # On draft PRs, select-jest-tests may narrow this to a single EE job
             # running only the tests reachable from changed frontend source files,
             # or skip jest entirely (should_run=false) when selection can't be
-            # trusted. On ready PRs, master push, and merge_group it's skipped, so
+            # trusted. On ready PRs and master pushes it's skipped, so
             # we fall back to the full FOSS×EE × chunk fanout (the merge gate).
             matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2,3,4]}') }}
 
@@ -695,10 +725,14 @@ jobs:
             # the verdict, so a Trunk outage can't red a passing shard. FOSS and EE share test files,
             # so each segment uploads under its own variant. Internal PRs only (needs the secret);
             # cli-version pinned, not 'latest' (skips the release redirect).
+            # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
+            # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
+            # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
+            # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-results/junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
@@ -711,7 +745,7 @@ jobs:
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
             # also covers the skipped gate on fork/Dependabot. Passing shards never red here.
             - name: Fail on jest failure
-              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 
@@ -753,10 +787,14 @@ jobs:
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
             # the verdict. See the jest job for the full rationale. cli-version pinned, not 'latest'.
+            # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
+            # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
+            # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
+            # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-results/junit-replay-shared.xml
@@ -767,7 +805,7 @@ jobs:
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             - name: Fail on jest failure
-              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 

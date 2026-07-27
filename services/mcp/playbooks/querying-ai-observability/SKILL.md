@@ -175,7 +175,7 @@ single-agent deep dive.
   "`@posthog/slack-post-message` failed in 9/40 sessions this week,
   all `not_in_channel`" is a proposal-worthy finding; one failure is
   noise.
-- **Always offer the deep link.** PostHog Code's session page links
+- **Always offer the deep link.** PostHog Desktop's session page links
   straight to the trace in LLM Analytics — point the user there for
   the rich waterfall view rather than pasting a giant result set.
 

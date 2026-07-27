@@ -18,12 +18,21 @@ on:
             - 'livestream/**'
     workflow_dispatch:
 
+# Serialize runs for the same commit so a push racing a manual re-run/dispatch can't both
+# preflight "absent" and both rebuild, moving an immutable sha-* tag to a new digest. Keyed
+# on github.sha (not the ref) so it also covers push-vs-dispatch overlap; different master
+# commits keep distinct groups and still build in parallel. Never cancel — a queued same-SHA
+# run must run its preflight after the first finishes and reconcile instead of rebuilding.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.sha }}
+    cancel-in-progress: false
+
 jobs:
     posthog_build:
         name: Build and push PostHog
         # Production build/deploy runs only from the canonical deploy repo (CD_DEPLOY_ENABLED).
         if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         # Covers the build plus the post-build image-boot verification before dispatch.
         timeout-minutes: 40
         permissions:
@@ -59,8 +68,41 @@ jobs:
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+            # Idempotency preflight. If this commit's image is already in ECR (a manual
+            # re-run, or an earlier attempt that pushed to ECR before failing on another
+            # registry) do NOT rebuild: a rebuild yields a new digest and would overwrite
+            # the immutable sha-<short>/<full-sha> tags. We reconcile from the existing
+            # digest instead (see "Reconcile tags from existing image" below). Uses
+            # batch-get-image because the ECR publish role has ecr:BatchGetImage but not
+            # ecr:DescribeImages. A genuine miss exits 0 (a `None` result); a throttle,
+            # credential, or network error exits non-zero and must fail the step — we can't
+            # swallow it to an empty "absent" result and rebuild, which would overwrite the tags.
+            - name: Check for existing image in ECR
+              id: preflight
+              env:
+                  ECR_REPO: posthog-cloud
+                  SHA: ${{ github.sha }}
+              run: |
+                  set -euo pipefail
+                  digest="$(aws ecr batch-get-image \
+                      --repository-name "$ECR_REPO" \
+                      --image-ids imageTag="$SHA" \
+                      --accepted-media-types \
+                          "application/vnd.oci.image.index.v1+json" \
+                          "application/vnd.docker.distribution.manifest.list.v2+json" \
+                          "application/vnd.oci.image.manifest.v1+json" \
+                          "application/vnd.docker.distribution.manifest.v2+json" \
+                      --query 'images[0].imageId.imageDigest' \
+                      --output text)"
+                  [ "$digest" = "None" ] && digest=""
+                  echo "digest=$digest" >> "$GITHUB_OUTPUT"
+                  if [ -n "$digest" ]; then
+                      echo "Image for $SHA already present in ECR ($digest); skipping build." >&2
+                  fi
+
             - name: Build and push container image
               id: build
+              if: steps.preflight.outputs.digest == ''
               continue-on-error: true
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
@@ -101,9 +143,34 @@ jobs:
               if: steps.build.outcome == 'failure'
               uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
 
+            # Attempt 1 may have pushed to ECR before failing on another registry. Re-check
+            # so the retry reconciles from that digest instead of rebuilding (which would
+            # overwrite the immutable sha-* tags with a new digest). As in the preflight, a
+            # transient AWS error must fail the step rather than be swallowed to "absent".
+            - name: Re-check for existing image in ECR (retry)
+              id: preflight_retry
+              if: steps.build.outcome == 'failure'
+              env:
+                  ECR_REPO: posthog-cloud
+                  SHA: ${{ github.sha }}
+              run: |
+                  set -euo pipefail
+                  digest="$(aws ecr batch-get-image \
+                      --repository-name "$ECR_REPO" \
+                      --image-ids imageTag="$SHA" \
+                      --accepted-media-types \
+                          "application/vnd.oci.image.index.v1+json" \
+                          "application/vnd.docker.distribution.manifest.list.v2+json" \
+                          "application/vnd.oci.image.manifest.v1+json" \
+                          "application/vnd.docker.distribution.manifest.v2+json" \
+                      --query 'images[0].imageId.imageDigest' \
+                      --output text)"
+                  [ "$digest" = "None" ] && digest=""
+                  echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
             - name: Build and push container image (retry)
               id: build_retry
-              if: steps.build.outcome == 'failure'
+              if: steps.build.outcome == 'failure' && steps.preflight_retry.outputs.digest == ''
               continue-on-error: true
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
@@ -118,21 +185,51 @@ jobs:
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 
-            - name: Fail if both build attempts failed
-              if: steps.build.outcome == 'failure' && steps.build_retry.outcome != 'success'
+            # Reconcile every tag from the already-present digest (preflight skip, or a retry
+            # where attempt 1 had already reached ECR). imagetools copies the manifest
+            # server-side by digest: multi-arch is preserved, the immutable sha-* tags keep
+            # their digest (same-digest re-tag is a no-op), and any registry a partial push
+            # missed is completed. No rebuild, so the digest never drifts.
+            - name: Reconcile tags from existing image
+              id: reconcile
+              if: steps.preflight.outputs.digest != '' || steps.preflight_retry.outputs.digest != ''
+              env:
+                  SRC: ${{ steps.docker-meta.outputs.ecr-registry }}/posthog-cloud@${{ steps.preflight.outputs.digest || steps.preflight_retry.outputs.digest }}
+                  TAGS: ${{ steps.docker-meta.outputs.tags }}
               run: |
-                  echo "::error::Both build attempts failed. First attempt and retry both unsuccessful."
+                  set -euo pipefail
+                  args=()
+                  while IFS= read -r tag; do
+                      [ -n "$tag" ] && args+=( --tag "$tag" )
+                  done <<< "$TAGS"
+                  echo "Reconciling ${#args[@]} tag(s) from $SRC (no rebuild)"
+                  docker buildx imagetools create "${args[@]}" "$SRC"
+
+            # Single source of truth for the image digest the deploy dispatches consume,
+            # whichever path produced it: existing image, retry-reconciled, retry, or build.
+            - name: Resolve image digest
+              id: image
+              env:
+                  DIGEST: ${{ steps.preflight.outputs.digest || steps.preflight_retry.outputs.digest || steps.build_retry.outputs.digest || steps.build.outputs.digest }}
+              run: |
+                  set -euo pipefail
+                  echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+            - name: Fail if no image was produced
+              if: steps.image.outputs.digest == ''
+              run: |
+                  echo "::error::No image digest resolved: build and retry both failed and no existing image was found in ECR."
                   exit 1
 
             - name: report failure
-              if: always() && steps.build.outcome == 'failure' && steps.build_retry.outcome != 'success'
+              if: always() && steps.image.outputs.digest == ''
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-image-build'
                   properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
             - name: report failure to DevEx PostHog
-              if: always() && steps.build.outcome == 'failure' && steps.build_retry.outcome != 'success'
+              if: always() && steps.image.outputs.digest == ''
               continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
@@ -188,7 +285,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "posthog",
@@ -218,7 +315,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "ingestion",
@@ -248,7 +345,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker",
@@ -269,7 +366,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-batch-exports",
@@ -299,7 +396,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-max-ai",
@@ -329,7 +426,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-tasks-agent",
@@ -342,7 +439,7 @@ jobs:
             - name: Check for changes that affect general purpose temporal worker
               id: check_changes_general_purpose_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/exports/backend/temporal/subscriptions|^products/engineering_analytics/backend/logic/job_logs/|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/(ai_observability|llm_analytics)|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/delete_teams|^posthog/temporal/ingestion_acceptance_test|^posthog/temporal/backfill_group_type_created_at|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/exports/backend/temporal/subscriptions|^products/engineering_analytics/backend/|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/(ai_observability|llm_analytics)|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/delete_teams|^posthog/temporal/ingestion_acceptance_test|^posthog/temporal/backfill_group_type_created_at|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -476,7 +573,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-billing",
@@ -497,7 +594,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-video-export",
@@ -518,7 +615,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-session-replay",
@@ -539,7 +636,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-replay-vision",
@@ -560,7 +657,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-experiments-recalculation",
@@ -581,7 +678,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-error-tracking",
@@ -602,7 +699,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-weekly-digest",
@@ -623,7 +720,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-analytics-platform",
@@ -644,7 +741,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-general-purpose",
@@ -665,7 +762,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-signup-enrichment",
@@ -742,7 +839,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-health-check",
@@ -772,7 +869,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-llm-analytics-evals",
@@ -796,7 +893,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-messaging",
@@ -817,7 +914,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-mcp-analytics",
@@ -838,7 +935,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-logs-alerting",
@@ -859,7 +956,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-stamphog",
@@ -889,7 +986,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-ducklake",
@@ -919,7 +1016,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-data-warehouse",
@@ -940,7 +1037,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-data-warehouse-metadata",
@@ -953,7 +1050,7 @@ jobs:
             - name: Check for changes that affect warehouse-sources-load
               id: check_changes_warehouse_sources_load
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/|^posthog/management/commands/run_warehouse_sources_load\.py$|^posthog/warehouse/|^products/data_warehouse/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/|^posthog/warehouse/|^products/data_warehouse/backend/|^products/warehouse_sources/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -970,7 +1067,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "warehouse-sources-load",
@@ -1000,7 +1097,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "warehouse-sources-duckgres-load",
@@ -1021,7 +1118,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-data-warehouse-cdp-producer",
@@ -1042,7 +1139,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-data-modeling",
@@ -1062,7 +1159,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                            "sha": "${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "dagster-code-location",

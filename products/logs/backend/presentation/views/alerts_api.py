@@ -9,7 +9,7 @@ from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -79,6 +79,15 @@ UNCAPPED_ALERT_TEAM_IDS: frozenset[int] = frozenset(
 )
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
+
+
+class LogsAlertListQuerySerializer(serializers.Serializer):
+    created_by = serializers.UUIDField(
+        required=False,
+        help_text="Only return log alerts created by the user with this UUID.",
+    )
+
+
 STATE_TIMELINE_LOOKBACK_HOURS = 24
 # Mirrors LogsAlertConfiguration.check_interval_minutes' default — used as the
 # simulate endpoint's default cadence so it matches production when callers
@@ -805,6 +814,7 @@ def _fill_empty_buckets(
     return result
 
 
+@extend_schema_view(list=extend_schema(parameters=[LogsAlertListQuerySerializer]))
 class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "logs"
     queryset = LogsAlertConfiguration.objects.all().order_by("-created_at")
@@ -814,6 +824,13 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        if self.action == "list":
+            query_serializer = LogsAlertListQuerySerializer(data=self.request.query_params)
+            query_serializer.is_valid(raise_exception=True)
+            created_by = query_serializer.validated_data.get("created_by")
+            if created_by:
+                queryset = queryset.filter(created_by__uuid=created_by)
+
         # Correlated subquery so list/retrieve can surface `last_error_message` in a
         # single round-trip instead of one extra query per alert.
         latest_error = (

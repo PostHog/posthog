@@ -30,6 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     OAuth2AuthRequestError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
     PREVIEW_MAX_FANOUT_PARENTS,
@@ -52,7 +55,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     validate_manifest_structure,
     validate_manifest_urls,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.custom import CustomSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
@@ -1750,6 +1753,16 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         non_retryable = CustomSource().get_non_retryable_errors()
         assert any(key in str(ctx.exception) for key in non_retryable)
 
+    def test_non_json_response_message_is_classified_non_retryable(self):
+        # The REST client raises RESTClientNonRetryableError when a configured endpoint
+        # returns non-JSON (an HTML/plain-text error page) on a 2xx. Build the real error the
+        # client raises so this breaks if its stable prefix drifts from the classifier's key.
+        # The URL is a placeholder, never a real customer host.
+        error = RESTClientNonRetryableError("Non-JSON response from https://api.example.com/leads")
+
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert any(key in str(error) for key in non_retryable)
+
     @parameterized.expand(["invalid_client", "invalid_grant"])
     def test_oauth2_permanent_errors_are_classified_non_retryable(self, error_code):
         # A permanent OAuth2 token rejection (invalid_client / invalid_grant) surfaces the
@@ -2512,6 +2525,41 @@ class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):
         assert err is not None and "upstream_row_order" in err and "'users'" in err
 
 
+class TestCustomSourcePaginatorUnsupportedKeys(SimpleTestCase):
+    def _manifest(self) -> dict:
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["paginator"] = {
+            "type": "offset",
+            "limit": 100,
+            "limit_body_path": "meta.limit",
+        }
+        return manifest
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_unsupported_key_raises_non_retryable_before_engine(self, mock_resources):
+        mock_resources.return_value = [_fake_resource("users")]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest()))
+        inputs = MagicMock(
+            team_id=1,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        with self.assertRaises(NonRetryableException) as ctx:
+            source.source_for_pipeline(config, inputs)
+        assert "limit_body_path" in str(ctx.exception)
+        mock_resources.assert_not_called()
+
+    def test_unsupported_key_rejected_at_validation(self):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest()), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and "limit_body_path" in err and "'users'" in err
+
+
 def _apikey_manifest() -> dict:
     """A minimal manifest whose auth is an api_key in a query param, so the
     injected secret is registered for value-based redaction."""
@@ -2678,7 +2726,7 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
 
         sent_urls: list[str] = []
 
-        def _send(prepared):
+        def _send(prepared, **kwargs):
             sent_urls.append(prepared.url)
             if prepared.url.endswith("/forms"):
                 return _response({"items": [{"id": f"f{index}"} for index in range(PREVIEW_MAX_FANOUT_PARENTS + 20)]})

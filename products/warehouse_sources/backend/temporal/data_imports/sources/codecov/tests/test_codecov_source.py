@@ -9,7 +9,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.se
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.source import CodecovSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CodecovSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codecov import (
+    CodecovSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"commits", "coverage_trend"}

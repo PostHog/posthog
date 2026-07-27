@@ -29,7 +29,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     filter_clickhouse_incremental_fields,
     get_primary_keys_for_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import (
+    _TEMPORARILY_UNAVAILABLE,
+    GENERIC_CONNECTION_ERROR,
+    ClickHouseSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
@@ -676,6 +680,43 @@ class TestClickHouseSourceNonRetryableErrors:
         assert not is_non_retryable, f"Transient error should be retryable: {error_msg}"
 
 
+class TestClickHouseSourceRetryableErrors:
+    @pytest.fixture
+    def source(self):
+        return ClickHouseSource()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # The exact wrapped message that reached error tracking: a bare HTTP 502
+            # from clickhouse-connect's HTTPDriver (no proxy CONNECT tunnel involved).
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 502",
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 503",
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 504",
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 429",
+            "Tunnel connection failed: 502 Bad gateway",
+            "Tunnel connection failed: 503 Service Unavailable",
+            "Tunnel connection failed: 504 Gateway Timeout",
+            "EOF occurred in violation of protocol",
+            "Connection reset by peer",
+        ],
+    )
+    def test_transient_errors_are_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        assert any(pattern in error_msg for pattern in retryable), (
+            f"Transient, self-recovering error should be classified as retryable (kept out of "
+            f"error tracking): {error_msg}"
+        )
+
+    def test_permanent_errors_are_not_classified_as_retryable(self, source):
+        # A 404 is a deterministic failure (already asserted non-retryable above) — it must not
+        # also be misclassified as a benign retryable error, or `_handle_import_error` would log
+        # it at `warning` and mask the real cause.
+        error_msg = "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 404"
+        retryable = source.get_retryable_errors()
+        assert not any(pattern in error_msg for pattern in retryable)
+
+
 class TestIsTransientConnectDrop:
     @pytest.mark.parametrize(
         "message",
@@ -854,6 +895,22 @@ class TestTranslateError:
     def test_returns_none_for_unrecognised_error(self):
         assert ClickHouseSource._translate_error("Some random error") is None
 
+    def test_404_maps_to_wrong_interface_message(self):
+        # A wrong port/proxy answers with 404; the message must name that cause
+        # rather than fall through to the generic "check your details".
+        msg = "HTTPDriver for https://host:8443 returned response code 404"
+        translated = ClickHouseSource._translate_error(msg)
+        assert translated is not None
+        assert "404" in translated
+        assert translated != GENERIC_CONNECTION_ERROR
+
+    @pytest.mark.parametrize("code", ["429", "502", "503", "504"])
+    def test_transient_gateway_responses_ask_to_retry(self, code):
+        # A busy/waking server (survived connect retries) must not be reported as
+        # bad credentials — it should tell the user to retry.
+        msg = f"HTTPDriver for https://host:8443 returned response code {code}"
+        assert ClickHouseSource._translate_error(msg) == _TEMPORARILY_UNAVAILABLE
+
 
 class TestGetSchemas:
     """Tests `get_schemas` with a fully mocked ClickHouse client."""
@@ -969,7 +1026,7 @@ class TestSourceClassValidateCredentials:
                     valid, msg = source.validate_credentials(config, team_id=1)
 
         assert valid is False
-        assert msg == "Could not connect to ClickHouse. Please check all connection details are valid."
+        assert msg == GENERIC_CONNECTION_ERROR
 
 
 class TestHasDuplicatePrimaryKeys:

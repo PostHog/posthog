@@ -11,6 +11,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
+from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
@@ -42,6 +43,7 @@ from posthog.utils import (
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
     get_compare_period_dates,
+    get_context_for_template,
     get_default_event_info,
     get_default_event_name,
     get_dogfood_flags_team_id,
@@ -59,6 +61,9 @@ from posthog.utils import (
     tile_filters_override_requested_by_client,
     variables_override_requested_by_client,
 )
+
+from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
+from products.feature_flags.backend.local_evaluation import flag_definitions_hypercache
 
 
 class TestAbsoluteUrls(TestCase):
@@ -1331,6 +1336,7 @@ class TestBuildFlagProvider(TestCase):
         # create is the first one. Cascade deletes roll back with the test transaction.
         User.objects.all().delete()
         Organization.objects.all().delete()
+        flag_definitions_hypercache.clear_cache(EU_CROSS_REGION_MIRROR_CACHE_KEY, kinds=["redis", "s3"])
 
     @patch.dict(os.environ, {"POSTHOG_SELF_TEAM_ID": "5"}, clear=False)
     @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
@@ -1346,12 +1352,22 @@ class TestBuildFlagProvider(TestCase):
 
         assert _build_flag_provider()._resolve_team_id() == first_team.id
 
+    @parameterized.expand(
+        [
+            (None, 2),
+            ("US", 2),
+            ("EU", EU_CROSS_REGION_MIRROR_CACHE_KEY),
+        ]
+    )
     @patch.dict(os.environ, {}, clear=False)
-    @override_settings(SELF_CAPTURE=False, E2E_TESTING=False)
-    def test_falls_back_to_team_2_off_self_capture(self):
+    def test_cloud_routes_by_region(self, cloud_deployment: str | None, expected_key: int | str) -> None:
+        # EU has no Postgres rows for PostHog's own team, so it must read the
+        # sentinel-keyed mirror that cross_region_flag_sync writes, not literal team
+        # id 2 -- which on EU belongs to a real, unrelated team. Every other region
+        # falls back to the canonical PostHog-internal team 2.
         os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
-
-        assert _build_flag_provider()._resolve_team_id() == 2
+        with override_settings(SELF_CAPTURE=False, E2E_TESTING=False, CLOUD_DEPLOYMENT=cloud_deployment):
+            assert _build_flag_provider()._resolve_team_id() == expected_key
 
     @patch.dict(os.environ, {}, clear=False)
     @override_settings(SELF_CAPTURE=True, E2E_TESTING=True)
@@ -1359,6 +1375,56 @@ class TestBuildFlagProvider(TestCase):
         os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
 
         assert _build_flag_provider()._resolve_team_id() == 2
+
+    @patch.dict(os.environ, {}, clear=False)
+    @override_settings(SELF_CAPTURE=False, E2E_TESTING=False, CLOUD_DEPLOYMENT="EU")
+    def test_eu_region_provider_reads_back_payload_written_under_sentinel_key(self):
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+        payload = {"flags": [{"key": "mirrored-flag"}], "group_type_mapping": {}, "cohorts": {}}
+        flag_definitions_hypercache.set_cache_value(EU_CROSS_REGION_MIRROR_CACHE_KEY, payload)
+
+        definitions = _build_flag_provider().get_flag_definitions()
+        assert definitions is not None
+        assert dict(definitions) == payload
+
+    @patch.dict(os.environ, {"POSTHOG_SELF_TEAM_ID": "5"}, clear=False)
+    @override_settings(SELF_CAPTURE=False, E2E_TESTING=False, CLOUD_DEPLOYMENT="EU")
+    def test_explicit_env_team_id_wins_over_eu_region(self):
+        assert _build_flag_provider()._resolve_team_id() == 5
+
+
+class TestSelfCaptureBrowserFlagToken(TestCase):
+    PASSWORD = "testpassword12345"
+
+    def setUp(self):
+        super().setUp()
+        # The dogfood branch reads the whole teams table; clear ambient rows so the team we create
+        # is the first one. Cascade deletes roll back with the test transaction.
+        User.objects.all().delete()
+        Organization.objects.all().delete()
+
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_browser_token_uses_dogfood_flags_team_not_self_capture_team(self):
+        # js_posthog_api_key is the token posthog-js evaluates PostHog's own flags with, so it must
+        # be the dogfood-flags team (first team, where flags are synced) even when a more-recently
+        # active user's current_team points at another team that holds no internal flags. Sourcing
+        # it from the self-capture team instead made local flags load then vanish on reload.
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        recent_team = Team.objects.create(organization=organization, name="Recent")
+
+        recent_user = User.objects.create_and_join(organization, "recent@posthog.com", self.PASSWORD)
+        recent_user.current_team = recent_team
+        recent_user.last_login = datetime(2026, 1, 2, tzinfo=ZoneInfo("UTC"))
+        recent_user.save()
+
+        request = RequestFactory().get("/?no-preloaded-app-context=1")
+        request.user = AnonymousUser()
+
+        context = get_context_for_template("head.html", request)
+
+        assert context["js_posthog_api_key"] == first_team.api_token
+        assert first_team.api_token != recent_team.api_token
 
 
 VALID_PRELOAD_MANIFEST = {

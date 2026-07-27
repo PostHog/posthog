@@ -3,7 +3,9 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import UptimerobotSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uptimerobot import (
+    UptimerobotSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.settings import (
     ENDPOINTS,
     UPTIMEROBOT_ENDPOINTS,

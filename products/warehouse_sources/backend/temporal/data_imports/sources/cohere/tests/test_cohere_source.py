@@ -12,7 +12,7 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.source import CohereSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CohereSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cohere import CohereSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -78,12 +78,15 @@ class TestCohereSourceClass:
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = MagicMock()
         inputs.schema_name = "datasets"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         with patch.object(source_module, "cohere_source") as mock_source:
             self.source.source_for_pipeline(_config(), inputs)
         mock_source.assert_called_once_with(
             api_key="test-key",
             endpoint="datasets",
-            logger=inputs.logger,
+            team_id=123,
+            job_id="job-1",
         )
 
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:

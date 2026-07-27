@@ -707,6 +707,9 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const logsGroupByCreateBodyQueryOneGroupBySourceDefault = `log`
+export const logsGroupByCreateBodyQueryOneGroupBysItemSourceDefault = `log`
+export const logsGroupByCreateBodyQueryOneGroupBysMax = 4
+
 export const logsGroupByCreateBodyQueryOneOrderGroupsByDefault = `log_count`
 export const logsGroupByCreateBodyQueryOneLimitDefault = 100
 export const logsGroupByCreateBodyQueryOneLimitMax = 500
@@ -791,15 +794,39 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Property filters applied before grouping. Same shape as the query-logs endpoint.'),
             groupBy: zod
                 .string()
+                .optional()
                 .describe(
-                    'The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"trace_id\", \"span_id\".'
+                    'The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"trace_id\", \"span_id\". Ignored when groupBys is provided.'
                 ),
             groupBySource: zod
                 .enum(['log', 'resource', 'column'])
                 .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
                 .default(logsGroupByCreateBodyQueryOneGroupBySourceDefault)
                 .describe(
-                    'Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                    'Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields. Ignored when groupBys is provided.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                ),
+            groupBys: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\") or, when source is \"column\", one of the top-level log fields: \"severity_level\", \"trace_id\", \"span_id\".'
+                            ),
+                        source: zod
+                            .enum(['log', 'resource', 'column'])
+                            .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
+                            .default(logsGroupByCreateBodyQueryOneGroupBysItemSourceDefault)
+                            .describe(
+                                'Where this dimension\'s key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                            ),
+                    })
+                )
+                .min(1)
+                .max(logsGroupByCreateBodyQueryOneGroupBysMax)
+                .optional()
+                .describe(
+                    'Ordered group-by dimensions to combine (a group is one combination of per-dimension values), up to 4. Takes precedence over groupBy\/groupBySource; one of the two must be provided.'
                 ),
             orderGroupsBy: zod
                 .enum(['log_count', 'error_count', 'last_seen'])
@@ -816,6 +843,143 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Maximum number of groups to return (top-N by orderGroupsBy). Defaults to 100.'),
         })
         .describe('The group-by query to execute.'),
+})
+
+export const logsMetricRulesCreateBodyNameMax = 255
+
+export const logsMetricRulesCreateBodyMetricNameMax = 200
+
+export const logsMetricRulesCreateBodyEnabledDefault = false
+export const logsMetricRulesCreateBodyValueAttributeMax = 512
+
+export const logsMetricRulesCreateBodyGroupByItemMax = 512
+
+export const LogsMetricRulesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsMetricRulesCreateBodyNameMax).describe('User-visible label for this rule.'),
+    metric_name: zod
+        .string()
+        .max(logsMetricRulesCreateBodyMetricNameMax)
+        .describe(
+            'Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.'
+        ),
+    enabled: zod
+        .boolean()
+        .default(logsMetricRulesCreateBodyEnabledDefault)
+        .describe(
+            'When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project.'
+        ),
+    filter_group: zod
+        .unknown()
+        .optional()
+        .describe(
+            'PropertyGroupFilter JSON (AND\/OR tree of property predicates) selecting which log records feed the metric, e.g. `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\",\"type\":\"log_attribute\"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match.'
+        ),
+    value_attribute: zod
+        .string()
+        .max(logsMetricRulesCreateBodyValueAttributeMax)
+        .nullish()
+        .describe(
+            'Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.'
+        ),
+    group_by: zod
+        .array(zod.string().max(logsMetricRulesCreateBodyGroupByItemMax))
+        .optional()
+        .describe(
+            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+        ),
+})
+
+export const logsMetricRulesUpdateBodyNameMax = 255
+
+export const logsMetricRulesUpdateBodyMetricNameMax = 200
+
+export const logsMetricRulesUpdateBodyEnabledDefault = false
+export const logsMetricRulesUpdateBodyValueAttributeMax = 512
+
+export const logsMetricRulesUpdateBodyGroupByItemMax = 512
+
+export const LogsMetricRulesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsMetricRulesUpdateBodyNameMax).describe('User-visible label for this rule.'),
+    metric_name: zod
+        .string()
+        .max(logsMetricRulesUpdateBodyMetricNameMax)
+        .describe(
+            'Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.'
+        ),
+    enabled: zod
+        .boolean()
+        .default(logsMetricRulesUpdateBodyEnabledDefault)
+        .describe(
+            'When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project.'
+        ),
+    filter_group: zod
+        .unknown()
+        .optional()
+        .describe(
+            'PropertyGroupFilter JSON (AND\/OR tree of property predicates) selecting which log records feed the metric, e.g. `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\",\"type\":\"log_attribute\"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match.'
+        ),
+    value_attribute: zod
+        .string()
+        .max(logsMetricRulesUpdateBodyValueAttributeMax)
+        .nullish()
+        .describe(
+            'Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.'
+        ),
+    group_by: zod
+        .array(zod.string().max(logsMetricRulesUpdateBodyGroupByItemMax))
+        .optional()
+        .describe(
+            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+        ),
+})
+
+export const logsMetricRulesPartialUpdateBodyNameMax = 255
+
+export const logsMetricRulesPartialUpdateBodyMetricNameMax = 200
+
+export const logsMetricRulesPartialUpdateBodyEnabledDefault = false
+export const logsMetricRulesPartialUpdateBodyValueAttributeMax = 512
+
+export const logsMetricRulesPartialUpdateBodyGroupByItemMax = 512
+
+export const LogsMetricRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(logsMetricRulesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('User-visible label for this rule.'),
+    metric_name: zod
+        .string()
+        .max(logsMetricRulesPartialUpdateBodyMetricNameMax)
+        .optional()
+        .describe(
+            'Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.'
+        ),
+    enabled: zod
+        .boolean()
+        .default(logsMetricRulesPartialUpdateBodyEnabledDefault)
+        .describe(
+            'When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project.'
+        ),
+    filter_group: zod
+        .unknown()
+        .optional()
+        .describe(
+            'PropertyGroupFilter JSON (AND\/OR tree of property predicates) selecting which log records feed the metric, e.g. `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\",\"type\":\"log_attribute\"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match.'
+        ),
+    value_attribute: zod
+        .string()
+        .max(logsMetricRulesPartialUpdateBodyValueAttributeMax)
+        .nullish()
+        .describe(
+            'Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.'
+        ),
+    group_by: zod
+        .array(zod.string().max(logsMetricRulesPartialUpdateBodyGroupByItemMax))
+        .optional()
+        .describe(
+            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+        ),
 })
 
 export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({

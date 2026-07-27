@@ -60,6 +60,7 @@ export interface CdcStatus {
     publication_exists?: boolean
     lag_bytes?: number | null
     published_tables?: string[]
+    schedule_paused?: boolean
 }
 
 const REFRESH_INTERVAL = 5000
@@ -462,6 +463,7 @@ export interface sourceSettingsLogicActions {
             publication_exists?: boolean | undefined
             publication_name?: string | undefined
             published_tables?: string[] | undefined
+            schedule_paused?: boolean | undefined
             slot_exists?: boolean | undefined
             slot_name?: string | undefined
         },
@@ -476,6 +478,7 @@ export interface sourceSettingsLogicActions {
             publication_exists?: boolean | undefined
             publication_name?: string | undefined
             published_tables?: string[] | undefined
+            schedule_paused?: boolean | undefined
             slot_exists?: boolean | undefined
             slot_name?: string | undefined
         }
@@ -1293,6 +1296,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         return () => clearTimeout(timerId)
                     }, 'sourceRefreshTimeout')
                 }
+            },
+            pausePolling: () => {
+                // Cancel the refresh already scheduled by the last load. Skipping the *reschedule*
+                // isn't enough on its own — without this, one more poll would still fire within
+                // REFRESH_INTERVAL and re-render the table, dismissing anything open over it (e.g. a
+                // row's "more" menu).
+                cache.disposables.dispose('sourceRefreshTimeout')
             },
             resumePolling: () => {
                 // After the reducer runs we may have dropped to 0 — but no fresh load has been

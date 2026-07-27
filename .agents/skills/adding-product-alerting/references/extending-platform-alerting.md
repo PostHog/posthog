@@ -80,6 +80,19 @@ For an advanced option on an existing destination, decide whether it is transpor
 
 Do not route unrelated product evaluators through this package solely because it is named `evaluation`.
 
+### Shared product alert frontend
+
+Extend `products/alerts/frontend/components/` only when a second adopter has the same presentation contract.
+
+- Keep shared components container-agnostic and free of product-name branches.
+- Accept normalized definition rows, destination view models, evaluation points, thresholds, scheduling state, and enabled counts.
+- Keep API calls, form schemas, kea logic, payload construction, product filters, detector configuration, simulations, and history tables in product adapters.
+- Prefer small composable definition primitives over one component with optional props for every alert product.
+- Preserve pending destination retry behavior, loading states, and submit guards.
+- Add or update shared component stories and verify at least one insight and one logs path when changing a shared contract.
+
+Read [frontend-alerting.md](frontend-alerting.md) for the current component map and adoption workflow.
+
 ### AlertWizard
 
 - Put business logic in keyed kea logic, not React hooks.
@@ -107,7 +120,8 @@ Verify both the shared layer and reference adopters:
 - Destination, delivery, email, or evaluation tests for the changed contract.
 - Logs tests for lifecycle, scheduling, HogFunction delivery, and rollback changes.
 - Insight alert tests for model/API, evaluation, email, or calendar scheduling changes.
-- `AlertWizard` logic tests and at least one adopter path for frontend changes.
+- Shared alert component stories and at least one insight and one logs adopter path for frontend changes.
+- `AlertWizard` logic tests and at least one adopter path when the wizard contract changes.
 - OpenAPI generation and frontend typecheck for API contract changes.
 - The alert-state semgrep rule when lifecycle mutation paths change.
 

@@ -16,7 +16,7 @@ import {
     InsightsRetrieveQueryParams,
     InsightsTrendingRetrieveQueryParams,
 } from '@/generated/product_analytics/api'
-import { castStringToInt } from '@/tools/cast-helpers'
+import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -201,6 +201,9 @@ const InsightCreateSchema = InsightsCreateBody.omit({
     dashboards: InsightsCreateBody.shape['dashboards'].describe(
         'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
     ),
+    description: InsightsCreateBody.shape['description'].describe(
+        'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
+    ),
 })
 
 const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithPostHogUrl<Schemas.Insight>> => ({
@@ -245,7 +248,10 @@ const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithPostHogUrl<Sc
     },
 })
 
-const InsightDeleteSchema = InsightsDestroyParams.omit({ project_id: true })
+const InsightDeleteSchema = z.preprocess(
+    normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
+    InsightsDestroyParams.omit({ project_id: true })
+)
 
 const insightDelete = (): ToolBase<typeof InsightDeleteSchema, Schemas.Insight> => ({
     name: 'insight-delete',
@@ -261,22 +267,25 @@ const insightDelete = (): ToolBase<typeof InsightDeleteSchema, Schemas.Insight> 
     },
 })
 
-const InsightGetSchema = InsightsRetrieveParams.omit({ project_id: true })
-    .extend(InsightsRetrieveQueryParams.omit({ format: true, from_dashboard: true, refresh: true }).shape)
-    .extend({
-        filters_override: z
-            .union([z.string(), z.record(z.string(), z.unknown())])
-            .optional()
-            .describe(
-                "Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
-            ),
-        variables_override: z
-            .union([z.string(), z.record(z.string(), z.unknown())])
-            .optional()
-            .describe(
-                'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
-            ),
-    })
+const InsightGetSchema = z.preprocess(
+    normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
+    InsightsRetrieveParams.omit({ project_id: true })
+        .extend(InsightsRetrieveQueryParams.omit({ format: true, from_dashboard: true, refresh: true }).shape)
+        .extend({
+            filters_override: z
+                .union([z.string(), z.record(z.string(), z.unknown())])
+                .optional()
+                .describe(
+                    "Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+                ),
+            variables_override: z
+                .union([z.string(), z.record(z.string(), z.unknown())])
+                .optional()
+                .describe(
+                    'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+                ),
+        })
+)
 
 const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.Insight>> => ({
     name: 'insight-get',
@@ -305,17 +314,23 @@ const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.
     },
 })
 
-const InsightUpdateSchema = InsightsPartialUpdateParams.omit({ project_id: true })
-    .extend(
-        InsightsPartialUpdateBody.omit({ derived_name: true, order: true, deleted: true, _create_in_folder: true })
-            .shape
-    )
-    .extend({
-        query: InsightQuery.optional(),
-        dashboards: InsightsPartialUpdateBody.shape['dashboards'].describe(
-            'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
-        ),
-    })
+const InsightUpdateSchema = z.preprocess(
+    normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
+    InsightsPartialUpdateParams.omit({ project_id: true })
+        .extend(
+            InsightsPartialUpdateBody.omit({ derived_name: true, order: true, deleted: true, _create_in_folder: true })
+                .shape
+        )
+        .extend({
+            query: InsightQuery.optional(),
+            dashboards: InsightsPartialUpdateBody.shape['dashboards'].describe(
+                'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
+            ),
+            description: InsightsPartialUpdateBody.shape['description'].describe(
+                'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
+            ),
+        })
+)
 
 const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithPostHogUrl<Schemas.Insight>> => ({
     name: 'insight-update',

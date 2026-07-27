@@ -15,8 +15,6 @@ export type EvaluationOutputType = 'boolean' | 'sentiment'
 export type EvaluationStatus = 'active' | 'paused' | 'error'
 export type EvaluationStatusReason =
     | 'provider_key_required'
-    | 'trial_limit_reached'
-    | 'model_not_allowed'
     | 'provider_key_deleted'
     | 'no_default_model'
     | 'provider_key_invalid'
@@ -125,16 +123,6 @@ export interface EvaluationRun {
     applicable?: boolean
     reasoning: string
     status: 'completed' | 'failed' | 'running'
-}
-
-export interface HogTestResult {
-    event_uuid: string
-    trace_id?: string | null
-    input_preview: string
-    output_preview: string
-    result: boolean | null
-    reasoning: string
-    error: string | null
 }
 
 export type EvaluationReportFrequency = 'scheduled' | 'every_n'

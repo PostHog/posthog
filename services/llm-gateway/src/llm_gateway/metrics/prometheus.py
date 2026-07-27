@@ -178,6 +178,12 @@ STREAMING_CLIENT_DISCONNECT = Counter(
     labelnames=["provider", "model", "product"],
 )
 
+ANTHROPIC_BRIDGE_INVALID_STREAM = Counter(
+    "llm_gateway_anthropic_bridge_invalid_stream_total",
+    "Invalid Anthropic SSE event ordering produced by a compatibility bridge",
+    labelnames=["backend", "violation"],
+)
+
 CONCURRENT_REQUESTS = Gauge(
     "llm_gateway_concurrent_requests",
     "Current in-flight requests",
