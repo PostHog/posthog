@@ -32,6 +32,11 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.staleness import (
+    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+    REAL_TIME_INSIGHT_REFRESH_INTERVAL,
+    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+)
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
@@ -39,11 +44,6 @@ from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.product_analytics.backend.insights_api import (
-    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-    REAL_TIME_INSIGHT_REFRESH_INTERVAL,
-    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-)
 
 SEPARATOR = "','"
 

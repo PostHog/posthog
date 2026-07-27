@@ -46,6 +46,10 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
 )
 from posthog.hogql_queries.insights.utils.properties import has_cohort_property
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.staleness import (
+    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+)
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
 from posthog.hogql_queries.validation.validation import QueryValidationRule
@@ -55,10 +59,6 @@ from posthog.models.user import User
 from posthog.queries.util import correct_result_for_sampling
 
 from products.actions.backend.models.action import Action
-from products.product_analytics.backend.insights_api import (
-    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-)
 
 DEFAULT_INTERVAL = IntervalType("day")
 DEFAULT_TOTAL_INTERVALS = 7

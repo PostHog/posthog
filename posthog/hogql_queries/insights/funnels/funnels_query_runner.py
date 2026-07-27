@@ -56,6 +56,10 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
     humanize_breakdown_label,
 )
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
+from posthog.hogql_queries.staleness import (
+    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+)
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -66,10 +70,6 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.product_analytics.backend.insights_api import (
-    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-)
 
 logger = structlog.get_logger(__name__)
 
