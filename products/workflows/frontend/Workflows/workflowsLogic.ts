@@ -413,6 +413,14 @@ export const workflowsLogic = kea<workflowsLogicType>([
             await breakpoint(300)
             actions.loadWorkflows()
         },
+        loadWorkflowsSuccess: ({ workflows }) => {
+            // A page past the end (stale link, or rows deleted since) would otherwise leave the user on a
+            // blank table with no pagination control to click back with, so land them on the last real page.
+            const lastPage = Math.max(1, Math.ceil(workflows.count / WORKFLOWS_PER_PAGE))
+            if (values.filters.page > lastPage) {
+                actions.setFilters({ page: lastPage })
+            }
+        },
         loadWorkflowsFailure: ({ error }) => {
             lemonToast.error(`Failed to load workflows: ${error || 'Unknown error'}`)
         },
@@ -482,7 +490,9 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 search: searchParams['search'] ? String(searchParams['search']) : '',
                 createdBy: searchParams['created_by'] ? String(searchParams['created_by']) : null,
                 status: WORKFLOW_STATUS_FILTERS.includes(status) ? status : 'all',
-                page: searchParams['page'] ? parseInt(String(searchParams['page'])) : 1,
+                // Anything unparseable, zero, or negative falls back to page 1 rather than reaching
+                // the offset maths as NaN or a negative number.
+                page: Math.max(1, parseInt(String(searchParams['page'])) || 1),
             }
             if (!objectsEqual(parsed, values.filters)) {
                 actions.setFilters(parsed, true)

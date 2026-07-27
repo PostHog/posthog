@@ -333,7 +333,9 @@ export function WorkflowsTable(): JSX.Element {
         workflows.results.length === 0 &&
         !filters.search &&
         !filters.createdBy &&
-        filters.status === 'all'
+        filters.status === 'all' &&
+        // An empty page is not an empty project, so never offer onboarding while paging
+        filters.page === 1
 
     return (
         <div className="workflows-section" data-attr="workflows-table" data-loading={workflowsLoading}>

@@ -1850,7 +1850,9 @@ class HogFlowViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
-            queryset = queryset.order_by("-updated_at")
+            # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
+            # otherwise repeat on one page and never appear on another.
+            queryset = queryset.order_by("-updated_at", "-id")
 
             search = self.request.GET.get("search")
             if search is not None:
