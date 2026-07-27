@@ -24,7 +24,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp import (
     AUTH_FAILED_ERROR,
     CONNECTION_FAILED_ERROR,
+    DELIMITER_ERROR,
     DIRECTORY_ERROR,
+    FORMAT_ERROR,
     NO_FILES_ERROR,
     PATTERN_ERROR,
     PRIVATE_KEY_ERROR,
@@ -66,6 +68,14 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
                 "has permission to list it."
             ),
             PATTERN_ERROR: "The file pattern isn't a valid regular expression. Fix the pattern and try again.",
+            DELIMITER_ERROR: (
+                "The CSV delimiter must be a single character (use \\t for tab-separated files). "
+                "Fix the delimiter and try again."
+            ),
+            FORMAT_ERROR: (
+                "PostHog couldn't work out the format of a remote file. Set the file format explicitly, "
+                "or restrict the file pattern to .csv, .json, or .jsonl files."
+            ),
             NO_FILES_ERROR: (
                 "The file behind this table is no longer on the SFTP server. Refresh the source's tables, "
                 "or restore the file."
@@ -280,6 +290,7 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
                 path=config.path,
                 file_pattern=config.file_pattern,
                 configured_format=config.file_format,
+                delimiter=config.csv_delimiter,
             )
         except SFTPCredentialsError as e:
             return False, str(e)

@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.setti
     MAX_DIRECTORY_DEPTH,
     MAX_FILES,
     MAX_JSON_DOCUMENT_BYTES,
+    MAX_PREFETCH_BYTES,
     READ_TIMEOUT_SECONDS,
     ConfiguredFileFormat,
     FileFormat,
@@ -45,6 +46,7 @@ PATTERN_ERROR = "The file pattern isn't a valid regular expression"
 NO_FILES_ERROR = "No remote files are available for table"
 NO_MATCHING_FILES_ERROR = "No importable files were found"
 FORMAT_ERROR = "Can't work out the format of the remote file"
+DELIMITER_ERROR = "The CSV delimiter must be a single character"
 
 
 class SFTPCredentialsError(Exception):
@@ -102,9 +104,7 @@ def normalize_delimiter(delimiter: str | None) -> str | None:
     if delimiter == "":
         return None
     if len(delimiter) != 1:
-        raise SFTPCredentialsError(
-            f"The CSV delimiter must be a single character (got {delimiter!r}). Use \\t for tab-separated files."
-        )
+        raise SFTPCredentialsError(f"{DELIMITER_ERROR} (got {delimiter!r}). Use \\t for tab-separated files.")
     return delimiter
 
 
@@ -363,8 +363,11 @@ def _dedupe_headers(headers: list[str]) -> list[str]:
     return result
 
 
-def _text_stream(stream: IO[bytes], compressed: bool) -> IO[str]:
-    binary: IO[bytes] = cast(IO[bytes], gzip.GzipFile(fileobj=stream)) if compressed else stream
+def _decompressed_stream(stream: IO[bytes], compressed: bool) -> IO[bytes]:
+    return cast(IO[bytes], gzip.GzipFile(fileobj=stream)) if compressed else stream
+
+
+def _text_stream(binary: IO[bytes]) -> IO[str]:
     return io.TextIOWrapper(binary, encoding="utf-8", errors="replace", newline="")
 
 
@@ -435,11 +438,12 @@ def _iter_jsonl_rows(text: IO[str], relative_path: str, chunk_size: int) -> Iter
         yield chunk
 
 
-def _iter_json_rows(text: IO[str], relative_path: str, chunk_size: int) -> Iterator[list[dict[str, Any]]]:
-    # A whole-document JSON file can't be chunked, so it has to fit in memory. Read one byte past the
-    # limit to detect an oversized (or gzip-bomb) document before materializing it, and point the
-    # user at JSON Lines, which streams.
-    raw = text.read(MAX_JSON_DOCUMENT_BYTES + 1)
+def _iter_json_rows(binary: IO[bytes], relative_path: str, chunk_size: int) -> Iterator[list[dict[str, Any]]]:
+    # A whole-document JSON file can't be chunked, so it has to fit in memory. Read one decompressed
+    # byte past the limit to detect an oversized (or gzip-bomb) document before materializing it, and
+    # point the user at JSON Lines, which streams. The byte cap is what bounds memory here, so it runs
+    # on the decompressed bytes rather than a decoded-character count.
+    raw = binary.read(MAX_JSON_DOCUMENT_BYTES + 1)
     if len(raw) > MAX_JSON_DOCUMENT_BYTES:
         raise SFTPFileFormatError(
             f"'{relative_path}' is larger than the {MAX_JSON_DOCUMENT_BYTES // (1024 * 1024)} MB limit for a "
@@ -465,13 +469,13 @@ def iter_file_rows(
     chunk_size: int = CHUNK_SIZE,
     logger: FilteringBoundLogger | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
-    text = _text_stream(stream, resolved.compressed)
+    binary = _decompressed_stream(stream, resolved.compressed)
     if resolved.file_format == "csv":
-        yield from _iter_csv_rows(text, resolved.delimiter, relative_path, chunk_size, logger)
+        yield from _iter_csv_rows(_text_stream(binary), resolved.delimiter, relative_path, chunk_size, logger)
     elif resolved.file_format == "jsonl":
-        yield from _iter_jsonl_rows(text, relative_path, chunk_size)
+        yield from _iter_jsonl_rows(_text_stream(binary), relative_path, chunk_size)
     else:
-        yield from _iter_json_rows(text, relative_path, chunk_size)
+        yield from _iter_json_rows(binary, relative_path, chunk_size)
 
 
 def iter_table_rows(
@@ -487,7 +491,9 @@ def iter_table_rows(
         with client.open(file.path, "rb") as handle:
             prefetch = getattr(handle, "prefetch", None)
             if callable(prefetch) and file.size:
-                prefetch(file.size)
+                # Cap what we ask paramiko to prefetch so a server that reports a huge size can't
+                # blow up the prefetch descriptor list; bytes past the cap are read on demand.
+                prefetch(min(file.size, MAX_PREFETCH_BYTES))
             for chunk in iter_file_rows(handle, resolved, file.relative_path, chunk_size, logger):
                 yield [
                     {
@@ -543,6 +549,7 @@ def validate_credentials(
     path: str = "/",
     file_pattern: str | None = None,
     configured_format: ConfiguredFileFormat | str | None = "infer",
+    delimiter: str | None = None,
 ) -> bool:
     """Connect, then confirm the folder holds at least one importable file.
 
@@ -550,6 +557,8 @@ def validate_credentials(
     a folder with nothing importable would create a source with no tables, which is a dead end.
     """
     _compile_pattern(file_pattern)
+    # Catch a bad delimiter here rather than on every sync — it's a permanent misconfiguration.
+    normalize_delimiter(delimiter)
     with sftp_connection(
         host=host,
         port=port,

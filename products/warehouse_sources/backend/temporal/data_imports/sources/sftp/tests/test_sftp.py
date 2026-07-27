@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.setti
 from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp import (
     AUTH_FAILED_ERROR,
     CONNECTION_FAILED_ERROR,
+    DELIMITER_ERROR,
     DIRECTORY_ERROR,
     FORMAT_ERROR,
     NO_FILES_ERROR,
@@ -636,6 +637,15 @@ class TestValidateCredentials:
         ) as connection:
             with pytest.raises(SFTPCredentialsError, match=PATTERN_ERROR):
                 validate_credentials(host="h", port=22, user="u", password="p", path="/data", file_pattern="([")
+
+        connection.assert_not_called()
+
+    def test_rejects_an_invalid_delimiter_before_connecting(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp.sftp_connection"
+        ) as connection:
+            with pytest.raises(SFTPCredentialsError, match=DELIMITER_ERROR):
+                validate_credentials(host="h", port=22, user="u", password="p", path="/data", delimiter="||")
 
         connection.assert_not_called()
 

@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.settings import FILE_PATH_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp import (
     AUTH_FAILED_ERROR,
+    DELIMITER_ERROR,
     DIRECTORY_ERROR,
     SFTPCredentialsError,
 )
@@ -194,6 +195,14 @@ class TestValidateCredentials:
 
         assert is_valid is False
         assert error is not None and expected_error in error
+        connection.assert_not_called()
+
+    def test_rejects_an_invalid_delimiter_without_connecting(self) -> None:
+        with patch(CONNECTION_TARGET) as connection:
+            is_valid, error = self.source.validate_credentials(make_config(csv_delimiter="||"), team_id=1)
+
+        assert is_valid is False
+        assert error is not None and DELIMITER_ERROR in error
         connection.assert_not_called()
 
     def test_rejects_an_unsafe_host(self) -> None:
