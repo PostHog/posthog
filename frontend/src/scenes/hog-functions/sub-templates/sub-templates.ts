@@ -20,6 +20,15 @@ import {
 export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
     `{project.url}/error_tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
 
+// In single-exec mode $mcp_tool_name is always the 'exec' dispatcher; the inner tool the agent
+// actually invoked rides on $mcp_exec_tool_call_name, so fall back the same way the backend does.
+const MCP_EFFECTIVE_TOOL_EXPR =
+    'event.properties.$mcp_exec_tool_call_name ? event.properties.$mcp_exec_tool_call_name : event.properties.$mcp_tool_name'
+
+// How long one failing tool stays deduped. Long enough to collapse a retry loop, short enough that
+// a breakage that is still happening reappears in the channel.
+const MCP_ALERT_MASKING_TTL_SECONDS = 30 * 60
+
 // Every MCP failure notification triggers on an errored $mcp_tool_call. SDK versions stamp
 // $mcp_is_error as a boolean, the string 'true', or 1, so all three encodings are matched (CDP
 // compiles a multi-value Exact to IN, which the realtime bytecode rewrites to type-coercing
@@ -78,6 +87,11 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'destination',
         context_id: 'standard',
         filters: { events: [mcpFailedToolCallEvent()] },
+        // Deduped per failing tool, not per call. A broken tool fails on every invocation and
+        // agents retry in loops, so an undeduped alert would post a message per event — enough to
+        // bury a channel, and amplifiable by anyone holding the (public) project token. One message
+        // per tool per interval still surfaces each distinct breakage.
+        masking: { hash: `{${MCP_EFFECTIVE_TOOL_EXPR}}`, ttl: MCP_ALERT_MASKING_TTL_SECONDS, threshold: null },
     },
     'activity-log': {
         sub_template_id: 'activity-log',
@@ -346,11 +360,6 @@ function markdownEscapeExpr(expression: string, maxLength: number = MCP_FIELD_MA
     // template's allowed_mentions, and Teams mentions can't be triggered from text.
     return `substring(replaceAll(${boundedExpr(expression, maxLength)}, '](', '] ('), 1, ${maxLength})`
 }
-
-// In single-exec mode $mcp_tool_name is always the 'exec' dispatcher; the inner tool the agent
-// actually invoked rides on $mcp_exec_tool_call_name, so fall back the same way the backend does.
-const MCP_EFFECTIVE_TOOL_EXPR =
-    'event.properties.$mcp_exec_tool_call_name ? event.properties.$mcp_exec_tool_call_name : event.properties.$mcp_tool_name'
 
 /** The producer-controlled values a notification message interpolates. */
 export type MCPMessageField = 'clientName' | 'serverName' | 'intent' | 'toolName'

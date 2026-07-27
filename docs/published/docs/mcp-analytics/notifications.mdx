@@ -34,14 +34,15 @@ Because a report summarizes a window of time, it stays useful on a low-volume se
 
 ## Instant alerts
 
-An instant alert sends one message per matching event, for something you'd want to hear about right away: **a failed tool call**, captured as `$mcp_tool_call` with `$mcp_is_error`.
+An instant alert reaches you as soon as something happens that you'd want to know about right away: **a failed tool call**, captured as `$mcp_tool_call` with `$mcp_is_error`.
 
 To create one, select **Notify me** under **Instant alerts**, then choose a channel.
 PostHog prefills the message with the tool, your server, the agent's client, and its intent.
 You can customize it later from the alert's own page.
 
-There's no rate limiting on instant alerts: a busy server, or an agent retrying the same failing call, sends one message per event.
-If a channel gets noisy, a recurring report is usually the better fit.
+The alert is deduplicated per failing tool: if one tool fails a hundred times in a row you get one message, not a hundred, and each additional tool that starts failing still gets its own.
+A tool that is still broken reappears after 30 minutes.
+You can change this under **Trigger options** on the alert's page, including turning deduplication off.
 
 ## Manage alerts and reports
 
