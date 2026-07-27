@@ -337,6 +337,66 @@
             "readOnlyHint": false
         }
     },
+    "notebooks-create-markdown": {
+        "description": "Create a markdown notebook — the flavor that holds executable SQL and Python cells. Provide a title (it becomes the document's leading heading) and optionally an initial markdown body. Returns the notebook_id to use with notebooks-add-cell. Use this instead of notebooks-create when the notebook will contain executable cells or data analysis.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Create a markdown notebook for executable cells.",
+        "title": "Create markdown notebook",
+        "required_scopes": ["notebook:write"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-add-cell": {
+        "description": "Add a cell to a markdown notebook. SQL (HogQL) and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. The first Python cell can take noticeably longer while the notebook's sandbox kernel starts. Markdown cells insert prose; saved_insight cells embed an existing insight — neither runs.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Add a cell to a notebook; SQL/Python cells run immediately.",
+        "title": "Add notebook cell",
+        "required_scopes": ["notebook:write", "query:read"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-update-cell": {
+        "description": "Update a SQL or Python cell's code and re-run it, or re-run it unchanged by omitting code (how you refresh a stale cell). Waits up to ~45s and returns the result like notebooks-add-cell, plus stale_dependents: the downstream cells whose inputs this run invalidated. Nothing re-runs automatically — inspect each dependent and re-run it with this tool (no code) or fix it first, walking the graph one hop at a time.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Update a cell's code and re-run it.",
+        "title": "Update notebook cell",
+        "required_scopes": ["notebook:write", "query:read"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-delete-cell": {
+        "description": "Delete a cell from a markdown notebook by node_id. Nothing downstream is touched: the response lists orphaned_dependents — cells that referenced the deleted cell's dataframe and now need rewriting or deleting. The kernel keeps any already-materialized dataframe until it restarts, so a dependent may still run against the deleted cell's last result; rewrite dependents promptly.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Delete a notebook cell.",
+        "title": "Delete notebook cell",
+        "required_scopes": ["notebook:write"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "get-llm-total-costs-for-project": {
         "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
         "category": "AI observability",

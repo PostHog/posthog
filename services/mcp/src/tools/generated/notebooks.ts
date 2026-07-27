@@ -9,8 +9,10 @@ import {
     NotebooksPartialUpdateBody,
     NotebooksPartialUpdateParams,
     NotebooksRetrieveParams,
+    NotebooksSqlV2RunsInterruptCreateParams,
+    NotebooksSqlV2RunsRetrieveParams,
 } from '@/generated/notebooks/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const NotebooksCreateSchema = NotebooksCreateBody
@@ -137,10 +139,49 @@ const notebooksRetrieve = (): ToolBase<typeof NotebooksRetrieveSchema, WithPostH
     },
 })
 
+const NotebooksRunCellInterruptSchema = NotebooksSqlV2RunsInterruptCreateParams.omit({ project_id: true })
+
+const notebooksRunCellInterrupt = (): ToolBase<
+    typeof NotebooksRunCellInterruptSchema,
+    Schemas.NotebookSQLV2InterruptResponse
+> => ({
+    name: 'notebooks-run-cell-interrupt',
+    schema: NotebooksRunCellInterruptSchema,
+    handler: async (context: Context, params: z.infer<typeof NotebooksRunCellInterruptSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.NotebookSQLV2InterruptResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/sql_v2/runs/${encodeURIComponent(String(params.run_id))}/interrupt/`,
+        })
+        return result
+    },
+})
+
+const NotebooksRunCellResultSchema = NotebooksSqlV2RunsRetrieveParams.omit({ project_id: true })
+
+const notebooksRunCellResult = (): ToolBase<
+    typeof NotebooksRunCellResultSchema,
+    Schemas.NotebookSQLV2RunStatusResponse
+> => ({
+    name: 'notebooks-run-cell-result',
+    schema: NotebooksRunCellResultSchema,
+    handler: async (context: Context, params: z.infer<typeof NotebooksRunCellResultSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.NotebookSQLV2RunStatusResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/sql_v2/runs/${encodeURIComponent(String(params.run_id))}/`,
+        })
+        const filtered = omitResponseFields(result, ['result.media.*.data']) as typeof result
+        return filtered
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-create': notebooksCreate,
     'notebooks-destroy': notebooksDestroy,
     'notebooks-list': notebooksList,
     'notebooks-partial-update': notebooksPartialUpdate,
     'notebooks-retrieve': notebooksRetrieve,
+    'notebooks-run-cell-interrupt': notebooksRunCellInterrupt,
+    'notebooks-run-cell-result': notebooksRunCellResult,
 }

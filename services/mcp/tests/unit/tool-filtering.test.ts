@@ -805,6 +805,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'user-interviews',
                 'customer-analytics-csp',
                 'notebooks-collaboration',
+                'revamped-py-notebooks',
                 'replay-vision',
                 'tasks',
                 'dashboard-widgets',
@@ -822,7 +823,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-person-properties',
             ])
         )
-        expect(flags).toHaveLength(24)
+        expect(flags).toHaveLength(25)
     })
 
     it('every loops tool is gated on the loops flag', () => {

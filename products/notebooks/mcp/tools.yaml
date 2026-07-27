@@ -167,7 +167,7 @@ tools:
         feature_flag: revamped-py-notebooks
     notebooks-run-cell-interrupt:
         operation: notebooks_sql_v2_runs_interrupt_create
-        enabled: false
+        enabled: true
         scopes:
             - notebook:write
         annotations:
@@ -181,7 +181,7 @@ tools:
         feature_flag: revamped-py-notebooks
     notebooks-run-cell-result:
         operation: notebooks_sql_v2_runs_retrieve
-        enabled: false
+        enabled: true
         scopes:
             - notebook:read
             - query:read
@@ -193,9 +193,9 @@ tools:
         description: >
             Read the durable state of a cell run: status ('running', 'done', 'failed', 'interrupted') and, once done or
             interrupted, the result envelope — columns, a capped first page of rows, stdout/stderr (a Python cell's logs
-            and tracebacks), media, and error. Poll this after notebooks-run-cell, waiting a few seconds between polls,
-            until the status is terminal, then use the envelope to decide the next step (fix the cell on error, or
-            proceed).
+            and tracebacks), media, and error. Use this when notebooks-add-cell or notebooks-update-cell returned status
+            'running' (the cell outlived the call's wait window): poll with the run_id, waiting a few seconds between
+            polls, until the status is terminal, then use the envelope to decide the next step.
         feature_flag: revamped-py-notebooks
         response:
             exclude:
