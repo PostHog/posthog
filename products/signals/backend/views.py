@@ -2459,7 +2459,9 @@ def append_suggested_reviewers(
         # Under staff impersonation request.user is the customer, so name the real operator instead.
         # Dates use the report's project timezone.
         actor = _acting_user(request)
-        added_on = timezone.now().astimezone(team.timezone_info).strftime("%b %-d, %Y")
+        # Build the date without the platform-specific %-d directive (fails on non-Unix).
+        now_local = timezone.now().astimezone(team.timezone_info)
+        added_on = f"{now_local:%b} {now_local.day}, {now_local.year}"
         manual_add_reason = f"Added as a reviewer by {actor.get_full_name().strip() or actor.email} on {added_on}"
 
         # Dedupe by canonical login, preserve first-seen order.
