@@ -109,6 +109,24 @@ class TestCohortSaveWarehouseAccessControl(APIBaseTest):
 
         assert response.status_code == 201, response.content
 
+    def test_denied_member_cannot_activate_static_warehouse_cohort(self):
+        # Static cohorts are excluded from periodic recalc, so flipping to dynamic is the only
+        # path that computes the preserved warehouse criteria - it must be checked as the saver
+        # even though the PATCH carries no definition field.
+        cohort = Cohort.objects.create(
+            team=self.team, name="static warehouse snapshot", is_static=True, filters=WAREHOUSE_FILTERS
+        )
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}/",
+            {"is_static": False},
+        )
+
+        assert response.status_code == 400, response.content
+        assert "Can't save this cohort" in str(response.json())
+        assert "extended_properties" in str(response.json())
+
     def test_denied_member_cannot_save_query_cohort_over_warehouse_table(self):
         AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
 

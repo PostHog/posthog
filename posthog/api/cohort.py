@@ -1074,7 +1074,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         is team-owned), so access is enforced here instead: the member saving the definition must
         be able to read every warehouse table it resolves through. Covers every way a definition
         can change - `filters`, the legacy `groups` field, and query-based cohorts' `query`."""
-        if not any(field in attrs for field in ("filters", "groups", "query")):
+        instance = cast(Optional[Cohort], self.instance)
+        # Flipping a static cohort to dynamic activates its preserved definition.
+        reactivating_static = instance is not None and instance.is_static and attrs.get("is_static") is False
+        if not reactivating_static and not any(field in attrs for field in ("filters", "groups", "query")):
             return
         team = self._team_for_warehouse_access_check()
         request = self.context.get("request")
@@ -1097,16 +1100,18 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # Check what survives the save, not just the fields in the payload.
         effective = self._effective_filters_after_update(attrs, team=team)
         properties = effective.get("properties") if effective else None
+        # A payload query is what's being saved; a flip re-activates the instance's preserved query.
+        query = attrs["query"] if "query" in attrs else (instance.query if reactivating_static and instance else None)
 
         try:
             if properties:
                 HogQLCohortQuery(
                     filter=Filter(data={"properties": properties}, team=team), team=team
                 ).get_query_executor(user=user).generate_clickhouse_sql()
-            if attrs.get("query"):
+            if query:
                 context = HogQLContext(team_id=team.pk, team=team, user=user, enable_select_queries=True)
-                query = get_query_runner(attrs["query"], team=team, limit_context=LimitContext.COHORT_CALCULATION)
-                prepare_ast_for_printing(query.to_query(), context=context, dialect="clickhouse")
+                runner = get_query_runner(query, team=team, limit_context=LimitContext.COHORT_CALCULATION)
+                prepare_ast_for_printing(runner.to_query(), context=context, dialect="clickhouse")
         except TableAccessDeniedError as e:
             raise ValidationError(
                 f"Can't save this cohort: you don't have access to table `{e.table_name}`, which its definition uses."
