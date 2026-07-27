@@ -46,7 +46,7 @@ class AsyncMessageReader:
 
         if self._buffer[:4] != CONTINUATION_BYTES:
             raise InvalidMessageFormat(
-                f"Encapsulated IPC message format must begin with continuation bytes, received: '{self._buffer}'"
+                f"Encapsulated IPC message format must begin with continuation bytes, received: '{self._buffer[:4]}'"
             )
 
         await self.read_until(8)
