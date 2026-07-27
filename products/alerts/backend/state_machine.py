@@ -12,7 +12,7 @@ while an alert stays firing; billing re-notifies once per cooldown window). Thos
 differences are expressed as an `AlertPolicy` so each product is a configuration of
 the same decision table rather than a fork of it.
 
-This module is pure Python — no Django, no product imports. Products own persistence:
+This module is pure Python. It has no Django or product-model imports. Products own persistence:
 they build a snapshot from their model, call the machine, and apply the outcome through
 their product-local `apply_outcome` (the single legal mutator, enforced by semgrep —
 see `.semgrep/rules/security/alert-state-must-go-through-state-machine.yaml`).

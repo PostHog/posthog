@@ -787,6 +787,7 @@ jobs:
                         - bin/temporal-django-worker
                       logsAlerting:
                         - 'posthog/temporal/logs_alerting/**'
+                        - 'products/alerts/backend/state_machine.py'
                         - 'products/logs/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
