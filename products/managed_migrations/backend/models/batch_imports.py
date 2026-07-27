@@ -46,7 +46,7 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
     display_status_message = models.TextField(null=True, blank=True)
     state = models.JSONField(null=True, blank=True)
     import_config = models.JSONField()
-    secrets = EncryptedJSONStringField()
+    secrets = EncryptedJSONStringField(null=True, blank=True)
     # Exponential backoff state (used by rust worker). Mirrors columns used by the worker.
     backoff_attempt = models.IntegerField(default=0)
     backoff_until = models.DateTimeField(null=True, blank=True)

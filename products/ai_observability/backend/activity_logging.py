@@ -1,6 +1,6 @@
 import copy
 import hashlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
@@ -10,10 +10,14 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
+from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.llm_prompt import LLMPromptLabel
+
+if TYPE_CHECKING:
+    from posthog.models import Team, User
 
 ACTIVITY_LOG_ITEM_ID_MAX_LENGTH: int = ActivityLog._meta.get_field("item_id").max_length or 72
 
@@ -32,6 +36,35 @@ def prompt_activity_item_id(prompt_name: str) -> str:
     digest = hashlib.sha256(prompt_name.encode("utf-8")).hexdigest()[:32]
     prefix = prompt_name[: ACTIVITY_LOG_ITEM_ID_MAX_LENGTH - 33]
     return f"{prefix}#{digest}"
+
+
+def log_llm_prompt_activity(
+    *,
+    team: "Team",
+    user: "User | None",
+    prompt_name: str,
+    activity: str,
+    changes: list[Change] | None = None,
+) -> None:
+    """Audit-log a prompt lifecycle event (create/publish/archive/duplicate).
+
+    Uses the same item_id as label activity so the prompt History tab gets both
+    streams in one query. Called explicitly from the prompt service functions —
+    LLMPrompt has no ModelActivityMixin because each row is a version, and a
+    per-row "created" entry per publish would say nothing about the lifecycle.
+    Impersonation comes from the request-scoped activity storage, same as the
+    mixin path.
+    """
+    log_activity(
+        organization_id=team.organization_id,
+        team_id=team.id,
+        user=user,
+        was_impersonated=activity_storage.get_was_impersonated(),
+        item_id=prompt_activity_item_id(prompt_name),
+        scope="LLMPrompt",
+        activity=activity,
+        detail=Detail(name=prompt_name, changes=changes),
+    )
 
 
 # Lives here, not in api/evaluations.py, so it can wire at AppConfig.ready() without dragging the

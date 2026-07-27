@@ -11,9 +11,11 @@ import {
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 import type { RefObject } from 'react'
 
 import api from 'lib/api'
+import { urls } from 'scenes/urls'
 
 import {
     DataModelingDAG,
@@ -1084,6 +1086,13 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             actions.setEdges([])
             actions.loadDataModelingNodes()
             actions.loadDataModelingEdges()
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        [urls.dataOps()]: (_, searchParams) => {
+            if (typeof searchParams.dag === 'string' && searchParams.dag !== values.selectedDagId) {
+                actions.setSelectedDagId(searchParams.dag)
+            }
         },
     })),
     afterMount(({ actions }) => {

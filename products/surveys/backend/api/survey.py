@@ -299,6 +299,23 @@ def get_survey_conditions_with_actions(
         else:
             conditions = dict(conditions)
         conditions["actions"] = {"values": action_serializer_class(actions, many=True).data}
+    elif isinstance(conditions, dict) and isinstance(conditions.get("actions"), dict):
+        # The actions M2M didn't resolve (e.g. the referenced actions were deleted) but a stale
+        # actions blob still lives in `conditions`. That stored blob can carry fields this caller's
+        # serializer would never expose — notably `created_by` on the public /surveys and /decide
+        # payload — so project each value down to the serializer's own fields. Never surface more
+        # than the serializer itself would.
+        meta = getattr(action_serializer_class, "Meta", None)
+        allowed_fields = getattr(meta, "fields", None)
+        if isinstance(allowed_fields, list | tuple):
+            allowed = set(allowed_fields)
+            values = conditions["actions"].get("values") or []
+            conditions = dict(conditions)
+            conditions["actions"] = {
+                "values": [
+                    {k: v for k, v in value.items() if k in allowed} for value in values if isinstance(value, dict)
+                ]
+            }
     return conditions
 
 
@@ -3384,24 +3401,8 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     @extend_schema_field(serializers.DictField(allow_null=True))
-    def get_conditions(self, survey: Survey) -> dict[str, Any] | None:
-        conditions = get_survey_conditions_with_actions(survey, SurveyAPIActionSerializer)
-        if not isinstance(conditions, dict):
-            return conditions
-
-        action_conditions = conditions.get("actions")
-        if not isinstance(action_conditions, dict) or not isinstance(action_conditions.get("values"), list):
-            return conditions
-
-        public_conditions = dict(conditions)
-        public_conditions["actions"] = {
-            "values": [
-                {field: action[field] for field in ("id", "name", "steps") if field in action}
-                for action in action_conditions["values"]
-                if isinstance(action, dict)
-            ]
-        }
-        return public_conditions
+    def get_conditions(self, survey: Survey):
+        return get_survey_conditions_with_actions(survey, SurveyAPIActionSerializer)
 
     @extend_schema_field(
         serializers.DictField(child=serializers.DictField(child=serializers.CharField()), allow_null=True)

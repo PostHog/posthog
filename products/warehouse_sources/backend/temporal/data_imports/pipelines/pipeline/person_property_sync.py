@@ -362,13 +362,22 @@ def _stamp_provenance(
         "schema_id": str(schema_id),
         "custom_property_source_id": str(source.source_id),
     }
-    query = PropertyDefinition.objects.filter(team_id=team_id, name__in=property_names)
+    query = PropertyDefinition.objects.filter(team_id=team_id)
     if source.target == _GROUP_TARGET:
         # Group propdefs are keyed per group type, so the index predicate is mandatory.
         query = query.filter(type=PropertyDefinition.Type.GROUP, group_type_index=source.group_type_index)
     else:
         query = query.filter(type=PropertyDefinition.Type.PERSON)
-    query.update(warehouse_origin=origin)
+
+    # Properties given a description carry it inside their provenance, so stamp those one at a time;
+    # the rest share the base origin and go in a single bulk update.
+    descriptions = source.property_descriptions or {}
+    described = [name for name in property_names if descriptions.get(name)]
+    plain = [name for name in property_names if not descriptions.get(name)]
+    if plain:
+        query.filter(name__in=plain).update(warehouse_origin=origin)
+    for name in described:
+        query.filter(name=name).update(warehouse_origin={**origin, "description": descriptions[name]})
 
 
 # --- orchestration -----------------------------------------------------------------------

@@ -74,7 +74,7 @@ Read the result against three cases:
 - **Empty (`results: []`)** — no scouts are registered.
   The project isn't enrolled in the scout fleet (or hasn't ticked yet).
   Say so plainly; don't go fishing for runs.
-  Point the user at the Signals scout settings / PostHog Code onboarding rather than inventing activity.
+  Point the user at the Signals scout settings / PostHog Desktop onboarding rather than inventing activity.
 - **Configs exist but all `enabled: false`** — the fleet is registered but paused.
   Nothing is running.
   Tell the user which scouts exist and that they're all off.

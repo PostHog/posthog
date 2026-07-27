@@ -65,6 +65,8 @@ def team_api_test_factory():
             results = starting_log_response.json()["results"]
             for item in results:
                 item.pop("id", None)
+                for envelope_key in ("is_system", "was_impersonated", "client"):
+                    item.pop(envelope_key, None)
             assert results == expected
 
         def _assert_organization_activity_log(self, expected: list[dict]) -> None:
@@ -73,6 +75,8 @@ def team_api_test_factory():
             results = starting_log_response.json()["results"]
             for item in results:
                 item.pop("id", None)
+                for envelope_key in ("is_system", "was_impersonated", "client"):
+                    item.pop(envelope_key, None)
             assert results == expected
 
         def _assert_activity_log_is_empty(self) -> None:
