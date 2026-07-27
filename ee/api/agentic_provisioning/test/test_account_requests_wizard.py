@@ -7,12 +7,12 @@ from django.test import override_settings
 from django.utils import timezone
 
 from posthog.models.integration import GitHubInstallationAccess, GitHubIntegration, GitHubUserAuthorization
-from posthog.models.oauth import OAuthApplication
 from posthog.models.user import OnboardingSkippedReason, User
 
 from ee.api.agentic_provisioning import GITHUB_GRANT_CACHE_PREFIX, github_grants
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
 
+ACCOUNT_REQUESTS_URL = "/api/agentic/provisioning/account_requests"
 INSTALLATION_ID = "777"
 CODE_CHALLENGE = "a" * 43
 
@@ -38,23 +38,6 @@ def _installation_access() -> GitHubInstallationAccess:
 
 @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="wizard-client-id")
 class TestAccountRequestsWizardBlock(ProvisioningTestBase):
-    def setUp(self):
-        super().setUp()
-        self.partner = OAuthApplication.objects.create(
-            name="Drop Partner",
-            client_id="drop_partner_client_id",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://posthog.com/api/wizard/oauth-callback",
-            algorithm="RS256",
-            provisioning_auth_method="hmac",
-            provisioning_signing_secret=HMAC_SECRET,
-            provisioning_partner_type="posthog_website",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-        )
-
     def _payload(self, email: str, wizard: dict | None = None) -> dict:
         configuration: dict = {"region": "US"}
         if wizard is not None:
@@ -70,7 +53,7 @@ class TestAccountRequestsWizardBlock(ProvisioningTestBase):
         return github_grants.create_grant(self.partner, AUTHORIZATION, email)
 
     def _post(self, payload: dict):
-        return self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        return self._post_with_bearer(ACCOUNT_REQUESTS_URL, payload, token=self._get_bearer_token())
 
     def test_without_wizard_block_response_and_email_unchanged(self):
         with patch("ee.api.agentic_provisioning.views.send_provisioning_welcome") as mock_email:

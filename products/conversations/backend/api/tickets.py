@@ -408,6 +408,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 entry = raw_entry.strip()
                 if entry.lower() == "unassigned":
                     include_unassigned = True
+                elif entry.lower() == "me":
+                    # Dynamic per-viewer token: resolve to the requesting user so a
+                    # shared saved view scoped to "me" means each viewer's own tickets.
+                    if self.request.user and self.request.user.is_authenticated:
+                        user_ids.append(self.request.user.id)
                 elif entry.startswith("user:"):
                     try:
                         user_ids.append(int(entry[5:]))
@@ -708,7 +713,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 description=(
                     "Filter by assignee. Accepts a single value or a comma-separated list "
                     "(matches any, max 100 entries). Each entry is `unassigned` (no assignee), "
-                    "`user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`."
+                    "`me` (the requesting user), `user:<user_id>`, or `role:<role_uuid>`, "
+                    "e.g. `assignee=unassigned,user:123`."
                 ),
             ),
             OpenApiParameter(

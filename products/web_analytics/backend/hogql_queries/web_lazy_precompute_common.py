@@ -29,7 +29,8 @@ from posthog.hogql.property import get_property_type, property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog import redis
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
@@ -222,10 +223,31 @@ def is_background_warming_request() -> bool:
     return shared_is_background_warming_request(BACKGROUND_WARMING_TRIGGERS)
 
 
+# Execution modes that mean "the user explicitly asked to recompute, disregard any
+# cache". The frontend's forced reload (`reloadAll`) maps a web-analytics tile to
+# `force_blocking` — web tiles are non-insight nodes, so they never take the async
+# path — but both force_* modes are treated as forced so an async-dispatched force
+# refresh is covered too.
+FORCED_REFRESH_EXECUTION_MODES = frozenset(
+    {ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value, ExecutionMode.CALCULATE_ASYNC_ALWAYS.value}
+)
+
+
+def is_forced_refresh_request() -> bool:
+    """True when this is an explicit user-initiated force refresh.
+
+    Read off the `execution_mode` query tag the query runner stamps before
+    `_calculate`. A forced refresh must bypass the serve-stale grace so it
+    recomputes fresh instead of being handed the very stale row it is clearing.
+    """
+    return get_query_tag_value("execution_mode") in FORCED_REFRESH_EXECUTION_MODES
+
+
 # One revalidation per (team, family, query shape) per window: a dashboard burst — or a
-# user hammering forced refresh on a stale tile — fires many stale serves for the same
-# shape and they must collapse to a single background rebuild. Keyed per shape (not per
-# request) so two different stale families in one request each still get their refresh.
+# user hammering forced refresh, whose reads now fall through to the live query and enqueue
+# a background warm each — fires many enqueues for the same shape and they must collapse to
+# a single background rebuild. Keyed per shape (not per request) so two different stale
+# families in one request each still get their refresh.
 REVALIDATION_DEBOUNCE_SECONDS = 10 * 60
 
 # The shape debounce alone does not bound DISTINCT shapes: filters and date ranges are
@@ -332,9 +354,20 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     family = kwargs.pop("family", None)
     background = is_background_warming_request()
     if "stale_while_revalidate_seconds" not in kwargs:
-        kwargs["stale_while_revalidate_seconds"] = resolve_stale_while_revalidate_seconds(
-            STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS
-        )
+        if is_forced_refresh_request():
+            # An explicit user-initiated force refresh must never be handed a
+            # complete-but-stale row — that is exactly the state the user is trying
+            # to clear (the reported bug: repeated Reload clicks kept serving the
+            # same stale overview tile). Disabling the grace makes the ensure report
+            # a miss for an expired window, so the read falls through to the live
+            # query and recomputes fresh. Applies to every web family (overview +
+            # stats) so a forced refresh can't leave the tile and tables drifting on
+            # different freshness clocks.
+            kwargs["stale_while_revalidate_seconds"] = None
+        else:
+            kwargs["stale_while_revalidate_seconds"] = resolve_stale_while_revalidate_seconds(
+                STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS
+            )
     # User-facing requests never compute inline: they are served from covering
     # READY jobs (fresh or within the stale grace) or told "miss" immediately so
     # the caller falls back to the live query. Construction happens only on
