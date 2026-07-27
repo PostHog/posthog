@@ -9,18 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
- * config versions, dry-run a draft config against recently archived orgs, save a new
- * immutable version, and flip which version is active.
- *
- * Supersedes the admin lab UI's read paths; run/save/activate share the same underlying
- * machinery (products.growth.backend.enrichment.lab) as the admin dry-run action so both
- * surfaces compute identical verdicts.
- *
- * Registered on the root router so it is not team-nested - prompt configs are instance-global,
- * not scoped to any team or org.
- */
 export const GrowthScoreLabActivateCreateBody = /* @__PURE__ */ zod.object({
     config_id: zod.uuid().describe('Prompt config id to activate for its label.'),
 })
@@ -101,18 +89,6 @@ export const GrowthScoreLabRunCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
- * config versions, dry-run a draft config against recently archived orgs, save a new
- * immutable version, and flip which version is active.
- *
- * Supersedes the admin lab UI's read paths; run/save/activate share the same underlying
- * machinery (products.growth.backend.enrichment.lab) as the admin dry-run action so both
- * surfaces compute identical verdicts.
- *
- * Registered on the root router so it is not team-nested - prompt configs are instance-global,
- * not scoped to any team or org.
- */
 export const growthScoreLabSaveCreateBodyLabelMax = 128
 
 export const growthScoreLabSaveCreateBodyVersionMax = 128

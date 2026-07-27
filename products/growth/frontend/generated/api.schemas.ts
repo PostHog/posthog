@@ -616,13 +616,82 @@ export interface SdkHealthReportApi {
     sdks: SdkAssessmentApi[]
 }
 
+export type GrowthScoreLabActivateCreateParams = {
+    format?: GrowthScoreLabActivateCreateFormat
+}
+
+export type GrowthScoreLabActivateCreateFormat =
+    (typeof GrowthScoreLabActivateCreateFormat)[keyof typeof GrowthScoreLabActivateCreateFormat]
+
+export const GrowthScoreLabActivateCreateFormat = {
+    Json: 'json',
+    Ndjson: 'ndjson',
+} as const
+
 export type GrowthScoreLabConfigsRetrieveParams = {
+    format?: GrowthScoreLabConfigsRetrieveFormat
     /**
      * Label name to list prompt config versions for.
      * @minLength 1
      */
     label: string
 }
+
+export type GrowthScoreLabConfigsRetrieveFormat =
+    (typeof GrowthScoreLabConfigsRetrieveFormat)[keyof typeof GrowthScoreLabConfigsRetrieveFormat]
+
+export const GrowthScoreLabConfigsRetrieveFormat = {
+    Json: 'json',
+    Ndjson: 'ndjson',
+} as const
+
+export type GrowthScoreLabLabelsRetrieveParams = {
+    format?: GrowthScoreLabLabelsRetrieveFormat
+}
+
+export type GrowthScoreLabLabelsRetrieveFormat =
+    (typeof GrowthScoreLabLabelsRetrieveFormat)[keyof typeof GrowthScoreLabLabelsRetrieveFormat]
+
+export const GrowthScoreLabLabelsRetrieveFormat = {
+    Json: 'json',
+    Ndjson: 'ndjson',
+} as const
+
+export type GrowthScoreLabModelsRetrieveParams = {
+    format?: GrowthScoreLabModelsRetrieveFormat
+}
+
+export type GrowthScoreLabModelsRetrieveFormat =
+    (typeof GrowthScoreLabModelsRetrieveFormat)[keyof typeof GrowthScoreLabModelsRetrieveFormat]
+
+export const GrowthScoreLabModelsRetrieveFormat = {
+    Json: 'json',
+    Ndjson: 'ndjson',
+} as const
+
+export type GrowthScoreLabRunCreateParams = {
+    format?: GrowthScoreLabRunCreateFormat
+}
+
+export type GrowthScoreLabRunCreateFormat =
+    (typeof GrowthScoreLabRunCreateFormat)[keyof typeof GrowthScoreLabRunCreateFormat]
+
+export const GrowthScoreLabRunCreateFormat = {
+    Json: 'json',
+    Ndjson: 'ndjson',
+} as const
+
+export type GrowthScoreLabSaveCreateParams = {
+    format?: GrowthScoreLabSaveCreateFormat
+}
+
+export type GrowthScoreLabSaveCreateFormat =
+    (typeof GrowthScoreLabSaveCreateFormat)[keyof typeof GrowthScoreLabSaveCreateFormat]
+
+export const GrowthScoreLabSaveCreateFormat = {
+    Json: 'json',
+    Ndjson: 'ndjson',
+} as const
 
 export type ProductPushCampaignActiveRetrieveParams = {
     /**
