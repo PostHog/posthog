@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (Element is only the node type for annotations — all parsing goes through defusedxml below)
 from xml.etree.ElementTree import Element
+# nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (escape only serializes text — it does no XML parsing, so there is no XXE surface)
 from xml.sax.saxutils import escape as xml_escape
 
 import requests
@@ -232,9 +233,14 @@ class SalesforceMarketingCloudClient:
         self._logger = logger
         # tenacity owns retries so each attempt re-mints an expired token; a urllib3-level retry
         # would replay the same request with a dead bearer token.
+        #
+        # capture=False because the minted bearer token can't be scrubbed by name: it rides in the
+        # SOAP `<fueloauth>` request body and the token-mint response body, neither of which the
+        # sample scrubbers recognise. Requests are still metered and logged, just not sampled.
         self._session = make_tracked_session(
             retry=Retry(total=0),
             redact_values=(client_id, client_secret),
+            capture=False,
         )
         self._access_token: str | None = None
         self._token_expires_at: float = 0.0
