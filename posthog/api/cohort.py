@@ -31,7 +31,10 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 
 from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.constants import CSV_EXPORT_LIMIT
+from posthog.hogql.constants import CSV_EXPORT_LIMIT, LimitContext
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import TableAccessDeniedError
+from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -53,7 +56,8 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
@@ -72,6 +76,7 @@ from posthog.models.property.property import Property
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.caller_tag import personhog_caller_tag
+from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.actor_base_query import get_serialized_people
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.renderers import SafeJSONRenderer
@@ -1021,18 +1026,24 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             return str_to_bool(self.initial_data["is_static"])
         return bool(getattr(self.instance, "is_static", False))
 
-    def _effective_filters_after_update(self, attrs: dict) -> dict | None:
-        # PATCH may send legacy groups without filters, derive the post-update properties for validation
-        instance = cast(Cohort, self.instance)
-        filters = attrs.get("filters", instance.filters)
+    def _effective_filters_after_update(self, attrs: dict, team: Optional[Team] = None) -> dict | None:
+        # Derive the properties that survive the save, mirroring Cohort.properties precedence:
+        # filters win over the legacy groups field, so clearing filters re-activates preserved
+        # groups. Pass team on the create path, where there's no instance to read it from.
+        instance = cast(Optional[Cohort], self.instance)
+        filters = attrs.get("filters", instance.filters if instance else None)
         if filters:
             return filters
 
-        groups = attrs.get("groups", instance.groups)
+        groups = attrs.get("groups", instance.groups if instance else None)
         if not groups:
             return None
 
-        cohort = Cohort(team=instance.team, filters=None, groups=deepcopy(groups))
+        effective_team = team or (instance.team if instance else None)
+        if effective_team is None:
+            return None
+
+        cohort = Cohort(team=effective_team, filters=None, groups=deepcopy(groups))
         return {"properties": cohort.properties.to_dict()}
 
     def validate_filters(self, raw: dict):
@@ -1065,11 +1076,76 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         self._validate_feature_flag_constraints(raw, cohort_will_be_static)  # keep your side-rules
         return raw
 
+    def _team_for_warehouse_access_check(self) -> Optional[Team]:
+        # Resolve the team from whichever context shape the caller provided so the check can't be
+        # skipped: experiments pass "team", feature flag copy passes "team_id", the viewset passes
+        # the get_team lambda. Prefer an already-materialized object over the lambda, which can
+        # issue a query on cold cache.
+        team = self.context.get("team")
+        if team is None and self.context.get("get_team"):
+            team = self.context["get_team"]()
+        if team is None and self.context.get("team_id"):
+            team = Team.objects.filter(pk=self.context["team_id"]).first()
+        return team
+
+    def _validate_warehouse_access(self, attrs: dict) -> None:
+        """Background execution runs the cohort without warehouse access control (the definition
+        is team-owned), so access is enforced here instead: the member saving the definition must
+        be able to read every warehouse table it resolves through. Covers every way a definition
+        can change - `filters`, the legacy `groups` field, and query-based cohorts' `query`."""
+        instance = cast(Optional[Cohort], self.instance)
+        # Flipping a static cohort to dynamic activates its preserved definition.
+        reactivating_static = instance is not None and instance.is_static and attrs.get("is_static") is False
+        if not reactivating_static and not any(field in attrs for field in ("filters", "groups", "query")):
+            return
+        team = self._team_for_warehouse_access_check()
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if team is None or user is None or not getattr(user, "is_authenticated", False):
+            return
+        # Gate on the same flag the enforcement in Database.create_for uses.
+        if not feature_enabled_or_false(
+            "hogql-warehouse-access-control",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            send_feature_flag_events=False,
+        ):
+            return
+
+        # Check what survives the save, not just the fields in the payload.
+        effective = self._effective_filters_after_update(attrs, team=team)
+        properties = effective.get("properties") if effective else None
+        # A payload query is what's being saved; a flip re-activates the instance's preserved query.
+        query = attrs["query"] if "query" in attrs else (instance.query if reactivating_static and instance else None)
+
+        try:
+            if properties:
+                HogQLCohortQuery(
+                    filter=Filter(data={"properties": properties}, team=team), team=team
+                ).get_query_executor(user=user).generate_clickhouse_sql()
+            if query:
+                context = HogQLContext(team_id=team.pk, team=team, user=user, enable_select_queries=True)
+                runner = get_query_runner(query, team=team, limit_context=LimitContext.COHORT_CALCULATION)
+                prepare_ast_for_printing(runner.to_query(), context=context, dialect="clickhouse")
+        except TableAccessDeniedError as e:
+            raise ValidationError(
+                f"Can't save this cohort: you don't have access to table `{e.table_name}`, which its definition uses."
+            )
+        except Exception:
+            # Only access denials gate saving; other compile problems surface elsewhere.
+            return
+
     def validate(self, attrs: dict) -> dict:
         # Field-level validate_filters only runs when the PATCH body includes `filters`. This
         # object-level guard covers the static-to-dynamic flip when it does not, re-checking the
         # instance's preserved behavioral filters against the feature-flag rule.
         attrs = super().validate(attrs)
+
+        self._validate_warehouse_access(attrs)
 
         if self.context["request"].method != "PATCH" or self.instance is None:
             return attrs
