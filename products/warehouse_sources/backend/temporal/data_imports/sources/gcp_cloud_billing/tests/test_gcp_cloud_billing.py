@@ -8,8 +8,10 @@ from unittest import mock
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_billing.gcp_cloud_billing import (
+    GOOGLE_TOKEN_URI,
     ServiceAccountKey,
     _BillingApiClient,
+    _mint_token,
     _raise_for_status,
     billing_account_resource_name,
     gcp_cloud_billing_source,
@@ -32,7 +34,6 @@ def _key() -> ServiceAccountKey:
         private_key="-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",
         private_key_id="key-id",
         client_email="sa@posthog-billing.iam.gserviceaccount.com",
-        token_uri="https://oauth2.googleapis.com/token",
     )
 
 
@@ -87,6 +88,21 @@ class TestGcpCloudBillingTransport:
         # matching reads `str(error)` and keys on each of them separately.
         assert "403 Client Error: Forbidden for url: https://cloudbilling.googleapis.com" in message
         assert "has not been used in project" in message
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    @mock.patch(f"{_MODULE}.service_account.Credentials.from_service_account_info")
+    def test_mint_token_pins_googles_token_endpoint(
+        self, mock_from_info: mock.MagicMock, mock_session: mock.MagicMock
+    ) -> None:
+        mock_from_info.return_value.token = "minted"
+
+        _mint_token(_key())
+
+        # The signed-assertion POST must go to Google, never to a host smuggled in via the
+        # uploaded key file's `token_uri`.
+        assert (
+            mock_from_info.call_args.args[0]["token_uri"] == GOOGLE_TOKEN_URI == "https://oauth2.googleapis.com/token"
+        )
 
     @mock.patch(f"{_MODULE}._mint_token", return_value="token-1")
     @mock.patch(f"{_MODULE}.make_tracked_session")

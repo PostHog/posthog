@@ -161,4 +161,4 @@ class TestGcpCloudBillingSource:
         assert kwargs["endpoint"] == "skus"
         assert kwargs["billing_account_id"] == "012345-567890-ABCDEF"
         assert kwargs["key"].private_key_id == "key-id"
-        assert kwargs["key"].token_uri == "https://oauth2.googleapis.com/token"
+        assert kwargs["key"].project_id == "posthog-billing"

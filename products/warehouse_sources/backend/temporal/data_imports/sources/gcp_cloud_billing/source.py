@@ -42,7 +42,6 @@ def _service_account_key(config: GcpCloudBillingSourceConfig) -> ServiceAccountK
         private_key=config.key_file.private_key,
         private_key_id=config.key_file.private_key_id,
         client_email=config.key_file.client_email,
-        token_uri=config.key_file.token_uri,
     )
 
 

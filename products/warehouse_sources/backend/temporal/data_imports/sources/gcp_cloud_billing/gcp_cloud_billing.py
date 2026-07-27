@@ -19,6 +19,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_
 # service account may actually read is still bound by its IAM roles (Billing Account Viewer).
 SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 
+# The token endpoint is pinned rather than read from the uploaded key file: a real service-account
+# key always exchanges JWTs at Google's endpoint, and trusting the file's `token_uri` would let an
+# uploader point the signed-assertion POST at an arbitrary host (blind SSRF).
+GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
+
 REQUEST_TIMEOUT_SECONDS = 120
 # Google truncates long error bodies badly in logs; enough to carry the actionable detail
 # ("Cloud Billing API has not been used in project ... before or it is disabled").
@@ -33,7 +38,6 @@ class ServiceAccountKey:
     private_key: str
     private_key_id: str
     client_email: str
-    token_uri: str
 
 
 def _api_session(key: ServiceAccountKey) -> requests.Session:
@@ -54,7 +58,7 @@ def _mint_token(key: ServiceAccountKey) -> str:
             "private_key": key.private_key,
             "private_key_id": key.private_key_id,
             "client_email": key.client_email,
-            "token_uri": key.token_uri,
+            "token_uri": GOOGLE_TOKEN_URI,
         },
         scopes=SCOPES,
     )
