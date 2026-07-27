@@ -14,7 +14,7 @@ use common_types::cohort::TeamAllowlist;
 use serde_json::Value;
 use sqlx::types::Json;
 use sqlx::{FromRow, PgPool};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use crate::domain::{
@@ -85,7 +85,7 @@ const CAS_RUN_RECONCILING: &str = concat!(
     "\n        SET status = ",
     reconciling_status!(),
     ", updated_at = now()",
-    "\n        WHERE id = $1 AND status = ",
+    "\n        WHERE id = $1 AND backfill_kind = 'behavioral' AND status = ",
     seeding_status!(),
     " AND chunks_planned_at IS NOT NULL",
     "\n          AND NOT EXISTS (",
@@ -93,7 +93,17 @@ const CAS_RUN_RECONCILING: &str = concat!(
     "\n              WHERE run_id = $1 AND status <> ",
     confirmed_chunk_status!(),
     "\n          )",
-    "\n        RETURNING id\n"
+    "\n        RETURNING id, reconcile_dispatched_at\n"
+);
+
+const RUNS_WITH_ALL_CHUNKS_CONFIRMED: &str = concat!(
+    "\n    SELECT candidate.run_id",
+    "\n    FROM unnest($1::uuid[]) AS candidate(run_id)",
+    "\n    WHERE NOT EXISTS (",
+    "\n        SELECT 1 FROM cohort_backfill_chunks",
+    "\n        WHERE run_id = candidate.run_id AND status <> ",
+    confirmed_chunk_status!(),
+    "\n    )\n"
 );
 
 /// Which fenced write lost its dispatch epoch. Carried on [`CompletionStoreError::CompletionFenceLost`]
@@ -161,11 +171,14 @@ pub enum PlanningStampOutcome {
 /// ([`cas_run_reconciling`]) or by re-confirming an already-reconciling run ([`confirm_reconciling`]).
 /// It is linear: [`ReconcilingClaim::record`] persists the dispatch or [`ReconcilingClaim::revert`]
 /// releases it back to `seeding`, and either consumes the claim so a dispatch can never be recorded
-/// twice off one CAS.
+/// twice off one CAS. Both minting queries filter `backfill_kind`, so a claim also proves the run
+/// belongs to this protocol.
 #[must_use]
 #[derive(Debug)]
 pub struct ReconcilingClaim {
     run_id: RunId,
+    /// `reconcile_dispatched_at` as of the mint; `None` for a never-dispatched run.
+    dispatched_at_mint: Option<DateTime<Utc>>,
 }
 
 impl ReconcilingClaim {
@@ -177,7 +190,10 @@ impl ReconcilingClaim {
     /// added chunks between the CAS proving zero remaining and the dispatch). Any dispatch record is
     /// cleared with the status: a re-dispatch of a run with an unparseable record can land here, and
     /// leaving the columns behind would strand the run as a seeding-with-reconcile-columns anomaly.
-    /// Best-effort: if the run already left `reconciling`, the guarded UPDATE simply matches nothing.
+    ///
+    /// Fenced on the epoch observed at mint: `confirm_reconciling` is not exclusive, so without it a
+    /// losing replica's revert would wipe a winner's just-recorded dispatch. Best-effort otherwise —
+    /// a run that already left `reconciling` simply matches nothing.
     pub async fn revert(self, pool: &PgPool) -> Result<(), CompletionStoreError> {
         sqlx::query(
             r#"
@@ -185,9 +201,11 @@ impl ReconcilingClaim {
             SET status = 'seeding', reconcile_dispatched_at = NULL, reconcile_observed_at = NULL,
                 reconcile_hwms = NULL, marker_watch = NULL, updated_at = now()
             WHERE id = $1 AND status = 'reconciling'
+              AND reconcile_dispatched_at IS NOT DISTINCT FROM $2
             "#,
         )
         .bind(self.run_id)
+        .bind(self.dispatched_at_mint)
         .execute(pool)
         .await?;
         Ok(())
@@ -242,7 +260,8 @@ impl ReconcilingClaim {
 
 /// Stamp the planning proof (`chunks_planned_at`) exactly once for a seeding run — the durable
 /// evidence that day-chunk planning ran, which distinguishes a legitimately zero-chunk run from one
-/// whose planning has not yet happened.
+/// whose planning has not yet happened. Re-filters `backfill_kind` like every entry point here, so a
+/// `person_property` run id handed in by a caller can never enter this protocol.
 pub async fn mark_chunks_planned(
     pool: &PgPool,
     run_id: RunId,
@@ -251,7 +270,8 @@ pub async fn mark_chunks_planned(
         r#"
         UPDATE cohort_backfill_runs
         SET chunks_planned_at = now(), updated_at = now()
-        WHERE id = $1 AND status = 'seeding' AND chunks_planned_at IS NULL
+        WHERE id = $1 AND backfill_kind = 'behavioral' AND status = 'seeding'
+          AND chunks_planned_at IS NULL
         RETURNING id
         "#,
     )
@@ -271,11 +291,13 @@ pub async fn read_planning_stamp(
     pool: &PgPool,
     run_id: RunId,
 ) -> Result<Option<DateTime<Utc>>, CompletionStoreError> {
-    let stamp: Option<Option<DateTime<Utc>>> =
-        sqlx::query_scalar("SELECT chunks_planned_at FROM cohort_backfill_runs WHERE id = $1")
-            .bind(run_id)
-            .fetch_optional(pool)
-            .await?;
+    let stamp: Option<Option<DateTime<Utc>>> = sqlx::query_scalar(
+        "SELECT chunks_planned_at FROM cohort_backfill_runs \
+         WHERE id = $1 AND backfill_kind = 'behavioral'",
+    )
+    .bind(run_id)
+    .fetch_optional(pool)
+    .await?;
     Ok(stamp.flatten())
 }
 
@@ -287,31 +309,32 @@ pub async fn cas_run_reconciling(
     pool: &PgPool,
     run_id: RunId,
 ) -> Result<Option<ReconcilingClaim>, CompletionStoreError> {
-    let claimed = sqlx::query_scalar::<_, RunId>(CAS_RUN_RECONCILING)
+    let claimed = sqlx::query_as::<_, ClaimRow>(CAS_RUN_RECONCILING)
         .bind(run_id)
         .fetch_optional(pool)
         .await?;
-    Ok(claimed.map(|run_id| ReconcilingClaim { run_id }))
+    Ok(claimed.map(ClaimRow::into_claim))
 }
 
 /// Mint a claim for an already-`reconciling` run so a re-dispatch (self-healing an undispatched or
 /// stale record) can rewrite its dispatch state. `None` means the run is no longer `reconciling`.
+/// Non-exclusive by design — concurrent claimants are reconciled by INV-3's ruling fence.
 pub async fn confirm_reconciling(
     pool: &PgPool,
     run_id: RunId,
 ) -> Result<Option<ReconcilingClaim>, CompletionStoreError> {
-    let claimed = sqlx::query_scalar::<_, RunId>(
+    let claimed = sqlx::query_as::<_, ClaimRow>(
         r#"
         UPDATE cohort_backfill_runs
         SET updated_at = now()
-        WHERE id = $1 AND status = 'reconciling'
-        RETURNING id
+        WHERE id = $1 AND backfill_kind = 'behavioral' AND status = 'reconciling'
+        RETURNING id, reconcile_dispatched_at
         "#,
     )
     .bind(run_id)
     .fetch_optional(pool)
     .await?;
-    Ok(claimed.map(|run_id| ReconcilingClaim { run_id }))
+    Ok(claimed.map(ClaimRow::into_claim))
 }
 
 /// Persist the watcher's resume state (`marker_watch`) under the dispatch fence.
@@ -441,8 +464,8 @@ pub async fn mark_participation_completed(
 }
 
 /// Record a terminal supersede-by-reconcile outcome: markers short and the cohort diverged or was
-/// deleted. `COALESCE` preserves an existing `superseded_at`, so a racing edit's supersession stays
-/// authoritative.
+/// deleted. An already-superseded participation keeps both its timestamp and its error, so a racing
+/// edit's supersession — and the reason Django recorded for it — stays authoritative.
 pub async fn record_participation_partial(
     pool: &PgPool,
     run_id: RunId,
@@ -458,7 +481,8 @@ pub async fn record_participation_partial(
             FOR UPDATE
         ), updated AS (
             UPDATE cohort_backfill_run_cohorts c
-            SET superseded_at = COALESCE(c.superseded_at, now()), error = left($4, $5)
+            SET superseded_at = COALESCE(c.superseded_at, now()),
+                error = CASE WHEN c.superseded_at IS NULL THEN left($4, $5) ELSE c.error END
             FROM fence
             WHERE c.run_id = fence.id AND c.cohort_id = $3
             RETURNING c.id
@@ -679,6 +703,24 @@ pub async fn load_current_behavioral_hashes(
     Ok(current)
 }
 
+/// Which of the candidate runs have a fully confirmed chunk ledger, in one round trip. The driver
+/// ticks inside the orchestrator's poll arm ahead of its liveness heartbeat, so a per-run round trip
+/// would scale one tick's cost with the seeding backlog.
+pub async fn runs_with_all_chunks_confirmed(
+    pool: &PgPool,
+    run_ids: &[RunId],
+) -> Result<HashSet<RunId>, CompletionStoreError> {
+    if run_ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let ids = run_ids.iter().map(|run_id| run_id.0).collect::<Vec<_>>();
+    let confirmed = sqlx::query_scalar::<_, RunId>(RUNS_WITH_ALL_CHUNKS_CONFIRMED)
+        .bind(ids)
+        .fetch_all(pool)
+        .await?;
+    Ok(confirmed.into_iter().collect())
+}
+
 /// A run discovered by the completion driver, already classified into its [`CompletionPhase`].
 #[derive(Debug, Clone)]
 pub struct DiscoveredCompletion {
@@ -766,6 +808,21 @@ fn resolve_fence(
 }
 
 #[derive(Debug, FromRow)]
+struct ClaimRow {
+    id: RunId,
+    reconcile_dispatched_at: Option<DateTime<Utc>>,
+}
+
+impl ClaimRow {
+    fn into_claim(self) -> ReconcilingClaim {
+        ReconcilingClaim {
+            run_id: self.id,
+            dispatched_at_mint: self.reconcile_dispatched_at,
+        }
+    }
+}
+
+#[derive(Debug, FromRow)]
 struct CompletionRunRow {
     id: RunId,
     team_id: i32,
@@ -818,6 +875,7 @@ mod tests {
         );
         // The composed queries must actually be built from the scanned fragments.
         assert!(CAS_RUN_RECONCILING.contains(confirmed_chunk_status!()));
+        assert!(RUNS_WITH_ALL_CHUNKS_CONFIRMED.contains(confirmed_chunk_status!()));
         assert!(DISCOVER_COMPLETION_ALL.contains(seeding_status!()));
     }
 }

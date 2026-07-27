@@ -137,30 +137,29 @@ async fn prepare_run(
         persist_run_warning(pool, run_id, RunWarningNote::LookbackTruncated).await;
     }
 
+    // Without the proof the run never dispatches, so an uncovered cohort can never stamp readiness
+    // on zero seeded history. Siblings still get planned and seeded.
+    let coverage_complete = validated.uncovered_cohorts.is_empty();
+    if !coverage_complete {
+        counter!(RUNS_PLANNING_WITHHELD).increment(1);
+        warn!(
+            run_id = ?run_id,
+            uncovered_cohorts = ?validated.uncovered_cohorts,
+            "active participations have no surviving pinned condition; withholding the planning proof"
+        );
+    }
+
     let days = plan_days(
         &validated.run.conditions,
         validated.run.boundary,
         &plan_caps,
     );
     if days.is_empty() {
-        if validated.run.conditions.is_empty() && validated.active_participations > 0 {
-            // Nothing survived pinned-load — an unsupported condition shape, or a pinned payload
-            // with no conditions — while a cohort still expects coverage. Stamping the planning
-            // proof would let the run dispatch, reconcile and stamp events readiness on zero seeded
-            // history, opening `is_flag_compatible` with no backing data. Hash attribution cannot
-            // catch it either: the cohort never changed. Withhold the proof and leave the run
-            // fail-closed in `seeding` until the shape is supported.
-            counter!(RUNS_PLANNING_WITHHELD).increment(1);
-            warn!(
-                run_id = ?run_id,
-                active_participations = validated.active_participations,
-                "no pinned conditions survived for an active participation; withholding the planning proof"
-            );
-            return PrepareOutcome::NoChunks;
+        if coverage_complete {
+            // A legitimately zero-chunk run still needs the proof, or it stalls waiting for chunks
+            // that will never exist.
+            stamp_planning(pool, run_id).await;
         }
-        // A zero-chunk run is legitimately complete; it must still stamp the planning proof so the
-        // completion driver can dispatch it, not stall waiting for chunks that will never exist.
-        stamp_planning(pool, run_id).await;
         return PrepareOutcome::NoChunks;
     }
     match store
@@ -169,7 +168,9 @@ async fn prepare_run(
     {
         Ok(PlanOutcome::Planned { inserted }) => {
             counter!(CHUNKS_PLANNED).increment(inserted);
-            stamp_planning(pool, run_id).await;
+            if coverage_complete {
+                stamp_planning(pool, run_id).await;
+            }
         }
         Ok(PlanOutcome::RunNotSeeding) => return PrepareOutcome::Skipped,
         Err(error) => {

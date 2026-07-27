@@ -4,7 +4,7 @@
 //! (pacing, in-flight bound, mark-produced, delivery acks) lives above, in the orchestrator, so this
 //! module carries no PostgreSQL dependency.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
@@ -121,14 +121,27 @@ impl SeedTileProducer {
     /// these positions, so the watcher started here cannot miss a marker of this dispatch. A manual
     /// disaster-recovery fallback could instead resolve positions via `offsets_for_times`; that is
     /// intentionally not implemented here. Blocking — call via `spawn_blocking` from async contexts.
+    ///
+    /// `budget` bounds the whole capture, not each call: watermarks come one partition at a time, so
+    /// a per-call timeout would let a degraded broker hold the thread for `partitions × timeout`.
     pub fn capture_topic_offsets(
         &self,
         topic: &str,
-        timeout: Duration,
+        budget: Duration,
     ) -> Result<WatchPositions, CaptureOffsetsError> {
+        let deadline = Instant::now() + budget;
+        let remaining = |deadline: Instant| {
+            deadline
+                .checked_duration_since(Instant::now())
+                .filter(|left| !left.is_zero())
+                .ok_or_else(|| CaptureOffsetsError::BudgetExhausted {
+                    topic: topic.to_string(),
+                    budget,
+                })
+        };
         let client = self.producer.client();
         let metadata = client
-            .fetch_metadata(Some(topic), timeout)
+            .fetch_metadata(Some(topic), remaining(deadline)?)
             .map_err(CaptureOffsetsError::Metadata)?;
         let topic_metadata = metadata
             .topics()
@@ -154,7 +167,7 @@ impl SeedTileProducer {
         let mut positions = WatchPositions::new();
         for partition in topic_metadata.partitions() {
             let (_low, high) = client
-                .fetch_watermarks(topic, partition.id(), timeout)
+                .fetch_watermarks(topic, partition.id(), remaining(deadline)?)
                 .map_err(|source| CaptureOffsetsError::Watermarks {
                     topic: topic.to_string(),
                     partition: partition.id(),
@@ -185,6 +198,8 @@ pub enum CaptureOffsetsError {
     },
     #[error("membership topic {topic:?} reports no partitions")]
     NoPartitions { topic: String },
+    #[error("capturing membership topic {topic:?} offsets exceeded its {budget:?} budget")]
+    BudgetExhausted { topic: String, budget: Duration },
     #[error("fetching watermarks for membership topic {topic:?} partition {partition}")]
     Watermarks {
         topic: String,

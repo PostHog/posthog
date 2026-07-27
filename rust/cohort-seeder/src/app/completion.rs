@@ -18,6 +18,7 @@ use std::time::Duration;
 use common_types::cohort::TeamAllowlist;
 use metrics::{counter, gauge};
 use sqlx::PgPool;
+use tokio::sync::Semaphore;
 use tokio::task::JoinError;
 use tracing::warn;
 
@@ -30,12 +31,13 @@ use crate::domain::{
 };
 use crate::kafka::producer::{CaptureOffsetsError, SeedTileProducer};
 use crate::observability::metrics::{
-    RECONCILE_CAS_LOST, RECONCILE_DISPATCHES, RECONCILE_RECORD_INVALID, RUNS_RECONCILING,
+    RECONCILE_CAS_LOST, RECONCILE_DISPATCHES, RECONCILE_DISPATCHES_IN_FLIGHT,
+    RECONCILE_RECORD_INVALID, RUNS_RECONCILING,
 };
-use crate::store::chunks::PgChunkStore;
 use crate::store::completion::{
     cas_run_reconciling, confirm_reconciling, discover_completions,
-    mark_run_observed_unreconcilable, CompletionStoreError, ReconcilingClaim,
+    mark_run_observed_unreconcilable, runs_with_all_chunks_confirmed, CompletionStoreError,
+    ReconcilingClaim,
 };
 use crate::store::runs::ReconcileRunError;
 
@@ -112,9 +114,9 @@ struct DispatchContext {
 
 pub struct CompletionDriver {
     context: DispatchContext,
-    store: PgChunkStore,
     allowlist: TeamAllowlist,
     in_flight: Arc<Mutex<HashSet<RunId>>>,
+    dispatch_slots: Arc<Semaphore>,
 }
 
 impl CompletionDriver {
@@ -124,25 +126,27 @@ impl CompletionDriver {
         allowlist: TeamAllowlist,
         membership_topic: String,
         max_inflight: NonZeroUsize,
+        max_concurrent_dispatches: NonZeroUsize,
         register_backfill: RegisterBackfillConfirmation,
     ) -> Self {
         Self {
             context: DispatchContext {
+                pool,
                 producer,
                 membership_topic: Arc::from(membership_topic),
                 max_inflight,
                 register_backfill,
-                pool: pool.clone(),
             },
-            store: PgChunkStore::new(pool),
             allowlist,
             in_flight: Arc::new(Mutex::new(HashSet::new())),
+            dispatch_slots: Arc::new(Semaphore::new(max_concurrent_dispatches.get())),
         }
     }
 
     /// One driver pass: classify every discovered run and spawn dispatch tasks for the ones that need
     /// one. A discovery failure is logged and retried next tick; the dark path (driver absent) costs
-    /// zero queries.
+    /// zero queries. Every read is per-tick, never per-run — the pass blocks the orchestrator's
+    /// liveness heartbeat.
     pub async fn tick(&self) {
         let discovered = match discover_completions(&self.context.pool, &self.allowlist).await {
             Ok(discovered) => discovered,
@@ -153,6 +157,7 @@ impl CompletionDriver {
         };
 
         let mut reconciling = 0_u64;
+        let mut planned = Vec::new();
         for completion in discovered {
             match completion.phase {
                 CompletionPhase::Observed | CompletionPhase::Reconciling(_) => {
@@ -172,9 +177,7 @@ impl CompletionDriver {
                         );
                     }
                 }
-                CompletionPhase::SeedingPlanned => {
-                    self.maybe_dispatch_confirmed(completion.run_id).await;
-                }
+                CompletionPhase::SeedingPlanned => planned.push(completion.run_id),
                 CompletionPhase::SeedingUnplanned => {}
                 CompletionPhase::SeedingAnomalous => {
                     warn!(
@@ -185,33 +188,38 @@ impl CompletionDriver {
             }
         }
         gauge!(RUNS_RECONCILING).set(reconciling as f64);
-    }
 
-    async fn maybe_dispatch_confirmed(&self, run_id: RunId) {
-        match self.store.chunk_progress(run_id).await {
-            Ok(progress) if progress.remaining() == 0 => {
-                let _spawned = self.spawn_dispatch(run_id, DispatchKind::Fresh);
+        match runs_with_all_chunks_confirmed(&self.context.pool, &planned).await {
+            Ok(confirmed) => {
+                for run_id in confirmed {
+                    let _spawned = self.spawn_dispatch(run_id, DispatchKind::Fresh);
+                }
             }
-            Ok(_) => {}
             Err(error) => {
-                warn!(error = %error, run_id = ?run_id, "reading chunk progress for dispatch failed");
+                warn!(error = %error, "reading chunk progress for dispatch failed");
             }
         }
     }
 
-    /// Spawns a dispatch task unless one is already in flight for this run on this replica. Returns
-    /// whether a task actually started, so callers can attribute per-event signals to the event
-    /// rather than to every poll tick that observes the same pending state.
+    /// Spawns a dispatch task unless one is already in flight for this run on this replica or the
+    /// driver is at its concurrency budget. Returns whether a task actually started, so callers can
+    /// attribute per-event signals to the event rather than to every poll tick that observes the
+    /// same pending state.
+    ///
+    /// Every task produces `cohorts × COHORT_PARTITION_COUNT` tiles through the producer the chunk
+    /// pipeline shares, so unbounded fan-out would back the core seeding path off its own queue. A
+    /// run that misses the budget keeps its phase and is picked up on a later tick.
     fn spawn_dispatch(&self, run_id: RunId, kind: DispatchKind) -> bool {
+        let Ok(permit) = Arc::clone(&self.dispatch_slots).try_acquire_owned() else {
+            return false;
+        };
         if !lock_in_flight(&self.in_flight).insert(run_id) {
             return false;
         }
         let context = self.context.clone();
-        let guard = InFlightGuard {
-            in_flight: Arc::clone(&self.in_flight),
-            run_id,
-        };
+        let guard = InFlightGuard::enter(Arc::clone(&self.in_flight), run_id);
         tokio::spawn(async move {
+            let _permit = permit;
             let _guard = guard;
             run_dispatch(&context, run_id, kind).await;
         });
@@ -219,16 +227,24 @@ impl CompletionDriver {
     }
 }
 
-/// Removes the run from the in-flight set when its dispatch task ends — including on panic. A leaked
-/// entry would permanently dedupe the run away on this replica until restart.
+/// Releases the run's in-flight entry and gauge slot when its dispatch task ends — including on
+/// panic. A leaked entry would dedupe the run away on this replica until restart.
 struct InFlightGuard {
     in_flight: Arc<Mutex<HashSet<RunId>>>,
     run_id: RunId,
 }
 
+impl InFlightGuard {
+    fn enter(in_flight: Arc<Mutex<HashSet<RunId>>>, run_id: RunId) -> Self {
+        gauge!(RECONCILE_DISPATCHES_IN_FLIGHT).increment(1.0);
+        Self { in_flight, run_id }
+    }
+}
+
 impl Drop for InFlightGuard {
     fn drop(&mut self) {
         lock_in_flight(&self.in_flight).remove(&self.run_id);
+        gauge!(RECONCILE_DISPATCHES_IN_FLIGHT).decrement(1.0);
     }
 }
 

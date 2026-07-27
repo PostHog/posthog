@@ -25,7 +25,8 @@ use cohort_seeder::store::completion::{
     load_observation_participations, mark_chunks_planned, mark_participation_completed,
     mark_run_observed, mark_run_observed_unreconcilable, persist_marker_observations,
     persist_marker_watch, record_participation_partial, record_participation_shortfall,
-    CompletionStoreError, CurrentBehavioralHash, PlanningStampOutcome,
+    runs_with_all_chunks_confirmed, CompletionStoreError, CurrentBehavioralHash,
+    PlanningStampOutcome,
 };
 use cohort_seeder::store::RenderedError;
 use cohort_seeder::test_support;
@@ -219,6 +220,115 @@ async fn revert_clears_the_dispatch_record_and_returns_to_seeding() -> Result<()
             .find(|completion| completion.run_id == run_id)
             .map(|completion| completion.phase.clone());
         ensure!(phase == Some(CompletionPhase::SeedingPlanned));
+        Ok(())
+    })
+    .await
+}
+
+/// A claim minted before another dispatcher recorded its dispatch cannot revert it — two replicas
+/// can hold a claim for one run, and an unfenced revert would bounce a live dispatch to `seeding`.
+#[tokio::test]
+async fn revert_is_fenced_against_a_dispatch_recorded_after_the_claim() -> Result<()> {
+    with_db(|pool| async move {
+        let run_id = insert_reconciling_run(&pool, 2).await?;
+        insert_participation(&pool, run_id, 2, 301, false, empty_pinned()).await?;
+        let stale = confirm_reconciling(&pool, run_id)
+            .await?
+            .context("run should be claimable")?;
+        let winner = confirm_reconciling(&pool, run_id)
+            .await?
+            .context("run should be claimable twice")?;
+        let epoch = winner.record(&pool, &full_hwms(), &empty_watch()).await?;
+
+        stale.revert(&pool).await?;
+
+        let (status, dispatched_at): (String, Option<DateTime<Utc>>) = sqlx::query_as(
+            "SELECT status, reconcile_dispatched_at FROM cohort_backfill_runs WHERE id = $1",
+        )
+        .bind(run_id)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(status == "reconciling", "revert bounced a live dispatch");
+        ensure!(dispatched_at == Some(epoch.as_datetime()));
+        mark_run_observed(&pool, run_id, epoch).await?;
+        Ok(())
+    })
+    .await
+}
+
+/// The batched ledger check returns exactly the runs whose chunks have all confirmed.
+#[tokio::test]
+async fn runs_with_all_chunks_confirmed_selects_only_fully_confirmed_ledgers() -> Result<()> {
+    with_db(|pool| async move {
+        let store = PgChunkStore::new(pool.clone());
+        let no_chunks =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let confirmed =
+            insert_run(&pool, 3, "team_enablement", "seeding", true, empty_pinned()).await?;
+        store.plan_chunks(confirmed, [100], ONE_BAND).await?;
+        sqlx::query("UPDATE cohort_backfill_chunks SET status = 'confirmed' WHERE run_id = $1")
+            .bind(confirmed)
+            .execute(&pool)
+            .await?;
+        let pending =
+            insert_run(&pool, 4, "team_enablement", "seeding", true, empty_pinned()).await?;
+        store.plan_chunks(pending, [100, 101], ONE_BAND).await?;
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks SET status = 'confirmed' \
+             WHERE id = (SELECT id FROM cohort_backfill_chunks WHERE run_id = $1 LIMIT 1)",
+        )
+        .bind(pending)
+        .execute(&pool)
+        .await?;
+
+        let ready = runs_with_all_chunks_confirmed(&pool, &[no_chunks, confirmed, pending]).await?;
+        ensure!(
+            ready == [no_chunks, confirmed].into_iter().collect(),
+            "unexpected ready set: {ready:?}"
+        );
+        ensure!(runs_with_all_chunks_confirmed(&pool, &[]).await?.is_empty());
+        Ok(())
+    })
+    .await
+}
+
+/// A participation Django already superseded keeps the reason Django recorded for it.
+#[tokio::test]
+async fn recording_a_partial_preserves_an_existing_supersession_reason() -> Result<()> {
+    with_db(|pool| async move {
+        let run_id = insert_reconciling_run(&pool, 2).await?;
+        insert_participation(&pool, run_id, 2, 301, true, empty_pinned()).await?;
+        sqlx::query(
+            "UPDATE cohort_backfill_run_cohorts SET error = 'Cohort definition changed during backfill' \
+             WHERE run_id = $1",
+        )
+        .bind(run_id)
+        .execute(&pool)
+        .await?;
+        let claim = confirm_reconciling(&pool, run_id)
+            .await?
+            .context("run should be claimable")?;
+        let epoch = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
+
+        record_participation_partial(
+            &pool,
+            run_id,
+            epoch,
+            CohortId(301),
+            &RenderedError::from_message("markers short; cohort diverged"),
+        )
+        .await?;
+
+        let error: String = sqlx::query_scalar(
+            "SELECT error FROM cohort_backfill_run_cohorts WHERE run_id = $1 AND cohort_id = 301",
+        )
+        .bind(run_id)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(
+            error == "Cohort definition changed during backfill",
+            "reconcile outcome overwrote the original supersession reason: {error}"
+        );
         Ok(())
     })
     .await

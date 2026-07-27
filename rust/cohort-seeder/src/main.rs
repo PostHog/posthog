@@ -89,6 +89,7 @@ async fn async_main(config: Config) -> Result<()> {
     let settings =
         OrchestratorSettings::try_from(&config).context("validating orchestrator settings")?;
     let completion_driver = build_completion_driver(&config, &pool, &producer)
+        .await
         .context("validating auto reconcile dispatch policy")?;
     let claimed_by = format!("cohort-seeder:{}", uuid::Uuid::now_v7());
     let orchestrator = SeederOrchestrator::new(
@@ -125,8 +126,9 @@ async fn async_main(config: Config) -> Result<()> {
 
 /// Build the reconcile-dispatch driver when the policy is armed; `None` leaves the dark path with no
 /// extra queries. A misconfigured policy (enabled without attestation, or a non-contract partition
-/// count) is a startup error.
-fn build_completion_driver(
+/// count) is a startup error, as is an unreachable membership topic — a typo'd name would otherwise
+/// surface only as runs stuck re-dispatching forever.
+async fn build_completion_driver(
     config: &Config,
     pool: &sqlx::PgPool,
     producer: &SeedTileProducer,
@@ -136,12 +138,25 @@ fn build_completion_driver(
         AutoDispatchPolicy::Enabled(register_backfill) => {
             let max_inflight = NonZeroUsize::new(config.seeder_max_inflight_tiles)
                 .context("SEEDER_MAX_INFLIGHT_TILES must be greater than zero")?;
+            let max_concurrent_dispatches = NonZeroUsize::new(
+                config.seeder_reconcile_max_concurrent_dispatches,
+            )
+            .context("SEEDER_RECONCILE_MAX_CONCURRENT_DISPATCHES must be greater than zero")?;
+            let verify_producer = producer.clone();
+            let membership_topic = config.cohort_membership_changed_topic.clone();
+            tokio::task::spawn_blocking(move || {
+                verify_producer.capture_topic_offsets(&membership_topic, PARTITION_VERIFY_TIMEOUT)
+            })
+            .await
+            .context("joining membership topic verification task")?
+            .context("verifying the membership topic is reachable")?;
             Ok(Some(CompletionDriver::new(
                 pool.clone(),
                 producer.clone(),
                 config.team_allowlist.clone(),
                 config.cohort_membership_changed_topic.clone(),
                 max_inflight,
+                max_concurrent_dispatches,
                 register_backfill,
             )))
         }
@@ -163,6 +178,7 @@ fn log_startup(config: &Config) {
         max_inflight_tiles = config.seeder_max_inflight_tiles,
         reconcile_auto_dispatch_enabled = config.seeder_reconcile_auto_dispatch_enabled,
         confirm_register_backfilled = config.seeder_confirm_register_backfilled,
+        reconcile_max_concurrent_dispatches = config.seeder_reconcile_max_concurrent_dispatches,
         membership_topic = %config.cohort_membership_changed_topic,
         "starting cohort-seeder",
     );
