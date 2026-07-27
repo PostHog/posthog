@@ -21,9 +21,14 @@ import remarkMentions from './mention'
  */
 export const CHART_REF_PREFIX = 'chart:'
 
+// Matched against the id charset the backend enforces on `chart_id` (see `ChartArtefact` in
+// artefact_schemas.py). Anything outside it is not treated as a chart reference at all, so it stays
+// subject to the ordinary URL sanitizing rather than riding the exemption below.
+const CHART_REF_TARGET = new RegExp(`^${CHART_REF_PREFIX}([a-z0-9][a-z0-9_-]*)$`)
+
 /** The chart id behind a `chart:` link target, or null when `href` is an ordinary link. */
 function chartRefId(href: unknown): string | null {
-    return typeof href === 'string' && href.startsWith(CHART_REF_PREFIX) ? href.slice(CHART_REF_PREFIX.length) : null
+    return typeof href === 'string' ? (CHART_REF_TARGET.exec(href)?.[1] ?? null) : null
 }
 
 interface LemonMarkdownContainerProps {
@@ -61,8 +66,9 @@ export interface LemonMarkdownProps {
     renderMermaid?: (code: string) => React.ReactNode
     /**
      * Optional renderer for `chart:<id>` link targets (see `CHART_REF_PREFIX`). Returning null or
-     * undefined falls back to rendering an ordinary link, which is what happens for an id the caller
-     * has no chart for, and is also the default when this prop is omitted.
+     * undefined renders the link's own label as plain text, which is the fallback for an id the
+     * caller has no chart for. Omitting this prop leaves chart targets to the ordinary link path,
+     * where the URL sanitizer strips the unrecognized scheme.
      */
     renderChartRef?: (chartId: string) => React.ReactNode
 }
@@ -109,11 +115,11 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
         () => ({
             a: ({ href, children }: any): JSX.Element => {
                 const chartId = renderChartRef ? chartRefId(href) : null
-                if (chartId) {
-                    const chart = renderChartRef?.(chartId)
-                    if (chart !== null && chart !== undefined) {
-                        return <>{chart}</>
-                    }
+                if (chartId !== null) {
+                    // An id with no chart behind it (a typo, or one deleted since the summary was
+                    // written) falls back to its own label as plain text. Linking it instead would
+                    // point the reader at a scheme no browser can follow.
+                    return <>{renderChartRef?.(chartId) ?? children}</>
                 }
                 return (
                     <Link to={href} target="_blank" targetBlankIcon disableDocsPanel={disableDocsRedirect}>
