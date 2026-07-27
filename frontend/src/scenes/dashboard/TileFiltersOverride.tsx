@@ -15,7 +15,12 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
-import { isInsightQueryWithBreakdown, isInsightQueryWithSeries, isInsightVizNode } from '~/queries/utils'
+import {
+    isEmptyBreakdownFilter,
+    isInsightQueryWithBreakdown,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+} from '~/queries/utils'
 import type { DashboardTile, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import { tileLogic } from './tileLogic'
@@ -162,6 +167,23 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                             size="small"
                         />
                     </BindLogic>
+                    <div className="mt-2">
+                        <LemonSwitch
+                            checked={isEmptyBreakdownFilter(overrides.breakdown_filter)}
+                            onChange={(checked) => setBreakdown(checked ? {} : null)}
+                            label="No breakdown"
+                            bordered
+                            fullWidth
+                            disabledReason={
+                                supportsBreakdown ? undefined : "This insight type doesn't support a breakdown override"
+                            }
+                            data-attr="tile-override-no-breakdown"
+                        />
+                        <p className="text-xs text-muted mt-1 mb-0">
+                            Remove the breakdown from this tile, even if the dashboard or the insight has one. Adding a
+                            breakdown above turns this off.
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>

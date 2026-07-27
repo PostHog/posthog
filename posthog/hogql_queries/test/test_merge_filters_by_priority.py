@@ -42,6 +42,35 @@ class TestMergeFiltersByPriority(SimpleTestCase):
         assert merged["filterTestAccounts"] is True
         assert merged["breakdown_filter"] == {"breakdown": "$browser", "breakdown_type": "event"}
 
+    def test_empty_tile_breakdown_filter_overrides_dashboard_breakdown(self):
+        dashboard_breakdown = {"breakdown": "$browser", "breakdown_type": "event"}
+
+        merged = merge_filters_by_priority(
+            {"breakdown_filter": dashboard_breakdown},
+            {"breakdown_filter": {}},
+        )
+        resolved_layers = resolve_filter_layers_by_priority(
+            {"breakdown_filter": dashboard_breakdown},
+            {"breakdown_filter": {}},
+        )
+
+        assert merged == {"breakdown_filter": {}}
+        assert resolved_layers == {
+            "dashboard": {},
+            "tile": {"breakdown_filter": {}},
+            "overridden_dashboard": {"breakdown_filter": dashboard_breakdown},
+        }
+
+    def test_null_tile_breakdown_filter_inherits_dashboard_breakdown(self):
+        dashboard_breakdown = {"breakdown": "$browser", "breakdown_type": "event"}
+
+        merged = merge_filters_by_priority(
+            {"breakdown_filter": dashboard_breakdown},
+            {"breakdown_filter": None},
+        )
+
+        assert merged == {"breakdown_filter": dashboard_breakdown}
+
     def test_properties_on_different_keys_are_and_combined_dashboard_first(self):
         dashboard_prop = {"key": "$country", "value": "US", "type": "event"}
         tile_prop = {"key": "$browser", "value": "Chrome", "type": "event"}

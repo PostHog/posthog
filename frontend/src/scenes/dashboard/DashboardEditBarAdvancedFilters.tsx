@@ -12,6 +12,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { hasBreakdownFilter, isEmptyBreakdownFilter } from '~/queries/utils'
 import { DashboardMode, DashboardPlacement } from '~/types'
 
 type TestAccountFilterChoice = 'inherit' | 'filter-out' | 'include'
@@ -26,6 +27,14 @@ const CHOICE_HINTS: Record<TestAccountFilterChoice, string> = {
     inherit: 'Each insight keeps its own "Filter out internal and test users" setting.',
     'filter-out': 'Internal and test users are filtered out of every insight on this dashboard.',
     include: 'Internal and test users are included in every insight on this dashboard.',
+}
+
+type BreakdownOverrideChoice = 'inherit' | 'custom' | 'none'
+
+const BREAKDOWN_CHOICE_HINTS: Record<BreakdownOverrideChoice, string> = {
+    inherit: 'Each insight keeps its own breakdown.',
+    custom: "The breakdown picked in the edit bar replaces every insight's breakdown.",
+    none: 'Breakdowns are removed from every insight on this dashboard.',
 }
 
 /**
@@ -43,7 +52,7 @@ export function DashboardEditBarAdvancedFilters(): JSX.Element {
         effectiveBreakdownColors,
         dataColorThemeId,
     } = useValues(dashboardLogic)
-    const { setFilterTestAccounts, setDashboardMode } = useActions(dashboardLogic)
+    const { setFilterTestAccounts, setBreakdownFilter, setDashboardMode } = useActions(dashboardLogic)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { currentTeam } = useValues(teamLogic)
     const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
@@ -53,13 +62,23 @@ export function DashboardEditBarAdvancedFilters(): JSX.Element {
     const choice: TestAccountFilterChoice =
         filterTestAccounts === null ? 'inherit' : filterTestAccounts ? 'filter-out' : 'include'
     const hasTestAccountFilters = (currentTeam?.test_account_filters || []).length > 0
+    const breakdownChoice: BreakdownOverrideChoice = hasBreakdownFilter(effectiveEditBarFilters.breakdown_filter)
+        ? 'custom'
+        : isEmptyBreakdownFilter(effectiveEditBarFilters.breakdown_filter)
+          ? 'none'
+          : 'inherit'
     // Only the full dashboard scene mounts DashboardInsightColorsModal, so elsewhere the button would no-op.
     const showColors =
         hasDashboardColors && canEditDashboard && !!dashboard && placement === DashboardPlacement.Dashboard
     // Auto-assigned colors aren't an override — only pinned values and a picked theme are.
     const hasColorOverrides =
         effectiveBreakdownColors.some((config) => config.source !== 'auto') || dataColorThemeId != null
-    const overrideCount = (choice === 'inherit' ? 0 : 1) + (showColors && hasColorOverrides ? 1 : 0)
+    // A custom breakdown is already visible in the edit bar itself, so only the otherwise
+    // invisible "no breakdown" state counts toward the badge.
+    const overrideCount =
+        (choice === 'inherit' ? 0 : 1) +
+        (breakdownChoice === 'none' ? 1 : 0) +
+        (showColors && hasColorOverrides ? 1 : 0)
 
     return (
         <Popover
@@ -122,6 +141,49 @@ export function DashboardEditBarAdvancedFilters(): JSX.Element {
                         ]}
                     />
                     <p className="mb-0 text-xs text-secondary">{CHOICE_HINTS[choice]}</p>
+                    <LemonDivider className="my-0" />
+                    <LemonLabel info="Remove the breakdown from every insight on this dashboard, or let each insight keep its own. Picking a breakdown in the edit bar replaces every insight's breakdown instead.">
+                        Breakdown
+                    </LemonLabel>
+                    <LemonSegmentedButton<BreakdownOverrideChoice>
+                        fullWidth
+                        size="small"
+                        value={breakdownChoice}
+                        onChange={(next) => {
+                            if (next === 'custom') {
+                                return
+                            }
+                            if (dashboardMode !== DashboardMode.Edit) {
+                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                            }
+                            setBreakdownFilter(next === 'none' ? {} : null)
+                        }}
+                        options={[
+                            {
+                                value: 'inherit',
+                                label: 'Inherit',
+                                tooltip: 'Each insight keeps its own breakdown',
+                                'data-attr': 'dashboard-breakdown-override-inherit',
+                            },
+                            {
+                                value: 'custom',
+                                label: 'Custom',
+                                tooltip: 'Set with the breakdown button in the edit bar',
+                                disabledReason:
+                                    breakdownChoice === 'custom'
+                                        ? undefined
+                                        : 'Pick a breakdown with the breakdown button in the edit bar',
+                                'data-attr': 'dashboard-breakdown-override-custom',
+                            },
+                            {
+                                value: 'none',
+                                label: 'No breakdown',
+                                tooltip: 'Remove the breakdown from every insight on this dashboard',
+                                'data-attr': 'dashboard-breakdown-override-none',
+                            },
+                        ]}
+                    />
+                    <p className="mb-0 text-xs text-secondary">{BREAKDOWN_CHOICE_HINTS[breakdownChoice]}</p>
                     {showColors && (
                         <>
                             <LemonDivider className="my-0" />

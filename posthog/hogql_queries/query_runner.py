@@ -114,7 +114,11 @@ from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
-from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
+from posthog.hogql_queries.insights.utils.breakdowns import (
+    has_breakdown_filter,
+    has_multi_breakdown,
+    has_single_breakdown,
+)
 from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
 from posthog.hogql_queries.query_failure_handling import (
@@ -2486,9 +2490,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if dashboard_filter.explicitDate is not None:
                 date_range.explicitDate = dashboard_filter.explicitDate
 
-        if dashboard_filter.breakdown_filter and not should_ignore_dashboard_breakdown:
+        if dashboard_filter.breakdown_filter is not None and not should_ignore_dashboard_breakdown:
             if hasattr(self.query, "breakdownFilter"):  # redundant, but required for mypy
-                self.query.breakdownFilter = dashboard_filter.breakdown_filter
+                # A set-but-empty breakdown filter (no breakdown/breakdowns) is the explicit
+                # "no breakdown" override; normalize it to None so downstream code never sees
+                # a truthy empty BreakdownFilter on the query.
+                self.query.breakdownFilter = (
+                    dashboard_filter.breakdown_filter
+                    if has_breakdown_filter(dashboard_filter.breakdown_filter)
+                    else None
+                )
 
         # Interval and test-account overrides apply only to query types that carry the field.
         # Types without it (retention, paths) are silently skipped rather than mutated.

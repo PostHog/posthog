@@ -452,6 +452,19 @@ class TestTrendsDashboardFilters(BaseTest):
         )
         assert query_runner.query.trendsFilter is None
 
+    def test_empty_dashboard_breakdown_filter_removes_breakdown(self):
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            None,
+            breakdown=BreakdownFilter(breakdown="abc", breakdown_limit=5),
+        )
+
+        query_runner.apply_dashboard_filters(DashboardFilter(breakdown_filter=BreakdownFilter()))
+
+        assert query_runner.query.breakdownFilter is None
+
     def test_compare_is_removed_for_all_time_range(self):
         query_runner = self._create_query_runner(
             "2024-07-07",

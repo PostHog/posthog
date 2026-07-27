@@ -538,6 +538,14 @@ export function InsightBreakdownSummary({ query }: { query: InsightQueryNode | H
     return <BreakdownSummary breakdownFilter={query.breakdownFilter} />
 }
 
+function BreakdownRemovedSummary({ source }: { source: OverrideSource }): JSX.Element {
+    return (
+        <InsightDetailSectionDisplay icon={<IconSort />} label="Breakdown by">
+            <OverrideNote source={source}>breakdown removed</OverrideNote>
+        </InsightDetailSectionDisplay>
+    )
+}
+
 export function BreakdownSummary({
     breakdownFilter,
     override,
@@ -774,6 +782,9 @@ export const InsightDetails = React.memo(
                                 breakdownFilter={overrideBreakdownFilter}
                                 override={{ source: overrideBreakdown.source }}
                             />
+                        ) : overrideBreakdown ? (
+                            // Set-but-empty override: the layer explicitly removed the breakdown.
+                            <BreakdownRemovedSummary source={overrideBreakdown.source} />
                         ) : (
                             <InsightBreakdownSummary query={query.source} />
                         )}

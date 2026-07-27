@@ -1006,6 +1006,12 @@ export function hasBreakdownFilter(
     return hasSingleBreakdown(breakdownFilter) || hasMultiBreakdown(breakdownFilter)
 }
 
+/** A set-but-empty breakdown filter is the explicit "no breakdown" override in dashboard and tile
+ * filters, as opposed to null/absent, which inherits the lower layer's breakdown. */
+export function isEmptyBreakdownFilter(breakdownFilter?: BreakdownFilter | null): boolean {
+    return breakdownFilter != null && !hasBreakdownFilter(breakdownFilter)
+}
+
 export function isValidQueryForExperiment(query: Node): boolean {
     if (!isNodeWithSource(query) || !isFunnelsQuery(query.source)) {
         return false

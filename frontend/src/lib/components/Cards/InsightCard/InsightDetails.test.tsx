@@ -217,6 +217,31 @@ describe('InsightDetails', () => {
             expect(result.interval).toEqual(expected.interval)
         })
 
+        it.each([
+            {
+                label: 'empty tile breakdown filter (explicit "no breakdown") beats a dashboard breakdown',
+                filtersOverride: { breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' } },
+                tileFiltersOverride: { breakdown_filter: {} },
+                expected: { breakdownFilter: {}, source: 'tile' },
+            },
+            {
+                label: 'empty dashboard breakdown filter is reported as a dashboard override',
+                filtersOverride: { breakdown_filter: {} },
+                tileFiltersOverride: undefined,
+                expected: { breakdownFilter: {}, source: 'dashboard' },
+            },
+            {
+                label: 'absent breakdown filters mean no breakdown override',
+                filtersOverride: { properties: [countryUS] },
+                tileFiltersOverride: undefined,
+                expected: null,
+            },
+        ])('$label', ({ filtersOverride, tileFiltersOverride, expected }) => {
+            const result = getEffectiveFilterOverrides(undefined, filtersOverride as any, tileFiltersOverride as any)
+
+            expect(result.breakdown).toEqual(expected)
+        })
+
         it('resolves scalar overrides from the backend context layers, ignoring raw props', () => {
             const result = getEffectiveFilterOverrides(
                 { dashboard: { filterTestAccounts: true, interval: 'week' }, tile: null } as any,

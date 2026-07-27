@@ -100,7 +100,10 @@ def merge_filters_by_priority(base_filters: dict | None, override_filters: dict 
     """Merge two filter layers, with `override_filters` taking priority over `base_filters`.
 
     The override wins per field. Scalars (breakdown, interval, test-account filtering) are replaced
-    outright when the override sets them. Property filters stack (AND-combine) by default, since two
+    outright when the override sets them. For the breakdown that includes the set-but-empty form:
+    `breakdown_filter: {}` is an explicit "no breakdown" override that replaces the base layer's
+    breakdown (and ultimately the insight's own), while a null/absent `breakdown_filter` inherits.
+    Property filters stack (AND-combine) by default, since two
     filters on the same key can still describe a valid set (e.g. `utm_source = google` and
     `utm_source is set`). A base property is dropped only when an override property provably contradicts
     it — ANDing them could never match — in which case the override wins. The date range is treated as
