@@ -99,7 +99,9 @@ const insightActionsMapping: Record<
         // saved insights store the actual query wrapped in an InsightVizNode (or in a
         // DataVisualizationNode / DataTableNode for SQL insights), so summarize the source
         const source =
-            isInsightVizNode(queryAfter) || isDataVisualizationNode(queryAfter) || isDataTableNodeWithHogQLQuery(queryAfter)
+            isInsightVizNode(queryAfter) ||
+            isDataVisualizationNode(queryAfter) ||
+            isDataTableNodeWithHogQLQuery(queryAfter)
                 ? queryAfter.source
                 : queryAfter
         return isInsightQueryNode(source) || isHogQLQuery(source)
