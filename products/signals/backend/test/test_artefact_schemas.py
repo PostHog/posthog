@@ -146,6 +146,19 @@ class TestValidateArtefactContent(SimpleTestCase):
                     "size": "large",
                 },
             ),
+            # A direct connection without the raw-SQL bypass still goes through the HogQL printer and
+            # the resource access check, so it stays a drawable chart.
+            (
+                "chart",
+                {
+                    "chart_id": "warehouse-rows",
+                    "title": "Rows by day",
+                    "query": {
+                        "kind": "DataVisualizationNode",
+                        "source": {"kind": "HogQLQuery", "query": "SELECT 1", "connectionId": "conn-1"},
+                    },
+                },
+            ),
         ]
     )
     def test_accepts_valid_content_for_type(self, artefact_type, content):
@@ -199,6 +212,24 @@ class TestValidateArtefactContent(SimpleTestCase):
                     "query": {
                         "kind": "DataVisualizationNode",
                         "source": {"kind": "HogQuery", "code": "while (true) {}"},
+                    },
+                },
+            ),
+            # `sendRawQuery` skips the HogQL printer and sends the query text verbatim to the external
+            # engine, under the session of whoever opens the report.
+            (
+                "chart",
+                {
+                    "chart_id": "ok",
+                    "title": "t",
+                    "query": {
+                        "kind": "DataVisualizationNode",
+                        "source": {
+                            "kind": "HogQLQuery",
+                            "query": "SELECT pg_sleep(60)",
+                            "connectionId": "conn-1",
+                            "sendRawQuery": True,
+                        },
                     },
                 },
             ),

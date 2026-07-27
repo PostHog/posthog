@@ -447,21 +447,29 @@ _EXECUTABLE_QUERY_KINDS = frozenset({"HogQuery"})
 def _executable_payload(value: Any) -> str | None:
     """What a query node carries that something downstream would *run*, or None if nothing does.
 
-    The `kind` allowlist only covers the outer node, and two shapes reach an interpreter from
-    underneath it. `bytecode`: a `DataVisualizationNode` can hold
-    `tableSettings.conditionalFormatting[*].bytecode`, which the table renderer feeds to `execHog`
-    once per rendered cell, synchronously, on the reader's main thread — HogVM bounds one call at
-    five seconds, but the cost multiplies by cell count, so a chart carrying expensive bytecode
-    freezes the tab of whoever opens the report. A nested `HogQuery`: the renderer posts a node's
-    source to the query service as its data node, where `process_query_model` runs `code` through
-    `execute_hog` (staff-only on cloud, but any reader on a self-hosted deployment).
+    The `kind` allowlist only covers the outer node, and three shapes reach an interpreter from
+    underneath it, each on a different reader's behalf:
 
-    A chart is a picture of a query, not a program, so both are refused wherever they sit rather than
-    only at the paths known today.
+    - `bytecode`: a `DataVisualizationNode` can hold `tableSettings.conditionalFormatting[*].bytecode`,
+      which the table renderer feeds to `execHog` once per rendered cell, synchronously, on the
+      reader's main thread. HogVM bounds one call at five seconds, but the cost multiplies by cell
+      count, so a chart carrying expensive bytecode freezes the tab of whoever opens the report.
+    - a nested `HogQuery`: the renderer posts a node's source to the query service as its data node,
+      where `process_query_model` runs `code` through `execute_hog` (staff-only on cloud, but any
+      reader on a self-hosted deployment).
+    - `sendRawQuery`: with a `connectionId`, `HogQLQueryRunner` skips the HogQL printer and sends the
+      query text verbatim to the external engine, under the session of whoever opened the report. A
+      `connectionId` on its own still goes through the printer and the resource access check, so it
+      stays allowed — it's the raw-SQL bypass that turns a chart into someone else's shell.
+
+    A chart is a picture of a query, not a program, so all three are refused wherever they sit rather
+    than only at the paths known today.
     """
     if isinstance(value, dict):
         if any(key == "bytecode" and item for key, item in value.items()):
             return "`bytecode`"
+        if value.get("sendRawQuery"):
+            return "`sendRawQuery`"
         kind = value.get("kind")
         # `kind` is caller-supplied JSON and can be unhashable; check it's a string before the
         # membership test so a bad write stays a 400 rather than a TypeError out of the validator.
