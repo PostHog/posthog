@@ -4,6 +4,7 @@ from typing import ClassVar
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.errors import QueryError
+from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.redshift_functions import (
     REDSHIFT_FUNCTION_HANDLERS_LOWER,
@@ -32,9 +33,9 @@ class RedshiftPrinter(PostgresPrinter):
     DIALECT_LABEL: ClassVar[str] = "Redshift"
 
     def _assert_set_operator_supported(self, set_operator: str) -> None:
-        if set_operator.endswith(" BY NAME"):
-            raise QueryError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
-        super()._assert_set_operator_supported(set_operator)
+        # Redshift supports UNION [ALL] but not INTERSECT ALL/EXCEPT ALL or BY NAME. The Postgres
+        # parent permits everything for DuckDB, so validate against the base gate directly instead.
+        BasePrinter._assert_set_operator_supported(self, set_operator)
 
     def _dialect_error_suffix(self) -> str:
         return "in the Redshift dialect"

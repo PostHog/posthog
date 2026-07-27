@@ -550,6 +550,28 @@ class TestPrinter(BaseTest):
             )
         self.assertIn("UNION ALL BY NAME is not supported", str(context.exception))
 
+    @parameterized.expand([("intersect all",), ("except all",)])
+    def test_intersect_except_all_rejected_for_redshift_and_snowflake(self, operator: str):
+        # These extend the permit-all Postgres printer, so without a real gate they would ship
+        # INTERSECT ALL/EXCEPT ALL verbatim to engines that don't support them.
+        for dialect in ("redshift", "snowflake"):
+            with self.assertRaises((QueryError, ImpossibleASTError)):
+                prepare_and_print_ast(
+                    parse_select(f"select 1 as a {operator} select 1 as a"),
+                    HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                    cast(HogQLDialect, dialect),
+                )
+
+    @parameterized.expand([("intersect all",), ("except all",)])
+    def test_intersect_except_all_permitted_for_mysql(self, operator: str):
+        # MySQL 8.0.31+ supports the ALL modifier, so it must not be swept up in the Redshift/Snowflake gate.
+        printed, _ = prepare_and_print_ast(
+            parse_select(f"select 1 as a {operator} select 1 as a"),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "mysql",
+        )
+        self.assertIn(operator.upper(), printed)
+
     # these share the same priority, should stay in order
     def test_except_and_union(self):
         expr = parse_select("""select 1 as id except select 2 as id union all select 3 as id""")
