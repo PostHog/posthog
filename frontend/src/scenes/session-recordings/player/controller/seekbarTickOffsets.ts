@@ -1,23 +1,18 @@
 /**
- * Comment and emoji ticks are wide glyphs centred on their timestamp, so ticks that sit close
- * together in the recording render on top of each other and become unreadable. Nudging them
- * sideways keeps every glyph visible and clickable while staying near its real position.
+ * Comment and emoji ticks are wide glyphs centred on their timestamp, so two of them recorded
+ * close together render on top of each other and become unreadable.
  */
 export interface SeekbarGlyph {
-    /** Index of the tick in the rendered list, used to look the offset back up. */
     index: number
     /** Horizontal centre of the glyph, as a percentage (0-100) of the seekbar width. */
     position: number
-    /** Rendered width of the glyph in pixels. Mirrors --emoji-width / --comment-width in Seekbar.scss. */
+    /** Rendered width of the glyph in pixels. */
     widthPx: number
 }
 
 export const GLYPH_GAP_PX = 2
 
-/**
- * Returns the horizontal offset in pixels to apply to each glyph, keyed by tick index.
- * Glyphs that don't need moving are left out.
- */
+/** Offsets in pixels keyed by tick index. A glyph that needs no moving is absent from the map. */
 export function resolveOverlappingGlyphs(
     glyphs: SeekbarGlyph[],
     containerWidthPx: number,
