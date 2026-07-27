@@ -76,6 +76,18 @@ SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE = (
     "the import will resume."
 )
 
+# 401 from the Admin API GraphQL endpoint itself (as opposed to the OAuth token endpoint
+# above) — the token was accepted when minted but is no longer valid for the store, e.g. the
+# app was uninstalled or the token revoked mid-sync. Re-minting on retry can't fix that, so
+# `ShopifySource.get_non_retryable_errors` matches on the stable status text (not the
+# per-store URL) to fail the job fast.
+SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH = "401 Client Error: Unauthorized"
+SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE = (
+    "Shopify rejected the request with 401 Unauthorized — your Shopify access token is no "
+    "longer valid, likely because the app was uninstalled or access was revoked. Please "
+    "reconnect your Shopify integration."
+)
+
 
 @dataclasses.dataclass
 class ShopifyResumeConfig:
