@@ -3673,6 +3673,14 @@ export namespace Schemas {
       InitialUTMTerm: 'InitialUTMTerm',
       InitialUTMContent: 'InitialUTMContent',
       InitialUTMSourceMediumCampaign: 'InitialUTMSourceMediumCampaign',
+      FirstPageviewChannelType: 'FirstPageviewChannelType',
+      FirstPageviewReferringDomain: 'FirstPageviewReferringDomain',
+      FirstPageviewUTMSource: 'FirstPageviewUTMSource',
+      FirstPageviewUTMCampaign: 'FirstPageviewUTMCampaign',
+      FirstPageviewUTMMedium: 'FirstPageviewUTMMedium',
+      FirstPageviewUTMTerm: 'FirstPageviewUTMTerm',
+      FirstPageviewUTMContent: 'FirstPageviewUTMContent',
+      FirstPageviewUTMSourceMediumCampaign: 'FirstPageviewUTMSourceMediumCampaign',
       Browser: 'Browser',
       Os: 'OS',
       Viewport: 'Viewport',
@@ -60601,6 +60609,8 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
+      /** Where the note came from: `human` for one left directly through this API, or `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports. A `report_dismissal` note is one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. */
+      origin: string;
     }
 
     /**

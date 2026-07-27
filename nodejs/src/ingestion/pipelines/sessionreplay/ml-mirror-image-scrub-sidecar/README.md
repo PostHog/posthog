@@ -10,14 +10,24 @@ It runs a simple http server, receives an image and replies with the scrubbed im
 
 ## HTTP contract
 
-`POST /scrub` with the raw image bytes returns the scrubbed bytes (200). The status split is load-bearing and both sides must change together: the consumer permanently skips 413 (too large) and 422 (undecodable), and retries then replays 500 (transient) and 503 (busy). See `scrub-client.ts` for the consumer half.
+`POST /scrub` with the raw image bytes returns the scrubbed bytes (200). The status split is load-bearing and both sides must change together: the consumer permanently skips 413 (too large) and 422 (undecodable), and retries then **drops** the image on 500 (transient) and 503 (busy). See `scrub-client.ts` for the consumer half.
+
+A dropped image is counted in `ml_mirror_image_scrub_consumer_dropped_total` (by `reason`: `busy`, `timeout`, `transport`, `aborted`, `deadline`, `unattempted`) and never reaches the bucket, so the failure costs coverage rather than leaking content.
+That counter is the lane's only health signal, so `IngestionSessionReplayImageScrubDropRate` alerts on its ratio to `..._scrubbed_total`: a pod dropping every image still passes its probes, keeps its lag flat, and keeps advancing offsets.
+Note `unattempted`: when a batch exhausts `SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS` the rest of that poll batch is dropped without being offered to the sidecar at all, because Kafka offsets are a high-water mark and a later batch would commit past them regardless.
+
+**Nothing about a busy or unreachable sidecar may take the consumer down.**
+The consumer's Kafka loop exits the process on any batch error, so a failure that reaches it costs the whole pod and hands its partitions to pods that are equally busy, spreading the saturation.
+A consumer restart cannot fix the sidecar in any case: it is a separate container that keeps running.
+
+`maxConcurrency` is derived from `SCRUB_WORKERS` rather than set independently, so the sidecar sheds load it cannot execute instead of admitting it into an accept queue.
+That matters because the consumer's per-request timeout is an inactivity timeout: a queued request sends no bytes, so queueing reads to the consumer as an unresponsive sidecar rather than a busy one, and a fast 503 is the signal it can actually act on.
 
 ## The scrub
 
 Given an image, `advancedScrub` (`src/scrub.ts`):
 
-1. **Downscale**: every frame is capped at the `SCRUB_MAX_PIXELS` area budget (default 1600², aspect preserved) inside the decode.
-   This bounds the per-image memory working set, and — since text detection runs under the same area budget — the stored output never carries resolution the detectors didn't certify as clean.
+1. **Plan the sizes**: `planScales` (`src/scale-plan.ts`) decides every resize from the source dimensions alone, before a pixel is read — the decoded frame, what each detector sees, and what gets stored.
    An area budget rather than a long-side cap, so tall pages keep legible native resolution instead of being squashed.
    Faces are detected on a letterboxed (never squashed) 640×640 input; frames beyond 3:1 aspect are tiled along their long axis (overlapping windows) so a face on a tall page stays above the detector's minimum size instead of shrinking past it.
 2. **NSFW/gore gate**: if the image is explicit or gory (NSFL + NSFW probability over `NSFW_THRESHOLD`), it collapses to a 1x1 blank.
@@ -69,7 +79,9 @@ src/  (production — ships)
   yunet.ts        YuNet face detector (ONNX)
   dbnet.ts        DBNet text-region detector (ONNX)
   qr.ts           QR/barcode detector (zxing-wasm, loaded from node_modules — no egress)
-  src-image.ts    decode the source once to raw RGB (area-capped), shared across stages
+  scale-plan.ts   every resize decided in one pure function, before a pixel is read
+  floors.ts       what each detector finds vs what a person can read, and where both were measured
+  src-image.ts    decode the source once to raw RGB, to the size the plan asked for
   geometry.ts     shared Box type + grid rounding
   safety.ts       NSFW/gore gate (SwiftFormer image-safety classifier, ONNX)
   smoke.ts        image-build-time smoke test: models load + one scrub, with networking disabled
@@ -118,7 +130,7 @@ FACE:                   89/89 faces redacted (100%)
 ```
 
 The corpus spans 0.3 to 8.3 megapixels at both device pixel ratios, which matters: it used to top out
-at 1440x900, entirely under the `SCRUB_MAX_PIXELS` cap, so nothing in it was ever downscaled on the
+at 1440x900, entirely under the frame budget, so nothing in it was ever downscaled on the
 way to detection and the suite could not see what that cap costs. Adding monitor-sized frames
 immediately failed the gate at a 14.3% leak on 4K captures taken at device pixel ratio 1, where 14px
 text reaches DBNet at about 6px after both downscales. `DET_SHARPEN` closes that, and the numbers
@@ -126,26 +138,25 @@ above are with it on.
 
 Faint, low-contrast scanned-fax lines occasionally survive.
 That is contrast-limited not size-limited, so resolution alone won't catch every faded line, and it is outside the rendered-UI domain and within the "best-effort, not catastrophic if a little gets through" bar.
-Raise `DET_FACTOR` (env, default 0.75 of the long side) toward 1.0 to spend more CPU on text recall.
+Raising `SCRUB_SAFETY_FACTOR` spends more CPU on recall: it enlarges the frame every detector sees, since the frame budget is derived from it.
 
-### Resolution knobs
+## Resolution
 
-`SCRUB_MAX_PIXELS` is what the **detectors** see, and lowering it is a redaction change rather than a
-cost one: at 1 MP the detection budget hits its 736 floor and a 4K frame yields zero text boxes, so
-the scrub becomes a no-op that returns a downscaled copy with everything still legible.
-`SCRUB_OUT_MAX_PIXELS` is what gets **stored**, applied after detection has run, so it costs no
-recall and is a question about what a downstream model needs to read. It defaults to
-`SCRUB_MAX_PIXELS`, meaning no downscale.
+One rule sets every size: **each detector must see a subject at least `ratio` times larger, per axis, than the stored image keeps it.**
+Anything still readable in the artifact was therefore large enough to have been found and filled.
 
-### Probes
+`ratio` is derived rather than chosen, from measured floors in `src/floors.ts` — what each detector reliably finds, against what a person can still read out of the stored image.
+Faces bind at 64/21 ≈ 3.05; text is 7/3 ≈ 2.33; codes constrain nothing, since a code degraded past decoding carries nothing.
+`SCRUB_SAFETY_FACTOR` (default 1.3) is margin on top, because both floors came from one font at near-black on white and low-contrast text moves the detection floor the wrong way.
 
-The liveness probe answers 503 once no worker can scrub, which is what restores the signal that
-moving inference onto worker threads removed: a wedged synchronous inference used to block the event
-loop and fail the probe by itself. Readiness deliberately stays green so the pod keeps its place in
-the Service that Prometheus scrapes through, since `/scrub` is loopback-only and reaches no Service.
-That requires `livenessProbe` to point at `/_health` and `readinessProbe` at `/_ready`, which is how
-the lane's chart wires them; a deployment that points readiness at `/_health` would drop the pod out
-of the scrape at exactly the moment its metrics explain what happened.
+**`SCRUB_OUT_MAX_PIXELS` (default 50,000) is the only knob most people should touch.**
+It is what gets stored, and everything else follows from it: the frame budget is `stored x ratio^2`, because the detectors have to see enough to keep the rule.
+Setting the frame budget independently is what let two individually-reasonable settings combine into a pipeline that under-redacted, so `SCRUB_MAX_PIXELS` still exists as an override but is derived by default.
+
+Storing small is deliberate and is most of the guarantee. The downstream consumer identifies what kind of site a session is on, so it needs scene structure and not legibility — text being unreadable in the artifact is the point, not a cost.
+At the defaults a 1080p capture is stored at about 161x90.
+
+Re-derive the floors with `tsx dev/glyph-floor.ts` (text) and `tsx dev/floors.ts` (faces and codes); both read their geometry from `limitsFromEnv()` so they cannot drift from what ships.
 
 ## Models are baked into the image
 

@@ -2,10 +2,10 @@
 /**
  * One resolution setting, measured over every local image: what the detectors find and what it cost.
  *
- * SCRUB_MAX_PIXELS and DET_FACTOR are read once at module load, so a sweep runs this process per
+ * limitsFromEnv().framePixels and DET_FACTOR are read once at module load, so a sweep runs this process per
  * setting rather than looping inside one. Prints a JSON line per run for diffing across them.
  *
- *   SCRUB_MAX_PIXELS=1000000 DET_FACTOR=0.75 tsx dev/res-sweep.ts naive-1mp
+ *   SCRUB_OUT_MAX_PIXELS=25000 tsx dev/res-sweep.ts smaller-artifact
  *
  * Box counts are the direct read on detection recall. The eval's OCR leak percentage is end-to-end
  * but confounded here: a smaller output makes residual text harder for tesseract to read whether or
@@ -16,8 +16,8 @@ import { readFile, readdir } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import sharp from 'sharp'
 
+import { limitsFromEnv } from '../src/scale-plan.ts'
 import { advancedScrub, loadModels } from '../src/scrub.ts'
-import { SCRUB_MAX_PIXELS } from '../src/src-image.ts'
 
 const ROOT = new URL('..', import.meta.url).pathname
 
@@ -78,8 +78,7 @@ async function main(): Promise<void> {
     console.log(
         JSON.stringify({
             label,
-            scrubMaxPixels: SCRUB_MAX_PIXELS,
-            detFactor: process.env.DET_FACTOR ?? '0.75 (default)',
+            scrubMaxPixels: limitsFromEnv().framePixels,
             rows,
         })
     )
