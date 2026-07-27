@@ -304,6 +304,27 @@ class TestCoerceStringFields:
 
         assert [p["waiting_since"] for p in parts] == ["1700000000", "1700000001", None]
 
+    def test_substream_without_coerce_fields_passes_rows_through_untouched(self):
+        # company_segments declares no coerce_string_fields, so _substream_items must
+        # return its rows unchanged — a numeric field stays an int, not stringified.
+        # Guards the refactor against coercing endpoints that opted out.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response({"data": []}),
+            _make_response({"data": [{"id": "seg1", "count": 5}]}),
+        ]
+
+        segments = list(_substream_items(mock_session, "company_segments", None, None))
+
+        assert segments == [{"id": "seg1", "count": 5, "company_id": "co1"}]
+
+    def test_unknown_substream_endpoint_raises(self):
+        # Adding a substream endpoint config without wiring it into _substream_items
+        # must fail loud, not silently yield nothing.
+        with pytest.raises(ValueError):
+            list(_substream_items(mock.MagicMock(), "not_a_real_endpoint", None, None))
+
 
 class TestSubstreamGenerators:
     def test_conversation_parts_injects_conversation_id(self):
