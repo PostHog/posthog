@@ -1,5 +1,5 @@
-import { useValues } from 'kea'
-import { ReactNode, useCallback, useMemo, useState } from 'react'
+import { BindLogic, useValues } from 'kea'
+import { ReactNode, useCallback, useState } from 'react'
 
 import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
 import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
@@ -16,7 +16,6 @@ import { urls } from 'scenes/urls'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
-import { resolveChartPlacements } from '../../utils/chartPlacement'
 import {
     displayConventionalCommitTitle,
     parseConventionalCommitTitle,
@@ -297,8 +296,15 @@ export function InboxDetailFrame({
     diffStat,
     children,
 }: InboxDetailFrameProps): JSX.Element {
-    const { reportSignals, reportSignalsLoading, priorityExplanation, actionabilityExplanation, reportCharts } =
-        useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const logicProps = { reportId: report.id, report }
+    const {
+        reportSignals,
+        reportSignalsLoading,
+        priorityExplanation,
+        actionabilityExplanation,
+        chartPlacements,
+        trailingCharts,
+    } = useValues(inboxReportDetailLogic(logicProps))
     // GitHub-style PR view: when the report has a PR, the overview and the diff live behind two tabs.
     const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'files'>('overview')
     const hasDiff = !!showFilesTab
@@ -309,36 +315,15 @@ export function InboxDetailFrame({
     const summaryPending =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.CANDIDATE
 
-    // A report awaiting input polls its artefacts on a timer, so the loader hands back a fresh array
-    // even when nothing changed. Identity is what decides whether React keeps a rendered chart:
-    // a new array reaches `LemonMarkdown` as a new component map, which unmounts every inline chart
-    // and re-runs its query. Hold the array steady while the effective charts are unchanged.
-    const chartsSignature = JSON.stringify(reportCharts)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on chart content, not array identity
-    const charts = useMemo(() => reportCharts, [chartsSignature])
-
-    const chartsById = useMemo(() => new Map(charts.map((chart) => [chart.chart_id, chart])), [charts])
-    // A `chart:` link places its chart at that point in the prose; every other chart follows the
-    // summary. The reference decides where a chart goes, not whether it shows at all — so a
-    // reference the placement pass rejected (a repeat, one inside a table cell) reads as its label
-    // here and its chart is picked up below.
-    const placements = useMemo(
-        () => resolveChartPlacements(report.summary, chartsById.keys()),
-        [report.summary, chartsById]
-    )
+    // Depends on placement alone. `LemonMarkdown` memoizes its anchor component on this callback, so
+    // anything else in here — the charts themselves, the report object — would rebuild that component
+    // as the report polls and unmount every rendered chart with it.
     const renderChartRef = useCallback(
-        (chartId: string, sourceOffset?: number): ReactNode => {
-            if (sourceOffset === undefined || placements.inlineByOffset.get(sourceOffset) !== chartId) {
-                return null
-            }
-            const chart = chartsById.get(chartId)
-            return chart ? <ReportChart chart={chart} /> : null
-        },
-        [chartsById, placements]
-    )
-    const trailingCharts = useMemo(
-        () => charts.filter((chart) => !placements.inlineIds.has(chart.chart_id)),
-        [charts, placements]
+        (chartId: string, sourceOffset?: number): ReactNode =>
+            sourceOffset !== undefined && chartPlacements.inlineByOffset.get(sourceOffset) === chartId ? (
+                <ReportChart chartId={chartId} />
+            ) : null,
+        [chartPlacements]
     )
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
@@ -357,68 +342,73 @@ export function InboxDetailFrame({
         onClick: action.onClick,
     }))
 
+    // Bound rather than passed as props so a chart can reach the logic by id alone. `ReportChart`
+    // building the logic itself would have to pass `report` back in, and kea treats that as a props
+    // change on the mounted instance.
     const overviewBody = (
-        <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
-            <div className="min-w-0 flex flex-col gap-5">
-                <DetailSection icon={summary.icon} title={summary.title}>
-                    {report.summary ? (
-                        <LemonMarkdown
-                            className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
-                            disableImages
-                            renderChartRef={renderChartRef}
-                        >
-                            {report.summary}
-                        </LemonMarkdown>
-                    ) : (
-                        <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                            No summary yet – an agent is still investigating.
-                        </p>
-                    )}
-                    {trailingCharts.length > 0 && (
-                        <div className="flex flex-col gap-3">
-                            {trailingCharts.map((chart) => (
-                                <ReportChart key={chart.chart_id} chart={chart} />
-                            ))}
-                        </div>
-                    )}
-                </DetailSection>
-                {summaryFooter}
-                {/* The rating closes out the report body, where the reading ends – ahead of the
-                    supporting sections, which stack underneath once the layout drops to one column. */}
-                <ReportFeedbackFooter report={report} />
-            </div>
-
-            <div className="flex flex-col min-w-0 gap-5">
-                {/* Pull request (when present) first, then reviewers, evidence, runs, and activity. */}
-                {children}
-                <SuggestedReviewersSection report={report} />
-                {hasEvidence && (
-                    <DetailSection
-                        icon={<IconSearch />}
-                        title="Evidence"
-                        rightSlot={
-                            <Tooltip title={FINDINGS_TOOLTIP}>
-                                <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
-                                    {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
-                                </span>
-                            </Tooltip>
-                        }
-                    >
-                        {reportSignalsLoading && reportSignals === null ? (
-                            <EvidenceSkeleton count={evidenceCount} />
+        <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
+            <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
+                <div className="min-w-0 flex flex-col gap-5">
+                    <DetailSection icon={summary.icon} title={summary.title}>
+                        {report.summary ? (
+                            <LemonMarkdown
+                                className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
+                                disableImages
+                                renderChartRef={renderChartRef}
+                            >
+                                {report.summary}
+                            </LemonMarkdown>
                         ) : (
+                            <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
+                                No summary yet – an agent is still investigating.
+                            </p>
+                        )}
+                        {trailingCharts.length > 0 && (
                             <div className="flex flex-col gap-3">
-                                {signals.map((signal: SignalNode) => (
-                                    <SignalCard key={signal.signal_id} signal={signal} />
+                                {trailingCharts.map((chart) => (
+                                    <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
                                 ))}
                             </div>
                         )}
                     </DetailSection>
-                )}
-                <ReportTasksSection report={report} />
-                <ReportActivitySection report={report} />
+                    {summaryFooter}
+                    {/* The rating closes out the report body, where the reading ends – ahead of the
+                    supporting sections, which stack underneath once the layout drops to one column. */}
+                    <ReportFeedbackFooter report={report} />
+                </div>
+
+                <div className="flex flex-col min-w-0 gap-5">
+                    {/* Pull request (when present) first, then reviewers, evidence, runs, and activity. */}
+                    {children}
+                    <SuggestedReviewersSection report={report} />
+                    {hasEvidence && (
+                        <DetailSection
+                            icon={<IconSearch />}
+                            title="Evidence"
+                            rightSlot={
+                                <Tooltip title={FINDINGS_TOOLTIP}>
+                                    <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
+                                        {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
+                                    </span>
+                                </Tooltip>
+                            }
+                        >
+                            {reportSignalsLoading && reportSignals === null ? (
+                                <EvidenceSkeleton count={evidenceCount} />
+                            ) : (
+                                <div className="flex flex-col gap-3">
+                                    {signals.map((signal: SignalNode) => (
+                                        <SignalCard key={signal.signal_id} signal={signal} />
+                                    ))}
+                                </div>
+                            )}
+                        </DetailSection>
+                    )}
+                    <ReportTasksSection report={report} />
+                    <ReportActivitySection report={report} />
+                </div>
             </div>
-        </div>
+        </BindLogic>
     )
 
     return (

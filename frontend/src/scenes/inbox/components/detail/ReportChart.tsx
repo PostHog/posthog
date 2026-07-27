@@ -14,6 +14,7 @@ import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import type { ReportChartApi, SizeEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { chartOpenTarget } from '../../utils/chartOpenTarget'
 
 /**
@@ -104,23 +105,30 @@ function SavedInsightChartBody({ query, uniqueKey }: { query: SavedInsightNode; 
 /**
  * One chart attached to a report, drawn from the query its author supplied.
  *
+ * Addressed by id and read from the logic rather than passed down, so that the callback `LemonMarkdown`
+ * turns into its anchor component depends on where the charts go and not on what they contain. A
+ * refresh that appends a new version of one chart would otherwise hand `LemonMarkdown` a new component
+ * type, and React unmounts every inline chart on the report to honor it.
+ *
  * The query is persisted unparsed (the backend checks only `kind` and a size bound), so `Query` can
  * be handed something it cannot draw. That degrades to `Query`'s own error boundary rather than
  * taking the report down with it.
  */
-export function ReportChart({ chart }: { chart: ReportChartApi }): JSX.Element | null {
+export function ReportChart({ chartId }: { chartId: string }): JSX.Element | null {
+    const { chartsById } = useValues(inboxReportDetailLogic)
+    const chart: ReportChartApi | undefined = chartsById.get(chartId)
     // `query` is `unknown` on the serializer, and the rows behind it are older stored JSON, so this is
     // where it becomes a node: anything that isn't an object has no `kind` for `Query` to draw.
     const authoredQuery = useMemo(
-        () => (chart.query && typeof chart.query === 'object' ? (chart.query as Node) : null),
-        [chart.query]
+        () => (chart?.query && typeof chart.query === 'object' ? (chart.query as Node) : null),
+        [chart?.query]
     )
     const query = useMemo(
         () => (authoredQuery ? asEmbeddedChart(authoredQuery as Record<string, any>) : null),
         [authoredQuery]
     )
 
-    if (!query || !authoredQuery) {
+    if (!chart || !query || !authoredQuery) {
         return null
     }
 
