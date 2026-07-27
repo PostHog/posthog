@@ -107,6 +107,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/journeys/:id/edit': ['CustomerJourneyBuilder', 'customerJourneyEdit'],
     '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
+    '/data-catalog': ['DataCatalog', 'dataCatalog'],
     '/data-ops': ['DataOps', 'dataOps'],
     '/models': ['Models', 'models'],
     '/models/dags': ['Models', 'models'],
@@ -531,6 +532,13 @@ export const productConfiguration: Record<string, any> = {
     CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
     CustomerJourneyTemplates: { projectBased: true, name: 'New journey' },
+    DataCatalog: {
+        projectBased: true,
+        name: 'Data catalog',
+        layout: 'app-container',
+        iconType: 'data_warehouse',
+        description: 'Review and manage governed metrics, certifications, and relationships for your data.',
+    },
     DataOps: {
         name: 'Data ops',
         projectBased: true,
@@ -982,6 +990,7 @@ export const productUrls = {
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
+    dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
     dataOps: (tab?: string, dagId?: string): string => {
         const params = new URLSearchParams()
         if (tab) {
@@ -1777,6 +1786,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.dashboards(),
         sceneKey: 'Dashboards',
         sceneKeys: ['Dashboard', 'Dashboards'],
+    },
+    {
+        path: 'Data catalog',
+        intents: [ProductKey.DATA_CATALOG],
+        category: ProductItemCategory.ANALYTICS,
+        iconType: 'data_warehouse',
+        href: urls.dataCatalog(),
+        flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
+        sceneKey: 'DataCatalog',
+        sceneKeys: ['DataCatalog'],
     },
     {
         path: 'Data warehouse',
