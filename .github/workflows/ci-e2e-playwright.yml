@@ -152,19 +152,22 @@ jobs:
                         # boot the whole stack.
                         - '!**/*.md'
                         - '!**/*.mdx'
-                        # Same reasoning for Django's pytest modules: the suite drives the
-                        # app through a browser and never loads them. Deliberately narrow:
-                        #  - pytest modules only. posthog/test/ also holds live server code
-                        #    (playwright_setup_functions.py, served via posthog/urls.py at
-                        #    api/setup_test/) which must keep triggering a run.
-                        #  - scoped to the Python trees, because an exclude vetoes the whole
-                        #    filter and tools/test_playwright_spec_selection.py above must
-                        #    keep forcing a full run.
+                        # Same reasoning for Django's pytest modules: the suite drives the app
+                        # through a browser and never loads them. Deliberately narrow:
+                        #  - pytest modules only. posthog/test/ also holds live server code,
+                        #    notably playwright_setup_functions.py which posthog/urls.py
+                        #    serves at api/setup_test/, so it must keep triggering a run.
+                        #  - the '*_test.py' suffix is not excluded, because under posthog/ it
+                        #    names production code (ClickHouse migrations, ClickHouse UDF
+                        #    scripts) rather than tests.
+                        #  - each exclude is prefixed with its tree, because an exclude is
+                        #    tested against every file the filter sees, not just the include
+                        #    it was written for. A bare '!**/test_*.py' would also veto
+                        #    tools/test_playwright_spec_selection.py above, which must keep
+                        #    forcing a full run.
                         - '!posthog/**/test_*.py'
-                        - '!posthog/**/*_test.py'
                         - '!posthog/**/conftest.py'
                         - '!ee/**/test_*.py'
-                        - '!ee/**/*_test.py'
                         - '!ee/**/conftest.py'
 
             # Visual Review auto-commits a snapshot baseline after human review and CI

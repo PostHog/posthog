@@ -5,8 +5,8 @@ on:
         branches: [master]
     pull_request:
         # Draft PRs run build + unit tests only; the integration tests (which boot
-        # the full PostHog backend and trigger on any Python change) run when the
-        # PR is marked ready for review — that full run is the merge gate.
+        # the full PostHog backend and trigger on any non-pytest Python change) run
+        # when the PR is marked ready for review — that full run is the merge gate.
         # The `no-ci` label silences this workflow on a draft entirely (prototypes).
         # No labeled/unlabeled triggers here, so it takes effect from the next push.
         types: [opened, synchronize, reopened, ready_for_review]
@@ -40,8 +40,8 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # MCP integration tests boot the full PostHog backend (Django web server,
-            # Celery worker, migrations, demo data), so the filter mirrors the Dagster
-            # approach: trigger on any Python change across the app.
+            # Celery worker, migrations, demo data), so the filter stays broad: any
+            # non-pytest Python change across the app triggers it.
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -106,23 +106,29 @@ jobs:
                         # CI config
                         - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'
-                        # The integration tests drive a running Django server over HTTP, so
-                        # a pytest module can't change the outcome, which means a PR touching
-                        # only those can skip the ~15-30 min backend boot. Two narrowings:
+                        # The integration tests drive a running Django server over HTTP, so a
+                        # pytest module can't change the outcome of any job this filter gates
+                        # (build, unit tests, and the ~15-30 min backend boot). Three
+                        # deliberate narrowings, each of which a wider pattern would break:
                         #  - pytest modules only, not whole test/ and tests/ directories.
-                        #    Those hold helpers that runtime code does import (posthog/
-                        #    test/base.py via setup_test_environment, posthog/test/
-                        #    playwright_setup_functions.py via posthog/urls.py).
-                        #  - scoped to the Django trees, because an exclude vetoes the
-                        #    whole filter and services/mcp/tests/** is this suite's own code.
+                        #    Those hold helpers runtime code imports, such as
+                        #    posthog/test/base.py via setup_test_environment and
+                        #    posthog/test/playwright_setup_functions.py via posthog/urls.py.
+                        #  - the '*_test.py' suffix is excluded only under products/*/backend,
+                        #    where it is the colocated-test convention. Under posthog/ it also
+                        #    names production code that this suite runs: ClickHouse migrations
+                        #    (0110_log_entries_v2_test.py), the DDL they import, and the
+                        #    aggregate_funnel_*_test.py UDF scripts copied into ClickHouse
+                        #    during setup.
+                        #  - each exclude is prefixed with its tree, because an exclude is
+                        #    tested against every file the filter sees, not just the include
+                        #    it was written for. A bare '!**/conftest.py' would also veto
+                        #    tools/hogli/tests/conftest.py, which tools/hogli/** includes.
                         - '!posthog/**/test_*.py'
-                        - '!posthog/**/*_test.py'
                         - '!posthog/**/conftest.py'
                         - '!ee/**/test_*.py'
-                        - '!ee/**/*_test.py'
                         - '!ee/**/conftest.py'
                         - '!common/**/test_*.py'
-                        - '!common/**/*_test.py'
                         - '!common/**/conftest.py'
                         - '!products/*/backend/**/test_*.py'
                         - '!products/*/backend/**/*_test.py'
@@ -271,7 +277,7 @@ jobs:
         needs: changes
         timeout-minutes: 30
         # Skipped on drafts: these boot the full PostHog backend and trigger on any
-        # Python change, so they're the expensive half of this workflow. Build and
+        # non-pytest Python change, so they're the expensive half of this workflow. Build and
         # unit tests still run on drafts; the `MCP Tests Pass` aggregator treats
         # skipped as success, and the ready-for-review run is the merge gate.
         if: needs.changes.outputs.mcp == 'true' && github.event.pull_request.draft != true
