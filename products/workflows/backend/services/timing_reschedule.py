@@ -108,11 +108,19 @@ def get_timing_reschedule_action_ids(
       the week, so it isn't statically decidable.
     - type changed across the timing boundary: parked runs' action_id still points at the
       step, and the new handler should run on the sweep's schedule, not the old wake time.
-    - added/deleted actions never trigger: nothing is parked on a new step, and deleted
-      steps are the graceful-exit path's concern.
+    - deleted timing actions: runs parked on the removed step should wake now and take the
+      skip-forward/graceful-exit path at the sweep's schedule, not at their old wake time
+      (which for a wait_until_condition can be the full max_wait deadline once the poll
+      backstop is gone).
+    - added actions never trigger: nothing is parked on a new step.
     """
     before_by_id = {a["id"]: a for a in (before_actions or []) if isinstance(a, dict) and a.get("id")}
-    action_ids: set[str] = set()
+    after_ids = {a["id"] for a in (after_actions or []) if isinstance(a, dict) and a.get("id")}
+    action_ids: set[str] = {
+        action_id
+        for action_id, before in before_by_id.items()
+        if action_id not in after_ids and before.get("type") in TIMING_ACTION_TYPES
+    }
 
     for action in after_actions or []:
         if not isinstance(action, dict) or not action.get("id"):
