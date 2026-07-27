@@ -453,7 +453,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         properties = result[star_idx].get("properties", {})
                         if isinstance(properties, dict):
                             session_id = properties.get("$session_id")
-                            if session_id:
+                            if isinstance(session_id, str) and session_id:
                                 properties["$has_recording"] = session_id in session_recordings_map
 
         person_indices: list[int] = []
@@ -565,7 +565,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 properties = result[star_idx].get("properties", {})
                 if isinstance(properties, dict):
                     session_id = properties.get("$session_id")
-                    if session_id and session_id != "":
+                    if isinstance(session_id, str) and session_id:
                         session_ids.add(session_id)
 
         # If no session IDs, return empty set
