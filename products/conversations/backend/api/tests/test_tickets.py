@@ -589,42 +589,31 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
-    def _search_v2(self, enabled: bool):
-        return patch("products.conversations.backend.api.tickets.is_search_v2_enabled", return_value=enabled)
-
-    @parameterized.expand([("legacy", False), ("v2", True)])
-    def test_search_with_non_ascii_digit_does_not_error(self, mock_on_commit, _name, search_v2):
+    def test_search_with_non_ascii_digit_does_not_error(self, mock_on_commit):
         # "²" passes str.isdigit() but int() rejects it; it must fall through to text search
         # rather than 500.
-        with self._search_v2(search_v2):
-            response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=%C2%B2")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=%C2%B2")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 0)
 
     @parameterized.expand(
         [
-            (f"{name}_{path}", field_overrides, query, search_v2)
-            for (name, field_overrides, query) in [
-                ("anonymous_name", {"anonymous_traits": {"name": "Alice Wonder"}}, "alice"),
-                ("anonymous_email", {"anonymous_traits": {"email": "bob@example.com"}}, "bob@example"),
-                ("email_subject", {"email_subject": "Billing issue", "channel_source": Channel.EMAIL}, "billing"),
-            ]
-            for (path, search_v2) in [("legacy", False), ("v2", True)]
+            ("anonymous_name", {"anonymous_traits": {"name": "Alice Wonder"}}, "alice"),
+            ("anonymous_email", {"anonymous_traits": {"email": "bob@example.com"}}, "bob@example"),
+            ("email_subject", {"email_subject": "Billing issue", "channel_source": Channel.EMAIL}, "billing"),
         ]
     )
-    def test_search_by_field(self, mock_on_commit, _name, field_overrides, query, search_v2):
+    def test_search_by_field(self, mock_on_commit, _name, field_overrides, query):
         for field, value in field_overrides.items():
             setattr(self.ticket, field, value)
         self.ticket.save()
 
-        with self._search_v2(search_v2):
-            response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search={query}")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search={query}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
-    @parameterized.expand([("legacy", False), ("v2", True)])
-    def test_search_by_comment_content(self, mock_on_commit, _name, search_v2):
+    def test_search_by_comment_content(self, mock_on_commit):
         Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
@@ -632,14 +621,12 @@ class TestTicketAPI(APIBaseTest):
             content="I need help with the API integration",
         )
 
-        with self._search_v2(search_v2):
-            response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=API+integration")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=API+integration")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
-    @parameterized.expand([("legacy", False), ("v2", True)])
-    def test_search_matches_older_comment_not_just_last(self, mock_on_commit, _name, search_v2):
+    def test_search_matches_older_comment_not_just_last(self, mock_on_commit):
         Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
@@ -653,13 +640,11 @@ class TestTicketAPI(APIBaseTest):
             content="Thanks, all sorted now",
         )
 
-        with self._search_v2(search_v2):
-            response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=passwords")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=passwords")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
-    @parameterized.expand([("legacy", False), ("v2", True)])
-    def test_search_excludes_deleted_comments(self, mock_on_commit, _name, search_v2):
+    def test_search_excludes_deleted_comments(self, mock_on_commit):
         comment = Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
@@ -669,21 +654,18 @@ class TestTicketAPI(APIBaseTest):
         comment.deleted = True
         comment.save()
 
-        with self._search_v2(search_v2):
-            response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=secret+deleted")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=secret+deleted")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 0)
 
-    @parameterized.expand([("legacy", False), ("v2", True)])
-    def test_search_no_match_returns_empty(self, mock_on_commit, _name, search_v2):
-        with self._search_v2(search_v2):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/conversations/tickets/?search=nonexistent_query_xyzzy"
-            )
+    def test_search_no_match_returns_empty(self, mock_on_commit):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?search=nonexistent_query_xyzzy"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 0)
 
-    def test_search_v2_excludes_other_team_comments(self, mock_on_commit):
+    def test_search_excludes_other_team_comments(self, mock_on_commit):
         # The comment pre-query filters by the request's team; a matching comment in
         # another team pointing at this ticket's id must not surface the ticket.
         other_team = Team.objects.create(organization=self.organization, name="Other team")
@@ -694,8 +676,7 @@ class TestTicketAPI(APIBaseTest):
             content="zebra migration question",
         )
 
-        with self._search_v2(True):
-            response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=zebra")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=zebra")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 0)
 

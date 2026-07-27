@@ -8,8 +8,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
-from django.db.models import CharField, Exists, OuterRef, Q, QuerySet, Sum
-from django.db.models.functions import Cast
+from django.db.models import Q, QuerySet, Sum
 from django.http import Http404
 from django.utils import timezone
 
@@ -55,7 +54,6 @@ from products.conversations.backend.events import (
     capture_ticket_priority_changed,
     capture_ticket_status_changed,
 )
-from products.conversations.backend.feature_flags import is_search_v2_enabled
 from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECONDS
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
@@ -521,27 +519,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             if ticket_number_search.isascii() and ticket_number_search.isdigit():
                 self._search_path = "ticket_number"
                 queryset = queryset.filter(ticket_number=int(ticket_number_search))
-            elif is_search_v2_enabled(self.team):
-                self._search_path = "v2"
-                queryset = self._filter_by_text_search(queryset, search)
             else:
-                # Legacy path, kept while product-support-search-v2 rolls out.
-                # The correlated EXISTS inside an OR forces a per-ticket probe of
-                # posthog_comment and can't use any index on the searched columns.
-                self._search_path = "legacy"
-                comment_match = Comment.objects.filter(
-                    team_id=OuterRef("team_id"),
-                    scope="conversations_ticket",
-                    item_id=Cast(OuterRef("id"), output_field=CharField()),
-                    content__icontains=search,
-                    deleted=False,
-                )
-                queryset = queryset.filter(
-                    Q(anonymous_traits__name__icontains=search)
-                    | Q(anonymous_traits__email__icontains=search)
-                    | Q(email_subject__icontains=search)
-                    | Exists(comment_match)
-                )
+                self._search_path = "text"
+                queryset = self._filter_by_text_search(queryset, search)
 
         sla_param = self.request.query_params.get("sla")
         if sla_param:
