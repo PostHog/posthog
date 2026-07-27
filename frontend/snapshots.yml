@@ -7122,6 +7122,18 @@ snapshots:
         hash: v1.k794b7964.0fd64e1c397852c809ef69724691610ab9ad359e2d08d6c733b5f9ead6aa8291.dwo2_aCUYE-BT1n22S0mcFO-v5T-UqzbJ31LnUL50KA
     scenes-app-sidepanels--side-panel-support--light:
         hash: v1.k794b7964.87cae042d1f0a60a2c843a358cbb0c3ef2acd60284df8de0e84b9b7eb8d5084f.VMPQg6ury8nhCzIjULK0WgJTTN5h0vnVM4OZTx3A8ig
+    scenes-app-support-threadreportentry--fix-merged--dark:
+        hash: v1.k794b7964.9b2ed403c9a96a40cdf57d0a8e6c71b8dab6f7a9343d17b16eba6d8b6d8cfe02.ubF_YTSkWvY2MEUK_U1jXy3Obh2NuJZDG7swlz7hEIs
+    scenes-app-support-threadreportentry--fix-merged--light:
+        hash: v1.k794b7964.829ae3009955f65e20e347921b596b84f053b63c0fefb7628200d15bc24ca4dc.s0B8u3UrlfAm03SqC5h276_MQeB4dxpKQ7OfyYC3sCU
+    scenes-app-support-threadreportentry--fix-proposed--dark:
+        hash: v1.k794b7964.08572f013c4bebfa0cd3394b5bb15caa83bf8873a9ca6a6a0177141a0484b334.QNpHsOagxzWzpatB99DXnUwqAVNOKoea71jHT6_wQrI
+    scenes-app-support-threadreportentry--fix-proposed--light:
+        hash: v1.k794b7964.88ff8b7ba4a60d059ca11c9b5ff8198feacc2f54bb876a482f5e38b64530ee6e.LgTD4VhKBOqNkpnDR7tGvkLOENb1gQs8F9wf-Ib4Pp4
+    scenes-app-support-threadreportentry--several-reports-across-states--dark:
+        hash: v1.k794b7964.bd7bb412a5652df533ddaaee34979952c4cc563214fdb9da0c2341c2ee3a42c0.2_uB4JqMmb5VC1ApVDY0uQTkdcOPfwsLn0EROX92oS4
+    scenes-app-support-threadreportentry--several-reports-across-states--light:
+        hash: v1.k794b7964.cda6dcd93ae53690e576d7cd55346d52945f7ab5a02ac997e71e2f57966ead0f.XW-a_SkxIsORQ3W4LRuIka6w6cMIRiv4ALyfr55J2i8
     scenes-app-surveys--new-multi-question-survey-section--dark:
         hash: v1.k794b7964.e4c838e9c192c01eab518de2435a2fef6d3ed65b727fe4c05af61eee010bf03d.yIm_bRCN_65TxDwWd9qVeapTEfZ5QAYSmpJbKKle8Hw
     scenes-app-surveys--new-multi-question-survey-section--light:
