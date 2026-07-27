@@ -15,6 +15,7 @@ uncoordinated duckgres writers.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import UUID
 
 import structlog
 import posthoganalytics
@@ -26,6 +27,15 @@ from posthog.exceptions_capture import capture_exception
 logger = structlog.get_logger(__name__)
 
 DUCKGRES_BATCH_SINK_FLAG = "duckgres-batch-sink"
+
+
+def _is_uuid(value: str) -> bool:
+    """Whether a raw control-plane org id parses as a UUID the org FK lookup can accept."""
+    try:
+        UUID(value)
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
 
 
 def is_duckgres_sink_team_member(team_id: int) -> bool:
@@ -86,11 +96,15 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
             "id", "uuid", "organization_id"
         )
     }
+    # DuckgresServer.organization is a UUID FK, so a single non-UUID control-plane org id
+    # would make the __in lookup raise and blind the whole refresh. A junk org id can never
+    # match a real server row anyway, so drop it here rather than let one bad row take the fleet down.
+    org_ids = {row.organization_id for row in rows if _is_uuid(row.organization_id)}
     budgets = {
         str(org_id): sink_max_concurrency
-        for org_id, sink_max_concurrency in DuckgresServer.objects.filter(
-            organization_id__in={row.organization_id for row in rows}
-        ).values_list("organization_id", "sink_max_concurrency")
+        for org_id, sink_max_concurrency in DuckgresServer.objects.filter(organization_id__in=org_ids).values_list(
+            "organization_id", "sink_max_concurrency"
+        )
     }
 
     enabled: list[int] = []

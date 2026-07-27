@@ -113,6 +113,27 @@ def test_duckgres_sink_enablement_uses_memberships_and_carries_org_budgets(
 @pytest.mark.django_db
 @patch.object(enablement, "is_dev_mode", return_value=False)
 @patch.object(enablement.posthoganalytics, "feature_enabled")
+def test_duckgres_sink_enablement_ignores_non_uuid_org_id(
+    mock_feature_enabled: MagicMock, _mock_dev: MagicMock
+) -> None:
+    """A single control-plane row with a non-UUID org id must not crash the DuckgresServer
+    UUID __in lookup and blind the whole refresh; the bad row is dropped, the rest survives."""
+    org = Organization.objects.create(name="Org")
+    team = Team.objects.create(organization=org)
+    DuckgresServer.objects.create(organization=org, host="h", username="root", password="x")
+    mock_feature_enabled.return_value = True
+
+    junk_row = {"org_id": "not-a-uuid", "team_id": team.id + 1000, "schema_name": "junk", "enabled": True}
+    with _patch_all_rows([_cp_row(team), junk_row]):
+        result = enablement.duckgres_sink_enablement()
+
+    assert result is not None
+    assert result.team_ids == [team.id]
+
+
+@pytest.mark.django_db
+@patch.object(enablement, "is_dev_mode", return_value=False)
+@patch.object(enablement.posthoganalytics, "feature_enabled")
 def test_duckgres_sink_enablement_raises_when_control_plane_unreachable(
     mock_feature_enabled: MagicMock, _mock_dev: MagicMock
 ) -> None:
