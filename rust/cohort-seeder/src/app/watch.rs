@@ -2,7 +2,7 @@
 //!
 //! One dedicated consumer tails the whole membership topic, folding every observed
 //! `reconcile_complete` marker into the per-run [`MarkerLedger`] it names. Bits and the watcher's
-//! resume positions are flushed through PR-B's fenced [`persist_marker_observations`] on a cadence
+//! resume positions are flushed through the fenced [`persist_marker_observations`] on a cadence
 //! (every persist interval), a batch cap (every N consumed messages), or immediately when a cohort's
 //! bitmap completes — whichever comes first. The driver publishes the set of runs to watch via a
 //! [`watch`] channel, recomputed each tick from discovery; the task adds ledgers seeded from persisted
@@ -90,7 +90,7 @@ pub trait MarkerFlush: Send {
     ) -> Result<(), CompletionStoreError>;
 }
 
-/// The real flush: PR-B's epoch-fenced OR-merge of bits plus the watcher positions.
+/// The real flush: the epoch-fenced OR-merge of bits plus the watcher positions.
 pub struct PgMarkerFlush {
     pool: PgPool,
 }
@@ -199,7 +199,7 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
                     run.ledger.observe(&marker),
                     run.ledger.completed_since_flush(),
                 ),
-                None => (MarkerFold::ForeignRun, false),
+                None => (MarkerFold::Unwatched, false),
             };
             self.completion_pending |= completed;
             counter!(RECONCILE_MARKERS_OBSERVED, "fold" => fold.label()).increment(1);
@@ -229,7 +229,7 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
             .collect();
         let removed_any = !removed.is_empty();
         for run_id in removed {
-            self.flush_run(run_id).await;
+            let _ = self.flush_run(run_id).await;
             self.runs.remove(&run_id);
         }
         // A run the driver stopped publishing can be re-added cleanly, so its tombstone goes too.
@@ -347,8 +347,9 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
     /// Flush every watched run's dirty bits and the current positions, then reset the flush accounting.
     async fn flush(&mut self) {
         let run_ids: Vec<RunId> = self.runs.keys().copied().collect();
+        let mut all_persisted = true;
         for run_id in run_ids {
-            self.flush_run(run_id).await;
+            all_persisted &= self.flush_run(run_id).await;
             // One round trip per run, all of it before the runner loop's own heartbeat: a large
             // watched set must slow flushes down, not spend the whole liveness budget.
             if let Some(handle) = &self.heartbeat {
@@ -356,7 +357,10 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
             }
         }
         self.messages_since_flush = 0;
-        self.positions_advanced = false;
+        // Held on a failed persist: for a run whose bits are clean but whose coverage moved, this
+        // flag is the only thing `flush_run`'s guard retries on, and an idle topic never sets it
+        // again — the run's positions would never reach the DB and it could never settle.
+        self.positions_advanced = !all_persisted;
         // Recomputed, not cleared: a run whose persist failed keeps its bits dirty, so it keeps its
         // trigger. A stale-true from a rebuilt run costs at most one no-op flush.
         self.completion_pending = self
@@ -367,13 +371,15 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
 
     /// Persist one run's dirty bits and the watcher positions under its dispatch fence. A lost fence
     /// drops the run (a re-dispatch superseded it); a transient error keeps the bits dirty for retry.
-    async fn flush_run(&mut self, run_id: RunId) {
+    /// Returns whether the run has nothing left owed — `false` only on a transient error, so the
+    /// caller knows to keep the retry flag set.
+    async fn flush_run(&mut self, run_id: RunId) -> bool {
         let Some(run) = self.runs.get(&run_id) else {
-            return;
+            return true;
         };
         // Nothing to persist if neither the bits nor the positions moved since the last flush.
         if !run.ledger.has_dirty() && !self.positions_advanced {
-            return;
+            return true;
         }
         let epoch = run.epoch;
         let dirty = run.ledger.dirty_bitmaps();
@@ -383,6 +389,7 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
                 if let Some(run) = self.runs.get_mut(&run_id) {
                     run.ledger.clear_dirty();
                 }
+                true
             }
             Err(CompletionStoreError::CompletionFenceLost { .. }) => {
                 info!(
@@ -390,9 +397,11 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
                     "marker watch lost the dispatch fence; dropping run (a re-dispatch superseded it)"
                 );
                 self.runs.remove(&run_id);
+                true
             }
             Err(error) => {
                 warn!(run_id = ?run_id, error = %error, "persisting marker observations failed; will retry");
+                false
             }
         }
     }
@@ -606,11 +615,16 @@ mod tests {
     struct FakeFlush {
         calls: Mutex<Vec<FlushCall>>,
         fence_lost: Mutex<VecDeque<RunId>>,
+        transient: Mutex<VecDeque<RunId>>,
     }
 
     impl FakeFlush {
         fn lose_fence(&self, run_id: RunId) {
             self.fence_lost.lock().unwrap().push_back(run_id);
+        }
+
+        fn fail_once(&self, run_id: RunId) {
+            self.transient.lock().unwrap().push_back(run_id);
         }
 
         fn calls(&self) -> Vec<FlushCall> {
@@ -639,6 +653,16 @@ mod tests {
                     run_id,
                     operation: CompletionOperation::PersistObservations,
                 });
+            }
+            if self
+                .transient
+                .lock()
+                .unwrap()
+                .front()
+                .is_some_and(|failing| *failing == run_id)
+            {
+                self.transient.lock().unwrap().pop_front();
+                return Err(CompletionStoreError::Pg(sqlx::Error::PoolClosed));
             }
             self.calls.lock().unwrap().push(FlushCall {
                 run_id,
@@ -720,6 +744,37 @@ mod tests {
             state.flush.calls().len(),
             1,
             "a clean run is not re-flushed"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_persist_is_retried_without_new_traffic() {
+        // Coverage advanced but the bits are already clean, so `positions_advanced` is the only
+        // thing that gets this run flushed again. Clearing it after a failed persist would strand
+        // the run's positions below its captured ends forever on an idle topic.
+        let run_id = run(1);
+        let flush = FakeFlush::default();
+        flush.fail_once(run_id);
+        let mut state = make_state(flush, 10_000);
+        state
+            .apply_directives(&WatchDirectives {
+                runs: vec![directive(run_id, 100, start_at(0, 0), &[10])],
+            })
+            .await;
+
+        state.ingest(WatchItem {
+            partition: MembershipPartition::new(0),
+            next_offset: NextOffset::from_high_watermark(1),
+            marker: None,
+        });
+        state.flush().await;
+        assert!(state.flush.calls().is_empty(), "the persist failed");
+
+        state.flush().await;
+        assert_eq!(
+            state.flush.calls().len(),
+            1,
+            "the next flush retries without waiting for new traffic"
         );
     }
 

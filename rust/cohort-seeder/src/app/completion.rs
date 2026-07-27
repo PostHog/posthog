@@ -319,8 +319,8 @@ impl CompletionDriver {
                             Entry::Vacant(entry) => (true, *entry.insert(now)),
                         }
                     };
-                    // Age from the phase, not `created_at`: days of legitimate seeding would
-                    // otherwise read as stalled the instant the dispatch record breaks.
+                    // Age from the phase, not the run: days of legitimate seeding would otherwise
+                    // read as stalled the instant the dispatch record breaks.
                     track_oldest(&mut oldest_stalled, since);
                     if first_sighting {
                         counter!(RECONCILE_RECORD_INVALID).increment(1);
@@ -574,10 +574,11 @@ fn build_directive(
 }
 
 /// Track the oldest not-yet-observed reconciling run for the stalled-observation pager gauge.
-fn track_oldest(oldest: &mut Option<DateTime<Utc>>, created_at: DateTime<Utc>) {
+/// `since` is when the run entered its current phase, never when it was created.
+fn track_oldest(oldest: &mut Option<DateTime<Utc>>, since: DateTime<Utc>) {
     match oldest {
-        Some(current) if *current <= created_at => {}
-        _ => *oldest = Some(created_at),
+        Some(current) if *current <= since => {}
+        _ => *oldest = Some(since),
     }
 }
 

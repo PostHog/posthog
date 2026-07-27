@@ -29,7 +29,7 @@ use super::{RenderedError, PERSISTED_ERROR_LIMIT};
 /// byte-identical and the composed SQL is a compile-time constant (mirrors `runs::run_columns!`).
 macro_rules! completion_columns {
     () => {
-        "id, team_id, status, created_at, chunks_planned_at, reconcile_dispatched_at, \
+        "id, team_id, status, chunks_planned_at, reconcile_dispatched_at, \
          reconcile_observed_at, reconcile_hwms, marker_watch"
     };
 }
@@ -742,9 +742,6 @@ pub async fn runs_with_all_chunks_confirmed(
 pub struct DiscoveredCompletion {
     pub run_id: RunId,
     pub team_id: TeamId,
-    /// When the run was created. The observer uses it to age the oldest not-yet-observed run for the
-    /// stalled-observation pager gauge.
-    pub created_at: DateTime<Utc>,
     pub phase: CompletionPhase,
 }
 
@@ -789,7 +786,6 @@ fn classify_row(row: CompletionRunRow) -> Option<DiscoveredCompletion> {
     Some(DiscoveredCompletion {
         run_id: row.id,
         team_id: TeamId(row.team_id),
-        created_at: row.created_at,
         phase,
     })
 }
@@ -847,7 +843,6 @@ struct CompletionRunRow {
     id: RunId,
     team_id: i32,
     status: String,
-    created_at: DateTime<Utc>,
     chunks_planned_at: Option<DateTime<Utc>>,
     reconcile_dispatched_at: Option<DateTime<Utc>>,
     reconcile_observed_at: Option<DateTime<Utc>>,

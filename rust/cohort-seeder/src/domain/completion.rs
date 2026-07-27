@@ -770,6 +770,36 @@ mod tests {
     }
 
     #[test]
+    fn advance_is_monotone_and_ignores_partitions_it_does_not_track() {
+        // Both guards feed `caught_up`. Regressing a position would rewind persisted coverage;
+        // inserting an untracked partition would claim coverage of everything below `offset`.
+        let tracked = MembershipPartition::new(0);
+        let untracked = MembershipPartition::new(1);
+        let mut positions = WatchPositions::new();
+        positions.insert(tracked, NextOffset::from_high_watermark(10));
+
+        positions.advance(tracked, NextOffset::from_high_watermark(20));
+        assert_eq!(
+            positions.get(tracked),
+            Some(NextOffset::from_high_watermark(20))
+        );
+
+        positions.advance(tracked, NextOffset::from_high_watermark(5));
+        assert_eq!(
+            positions.get(tracked),
+            Some(NextOffset::from_high_watermark(20)),
+            "a re-assignment re-reading an earlier offset must not regress coverage"
+        );
+
+        positions.advance(untracked, NextOffset::from_high_watermark(99));
+        assert_eq!(
+            positions.get(untracked),
+            None,
+            "a partition with no captured start is never claimed as covered"
+        );
+    }
+
+    #[test]
     fn caught_up_passes_at_the_end_and_fails_one_short() {
         let mut ends = ObservationEnds::new();
         ends.insert(

@@ -283,4 +283,34 @@ mod tests {
         // A marker whose partition is outside the bitmap range is corrupt: dropped.
         assert!(classify_marker(Some(b"2:42:run"), Some(&marker_payload(64))).is_none());
     }
+
+    #[test]
+    fn a_start_below_the_low_watermark_is_truncation_and_the_boundary_is_not() {
+        // A start exactly at the low watermark is the normal case right after a retention sweep.
+        // Reporting it as truncated would drop and tombstone every run on the partition.
+        let partition = MembershipPartition::new(0);
+        let lows = HashMap::from([(partition, 20_i64)]);
+        let positions = |offset| {
+            let mut positions = WatchPositions::new();
+            positions.insert(partition, NextOffset::from_high_watermark(offset));
+            positions
+        };
+
+        assert!(matches!(
+            build_assignment(TOPIC, &positions(5), &lows),
+            Err(WatchError::Truncated {
+                partition: 0,
+                requested: 5,
+                low: 20
+            })
+        ));
+
+        let tpl = build_assignment(TOPIC, &positions(20), &lows).unwrap();
+        assert_eq!(
+            tpl.find_partition(TOPIC, 0).map(|entry| entry.offset()),
+            Some(Offset::Offset(20))
+        );
+    }
+
+    const TOPIC: &str = "cohort_membership_changed_shadow";
 }

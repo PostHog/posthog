@@ -10,7 +10,7 @@
 //! from any write means a re-dispatch superseded this pass; the caller stops observing the run.
 //!
 //! Three seams keep the pass testable without a broker or a database: [`CommittedOffsetSource`] and
-//! [`TopicOffsetSource`] wrap the kafka layer, [`ObservationStore`] wraps PR-B's fenced store writes.
+//! [`TopicOffsetSource`] wrap the kafka layer, [`ObservationStore`] wraps the fenced store writes.
 //!
 //! The pass reports lag through [`ObserveStep`] rather than setting gauges itself: several runs are
 //! observed per tick, so the driver aggregates across them and publishes one fleet-wide reading that
@@ -286,7 +286,7 @@ pub trait TopicOffsetSource: Send + Sync {
     async fn observation_ends(&self) -> Result<ObservationEnds, SourceError>;
 }
 
-/// The observation pass's store surface: PR-B's fenced writes plus the two reads it folds over. The
+/// The observation pass's store surface: the fenced writes plus the two reads it folds over. The
 /// real impl delegates to `store::completion`; `sqlx` stays confined below this seam.
 #[async_trait]
 pub trait ObservationStore: Send + Sync {

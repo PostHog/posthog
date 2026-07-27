@@ -41,7 +41,7 @@ pub const RECONCILE_CAS_LOST: &str = "seeder_reconcile_cas_lost_total";
 pub const RECONCILE_RECORD_INVALID: &str = "seeder_reconcile_record_invalid_total";
 pub const RECONCILE_DISPATCHES_IN_FLIGHT: &str = "seeder_reconcile_dispatches_in_flight";
 pub const RUNS_RECONCILING: &str = "seeder_runs_reconciling";
-// PR-C: liveness + marker watcher + observation.
+// Liveness, marker watcher, and observation.
 pub const RECONCILE_MARKERS_OBSERVED: &str = "seeder_reconcile_markers_observed_total";
 pub const RECONCILE_MARKER_PARSE_FAILURES: &str = "seeder_reconcile_marker_parse_failures_total";
 pub const RECONCILE_MARKER_WATCH_LAG: &str = "seeder_reconcile_marker_watch_lag";

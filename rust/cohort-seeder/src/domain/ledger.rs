@@ -1,6 +1,6 @@
 //! Pure per-run fold of observed `reconcile_complete` markers into per-cohort partition bitmaps.
 //!
-//! The marker watcher (PR-C's dedicated task) reads *all* membership partitions and hands each marker
+//! The marker watcher's dedicated task reads *all* membership partitions and hands each marker
 //! to the ledger of the run it names. Folding is a monotone set-union: a partition's bit, once set,
 //! never clears, so replaying the same marker stream in any order yields the same bitmaps. The final
 //! per-cohort outcome (complete / partial) is reachable only through [`MarkerLedger::settle`], which
@@ -30,6 +30,9 @@ pub enum MarkerFold {
     ForeignTeam,
     /// This run, but a cohort it does not track (superseded and excluded by the caller, or garbage).
     UnknownCohort,
+    /// No ledger at all names this run. Decided by the watcher before any ledger sees the marker,
+    /// and the dominant outcome since the watcher tails a topic carrying every run's markers.
+    Unwatched,
 }
 
 impl MarkerFold {
@@ -41,6 +44,7 @@ impl MarkerFold {
             Self::ForeignRun => "foreign_run",
             Self::ForeignTeam => "foreign_team",
             Self::UnknownCohort => "unknown_cohort",
+            Self::Unwatched => "unwatched",
         }
     }
 }
