@@ -8,6 +8,14 @@ facade) and GitHub's commits listing (sha → login — git author emails are un
 text, so identity comes only from GitHub's own attribution). Cached in
 ``SignalRepositoryAreaActivity`` — reviewer resolution only ever reads the cache; rebuilds
 run async (on cache miss and weekly).
+
+An area's contributor count also gates whether it may supply fill-in reviewer candidates
+(``MAX_AREA_FILLIN_BREADTH``, applied in ``report_generation/resolve_reviewers.py``) — a
+catch-all area like ``frontend/src`` says nothing about ownership of the code a report
+actually touched, so it (and any parent it would otherwise walk up to) contributes no
+fill-ins once it gets too broad. There is deliberately no repo-wide fallback level: an area
+with no small-enough activity in its own chain contributes nothing, rather than falling back
+to "busiest people in the repo."
 """
 
 from __future__ import annotations
@@ -40,9 +48,10 @@ ACTIVITY_KEEP_WARM_WINDOW = timedelta(days=45)
 AREA_PATH_DEPTH = 2
 MAX_AREAS_PER_RESOLUTION = 6
 MAX_CONTRIBUTORS_PER_AREA = 50
-# Synthetic area holding every contributor to the repository; the last fallback level.
-# Distinct from "" (files at the repository root).
-REPO_WIDE_AREA = "*"
+# An area (or parent) with more recent contributors than this says nothing about ownership
+# of any one piece of code within it — it contributes no fill-in reviewer candidates. The
+# single obvious place to tune breadth-gating.
+MAX_AREA_FILLIN_BREADTH = 10
 
 
 @dataclass(frozen=True)
@@ -76,17 +85,25 @@ def areas_for_paths(paths: list[str]) -> list[str]:
 
 
 def area_fallback_chain(area: str) -> list[str]:
-    """Lookup order when an area has no active contributors: itself, its parent, repo-wide.
+    """Lookup order when an area has no active contributors: itself, then its parent.
 
-    ``products/signals`` → ``["products/signals", "products", "*"]``; the rebuild indexes
-    every commit at all of these levels, so walking up never invents data.
+    ``products/signals`` → ``["products/signals", "products"]``; ``posthog`` →
+    ``["posthog"]``. The rebuild indexes every commit at both of these levels, so walking up
+    never invents data. There is no further, repo-wide level — an area whose own chain has
+    nothing usable (empty, or too broad to pass ``MAX_AREA_FILLIN_BREADTH``) simply
+    contributes nothing.
     """
     chain = [area]
     if "/" in area:
         chain.append(area.rsplit("/", 1)[0])
-    if area != REPO_WIDE_AREA:
-        chain.append(REPO_WIDE_AREA)
     return chain
+
+
+def area_specificity(area: str) -> int:
+    """How deep an area is in the path hierarchy — used to break fill-in ties in favor of the
+    most specific (deepest) touched area. Root (``""``) is 0; each path segment adds one.
+    """
+    return area.count("/") + 1 if area else 0
 
 
 def get_area_activity(team_id: int, repository: str, areas: list[str]) -> dict[str, list[ContributorActivity]]:
@@ -149,9 +166,9 @@ def rebuild_repository_activity(team_id: int, repository: str) -> int:
     One facade call collects the recent commits with their touched paths (sandbox git log);
     one paginated GitHub commits listing supplies sha→login attribution — the two join on
     sha, so identity never depends on author emails. Commits GitHub can't attribute, and
-    bot accounts, are dropped. Each commit is indexed at every fallback level (its areas,
-    their parents, and ``REPO_WIDE_AREA``) so lookups can walk up when an area has no
-    active contributors. Every area row for the repository is replaced in one transaction —
+    bot accounts, are dropped. Each commit is indexed at every fallback level (its areas and
+    their parents) so lookups can walk up when an area has no active contributors. Every
+    area row for the repository is replaced in one transaction —
     areas with no recent commits are stamped refreshed with no contributors, which scoring
     reads as "nobody is active here", distinct from a never-built row.
 

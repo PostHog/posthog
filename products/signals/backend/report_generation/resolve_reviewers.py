@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
@@ -26,9 +26,10 @@ from posthog.models.user_integration import UserIntegration
 from products.signals.backend.contracts import RelevantCommit
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_WINDOW_DAYS,
-    REPO_WIDE_AREA,
+    MAX_AREA_FILLIN_BREADTH,
     ContributorActivity,
     area_fallback_chain,
+    area_specificity,
     areas_for_paths,
     get_area_activity,
     repository_activity_needs_rebuild,
@@ -193,9 +194,9 @@ def resolve_suggested_reviewers(
                 login_names[login] = author_info.name
 
     touched_paths = [path for info in author_results.values() if info is not None for path in info.file_paths]
-    activity_by_login = _relevant_area_activity(team_id, repository, touched_paths)
+    full_activity, gated_activity = _relevant_area_activity(team_id, repository, touched_paths)
 
-    return _rank_scored_candidates(login_weights, activity_by_login, login_commits, login_names)
+    return _rank_scored_candidates(login_weights, full_activity, gated_activity, login_commits, login_names)
 
 
 def rank_assignee_candidates(
@@ -218,30 +219,52 @@ def rank_assignee_candidates(
     for i, login in enumerate(deduped):
         login_weights[login] = total - i
 
-    activity_by_login = _relevant_area_activity(team_id, repository, touched_paths)
-    if not activity_by_login and not login_weights:
+    full_activity, gated_activity = _relevant_area_activity(team_id, repository, touched_paths)
+    if not full_activity and not gated_activity and not login_weights:
         return []
-    return _rank_scored_candidates(login_weights, activity_by_login, login_commits={}, login_names={})
+    return _rank_scored_candidates(login_weights, full_activity, gated_activity, login_commits={}, login_names={})
 
 
 def _rank_scored_candidates(
     login_weights: Counter[str],
-    activity_by_login: dict[str, _AreaContributor],
+    full_activity: dict[str, _AreaContributor],
+    gated_activity: dict[str, _AreaContributor],
     login_commits: dict[str, list[RelevantCommit]],
     login_names: dict[str, str | None],
 ) -> list[_ResolvedReviewer]:
-    scores = _score_candidates(login_weights, activity_by_login)
+    scores = _score_candidates(login_weights, full_activity, gated_activity)
 
-    def rank_key(item: tuple[str, float]) -> tuple[float, int, str]:
-        login, score = item
-        activity = activity_by_login.get(login)
-        return (-score, -(activity.commit_count if activity else 0), login)
+    def activity_for(login: str) -> _AreaContributor | None:
+        return gated_activity.get(login) or full_activity.get(login)
 
-    ranked = sorted(scores.items(), key=rank_key)[:MAX_SUGGESTED_REVIEWERS]
+    def rank_key(login: str) -> tuple[float, int, float, int, str]:
+        activity = activity_for(login)
+        depth = area_specificity(activity.area) if activity else -1
+        recency = activity.days_since_last_commit if activity else float("inf")
+        commit_count = activity.commit_count if activity else 0
+        return (-scores[login], -depth, recency, -commit_count, login)
+
+    # Blame-author protection: a fill-in (a candidate with no blame weight of its own) may
+    # never bump a blame author out of the top spots if that author is themselves recently
+    # active in a touched, gated area — only raw score decides ties among everyone else.
+    protected = {login for login in login_weights if login in gated_activity}
+
+    ordered = sorted(scores.keys(), key=rank_key)
+    top = ordered[:MAX_SUGGESTED_REVIEWERS]
+    displaced_protected = [login for login in ordered[MAX_SUGGESTED_REVIEWERS:] if login in protected]
+    if displaced_protected:
+        reclaimable_fillins = [login for login in reversed(top) if login not in login_weights]
+        for protected_login in displaced_protected:
+            if not reclaimable_fillins:
+                break
+            weakest_fillin = reclaimable_fillins.pop(0)
+            top[top.index(weakest_fillin)] = protected_login
+        top.sort(key=rank_key)
+
     reviewers: list[_ResolvedReviewer] = []
-    for login, score in ranked:
+    for login in top:
         commits = list(login_commits.get(login, []))
-        activity = activity_by_login.get(login)
+        activity = activity_for(login)
         if not commits and activity is not None:
             commits = [
                 RelevantCommit(
@@ -256,13 +279,11 @@ def _rank_scored_candidates(
         name = login_names.get(login)
         if name is None and activity is not None:
             name = activity.name
-        reviewers.append(_ResolvedReviewer(login=login, name=name, commits=commits, weight=score))
+        reviewers.append(_ResolvedReviewer(login=login, name=name, commits=commits, weight=scores[login]))
     return reviewers
 
 
 def _area_label(area: str) -> str:
-    if area == REPO_WIDE_AREA:
-        return "this repository"
     if area == "":
         return "the repository root"
     return f"`{area}`"
@@ -277,25 +298,31 @@ class _AreaContributor:
     days_since_last_commit: float
     last_commit_sha: str
     last_commit_url: str
-    area: str  # the area of the evidence (freshest) commit, for evidence wording
+    area: str  # the most specific area this evidence comes from, for tie-breaking + wording
 
 
 def _relevant_area_activity(
     team_id: int,
     repository: str,
     touched_paths: list[str],
-) -> dict[str, _AreaContributor]:
+) -> tuple[dict[str, _AreaContributor], dict[str, _AreaContributor]]:
     """Aggregate cached area activity across the areas the finding commits touched.
 
     Cache-only; a missing or stale map schedules an async rebuild and this report falls
     back to whatever is cached (possibly nothing). An area with no active contributors
-    falls back up its chain (parent directory, then repo-wide) — someone active nearby
-    beats nobody. Returns an empty dict when nothing is known — callers must treat that
-    as "no signal", not "nobody is active".
+    falls back up its chain (its parent) — someone active nearby beats nobody. There is no
+    further, repo-wide fallback.
+
+    Returns a pair: the full walk-up activity (no breadth gate — used for blame authors'
+    own recency, which reflects them regardless of how big their area is) and the
+    breadth-gated activity (only areas/parents at or under ``MAX_AREA_FILLIN_BREADTH``
+    recent contributors — the only pool fill-in candidates may be drawn from). Both are
+    empty when nothing is known — callers must treat that as "no signal", not "nobody is
+    active".
     """
     areas = areas_for_paths(touched_paths)
     if not areas:
-        return {}
+        return {}, {}
     chains = [area_fallback_chain(area) for area in areas]
     lookup_areas = list(dict.fromkeys(area for chain in chains for area in chain))
     activity_by_area = get_area_activity(team_id, repository, lookup_areas)
@@ -303,10 +330,32 @@ def _relevant_area_activity(
         _schedule_activity_rebuild(team_id, repository)
 
     now = timezone.now()
+    full = _merge_chain_levels(
+        chains, activity_by_area, now, level_filter=lambda area: bool(activity_by_area.get(area))
+    )
+    gated = _merge_chain_levels(
+        chains,
+        activity_by_area,
+        now,
+        level_filter=lambda area: (
+            len(activity_by_area.get(area, [])) <= MAX_AREA_FILLIN_BREADTH and bool(activity_by_area.get(area))
+        ),
+    )
+    return full, gated
+
+
+def _merge_chain_levels(
+    chains: list[list[str]],
+    activity_by_area: dict[str, list[ContributorActivity]],
+    now: datetime,
+    *,
+    level_filter: Callable[[str], bool],
+) -> dict[str, _AreaContributor]:
+    """Walk each touched area's fallback chain, taking the first level ``level_filter`` accepts."""
     merged: dict[str, _AreaContributor] = {}
     used_levels: set[str] = set()
     for chain in chains:
-        level = next((area for area in chain if activity_by_area.get(area)), None)
+        level = next((area for area in chain if level_filter(area)), None)
         if level is None or level in used_levels:
             continue
         used_levels.add(level)
@@ -342,9 +391,15 @@ def _merge_contributor(
             last_commit_url=incoming.last_commit_url,
             area=area,
         )
-    # Evidence follows the freshest commit, so sha/url/area always agree with
-    # days_since_last_commit.
-    keep_incoming_evidence = days_since < existing.days_since_last_commit
+    # Evidence favors the most specific area (tie-break criterion), then the freshest commit —
+    # sha/url/area always agree with whichever one wins.
+    incoming_depth = area_specificity(area)
+    existing_depth = area_specificity(existing.area)
+    keep_incoming_evidence = (
+        incoming_depth > existing_depth
+        if incoming_depth != existing_depth
+        else days_since < existing.days_since_last_commit
+    )
     return _AreaContributor(
         name=existing.name or incoming.name,
         commit_count=existing.commit_count + incoming.commit_count,
@@ -370,9 +425,15 @@ def _recency_multiplier(days_since_last_commit: float | None) -> float:
 
 def _score_candidates(
     login_weights: Counter[str],
-    activity_by_login: dict[str, _AreaContributor],
+    full_activity: dict[str, _AreaContributor],
+    gated_activity: dict[str, _AreaContributor],
 ) -> dict[str, float]:
-    """Blend blame weights with area recency; add capped activity-only fallbacks.
+    """Blend blame weights with area recency; add capped, breadth-gated fill-in candidates.
+
+    Blame authors are scored against ``full_activity`` — their own recency in the areas they
+    touched is a legitimate signal regardless of how big that area's contributor pool is.
+    New (non-blame) candidates are only ever drawn from ``gated_activity``, which excludes
+    areas too broad to say anything about ownership (``MAX_AREA_FILLIN_BREADTH``).
 
     Invariants: a freshly-active area contributor always outranks a blame author who is
     gone from the area (their base starts above the stale floor), and never outranks the
@@ -382,17 +443,17 @@ def _score_candidates(
     stronger claim than sustained area ownership. With no activity data at all, blame
     weights pass through unchanged (legacy behavior).
     """
-    if not activity_by_login:
+    if not full_activity and not gated_activity:
         return {login: float(weight) for login, weight in login_weights.items()}
 
     max_blame_weight = float(max(login_weights.values(), default=0)) or 1.0
     scores: dict[str, float] = {}
     for login, weight in login_weights.items():
-        activity = activity_by_login.get(login)
+        activity = full_activity.get(login)
         multiplier = _recency_multiplier(activity.days_since_last_commit if activity else None)
         scores[login] = float(weight) * multiplier
 
-    for login, activity in activity_by_login.items():
+    for login, activity in gated_activity.items():
         if login in scores:
             continue
         saturation = min(activity.commit_count, ACTIVITY_BONUS_SATURATION_COMMITS) / ACTIVITY_BONUS_SATURATION_COMMITS

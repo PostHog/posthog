@@ -12,9 +12,9 @@ from posthog.models.scoping import team_scope
 from products.signals.backend.models import SignalRepositoryAreaActivity
 from products.signals.backend.report_generation.repo_activity import (
     MAX_AREAS_PER_RESOLUTION,
-    REPO_WIDE_AREA,
     area_fallback_chain,
     area_for_path,
+    area_specificity,
     areas_for_paths,
     get_area_activity,
     rebuild_repository_activity,
@@ -91,10 +91,15 @@ class TestAreaForPath:
         many = [f"dir{i}/sub/file.py" for i in range(MAX_AREAS_PER_RESOLUTION + 3)]
         assert len(areas_for_paths(many)) == MAX_AREAS_PER_RESOLUTION
 
-    def test_fallback_chain_walks_up_to_repo_wide(self):
-        assert area_fallback_chain("products/signals") == ["products/signals", "products", REPO_WIDE_AREA]
-        assert area_fallback_chain("posthog") == ["posthog", REPO_WIDE_AREA]
-        assert area_fallback_chain("") == ["", REPO_WIDE_AREA]
+    def test_fallback_chain_walks_up_to_parent_only(self):
+        assert area_fallback_chain("products/signals") == ["products/signals", "products"]
+        assert area_fallback_chain("posthog") == ["posthog"]
+        assert area_fallback_chain("") == [""]
+
+    def test_area_specificity_ranks_deeper_paths_higher(self):
+        assert area_specificity("") == 0
+        assert area_specificity("posthog") == 1
+        assert area_specificity("products/signals") == 2
 
 
 class FakeAttributionGitHub:
@@ -147,12 +152,10 @@ class TestRebuildRepositoryActivity:
         assert [c.login for c in activity["posthog/models"]] == ["bobdev"]
         assert "nobody" not in signals_area
 
-        # commits are also indexed at the parent and repo-wide levels for walk-up
-        parents = get_area_activity(team.id, "acme/app", ["products", REPO_WIDE_AREA])
+        # commits are also indexed at the parent level for walk-up, but no further
+        # (there is no repo-wide fallback level).
+        parents = get_area_activity(team.id, "acme/app", ["products"])
         assert {c.login for c in parents["products"]} == {"alice", "bobdev"}
-        repo_wide = {c.login: c for c in parents[REPO_WIDE_AREA]}
-        assert repo_wide["alice"].commit_count == 2
-        assert repo_wide["bobdev"].commit_count == 1
 
     def test_bot_commits_are_excluded(self, team):
         commits = [

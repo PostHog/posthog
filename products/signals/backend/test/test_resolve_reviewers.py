@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
@@ -16,12 +17,17 @@ from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.models import SignalRepositoryAreaActivity
-from products.signals.backend.report_generation.repo_activity import ACTIVITY_WINDOW_DAYS, ContributorActivity
+from products.signals.backend.report_generation.repo_activity import (
+    ACTIVITY_WINDOW_DAYS,
+    MAX_AREA_FILLIN_BREADTH,
+    ContributorActivity,
+)
 from products.signals.backend.report_generation.resolve_reviewers import (
     RECENCY_DECAY_FLOOR,
     RECENCY_FULL_WEIGHT_DAYS,
     STALE_BLAME_MULTIPLIER,
     _AreaContributor,
+    _rank_scored_candidates,
     _recency_multiplier,
     _relevant_area_activity,
     _score_candidates,
@@ -145,7 +151,7 @@ class TestRecencyScoring:
     def test_no_activity_data_keeps_blame_weights(self):
         weights = Counter({"old-timer": 10, "runner-up": 4})
 
-        scores = _score_candidates(weights, {})
+        scores = _score_candidates(weights, {}, {})
 
         assert scores == {"old-timer": 10.0, "runner-up": 4.0}
 
@@ -162,7 +168,7 @@ class TestRecencyScoring:
             ),
         }
 
-        scores = _score_candidates(weights, activity)
+        scores = _score_candidates(weights, activity, activity)
 
         # old-timer authored the blame commits but has no recent commits in the area.
         assert scores["active-owner"] > scores["old-timer"]
@@ -184,7 +190,7 @@ class TestRecencyScoring:
             "bystander": contributor(days_since=1),
         }
 
-        scores = _score_candidates(weights, activity)
+        scores = _score_candidates(weights, activity, activity)
 
         assert scores["active-author"] > scores["bystander"]
 
@@ -203,7 +209,7 @@ class TestRecencyScoring:
             ),
         }
 
-        scores = _score_candidates(weights, activity)
+        scores = _score_candidates(weights, activity, activity)
 
         assert scores["light-owner"] > scores["long-gone"]
 
@@ -220,51 +226,218 @@ class TestRecencyScoring:
             ),
         }
 
-        scores = _score_candidates(weights, activity)
+        scores = _score_candidates(weights, activity, activity)
 
         assert scores["long-gone"] >= scores["half-stale"]
 
 
 @pytest.mark.django_db
 class TestAreaWalkUp:
-    def test_empty_area_falls_back_to_parent_then_repo_wide(self, team):
-        def _row(area: str, logins: list[str]) -> None:
-            SignalRepositoryAreaActivity.objects.create(
-                team=team,
-                repository="acme/app",
-                area=area,
-                contributors=[
-                    {
-                        "login": login,
-                        "name": login.title(),
-                        "commit_count": 3,
-                        "last_commit_at": timezone.now().isoformat(),
-                        "last_commit_sha": "a" * 7,
-                        "last_commit_url": "https://github.com/acme/app/commit/aaaaaaa",
-                    }
-                    for login in logins
-                ],
-                refreshed_at=timezone.now(),
-            )
+    def _row(self, team, area: str, logins: list[str]) -> None:
+        SignalRepositoryAreaActivity.objects.create(
+            team=team,
+            repository="acme/app",
+            area=area,
+            contributors=[
+                {
+                    "login": login,
+                    "name": login.title(),
+                    "commit_count": 3,
+                    "last_commit_at": timezone.now().isoformat(),
+                    "last_commit_sha": "a" * 7,
+                    "last_commit_url": "https://github.com/acme/app/commit/aaaaaaa",
+                }
+                for login in logins
+            ],
+            refreshed_at=timezone.now(),
+        )
 
+    def test_empty_area_falls_back_to_parent_only(self, team):
         with team_scope(team.id, canonical=True):
-            _row("products/dead", [])  # refreshed, nobody active
-            _row("products", ["parent-owner"])
-            _row("*", ["repo-regular"])
+            self._row(team, "products/dead", [])  # refreshed, nobody active
+            self._row(team, "products", ["parent-owner"])
 
         with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
-            merged = _relevant_area_activity(team.id, "acme/app", ["products/dead/models.py"])
+            full, gated = _relevant_area_activity(team.id, "acme/app", ["products/dead/models.py"])
 
-        # the dead area walks up to its parent; repo-wide stays in reserve
-        assert set(merged) == {"parent-owner"}
-        assert merged["parent-owner"].area == "products"
+        # the dead area walks up to its parent; there is no further, repo-wide level.
+        assert set(full) == {"parent-owner"}
+        assert full["parent-owner"].area == "products"
+        assert set(gated) == {"parent-owner"}
 
         with team_scope(team.id, canonical=True):
             SignalRepositoryAreaActivity.objects.filter(area="products").update(contributors=[])
         with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
-            merged = _relevant_area_activity(team.id, "acme/app", ["products/dead/models.py"])
+            full, gated = _relevant_area_activity(team.id, "acme/app", ["products/dead/models.py"])
 
-        assert set(merged) == {"repo-regular"}
+        # the parent is empty too now, and there is nowhere further to walk up to.
+        assert full == {}
+        assert gated == {}
+
+    def test_area_over_breadth_threshold_yields_no_gated_fillins(self, team):
+        busy_logins = [f"contributor-{i}" for i in range(MAX_AREA_FILLIN_BREADTH + 1)]
+        with team_scope(team.id, canonical=True):
+            self._row(team, "frontend/src", busy_logins)
+
+        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
+            full, gated = _relevant_area_activity(team.id, "acme/app", ["frontend/src/index.tsx"])
+
+        # a blame author's own recency still reads from the full (ungated) view...
+        assert set(full) == set(busy_logins)
+        # ...but the area is too broad to hand out fill-in candidates.
+        assert gated == {}
+
+    def test_gate_applies_at_every_walk_up_level(self, team):
+        busy_logins = [f"contributor-{i}" for i in range(MAX_AREA_FILLIN_BREADTH + 1)]
+        with team_scope(team.id, canonical=True):
+            self._row(team, "products/dead", [])  # own area empty
+            self._row(team, "products", busy_logins)  # parent is also too broad
+
+        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
+            _full, gated = _relevant_area_activity(team.id, "acme/app", ["products/dead/models.py"])
+
+        # walking up to a parent that also fails the gate yields nothing from that level.
+        assert gated == {}
+
+    def test_catchall_area_excluded_while_small_touched_area_stays_gated(self, team):
+        busy_logins = [f"contributor-{i}" for i in range(MAX_AREA_FILLIN_BREADTH + 1)]
+        with team_scope(team.id, canonical=True):
+            self._row(team, "frontend/src", busy_logins)
+            self._row(team, "products/subscriptions", ["small-area-owner"])
+
+        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
+            _full, gated = _relevant_area_activity(
+                team.id,
+                "acme/app",
+                ["frontend/src/index.tsx", "products/subscriptions/models.py"],
+            )
+
+        # the catch-all area contributes nothing; the small, genuinely-owned area still does.
+        assert set(gated) == {"small-area-owner"}
+
+
+class TestBlameAuthorProtection:
+    def test_low_share_blame_author_in_gated_area_not_displaced_by_fillin(self):
+        # robbie-c case: a long-time in-area owner with only one relevant (low-weight) blame
+        # commit must still make the cut over busier activity-only fill-ins from the same
+        # gated area — the fill-in cap alone doesn't protect a low blame-weight author from
+        # being pushed out of the top 3 by score.
+        login_weights = Counter({"top-author": 15, "robbie-c": 1})
+        gated_activity = {
+            "top-author": _AreaContributor(
+                name="Top Author",
+                commit_count=20,
+                days_since_last_commit=1,
+                last_commit_sha="t" * 7,
+                last_commit_url="https://github.com/acme/app/commit/ttttttt",
+                area="products/hogql",
+            ),
+            "robbie-c": _AreaContributor(
+                name="Robbie C",
+                commit_count=1,
+                days_since_last_commit=10,
+                last_commit_sha="r" * 7,
+                last_commit_url="https://github.com/acme/app/commit/rrrrrrr",
+                area="products/hogql",
+            ),
+            "fillin-a": _AreaContributor(
+                name="Fillin A",
+                commit_count=10,
+                days_since_last_commit=1,
+                last_commit_sha="a" * 7,
+                last_commit_url="https://github.com/acme/app/commit/aaaaaaa",
+                area="products/hogql",
+            ),
+            "fillin-b": _AreaContributor(
+                name="Fillin B",
+                commit_count=3,
+                days_since_last_commit=1,
+                last_commit_sha="b" * 7,
+                last_commit_url="https://github.com/acme/app/commit/bbbbbbb",
+                area="products/hogql",
+            ),
+        }
+
+        reviewers = _rank_scored_candidates(login_weights, gated_activity, gated_activity, {}, {})
+
+        # the top blame author is never displaced, robbie-c reclaims the weakest fill-in's
+        # seat, and the busier-but-lower-scored fill-in is the one that gets dropped.
+        assert [r.login for r in reviewers] == ["top-author", "fillin-a", "robbie-c"]
+
+
+class TestFillinTieBreak:
+    @parameterized.expand(
+        [
+            (
+                "area_specificity_beats_alphabet",
+                _AreaContributor(
+                    name=None,
+                    commit_count=5,
+                    days_since_last_commit=5,
+                    last_commit_sha="",
+                    last_commit_url="",
+                    area="products",
+                ),
+                _AreaContributor(
+                    name=None,
+                    commit_count=5,
+                    days_since_last_commit=5,
+                    last_commit_sha="",
+                    last_commit_url="",
+                    area="products/signals",
+                ),
+            ),
+            (
+                "recency_beats_alphabet",
+                _AreaContributor(
+                    name=None,
+                    commit_count=5,
+                    days_since_last_commit=20,
+                    last_commit_sha="",
+                    last_commit_url="",
+                    area="products/signals",
+                ),
+                _AreaContributor(
+                    name=None,
+                    commit_count=5,
+                    days_since_last_commit=5,
+                    last_commit_sha="",
+                    last_commit_url="",
+                    area="products/signals",
+                ),
+            ),
+            (
+                "commit_count_beats_alphabet",
+                _AreaContributor(
+                    name=None,
+                    commit_count=12,
+                    days_since_last_commit=5,
+                    last_commit_sha="",
+                    last_commit_url="",
+                    area="products/signals",
+                ),
+                _AreaContributor(
+                    name=None,
+                    commit_count=20,
+                    days_since_last_commit=5,
+                    last_commit_sha="",
+                    last_commit_url="",
+                    area="products/signals",
+                ),
+            ),
+        ]
+    )
+    def test_equal_score_fillins_break_ties_by_specificity_then_recency_then_commit_count(
+        self, _criterion, aaa_contributor, zzz_contributor
+    ):
+        # In every case below "aaa-candidate" and "zzz-candidate" score identically, so a plain
+        # alphabetical tie-break would pick "aaa-candidate" — the new tie-break chain must pick
+        # "zzz-candidate" instead, for the reason named by each case.
+        gated_activity = {"aaa-candidate": aaa_contributor, "zzz-candidate": zzz_contributor}
+
+        reviewers = _rank_scored_candidates(Counter(), gated_activity, gated_activity, {}, {})
+
+        assert reviewers[0].login == "zzz-candidate"
 
 
 @pytest.mark.django_db
@@ -376,3 +549,140 @@ class TestResolveSuggestedReviewersEndToEnd:
         assert "Recently active in `products/signals`" in reviewers[0].commits[0].reason
         # The blame author keeps their blame commit evidence, just demoted.
         assert reviewers[1].commits[0].sha == "d" * 7
+
+    def test_catchall_area_excluded_while_small_touched_area_stays_gated(self, team):
+        by_sha = {
+            "a" * 7: GitHubCommitAuthor(
+                login="blame-author-1",
+                name="Blame One",
+                commit_url="https://github.com/acme/app/commit/aaaaaaa",
+                file_paths=("frontend/src/App.tsx",),
+            ),
+            "b" * 7: GitHubCommitAuthor(
+                login="blame-author-2",
+                name="Blame Two",
+                commit_url="https://github.com/acme/app/commit/bbbbbbb",
+                file_paths=("products/subscriptions/models.py",),
+            ),
+        }
+
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                return by_sha[sha]
+
+        busy_contributors = [
+            ContributorActivity(
+                login=f"busy-{i}",
+                name=f"Busy {i}",
+                commit_count=5,
+                last_commit_at=timezone.now() - timedelta(days=1),
+                last_commit_sha="x" * 7,
+                last_commit_url="https://github.com/acme/app/commit/xxxxxxx",
+            )
+            for i in range(MAX_AREA_FILLIN_BREADTH + 1)
+        ]
+        activity = {
+            "frontend/src": busy_contributors,
+            "products/subscriptions": [
+                ContributorActivity(
+                    login="small-owner",
+                    name="Small Owner",
+                    commit_count=5,
+                    last_commit_at=timezone.now() - timedelta(days=1),
+                    last_commit_sha="s" * 7,
+                    last_commit_url="https://github.com/acme/app/commit/sssssss",
+                ),
+            ],
+        }
+
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=FakeGitHub(),
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value=activity,
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            reviewers = resolve_suggested_reviewers(
+                team.id, "acme/app", {"a" * 7: "touched frontend", "b" * 7: "touched subscriptions"}
+            )
+
+        logins = [r.login for r in reviewers]
+        assert set(logins) == {"blame-author-1", "blame-author-2", "small-owner"}
+        assert "busy-0" not in logins
+
+    def test_fewer_than_three_suggestions_when_only_two_genuine_candidates(self, team):
+        by_sha = {
+            "a" * 7: GitHubCommitAuthor(
+                login="author-a",
+                name="Author A",
+                commit_url="https://github.com/acme/app/commit/aaaaaaa",
+                file_paths=("products/signals/backend/models.py",),
+            ),
+            "b" * 7: GitHubCommitAuthor(
+                login="author-b",
+                name="Author B",
+                commit_url="https://github.com/acme/app/commit/bbbbbbb",
+                file_paths=("products/signals/backend/tasks.py",),
+            ),
+        }
+
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                return by_sha[sha]
+
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=FakeGitHub(),
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value={},
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            reviewers = resolve_suggested_reviewers(
+                team.id, "acme/app", {"a" * 7: "introduced the bug", "b" * 7: "adjacent change"}
+            )
+
+        # no repo-wide (or any other) pool exists to pad a third seat out of thin air.
+        assert [r.login for r in reviewers] == ["author-a", "author-b"]
+
+    def test_all_bot_commits_with_no_gated_area_returns_empty(self, team):
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                return GitHubCommitAuthor(
+                    login="posthog-bot",
+                    name="PostHog Bot",
+                    commit_url=f"https://github.com/acme/app/commit/{sha}",
+                    file_paths=("products/signals/backend/models.py",),
+                    is_bot=True,
+                )
+
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=FakeGitHub(),
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value={},
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            reviewers = resolve_suggested_reviewers(team.id, "acme/app", {"d" * 7: "bot-authored change"})
+
+        assert reviewers == []
