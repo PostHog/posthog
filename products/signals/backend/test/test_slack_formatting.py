@@ -18,6 +18,9 @@ class TestStripChartReferences(SimpleTestCase):
             ("several_in_one_summary", "[a](chart:x) then [b](chart:y_2-z)", "a then b"),
             ("target_outside_the_id_charset", "[Bad](chart:Uppercase)", "Bad"),
             ("reference_carrying_a_link_title", '[Daily](chart:daily "Daily signups")', "Daily"),
+            # A title may contain parens. Ending the match at the first one leaves `")` in the prose.
+            ("title_containing_parens", '[Daily](chart:daily "Daily signups (UTC)")', "Daily"),
+            ("single_quoted_title", "[Daily](chart:daily 'Daily signups')", "Daily"),
             ("http_link_is_left_alone", "[Docs](https://posthog.com)", "[Docs](https://posthog.com)"),
             ("prose_without_a_reference", "Signups fell 60%.", "Signups fell 60%."),
         ]
@@ -39,6 +42,7 @@ class TestStripChartReferences(SimpleTestCase):
         [
             ("bare_open_brackets", "[" * 20_000),
             ("unclosed_references", "[a](chart:" * 2_000),
+            ("unterminated_titles", '[a](chart:x "' * 2_000),
         ]
     )
     def test_a_summary_that_never_closes_a_reference_stays_cheap(self, _name: str, summary: str) -> None:
