@@ -20,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.i
     IntercomSearchPaginator,
     _build_paginator,
     _build_search_body,
-    _coerce_fields_to_str,
     _company_segments_generator,
     _conversation_parts_generator,
     _drain_company_ids,
@@ -262,24 +261,6 @@ class TestGetResource:
 
 
 class TestCoerceStringFields:
-    @pytest.mark.parametrize(
-        "item,fields,expected",
-        [
-            # int -> str: the owner_id / waiting_since int64-vs-string flip that broke the merge.
-            ({"owner_id": 42}, ["owner_id"], {"owner_id": "42"}),
-            # An already-string value is unchanged.
-            ({"owner_id": "42"}, ["owner_id"], {"owner_id": "42"}),
-            # None is preserved so the column stays nullable.
-            ({"owner_id": None}, ["owner_id"], {"owner_id": None}),
-            # A missing field is a no-op.
-            ({"name": "x"}, ["owner_id"], {"name": "x"}),
-            # Only configured fields are touched.
-            ({"owner_id": 1, "count": 2}, ["owner_id"], {"owner_id": "1", "count": 2}),
-        ],
-    )
-    def test_coerce_fields_to_str(self, item: dict[str, Any], fields: list[str], expected: dict[str, Any]):
-        assert _coerce_fields_to_str(item, fields) == expected
-
     def test_contacts_data_map_coerces_owner_id(self):
         # REST-path wiring: contacts declares owner_id in coerce_string_fields, so
         # get_resource must attach a data_map that stringifies it before rows hit Arrow.

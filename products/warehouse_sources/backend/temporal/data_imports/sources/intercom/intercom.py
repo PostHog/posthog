@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     EndpointResource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.row_transforms import coerce_fields_to_str
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import (
     INTERCOM_ENDPOINTS,
     IntercomEndpointConfig,
@@ -195,17 +196,6 @@ def _build_paginator(cfg: IntercomEndpointConfig) -> BasePaginator:
     return SinglePagePaginator()
 
 
-def _coerce_fields_to_str(item: dict[str, Any], fields: list[str]) -> dict[str, Any]:
-    """Stringify configured fields whose Intercom JSON type varies across records
-    (int in some, string in others), so every Arrow batch infers one stable type.
-    None is left as-is to preserve nullability."""
-    for f in fields:
-        value = item.get(f)
-        if value is not None:
-            item[f] = str(value)
-    return item
-
-
 def get_resource(
     name: str,
     should_use_incremental_field: bool,
@@ -260,7 +250,7 @@ def get_resource(
 
     if cfg.coerce_string_fields:
         coerce_fields = cfg.coerce_string_fields
-        resource["data_map"] = lambda item: _coerce_fields_to_str(item, coerce_fields)
+        resource["data_map"] = lambda item: coerce_fields_to_str(item, coerce_fields)
 
     return resource
 
@@ -555,7 +545,7 @@ def _substream_items(
     coerce_fields = INTERCOM_ENDPOINTS[endpoint].coerce_string_fields
     if not coerce_fields:
         return base
-    return (_coerce_fields_to_str(item, coerce_fields) for item in base)
+    return (coerce_fields_to_str(item, coerce_fields) for item in base)
 
 
 def validate_credentials(
