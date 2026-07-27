@@ -17,9 +17,6 @@ import { BreakdownColorConfig, denormalizeBreakdownValue, findBreakdownColorConf
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 
-// Re-exported for back-compat; the type lives in dashboardBreakdownColors.ts
-export type { BreakdownColorConfig }
-
 export function DashboardInsightColorsModal(): JSX.Element {
     const { isOpen, insightTilesLoading, breakdownValues } = useValues(dashboardInsightColorsModalLogic)
     const { hideInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
@@ -126,7 +123,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
             <LemonLabel className="mt-4">Breakdown colors</LemonLabel>
             <p className="text-muted-alt mb-4">
                 Breakdown values get a consistent color across all insights on this dashboard. Pick a color to pin a
-                value to it. <i>Note: This feature currently only works for trend and step-based funnel insights.</i>
+                value to it. <i>Note: This works for trend, funnel, and retention insights.</i>
             </p>
             <LemonTable
                 columns={columns}

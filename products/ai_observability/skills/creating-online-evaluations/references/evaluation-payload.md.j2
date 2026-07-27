@@ -15,7 +15,7 @@ schemas below are rendered from the backend Pydantic models at build time, so th
 | `output_config`       | no             | `{ "allows_na": bool }` for boolean; `{}` for sentiment.                             |
 | `model_configuration` | llm_judge only | Provider/model/key. Rejected on `hog`/`sentiment`.                                    |
 | `target`              | no             | `"generation"` (default) or `"trace"`. Sentiment supports only `"generation"`.       |
-| `target_config`       | trace only     | `{ "window_seconds": 10..7200 }`; defaults to 1800 seconds for a trace target.        |
+| `target_config`       | trace only     | Settle config discriminated on `strategy` (below); defaults to a 1800-second fixed window. |
 | `conditions`          | no             | Trigger condition sets (below). For traces, conditions match the triggering generation. |
 | `enabled`             | no             | Defaults to `false`. Create disabled, then flip with `llma-evaluation-update`.         |
 
@@ -25,8 +25,12 @@ Valid `(evaluation_type, output_type)` pairs: `(hog, boolean)`, `(llm_judge, boo
 ## `target` and `target_config`
 
 - `"target": "generation"` runs once for each matching generation and uses an empty `target_config`.
-- `"target": "trace"` runs once for the whole trace after the first matching generation. Set
-  `target_config.window_seconds` to control how long PostHog waits for the trace to finish before evaluating it.
+- `"target": "trace"` runs once for the whole trace. `target_config` picks the settle strategy:
+  - `{ "strategy": "fixed_window", "window_seconds": 10..7200 }` waits a fixed delay after the first
+    matching generation (defaults to 1800). A config without a `strategy` key means this.
+  - `{ "strategy": "inactivity", "quiet_period_seconds": 10..1800, "max_age_seconds": 60..7200 }`
+    evaluates once no new activity arrived for the quiet period (defaults to 300), capped at
+    `max_age_seconds` (defaults to 7200, must be at least the quiet period) from the first one.
 - Conditions always match generation properties. For a trace target, that matching generation schedules the
   eventual whole-trace evaluation.
 - Sentiment evaluations cannot use the trace target.
@@ -130,7 +134,16 @@ The same Hog source works for a whole trace. Change only the target fields:
 ```json
 {
   "target": "trace",
-  "target_config": { "window_seconds": 1800 }
+  "target_config": { "strategy": "fixed_window", "window_seconds": 1800 }
+}
+```
+
+Or evaluate when the trace goes quiet instead of after a fixed delay:
+
+```json
+{
+  "target": "trace",
+  "target_config": { "strategy": "inactivity", "quiet_period_seconds": 300, "max_age_seconds": 7200 }
 }
 ```
 
