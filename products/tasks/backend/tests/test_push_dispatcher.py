@@ -98,7 +98,8 @@ class TestPushDispatcher(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             notify_task_run_completed(self.task_run)
             notify_task_run_awaiting_input(self.task_run)
-        self.assertEqual(mock_delay.call_count, 2)
+            notify_task_run_turn_completed(self.task_run)
+        self.assertEqual(mock_delay.call_count, 3)
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")

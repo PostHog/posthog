@@ -47,12 +47,13 @@ FEATURE_FLAG_KEY = "posthog-code-mobile-push"
 # they should only fire once per run lifetime — anything more is a retry.
 # Interactive turn-end can legitimately fire again after the user replies,
 # so a short cooldown is enough to absorb rapid duplicate triggers.
-PushKind = Literal["completed", "failed", "cancelled", "awaiting"]
+PushKind = Literal["completed", "failed", "cancelled", "awaiting", "turn_completed"]
 _COOLDOWN_SECONDS: dict[PushKind, int] = {
     "completed": 600,
     "failed": 600,
     "cancelled": 600,
     "awaiting": 30,
+    "turn_completed": 30,
 }
 
 
@@ -80,7 +81,7 @@ def notify_task_run_awaiting_input(task_run: TaskRun) -> None:
 
 def notify_task_run_turn_completed(task_run: TaskRun) -> None:
     _project_completed_activity(task_run)
-    _enqueue(task_run, kind="awaiting", body=f'"{_task_title(task_run)}" finished')
+    _enqueue(task_run, kind="turn_completed", body=f'"{_task_title(task_run)}" finished')
 
 
 def _project_awaiting_input_activity(task_run: TaskRun) -> None:
