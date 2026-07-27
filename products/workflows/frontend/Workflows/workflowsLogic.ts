@@ -272,27 +272,24 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     return await api.hogFlows.getHogFlows(values.paramsFromFilters)
                 },
                 toggleWorkflowStatus: async ({ workflow }) => {
-                    const updatedWorkflow = await api.hogFlows.updateHogFlow(workflow.id, {
+                    await api.hogFlows.updateHogFlow(workflow.id, {
                         status: workflow.status === 'active' ? 'draft' : 'active',
                     })
-                    return {
-                        ...values.workflows,
-                        results: values.workflows.results.map((c) =>
-                            c.id === updatedWorkflow.id ? updatedWorkflow : c
-                        ),
-                    }
+                    // Reload instead of patching in place: the new status may no longer match the
+                    // active status filter, so the row has to be re-fetched through the server query.
+                    actions.loadWorkflows()
+                    return values.workflows
                 },
                 duplicateWorkflow: async ({ workflow }) => {
-                    const duplicatedWorkflow = await api.hogFlows.createHogFlow({
+                    await api.hogFlows.createHogFlow({
                         ...workflow,
                         status: 'draft',
                         name: `${workflow.name} (copy)`,
                     })
-                    return {
-                        ...values.workflows,
-                        results: [duplicatedWorkflow, ...values.workflows.results],
-                        count: values.workflows.count + 1,
-                    }
+                    // The copy is a draft; reload so it only shows when it matches the current filter
+                    // and lands in the right spot under the server-side sort and pagination.
+                    actions.loadWorkflows()
+                    return values.workflows
                 },
                 archiveWorkflow: async ({ workflow }) => {
                     LemonDialog.open({
@@ -331,16 +328,14 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 },
                 restoreWorkflow: async ({ workflow }) => {
                     try {
-                        const updatedWorkflow = await api.hogFlows.updateHogFlow(workflow.id, {
+                        await api.hogFlows.updateHogFlow(workflow.id, {
                             status: 'draft',
                         })
                         lemonToast.success(`Workflow "${workflow.name}" restored to draft status`)
-                        return {
-                            ...values.workflows,
-                            results: values.workflows.results.map((c) =>
-                                c.id === updatedWorkflow.id ? updatedWorkflow : c
-                            ),
-                        }
+                        // Restored workflows become drafts, so they drop out of the archived filter —
+                        // reload rather than keep the stale row in the current filtered page.
+                        actions.loadWorkflows()
+                        return values.workflows
                     } catch (error: any) {
                         lemonToast.error(
                             `Failed to restore workflow: ${error?.detail || error?.message || 'Unknown error'}`
