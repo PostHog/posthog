@@ -1,7 +1,9 @@
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
-/** 1 credit = $0.01. Amounts arrive from the API as integer credits. Credits are the unit we bill,
- * so we lead with the credit count and anchor it with the dollar value to keep the cost transparent. */
+/** 1 credit = $0.01. Amounts arrive from the API as integer credits. Credits are the unit we bill, so credits are
+ * what we show. The dollar anchor is reserved for the three headline spend surfaces (the spend meter, the scanner
+ * list's spend column, and the cost estimate) via `formatCredits` — repeating it in every tooltip, banner, and
+ * dropdown option is noise. Everything else uses `formatCreditCount`. */
 export const CREDITS_PER_DOLLAR = 100
 
 /** e.g. 1200 -> "$12.00". */
@@ -20,10 +22,7 @@ export function formatCredits(credits: number): string {
     return `${formatCreditCount(credits)} (≈ ${creditsToUsd(credits)})`
 }
 
-/** A "used of limit" pair with the dollars anchored once so the sentence stays readable,
- * e.g. (1200, 5000) -> "1,200 of 5,000 credits (≈ $12.00 of $50.00)". */
+/** A "used of limit" pair that names the unit once, e.g. (1200, 5000) -> "1,200 of 5,000 credits". */
 export function formatCreditsRange(used: number, total: number): string {
-    return `${Math.round(used).toLocaleString('en-US')} of ${formatCreditCount(total)} (≈ ${creditsToUsd(
-        used
-    )} of ${creditsToUsd(total)})`
+    return `${Math.round(used).toLocaleString('en-US')} of ${formatCreditCount(total)}`
 }

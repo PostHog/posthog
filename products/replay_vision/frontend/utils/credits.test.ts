@@ -30,8 +30,8 @@ describe('credits formatting', () => {
     })
 
     it.each([
-        [1200, 5000, '1,200 of 5,000 credits (≈ $12.00 of $50.00)'],
-        [1, 1, '1 of 1 credit (≈ $0.01 of $0.01)'],
+        [1200, 5000, '1,200 of 5,000 credits'],
+        [1, 1, '1 of 1 credit'],
     ])('formatCreditsRange(%p, %p) -> %p', (used, total, expected) => {
         expect(formatCreditsRange(used, total)).toBe(expected)
     })
