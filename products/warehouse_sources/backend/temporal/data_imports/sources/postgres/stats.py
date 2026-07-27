@@ -139,11 +139,12 @@ _SETTINGS_COLUMNS: tuple[tuple[str, str, bool], ...] = (
 
 # Statements that embed credentials in their text. DML literals are normalized to `$1`
 # placeholders, but utility statements are recorded as written, so `ALTER USER … PASSWORD
-# '…'`, a `CREATE SUBSCRIPTION … CONNECTION 'host=… password=…'`, or a foreign-server
-# user mapping would otherwise land in the warehouse. None carry a performance signal.
+# '…'`, `CREATE/ALTER SUBSCRIPTION … CONNECTION 'host=… password=…'`, `ALTER SYSTEM SET
+# primary_conninfo = '…'`, or a foreign-server user mapping would otherwise land in the
+# warehouse. None carry a performance signal.
 # Postgres spells the word boundary `\y` (`\b` matches nothing), and anchoring to the
 # statement start keeps ordinary queries against tables like `password_resets` intact.
-_CREDENTIAL_STATEMENT_PATTERN = r"^\s*(create|alter|drop)\s+(role|user|group|subscription|server)\y"
+_CREDENTIAL_STATEMENT_PATTERN = r"^\s*(create|alter|drop)\s+(role|user|group|subscription|server|system)\y"
 
 
 class _PostgresStatsCollector(Protocol):
@@ -277,8 +278,10 @@ def _collect_indexes(
                 """
                 SELECT s.*,
                        pg_relation_size(s.indexrelid) AS index_size_bytes,
-                       pg_get_indexdef(s.indexrelid) AS index_definition
+                       split_part(pg_get_indexdef(s.indexrelid), ' WHERE ', 1) AS index_definition,
+                       i.indpred IS NOT NULL AS is_partial
                 FROM pg_stat_user_indexes s
+                JOIN pg_index i ON i.indexrelid = s.indexrelid
                 {scope}
                 ORDER BY pg_relation_size(s.indexrelid) DESC
                 LIMIT {limit}
@@ -446,6 +449,7 @@ POSTGRES_STATS_CATALOGS: dict[str, DatabaseStatsCatalog] = {
             computed_columns=(
                 ("index_size_bytes", "bigint", True),
                 ("index_definition", "text", True),
+                ("is_partial", "boolean", True),
             ),
         ),
         DatabaseStatsCatalog(

@@ -39,6 +39,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+# Marks a schema row as one we injected, persisted in its `schema_metadata` at creation
+# and re-stamped on every reconcile. Routing needs a positive marker rather than a name
+# match: a customer can have their own table called `pg_stat_user_tables`, and syncing it
+# must read their table, not our collector. Discovery won't inject over a real table, so
+# only one row can hold the name — this says which kind it is.
+DATABASE_STATS_MARKER = "database_stats"
+
 # Columns the harness stamps on every snapshot row, ahead of the catalog's own columns.
 SNAPSHOT_COLUMNS: list[tuple[str, str, bool]] = [
     ("collected_at", "timestamp with time zone", False),
@@ -83,6 +90,11 @@ _COLLECTED_AT_FIELD: IncrementalField = {
     # surface the unindexed-cursor warning.
     "is_indexed": True,
 }
+
+
+def is_database_stats_row(schema_metadata: dict[str, Any] | None) -> bool:
+    """Whether a schema row is one this feature injected, per its persisted marker."""
+    return bool((schema_metadata or {}).get(DATABASE_STATS_MARKER))
 
 
 def database_stats_enabled(config: Any) -> bool:
@@ -142,6 +154,7 @@ def build_database_stats_schemas(
                 columns=[*SNAPSHOT_COLUMNS, *catalog_columns, *catalog.computed_columns],
                 description=catalog.description,
                 should_sync_default=True,
+                schema_metadata={DATABASE_STATS_MARKER: True},
             )
         )
     return schemas

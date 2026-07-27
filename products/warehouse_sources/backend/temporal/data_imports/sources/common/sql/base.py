@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.dat
     DatabaseStatsCatalog,
     build_database_stats_schemas,
     database_stats_enabled,
+    is_database_stats_row,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
@@ -197,14 +198,13 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         return {}
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
-        # Toggle and name are cheap pre-filters; the schema row's metadata then settles
-        # the collision case — a user's own table under a `system_tables` schema keeps
-        # syncing as a table (see is_database_stats_schema_row).
-        # A statistics table is one this source declared and the user opted into. Nothing
-        # else to check: discovery refuses to inject a name a real table already uses, so
-        # the two can't both exist.
+        # Toggle and name are cheap pre-filters; the row's marker settles it, so a
+        # customer's own table that happens to be called `pg_stat_user_tables` still
+        # syncs its own data (see `is_database_stats_row`).
         if database_stats_enabled(config) and inputs.schema_name in self.database_stats_catalogs:
-            return self.database_stats_source(config, inputs)
+            schema_row = ExternalDataSchema.objects.get(id=inputs.schema_id)
+            if is_database_stats_row(schema_row.schema_metadata):
+                return self.database_stats_source(config, inputs)
         return self.get_implementation.build_pipeline(config, inputs)
 
     def database_stats_source(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
@@ -236,6 +236,7 @@ def reconcile_source_schema_metadata(
     source: ExternalDataSource,
     source_schemas: list[SourceSchema],
     team_id: int,
+    extra_metadata: dict[str, Any] | None = None,
 ) -> list[str]:
     """Persist `schema_metadata` per schema row and prune stale `enabled_columns`.
 
@@ -258,7 +259,9 @@ def reconcile_source_schema_metadata(
             source_table_name=source_schema.source_table_name,
         )
         existing_config: dict[str, Any] = dict(row.sync_type_config) if isinstance(row.sync_type_config, dict) else {}
-        existing_config["schema_metadata"] = new_metadata
+        # `extra_metadata` re-stamps caller-owned keys the rebuilt metadata would drop
+        # (the database-statistics marker), so they heal on every discovery pass.
+        existing_config["schema_metadata"] = {**new_metadata, **(extra_metadata or {})}
 
         available_names = extract_available_column_names(new_metadata)
         pruned_enabled_columns, removed_columns = prune_enabled_columns(row.enabled_columns, available_names)

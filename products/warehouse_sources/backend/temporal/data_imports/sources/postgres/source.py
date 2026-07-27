@@ -31,7 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
+    DATABASE_STATS_MARKER,
     database_stats_enabled,
+    is_database_stats_row,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSHTunnelMixin,
@@ -747,7 +749,9 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
 
         deleted = reconcile_postgres_schemas(source=source, source_schemas=table_schemas, team_id=team_id)
         if stats_schemas:
-            reconcile_source_schema_metadata(source, stats_schemas, team_id)
+            reconcile_source_schema_metadata(
+                source, stats_schemas, team_id, extra_metadata={DATABASE_STATS_MARKER: True}
+            )
         return deleted
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
@@ -1202,8 +1206,14 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             source_schema = source_schema or inferred_schema
             source_table_name = source_table_name or inferred_table
 
-        # Same gate as the SQLSource base, which this override replaces wholesale.
-        if database_stats_enabled(config) and inputs.schema_name in self.database_stats_catalogs:
+        # Same gate as the SQLSource base, which this override replaces wholesale. The
+        # row's marker settles it, so a customer's own table called `pg_stat_user_tables`
+        # still syncs its own data.
+        if (
+            database_stats_enabled(config)
+            and inputs.schema_name in self.database_stats_catalogs
+            and is_database_stats_row(schema_metadata)
+        ):
             return self.database_stats_source(config, inputs)
 
         # CDC streaming schemas are handled by CDCExtractionWorkflow, not here

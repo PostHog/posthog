@@ -12,10 +12,12 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
+    DATABASE_STATS_MARKER,
     DatabaseStatsCatalog,
     build_database_stats_schemas,
     build_database_stats_source_response,
     database_stats_enabled,
+    is_database_stats_row,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
@@ -91,6 +93,12 @@ class TestBuildDatabaseStatsSchemas:
             assert default["should_sync"] is True
             assert default["sync_type"] == "append"
             assert default["incremental_field"] == "collected_at"
+
+    def test_injected_schemas_carry_the_marker(self):
+        # Persisted at creation, and what routing reads — a name match alone can't tell
+        # our injected row from a customer table of the same name.
+        schemas = build_database_stats_schemas(_CATALOGS, _COLUMNS, [])
+        assert all(is_database_stats_row(s.schema_metadata) for s in schemas)
 
     def test_collision_with_a_discovered_table_drops_that_catalog(self):
         schemas = build_database_stats_schemas(_CATALOGS, _COLUMNS, ["some_stat_view"])
@@ -200,11 +208,25 @@ def _schema_row(team, name: str, schema_metadata: dict | None) -> ExternalDataSc
 class TestSQLSourceStatsRouting:
     @pytest.mark.django_db
     def test_stats_table_with_toggle_enabled_requires_override(self, team):
-        row = _schema_row(team, "some_stat_view", None)
+        row = _schema_row(team, "some_stat_view", {DATABASE_STATS_MARKER: True})
         source = _StubSQLSource(MagicMock(), catalogs=_CATALOGS)
         config = SimpleNamespace(database_stats=SimpleNamespace(enabled=True))
         with pytest.raises(NotImplementedError):
             source.source_for_pipeline(cast(Any, config), _inputs(row.name, str(row.id)))
+
+    @pytest.mark.django_db
+    def test_customer_table_sharing_a_catalog_name_syncs_as_a_table(self, team):
+        # A real table called `pg_stat_user_tables` has no marker, so it keeps syncing its
+        # own data instead of being taken over by the collector.
+        row = _schema_row(team, "some_stat_view", {"source_schema": "public", "source_table_name": "some_stat_view"})
+        implementation = MagicMock()
+        source = _StubSQLSource(implementation, catalogs=_CATALOGS)
+        config = SimpleNamespace(database_stats=SimpleNamespace(enabled=True))
+        inputs = _inputs(row.name, str(row.id))
+
+        source.source_for_pipeline(cast(Any, config), inputs)
+
+        implementation.build_pipeline.assert_called_once_with(config, inputs)
 
     def test_source_without_catalogs_routes_everything_to_build_pipeline(self):
         # No catalogs means no statistics feature: even a name matching another source's

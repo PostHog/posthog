@@ -16,7 +16,11 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import SNAPSHOT_COLUMNS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
+    DATABASE_STATS_MARKER,
+    SNAPSHOT_COLUMNS,
+    is_database_stats_row,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresDatabaseStatsConfig,
@@ -131,6 +135,19 @@ class TestPostgresStatsCollectors:
         )
         assert {r["snapshot_id"] for r in rows} == {snapshot_id}
         assert {r["collected_at"] for r in rows} == {collected_at}
+
+    @pytest.mark.django_db
+    def test_index_definitions_stop_before_the_predicate(self, autocommit_pg_connection):
+        # A partial index's WHERE clause embeds column values, which can be user data —
+        # the column list is what redundancy analysis needs, so keep that and drop the rest.
+        rows = POSTGRES_STATS_CATALOGS["pg_stat_user_indexes"].collector(
+            autocommit_pg_connection, logger, *_snapshot_base()
+        )
+        assert rows
+        assert not any(" WHERE " in (row["index_definition"] or "") for row in rows)
+        partial = [row for row in rows if row["is_partial"]]
+        assert partial, "expected at least one partial index in the test database"
+        assert all(row["index_definition"].startswith("CREATE ") for row in partial)
 
     @pytest.mark.django_db
     def test_settings_snapshot_collects_only_named_settings(self, autocommit_pg_connection):
@@ -322,26 +339,32 @@ class TestCollectStatementsScripted:
     def test_credential_statement_pattern_matches_only_credential_statements(self, autocommit_pg_connection):
         # Postgres spells the word boundary `\y`; `\b` would silently match nothing, so
         # pin the behaviour against a real server.
+        credential_bearing = [
+            "ALTER USER bob PASSWORD 'hunter2'",
+            "  create role app_ro LOGIN PASSWORD 'x'",
+            "CREATE SUBSCRIPTION s CONNECTION 'host=h password=p' PUBLICATION p",
+            "ALTER SUBSCRIPTION s CONNECTION 'host=h password=p'",
+            "ALTER SYSTEM SET primary_conninfo = 'host=h password=p'",
+            "CREATE USER MAPPING FOR bob SERVER fdw OPTIONS (password 'x')",
+        ]
+        # Ordinary queries that merely mention a credential-ish word must be kept: they
+        # carry real performance signal, and their literals are normalized away anyway.
+        ordinary = [
+            "SELECT * FROM password_resets WHERE id = $1",
+            "SELECT u.password_hash FROM users u WHERE u.id = $1",
+            "SELECT * FROM system_events WHERE id = $1",
+            "UPDATE server_configs SET value = $1",
+            "ALTER TABLE users ADD COLUMN role text",
+        ]
         with autocommit_pg_connection.cursor() as cur:
             cur.execute(
                 "SELECT s, s ~* %s FROM unnest(%s::text[]) AS s",
-                (
-                    _CREDENTIAL_STATEMENT_PATTERN,
-                    [
-                        "ALTER USER bob PASSWORD 'hunter2'",
-                        "  create role app_ro LOGIN PASSWORD 'x'",
-                        "CREATE SUBSCRIPTION s CONNECTION 'host=h password=p' PUBLICATION p",
-                        "CREATE USER MAPPING FOR bob SERVER fdw OPTIONS (password 'x')",
-                        "SELECT * FROM password_resets WHERE id = $1",
-                        "SELECT u.password_hash FROM users u WHERE u.id = $1",
-                        "UPDATE server_configs SET value = $1",
-                        "ALTER TABLE users ADD COLUMN role text",
-                    ],
-                ),
+                (_CREDENTIAL_STATEMENT_PATTERN, [*credential_bearing, *ordinary]),
             )
-            excluded = dict(cur)
+            matched = dict(cur)
 
-        assert list(excluded.values()) == [True, True, True, True, False, False, False, False]
+        assert {s: matched[s] for s in credential_bearing} == dict.fromkeys(credential_bearing, True)
+        assert {s: matched[s] for s in ordinary} == dict.fromkeys(ordinary, False)
 
     def test_statements_are_scoped_to_the_connected_database(self):
         # pg_stat_statements is cluster-wide; without the dbid filter another database's
@@ -494,7 +517,11 @@ class TestStatsSourceRouting:
             team_id=team.pk,
             source_id=source.pk,
             sync_type="append",
-            sync_type_config={"incremental_field": "collected_at", "incremental_field_type": "DateTime"},
+            sync_type_config={
+                "incremental_field": "collected_at",
+                "incremental_field_type": "DateTime",
+                "schema_metadata": {DATABASE_STATS_MARKER: True},
+            },
         )
         config = PostgresSourceConfig(
             host=sd["HOST"] or "localhost",
@@ -543,6 +570,8 @@ class TestStatsSourceRouting:
         schema_row.refresh_from_db()
         metadata = schema_row.schema_metadata or {}
         assert metadata.get("source_table_name") is None
+        # The marker survives the rebuild, so routing still recognises the row.
+        assert is_database_stats_row(metadata)
         # The column list is still recorded, so the column picker works.
         assert [c["name"] for c in metadata["columns"]] == ["collected_at", "slot_name"]
 
