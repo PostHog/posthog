@@ -300,6 +300,74 @@ impl Event for S3Sink {
     }
 }
 
+#[async_trait]
+impl crate::sinks::sink::Prepare for S3Sink {
+    /// S3 stores newline-delimited serialized events; the payload bytes are the
+    /// whole contract. Topic, key, and headers on the prepared record are inert
+    /// for this backend — carried only so the payload shape is uniform across
+    /// sinks (the failover policy hands one prepared batch to either target).
+    async fn prepare_batch(
+        &self,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<Vec<crate::sinks::sink::PreparedPayload>, CaptureError> {
+        let serializer = crate::serialization::Serializer::json();
+        events
+            .into_iter()
+            .map(|event| {
+                let payload = serializer.serialize(&event.event)?;
+                Ok(crate::sinks::sink::PreparedPayload {
+                    uuid: event.event.uuid,
+                    record: crate::sinks::producer::ProduceRecord {
+                        topic: String::new(),
+                        key: None,
+                        payload,
+                        headers: event.event.to_headers(),
+                    },
+                })
+            })
+            .collect()
+    }
+}
+
+#[async_trait]
+impl crate::sinks::sink::Sink for S3Sink {
+    /// Append each payload to the shared buffer and await the flush outcome the
+    /// buffer broadcasts — the same wait `Event::send_batch` performs. Results
+    /// are batch-uniform: one flush covers the whole batch.
+    #[instrument(skip_all)]
+    async fn publish(
+        &self,
+        prepared: Vec<crate::sinks::sink::PreparedPayload>,
+    ) -> Vec<crate::sinks::sink::SinkResult> {
+        use crate::sinks::sink::SinkResult;
+
+        let uuids: Vec<uuid::Uuid> = prepared.iter().map(|p| p.uuid).collect();
+
+        let mut buffer = self.inner.buffer.lock().await;
+        for payload in prepared {
+            buffer
+                .event_bytes
+                .extend_from_slice(&payload.record.payload);
+            buffer.event_bytes.push(b'\n');
+            buffer.event_count += 1;
+        }
+        let mut rx = buffer.tx.subscribe();
+        drop(buffer);
+
+        let result = match rx.recv().await {
+            Ok(flush_result) => flush_result,
+            Err(_) => Err(CaptureError::NonRetryableSinkError),
+        };
+        match result {
+            Ok(()) => uuids.into_iter().map(SinkResult::ok).collect(),
+            Err(err) => uuids
+                .into_iter()
+                .map(|uuid| SinkResult::err(uuid, err.clone()))
+                .collect(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

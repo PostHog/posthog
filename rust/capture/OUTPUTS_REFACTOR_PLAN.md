@@ -207,74 +207,62 @@ where `(Pipeline, Lane)` makes the per-mode reachable set explicit.
 - **Risk / rollback.** Medium-high — core mechanism. Revert.
 - **Size.** L.
 
-#### Step 7 · Outputs layer + `OutputTable`; analytics family migrates
+#### Step 7 · Outputs layer with policies; composites retired
 
-- **Goal.** New `outputs` module:
-  - `Output = { targets: 1..n of (sink, topic), policy: Single, serializer }`,
-    `publish(Vec<ProcessedEvent>) -> Result<(), CaptureError>` — runs lane
-    lookup, serializer, sink publish, result fold internally. Scatter-gather
-    serialization for large batches lives here.
-  - `OutputTable`: `(Pipeline, Lane)` → `Output`, built at boot from
-    `KafkaConfig`; absorbs Step-3's `OutputRegistry` and the mode-scoped
-    completeness demand (port: `d4801674e5b on -sinks-v1`) —
-    an Events pod must wire the analytics family, a Recordings pod
-    main/overflow/dlq only, and refuses to boot otherwise.
-  - `events/analytics.rs` (5 pipelines ride it) publishes via the table;
-    `capture_event_batch_size` recorded at the call site.
-- **Files.** `rust/capture/src/outputs/` (new); `rust/capture/src/setup.rs`;
-  `rust/capture/src/events/analytics.rs`; `rust/capture/src/router.rs`
-  (State holds the table).
-- **Parity proof.** Goldens + analytics integration suites unmodified.
+- **Goal.** New `outputs` module — the produce surface, with multi-target
+  policy ownership from day one:
+  - `Output`: a single backend, or a policy composing two *outputs* —
+    `failover` (health-gated Kafka→S3: skip primary while the advisory handle
+    is unhealthy, re-publish the batch on a retriable failure, fatal never
+    fails over) and `split` (token-routed AI secondary). Targets are outputs
+    themselves, so policies compose the way the old composites did (split
+    over a failover pair). Policies operate on *events*, before prep — each
+    target resolves topics and serializes for itself, exactly like the old
+    per-sink `send_batch` paths, so parity is structural.
+  - Leaves run the dance internally via the `pub(crate)` `Prepare` trait
+    (prep → publish → fold); no caller ever sees a two-phase protocol.
+  - `OutputTable`: the `(pipeline, lane)` → output handle the state holds;
+    degenerate today (one deployment-wide output; per-lane topics resolve in
+    prep via the `OutputRegistry`).
+  - `setup::create_output` builds the policy tree from the same config;
+    **`FallbackSink` and `SplitKafkaSink` are deleted**, their tests
+    re-expressed on `Output` with assertions preserved (+ a new
+    fatal-no-failover case).
+  - Call sites are untouched: the table serves them through a transitional
+    `Event` facade (which records `capture_event_batch_size`, where the old
+    sink impls recorded it). Migration is Step 8.
+- **Files.** `rust/capture/src/outputs.rs` (new); `rust/capture/src/setup.rs`;
+  `rust/capture/src/sinks/{mod,s3,print,noop,test_sink}.rs` (mechanism +
+  `Prepare` impls); `fallback.rs`/`split.rs` deleted.
+- **Parity proof.** Goldens + all integration suites unmodified. Known
+  metrics-only deltas, accepted: the batch-size histogram now records on the
+  fallback-to-S3 path (it silently didn't before), and print/noop single
+  sends record it (they didn't).
 - **Risk / rollback.** Medium. Revert.
 - **Size.** L.
 
-#### Step 8 · AI + OTEL migrate
+#### Step 8 · Call sites migrate to the table; `Event` retired
 
-- **Goal.** `ai_endpoint.rs` and `otel/mod.rs` publish via the `OutputTable`.
-  Response semantics preserved exactly (first-failure-wins mapping, the OTEL
-  `report_internal_error_metrics` path).
-- **Parity proof.** ai (64) + ai_restrictions (7) + otel (21) suites unmodified.
-- **Size.** S/M.
+- **Goal.** All four call sites (`events/analytics.rs`, `ai_endpoint.rs`,
+  `otel/mod.rs`, `events/recordings.rs`) publish via `OutputTable::publish`,
+  recording `capture_event_batch_size` at the call site; `State` and test
+  mocks retype; then delete the v0 `Event` trait, the outputs facade, the
+  Kafka `Event` bridge, and the single-event `kafka_send` path.
+- **Parity proof.** All endpoint/integration suites green; grep proves
+  `Event` call-site-free before the deletion half.
+- **Size.** M/L. May split into per-call-site commits if the diff grows.
 
-#### Step 9 · Replay migrates; `Event` trait deleted
+### Stage D — completeness, dark failover, convergence
 
-- **Goal.** `events/recordings.rs` publishes via the table
-  (session-id key policy, lz4 serializer, replay-overflow lane all already
-  expressed in Steps 4–7); then delete the v0 `Event` trait, the Step-6
-  bridge, and every `impl Event`. `State` and test mocks retype to the table /
-  `Sink`.
-- **Parity proof.** recordings + replay_restrictions + s_endpoint +
-  kafka_headers suites green; grep proves `Event` call-site-free before the
-  deletion half.
+#### Step 9 · Mode-scoped registry completeness
+
+- **Goal.** `OutputRegistry::check_complete` scopes its demand per
+  `CaptureMode` (port: `d4801674e5b on -sinks-v1`): an Events/Ai pod demands
+  the analytics family, a Recordings pod main/replay-overflow/dlq only.
+- **Parity proof.** Ported per-mode refusal + anti-over-demand tests.
 - **Size.** M.
 
-### Stage D — multi-target policies and convergence
-
-#### Step 10 · Split becomes an output policy
-
-- **Goal.** `Policy::Split { secondary target, AiRouting }` — token-routed
-  target selection *before* serialization; each partition serializes and
-  publishes through its own target. Delete `SplitKafkaSink` and the
-  token-header round-trip. `capture_split_sink_selected` kept.
-- **Parity proof.** Split routing tests re-expressed at the output layer;
-  AI endpoint suites unmodified.
-- **Size.** M.
-
-#### Step 11 · Failover becomes an output policy (advisory parity)
-
-- **Goal.** `Policy::Failover { secondary target, mode: Advisory }` —
-  kafka-primary / s3-secondary as a two-target output: skip primary while the
-  advisory `lifecycle::Handle` is unhealthy, reactively re-publish the batch's
-  *payloads* to the secondary on a retriable failure (payloads are
-  sink-agnostic post-Step-4, so no re-serialization and no cross-format
-  records). Delete `FallbackSink`.
-  `capture_primary_sink_health` / `capture_fallback_sink_failovers_total`
-  semantics identical.
-- **Parity proof.** Fallback tests (incl. advisory-handle) re-expressed at the
-  output layer, assertions preserved.
-- **Size.** M.
-
-#### Step 12 · Breaker failover mode (dark)
+#### Step 10 · Breaker failover mode (dark)
 
 - **Goal.** `FailoverMode::Breaker` — port the pure clock-injected `Breaker`
   state machine, half-open single-probe permit, `StaticControlPlane` seam, and
@@ -284,7 +272,7 @@ where `(Pipeline, Lane)` makes the per-mode reachable set explicit.
 - **Parity proof.** Breaker unit tests ported; existing tests unchanged.
 - **Size.** M.
 
-#### Step 13 · v1 converges on the shared strata
+#### Step 11 · v1 converges on the shared strata
 
 - **Goal.** v1's `Destination` bridges to `(Pipeline, Lane)`; v1 topic
   resolution goes through the shared table (port intent:
@@ -326,10 +314,8 @@ No `--no-verify` — pre-commit hooks must pass.
 | 4 · Serialization layer | done | `refactor(capture): serialization layer — format and envelope behind one seam` |
 | 5 · `Pipeline` + `Lane`; lane resolution | done | `refactor(capture): pipeline and lane address; lane decision moves to the pipeline layer` |
 | 6 · Kafka sink → backend mechanism | done | `refactor(capture): narrow the kafka sink to backend mechanism over prepared payloads` |
-| 7 · Outputs layer; analytics migrates | pending | `feat(capture): outputs layer with (pipeline, lane) table; analytics on outputs` |
-| 8 · AI + OTEL migrate | pending | `refactor(capture): ai and otel publish through outputs` |
-| 9 · Replay migrates; `Event` deleted | pending | `refactor(capture): replay through outputs; retire v0 Event trait` |
-| 10 · Split policy | pending | `refactor(capture): split routing as an output policy` |
-| 11 · Failover policy (advisory) | pending | `refactor(capture): failover as an output policy` |
-| 12 · Breaker mode (dark) | pending | `feat(capture): breaker-driven failover mode (dark)` |
-| 13 · v1 convergence | pending | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
+| 7 · Outputs layer with policies; composites retired | done | `feat(capture): outputs layer owns failover and split policies` |
+| 8 · Call sites on the table; `Event` retired | pending | `refactor(capture): call sites publish through outputs; retire v0 Event trait` |
+| 9 · Mode-scoped completeness | pending | `refactor(capture): mode-scoped output registry completeness` |
+| 10 · Breaker mode (dark) | pending | `feat(capture): breaker-driven failover mode (dark)` |
+| 11 · v1 convergence | pending | `refactor(capture): v1 resolves through shared pipeline/lane strata` |

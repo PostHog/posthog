@@ -14,18 +14,17 @@ use crate::ai_s3::AiBlobStorage;
 use crate::config::{AiRouting, AiSinkMode, CaptureMode, Config, KafkaConfig};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::outputs::{Output, OutputTable};
 use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
 };
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
 use crate::s3_client::{S3Client, S3Config};
-use crate::sinks::fallback::FallbackSink;
 use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
-use crate::sinks::split::SplitKafkaSink;
 use crate::sinks::Event;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
@@ -267,11 +266,11 @@ pub async fn build_components(
     };
 
     // The capture sink is a single lifecycle component: `register_components`
-    // mints exactly one gating sink handle. When AI secondary routing is on we
-    // wrap the primary in a `SplitKafkaSink` that diverts events (all, or an
-    // allowlisted subset) to a second producer pointing at the secondary cluster
-    // (e.g. WarpStream). The KafkaSink layer is unchanged, so overflow/DLQ/redirect
-    // stamping applies on either cluster.
+    // mints exactly one gating sink handle. When AI secondary routing is on the
+    // primary output is wrapped in a split policy that diverts events (all, or
+    // an allowlisted subset) to a second producer pointing at the secondary
+    // cluster (e.g. WarpStream). Each cluster preps for itself, so
+    // overflow/DLQ/redirect stamping applies on either cluster.
     let build_secondary =
         config.capture_mode == CaptureMode::Ai && config.ai_sink_mode != AiSinkMode::Primary;
 
@@ -290,18 +289,16 @@ pub async fn build_components(
         (sink_handle, None)
     };
 
-    let primary_sink: Arc<dyn Event + Send + Sync> = Arc::from(
-        create_sink(&config, primary_handle, advisory_handle)
-            .await
-            .expect("failed to create sink"),
-    );
+    let primary_output = create_output(&config, primary_handle, advisory_handle)
+        .await
+        .expect("failed to create sink");
 
-    let sink: Arc<dyn Event + Send + Sync> = if build_secondary {
-        let secondary: Arc<dyn Event + Send + Sync> = Arc::new(
+    let output = if build_secondary {
+        let secondary = Output::single(Arc::new(
             KafkaSink::new(build_ai_secondary_kafka_config(&config), secondary_handle)
                 .await
                 .expect("failed to start AI secondary Kafka sink"),
-        );
+        ));
         let routing = if config.ai_sink_mode == AiSinkMode::SecondaryAllowlist {
             let allowlist = config
                 .ai_secondary_allowlist_tokens
@@ -313,10 +310,15 @@ pub async fn build_components(
             AiRouting::Secondary
         };
         info!(mode = ?config.ai_sink_mode, "AI secondary sink enabled");
-        Arc::new(SplitKafkaSink::new(primary_sink, secondary, routing))
+        Output::split(primary_output, secondary, routing)
     } else {
-        primary_sink
+        primary_output
     };
+
+    // The outputs table is the produce surface; the `Event`-typed handle is
+    // the transitional facade un-migrated call sites publish through.
+    let outputs = Arc::new(OutputTable::new(output));
+    let sink: Arc<dyn Event + Send + Sync> = outputs.clone();
     let sink_for_flush = sink.clone();
 
     // Create AI blob storage if S3 is configured
@@ -511,16 +513,19 @@ fn create_v1_sink_router(
     Ok(Arc::new(router))
 }
 
-async fn create_sink(
+/// Build the deployment's primary [`Output`] from config: a single backend,
+/// or the health-gated Kafka→S3 failover pair. Policy composition happens at
+/// this layer now — the sinks themselves are single-backend mechanism.
+async fn create_output(
     config: &Config,
     sink_handle: Option<lifecycle::Handle>,
     advisory_handle: Option<lifecycle::Handle>,
-) -> anyhow::Result<Box<dyn Event + Send + Sync>> {
+) -> anyhow::Result<Output> {
     if config.print_sink {
-        Ok(Box::new(PrintSink {}))
+        Ok(Output::single(Arc::new(PrintSink {})))
     } else if config.noop_sink {
         info!("NoOpSink enabled, events will be silently dropped");
-        Ok(Box::new(NoOpSink::new()))
+        Ok(Output::single(Arc::new(NoOpSink::new())))
     } else if config.s3_fallback_enabled {
         let s3_handle = sink_handle.expect("sink lifecycle handle required for S3 fallback");
         let kafka_handle = advisory_handle.expect("kafka advisory handle required for fallback");
@@ -541,11 +546,11 @@ async fn create_sink(
         .await
         .expect("failed to create S3 sink");
 
-        Ok(Box::new(FallbackSink::new_with_advisory(
-            kafka_sink,
-            s3_sink,
+        Ok(Output::failover(
+            Output::single(Arc::new(kafka_sink)),
+            Output::single(Arc::new(s3_sink)),
             kafka_handle,
-        )))
+        ))
     } else {
         // `sink_handle` is `None` for a primary that must not gate the pod (a
         // full `Secondary` cutover hands the gating handle to the secondary).
@@ -553,7 +558,7 @@ async fn create_sink(
             .await
             .context("failed to start Kafka sink")?;
 
-        Ok(Box::new(kafka_sink))
+        Ok(Output::single(Arc::new(kafka_sink)))
     }
 }
 
@@ -901,7 +906,7 @@ mod tests {
     #[case(CaptureMode::Recordings)]
     #[case(CaptureMode::Ai)]
     #[tokio::test]
-    async fn create_sink_refuses_boot_on_missing_output_topic(#[case] mode: CaptureMode) {
+    async fn create_output_refuses_boot_on_missing_output_topic(#[case] mode: CaptureMode) {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", mode.as_tag()),
@@ -914,7 +919,7 @@ mod tests {
             envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
         config.kafka.kafka_dlq_topic = String::new();
 
-        let err = create_sink(&config, None, None)
+        let err = create_output(&config, None, None)
             .await
             .err()
             .expect("boot must be refused when an output topic is empty");

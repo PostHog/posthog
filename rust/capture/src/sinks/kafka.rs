@@ -44,7 +44,7 @@ use super::producer::RdKafkaProducer;
 pub struct KafkaContext {
     /// Lifecycle handle this producer reports liveness to. `None` for a producer
     /// whose health must not gate the pod (e.g. the non-critical side of a
-    /// `SplitKafkaSink`) — it still produces and emits metrics, it just doesn't
+    /// split output) — it still produces and emits metrics, it just doesn't
     /// drive a manager component.
     liveness: Option<lifecycle::Handle>,
 }
@@ -659,6 +659,16 @@ impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
             .record(enqueue_start.elapsed().as_secs_f64());
 
         drain_acks(ack_set).await
+    }
+}
+
+#[async_trait]
+impl<P: KafkaProducer + 'static> crate::sinks::sink::Prepare for KafkaSinkBase<P> {
+    async fn prepare_batch(
+        &self,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<Vec<PreparedPayload>, CaptureError> {
+        KafkaSinkBase::prepare_batch(self, events).await
     }
 }
 

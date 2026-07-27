@@ -100,6 +100,21 @@ pub fn fold_results(results: Vec<SinkResult>) -> Result<(), CaptureError> {
     Ok(())
 }
 
+/// Transitional prep surface for the outputs layer: turn `ProcessedEvent`s
+/// into this backend's ready-to-publish payloads (fail-fast, input order
+/// preserved). `pub(crate)` on purpose — only the outputs layer drives it;
+/// call sites never see a two-phase protocol. It exists because payload
+/// assembly (serializer choice, topic resolution, header stamps) still
+/// physically lives with each backend; as those move into the outputs layer
+/// this trait shrinks and eventually disappears.
+#[async_trait]
+pub(crate) trait Prepare: Sink {
+    async fn prepare_batch(
+        &self,
+        events: Vec<crate::v0_request::ProcessedEvent>,
+    ) -> Result<Vec<PreparedPayload>, CaptureError>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

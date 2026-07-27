@@ -87,7 +87,8 @@ impl std::str::FromStr for AiSinkMode {
 /// Resolved AI routing policy: the configured `AiSinkMode` with the token
 /// allowlist it needs attached to the one variant that uses it. Built from the
 /// raw `ai_sink_mode` + `ai_secondary_allowlist_tokens` config in `setup` and
-/// carried by `SplitKafkaSink`, so routing needs nothing but the event's token.
+/// carried by the split output policy, so routing needs nothing but the
+/// event's token.
 #[derive(Debug, Clone)]
 pub enum AiRouting {
     Primary,

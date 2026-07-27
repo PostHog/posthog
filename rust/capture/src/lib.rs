@@ -9,6 +9,7 @@ pub mod global_rate_limiter;
 pub mod log_util;
 pub mod metrics_middleware;
 pub mod otel;
+pub mod outputs;
 pub mod payload;
 pub mod pipeline;
 pub mod prometheus;
