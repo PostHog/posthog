@@ -57,7 +57,10 @@ from products.replay_vision.backend.temporal.activities.count_in_flight_applies 
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.activities.embed_observation import embed_observation_activity
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
-from products.replay_vision.backend.temporal.activities.emit_observation_event import emit_observation_event_activity
+from products.replay_vision.backend.temporal.activities.emit_observation_event import (
+    _emit_event,
+    emit_observation_event_activity,
+)
 from products.replay_vision.backend.temporal.activities.emit_observation_signal import (
     SIGNAL_WEIGHT,
     emit_observation_signal_activity,
@@ -104,6 +107,7 @@ from products.replay_vision.backend.temporal.types import (
     CreateObservationOutput,
     EmbedObservationInputs,
     EmitClassifierTagsInputs,
+    EmitObservationEventInputs,
     EmitObservationSignalInputs,
     EnsureSessionAssetInputs,
     EnsureSessionAssetOutput,
@@ -725,6 +729,26 @@ class TestObservationStateActivities:
         )
 
         assert ReplayObservationUsage.objects.filter(observation_id=observation.id).count() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+class TestEmitObservationEventActivity:
+    def test_event_prices_credits_from_the_frozen_snapshot(self) -> None:
+        # The spend chart sums this property; dropping or mispricing it silently flatlines the chart.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner)
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+        ) as capture:
+            _emit_event(inputs)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["credits"] == observation_credits_for_model(observation.scanner_snapshot["model"])
 
 
 def _counter_value(metric_name: str, **labels: str) -> float:

@@ -2432,6 +2432,11 @@ class ExternalDataSourceType(StrEnum):
     MELTWATER = "Meltwater"
     USER_COM = "UserCom"
     LATITUDE = "Latitude"
+    WORKATO = "Workato"
+    SIDE_SHIFT = "SideShift"
+    DUCK_LAKE = "DuckLake"
+    STARBURST = "Starburst"
+    EASYBILL = "Easybill"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3267,6 +3272,7 @@ class ProductIntentContext(StrEnum):
     SELECTED_CONNECTOR = "selected connector"
     SQL_EDITOR_EMPTY_STATE = "sql editor empty state"
     DATA_WAREHOUSE_SOURCES_TABLE = "data warehouse sources table"
+    MANAGED_WAREHOUSE_PROVISIONED = "managed warehouse provisioned"
     EXPERIMENT_CREATED = "experiment created"
     EXPERIMENT_ANALYZED = "experiment analyzed"
     EXPERIMENT_VIEW_RECORDINGS = "experiment view recordings"
@@ -3400,6 +3406,7 @@ class ProductKey(StrEnum):
     LLM_EVALUATIONS = "llm_evaluations"
     LLM_PROMPTS = "llm_prompts"
     LOGS = "logs"
+    MANAGED_WAREHOUSE = "managed_warehouse"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX = "max"
     MCP_ANALYTICS = "mcp_analytics"
