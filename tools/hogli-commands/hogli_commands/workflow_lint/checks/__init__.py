@@ -18,6 +18,7 @@ from .dorny_negation import DornyNegationCheck
 from .job_timeouts import JobTimeoutsCheck
 from .pr_concurrency import PrConcurrencyCheck
 from .schema_cache_epoch import SchemaCacheEpochCheck
+from .schema_cache_key_parity import SchemaCacheKeyParityCheck
 from .semgrep_services_coverage import SemgrepServicesCoverageCheck
 
 CHECKS: list[WorkflowCheck] = [
@@ -28,6 +29,7 @@ CHECKS: list[WorkflowCheck] = [
     CheckoutFullDepthCheck(),
     CacheWriteGateCheck(),
     SchemaCacheEpochCheck(),
+    SchemaCacheKeyParityCheck(),
 ]
 
 

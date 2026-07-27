@@ -27,6 +27,7 @@ from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationChec
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
 from hogli_commands.workflow_lint.checks.schema_cache_epoch import SchemaCacheEpochCheck
+from hogli_commands.workflow_lint.checks.schema_cache_key_parity import SchemaCacheKeyParityCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
 
@@ -903,6 +904,115 @@ class TestSchemaCacheEpochCheck:
         assert issue.workflow == "ci-dagster.yml"
         assert "'v1'" in issue.message
         assert "'v2'" in issue.message
+
+
+# ---------------------------------------------------------------------------
+# SchemaCacheKeyParityCheck
+# ---------------------------------------------------------------------------
+
+
+_KEY_BLOCK = """
+MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' {ref} \\
+    | grep -E '/migrations/[^/]+\\.py$' \\
+    | LC_ALL=C sort) || true
+PG_IMAGE=$(git show "{show_ref}:docker-compose.base.yml" 2>/dev/null \\
+    | grep -m1 -E 'postgres:' | tr -d '[:space:]')
+if [ -z "$PG_IMAGE" ]; then
+    echo "::warning::postgres image not resolved"
+fi
+if [ -z "$MIG_FILES" ]; then
+    echo "{out}=" >> $GITHUB_OUTPUT
+    echo "::notice::{notice}"
+else
+    MIG_HASH=$(printf '%s\\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+    echo "{out}=posthog-schema-mig-${{SCHEMA_CACHE_EPOCH}}-${{MIG_HASH}}" >> $GITHUB_OUTPUT
+fi
+"""
+
+# The save side reads HEAD and writes `key`; restore sides read the merge-base and
+# write `migrations_key`. Neither difference can change the hash.
+_SAVE_SIDE = _KEY_BLOCK.format(ref="HEAD", show_ref="HEAD", out="key", notice="skipping the save")
+_RESTORE_SIDE = _KEY_BLOCK.format(
+    ref='"$MERGE_BASE"', show_ref="${MERGE_BASE}", out="migrations_key", notice="falling back to the SHA key"
+)
+
+
+def _write_key_workflow(dir_: Path, name: str, block: str) -> Path:
+    path = dir_ / name
+    path.write_text(
+        "name: X\n"
+        "on: [pull_request]\n"
+        "jobs:\n"
+        "  changes:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    timeout-minutes: 5\n"
+        "    steps:\n"
+        "      - id: schema-key\n"
+        "        run: |\n" + textwrap.indent(block.strip(), " " * 10) + "\n"
+    )
+    return path
+
+
+def _workflows_dir(tmp_path: Path) -> Path:
+    workflows_dir = tmp_path / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    return workflows_dir
+
+
+class TestSchemaCacheKeyParityCheck:
+    def test_passes_when_copies_differ_only_in_ref_output_name_and_message(self, tmp_path: Path) -> None:
+        # The real save/restore copies differ in exactly these three ways, so a
+        # normalization regression here would fail every PR that touches nothing.
+        workflows_dir = _workflows_dir(tmp_path)
+        _write_key_workflow(workflows_dir, "ci-backend.yml", _SAVE_SIDE)
+        _write_key_workflow(workflows_dir, "ci-dagster.yml", _RESTORE_SIDE)
+        assert SchemaCacheKeyParityCheck().run(_read_all(workflows_dir)).issues == []
+
+    @pytest.mark.parametrize(
+        "old,new",
+        [
+            ("| LC_ALL=C sort) || true", "| sort) || true"),
+            ('printf \'%s\\n%s\' "$MIG_FILES" "$PG_IMAGE"', "printf '%s' \"$MIG_FILES\""),
+            ("posthog-schema-mig-", "posthog-schema-migset-"),
+            ('if [ -z "$PG_IMAGE" ]; then\n    echo "::warning::postgres image not resolved"\nfi\n', ""),
+        ],
+        ids=["sort-locale", "dropped-hashed-input", "key-prefix", "dropped-pg-image-warning"],
+    )
+    def test_fails_when_a_copy_drifts(self, tmp_path: Path, old: str, new: str) -> None:
+        workflows_dir = _workflows_dir(tmp_path)
+        _write_key_workflow(workflows_dir, "ci-backend.yml", _SAVE_SIDE)
+        _write_key_workflow(workflows_dir, "ci-dagster.yml", _RESTORE_SIDE.replace(old, new))
+        [issue] = SchemaCacheKeyParityCheck().run(_read_all(workflows_dir)).issues
+        assert issue.workflow == "ci-dagster.yml"
+        assert "ci-backend.yml" in issue.message
+        assert "silently stops hitting" in issue.message
+
+    def test_compares_depot_shadow_copies(self, tmp_path: Path) -> None:
+        # .depot/workflows sits outside the linted directory, so a discovery
+        # regression would leave the shadow's copy of the key unlinted.
+        workflows_dir = _workflows_dir(tmp_path)
+        _write_key_workflow(workflows_dir, "ci-backend.yml", _SAVE_SIDE)
+        _write_key_workflow(workflows_dir, "ci-dagster.yml", _RESTORE_SIDE)
+        shadow_dir = tmp_path / ".depot" / "workflows"
+        shadow_dir.mkdir(parents=True)
+        _write_key_workflow(shadow_dir, "ci-backend.yml", _SAVE_SIDE.replace("cut -c1-40", "cut -c1-16"))
+        [issue] = SchemaCacheKeyParityCheck().run(_read_all(workflows_dir)).issues
+        assert issue.workflow == ".depot/workflows/ci-backend.yml"
+
+    def test_flags_a_block_it_cannot_delimit(self, tmp_path: Path) -> None:
+        # Without the guard there is no reliable end to the block, and skipping it
+        # silently would let the copy drift unchecked.
+        workflows_dir = _workflows_dir(tmp_path)
+        _write_key_workflow(workflows_dir, "ci-backend.yml", _SAVE_SIDE)
+        _write_key_workflow(
+            workflows_dir,
+            "ci-dagster.yml",
+            "MIG_FILES=$(git ls-tree -r HEAD | LC_ALL=C sort)\n"
+            'echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}" >> $GITHUB_OUTPUT\n',
+        )
+        [issue] = SchemaCacheKeyParityCheck().run(_read_all(workflows_dir)).issues
+        assert issue.workflow == "ci-dagster.yml"
+        assert 'no `if [ -z "$MIG_FILES" ]` guard' in issue.message
 
 
 # ---------------------------------------------------------------------------

@@ -294,6 +294,10 @@ jobs:
                       | LC_ALL=C sort) || true
                   PG_IMAGE=$(git show "${REF}:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  # A blobless checkout fetches docker-compose.base.yml lazily, so git show can come back empty without failing.
+                  if [ -z "$PG_IMAGE" ]; then
+                      echo "::warning::postgres image not resolved from docker-compose.base.yml, so the schema key omits the server version"
+                  fi
                   if [ -z "$MIG_FILES" ]; then
                       echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
