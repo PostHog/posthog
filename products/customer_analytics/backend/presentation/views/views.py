@@ -970,6 +970,18 @@ class AccountViewSet(
             raise PermissionDenied()
         return Response(AccountSerializer(instance=account).data)
 
+    @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: SupportTicketSerializer(many=True)})
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    def support_tickets(self, request: Request, *args, **kwargs) -> Response:
+        tickets = api.get_account_support_tickets(
+            self.team_id,
+            self.kwargs["pk"],
+            user_access_control=self.user_access_control,
+        )
+        if tickets is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(SupportTicketSerializer(instance=tickets, many=True).data)
+
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = AccountSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1163,28 +1175,6 @@ class AccountNotebookViewSet(
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class AccountSupportTicketViewSet(
-    TeamAndOrgViewSetMixin,
-    AccessControlViewSetMixin,
-    viewsets.GenericViewSet,
-):
-    scope_object = "account"
-    serializer_class = SupportTicketSerializer
-    queryset = None
-    pagination_class = None
-
-    @extend_schema(responses={200: SupportTicketSerializer(many=True)})
-    def list(self, request: Request, *args, **kwargs) -> Response:
-        tickets = api.get_account_support_tickets(
-            self.team_id,
-            self.parents_query_dict["account_id"],
-            user_access_control=self.user_access_control,
-        )
-        if tickets is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(SupportTicketSerializer(instance=tickets, many=True).data)
 
 
 def _synthesize_notebook_content(text_content, existing_content):

@@ -9,7 +9,6 @@ from products.customer_analytics.backend.presentation.views.views import (
     AccountNotesViewSet,
     AccountRelationshipDefinitionViewSet,
     AccountRelationshipViewSet,
-    AccountSupportTicketViewSet,
     AccountViewSet,
     CustomerJourneyViewSet,
     CustomerProfileConfigViewSet,
@@ -84,11 +83,5 @@ def register_routes(routers: RouterRegistry) -> None:
         r"relationships",
         AccountRelationshipViewSet,
         "project_account_relationships",
-        ["team_id", "account_id"],
-    )
-    project_accounts_router.register(
-        r"support_tickets",
-        AccountSupportTicketViewSet,
-        "project_account_support_tickets",
         ["team_id", "account_id"],
     )

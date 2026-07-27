@@ -6,18 +6,20 @@ Slack integration behind contract types so callers never touch slack_sdk or the
 team's Slack credentials directly.
 """
 
-from datetime import datetime
 from typing import Any
 
 from django.conf import settings
 from django.db.models import F
 
-from pydantic.dataclasses import dataclass
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.comment import Comment
 from posthog.models.team import Team
 
+from products.conversations.backend.facade.contracts import (
+    SupportChannel as SupportChannel,
+    TicketSummary as TicketSummary,
+)
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.slack import get_slack_client
 from products.conversations.backend.support_slack_channels import (
@@ -38,15 +40,6 @@ class SupportMessageSendError(Exception):
         super().__init__(code)
         self.code = code
         self.retry_after = retry_after
-
-
-@dataclass(frozen=True)
-class SupportChannel:
-    """A Slack channel visible to the SupportHog bot."""
-
-    id: str
-    name: str
-    is_member: bool
 
 
 def list_support_bot_channels(team_id: int, *, members_only: bool = False) -> list[SupportChannel]:
@@ -142,18 +135,6 @@ def post_ticket_internal_note(team_id: int, ticket_id: str, content: str, *, ded
         item_context={"author_type": "AI", "is_private": True, "internal_note_key": dedupe_key},
     )
     return str(comment.id)
-
-
-@dataclass(frozen=True)
-class TicketSummary:
-    """A support ticket, reduced to what an account's tickets list renders."""
-
-    id: str
-    ticket_number: int
-    status: str
-    last_message_at: datetime | None
-    last_message_text: str | None
-    deep_link: str
 
 
 def list_account_tickets(team_id: int, organization_id: str, *, limit: int = 50) -> list[TicketSummary]:

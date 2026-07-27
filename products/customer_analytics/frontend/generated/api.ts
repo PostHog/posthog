@@ -486,21 +486,6 @@ export const accountsRelationshipsEndCreate = async (
     })
 }
 
-export const getAccountsSupportTicketsListUrl = (projectId: string, accountId: string) => {
-    return `/api/projects/${projectId}/accounts/${accountId}/support_tickets/`
-}
-
-export const accountsSupportTicketsList = async (
-    projectId: string,
-    accountId: string,
-    options?: RequestInit
-): Promise<SupportTicketApi[]> => {
-    return apiMutator<SupportTicketApi[]>(getAccountsSupportTicketsListUrl(projectId, accountId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getAccountsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/accounts/${id}/`
 }
@@ -556,6 +541,21 @@ export const accountsDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getAccountsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAccountsSupportTicketsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${id}/support_tickets/`
+}
+
+export const accountsSupportTicketsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SupportTicketApi[]> => {
+    return apiMutator<SupportTicketApi[]>(getAccountsSupportTicketsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
