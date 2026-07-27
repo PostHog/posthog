@@ -124,17 +124,26 @@ def _zone_fanout_resource(
     return resources[endpoint].add_map(_rename_parent_key)
 
 
-def validate_credentials(api_token: str) -> bool:
-    """Confirm the API token is valid with Cloudflare's token verify endpoint."""
+def validate_credentials(api_token: str) -> tuple[bool, int | None]:
+    """Confirm the API token is valid with Cloudflare's token verify endpoint.
+
+    Returns ``(is_valid, status_code)``. ``status_code`` is ``None`` when Cloudflare was
+    unreachable so the caller can tell a rejected token apart from a transient failure and
+    avoid telling the user their token is invalid when it may be fine.
+    """
     try:
         response = make_tracked_session(redact_values=(api_token,)).get(
             f"{CLOUDFLARE_BASE_URL}/user/tokens/verify",
             headers={"Authorization": f"Bearer {api_token}"},
             timeout=10,
         )
-        return response.status_code == 200 and bool(response.json().get("success"))
     except Exception:
-        return False
+        return False, None
+    try:
+        is_valid = response.status_code == 200 and bool(response.json().get("success"))
+    except Exception:
+        is_valid = False
+    return is_valid, response.status_code
 
 
 def cloudflare_source(

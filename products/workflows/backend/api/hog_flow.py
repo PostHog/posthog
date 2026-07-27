@@ -2238,7 +2238,9 @@ class HogFlowViewSet(
 
     def _maybe_reschedule_timing_edits(self, before: Optional[HogFlow], after: HogFlow) -> None:
         """Kick off a reschedule sweep of parked runs when a go-live config change could move
-        their wake times earlier (issue #66380): shortened delays and moved wait windows.
+        their wake times earlier or change what they resolve to (issue #66380): shortened
+        delays, moved wait windows, edited wait conditions, and deleted timing steps (whose
+        parked runs should skip forward or exit now, not at their old wake time).
 
         Called wherever the LIVE config changes - a direct save (the builder path, where save
         is go-live), the graph endpoint, or publish - and never for draft writes, which don't
