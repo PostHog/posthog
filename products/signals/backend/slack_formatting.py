@@ -17,7 +17,10 @@ _SLACK_ANGLE_TOKEN_RE = re.compile(r"<([^<>|]*)(\|[^<>]*)?>")
 # visible `&lt;…&gt;`, while the excerpt path escapes it and leaves the raw `[label](chart:id)` syntax
 # on screen. Any target is matched, not just the id charset `ChartArtefact` enforces: a typo'd
 # reference is just as unrenderable here, and pinning the charset would leave it showing as markup.
-_CHART_REF_LINK_RE = re.compile(r"\[([^\]\n]*)\]\(chart:[^)\s]*\)")
+# The label excludes `[` as well as `]`, which keeps the scan linear: allowing it, a summary of
+# nothing but `[` makes every start position scan the whole remaining suffix before failing, and a
+# summary is long enough for that to cost seconds of a Celery worker.
+_CHART_REF_LINK_RE = re.compile(r"\[([^\[\]\n]*)\]\(chart:[^)\s]*\)")
 
 
 def strip_chart_references(text: str) -> str:

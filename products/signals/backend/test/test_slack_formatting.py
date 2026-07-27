@@ -1,3 +1,5 @@
+import time
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -31,3 +33,12 @@ class TestStripChartReferences(SimpleTestCase):
         assert "chart:" not in rendered
         assert "&lt;" not in rendered
         assert "Daily signups" in rendered
+
+    def test_a_summary_of_open_brackets_stays_cheap(self) -> None:
+        # A label class that admits `[` makes every start position rescan the remaining suffix, so a
+        # summary of nothing but `[` costs seconds per Slack delivery. Bound it well under the
+        # quadratic cost while staying loose enough not to flake on a slow runner.
+        started = time.perf_counter()
+        strip_chart_references("[" * 20_000)
+
+        assert time.perf_counter() - started < 0.5
