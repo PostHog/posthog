@@ -5,7 +5,11 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
-from posthog.schema import CachedActorsPropertyTaxonomyQueryResponse, CachedEventTaxonomyQueryResponse
+from posthog.schema import (
+    CachedActorsPropertyTaxonomyQueryResponse,
+    CachedEventTaxonomyQueryResponse,
+    EventTaxonomyItem,
+)
 
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import invalidate_group_types_cache
@@ -15,6 +19,7 @@ from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit, final_answer
+from ee.models.property_definition import EnterprisePropertyDefinition
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
@@ -116,6 +121,36 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         result = toolkit.retrieve_entity_properties("person")
         self.assertIn("$virt_initial_channel_type", result)
         self.assertIn("$virt_revenue", result)
+
+    def test_retrieve_entity_properties_surfaces_stored_descriptions(self):
+        # Guards the sync (read_taxonomy) person and group paths passing stored descriptions through —
+        # the async chat-agent toolkit paths are covered in ee/hogai/chat_agent/taxonomy tests.
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.PERSON,
+            name="plan_tier",
+            property_type="String",
+            description="Subscription tier\nof the account",
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+        result = toolkit.retrieve_entity_properties("person")
+        self.assertIn("- plan_tier – Subscription tier of the account", result)
+
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="organization"
+        )
+        invalidate_group_types_cache(self.team.project_id)
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+            name="employee_count",
+            property_type="Numeric",
+            description="Head count reported by the account",
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+        result = toolkit.retrieve_entity_properties("organization")
+        self.assertIn("- employee_count – Head count reported by the account", result)
 
     def test_retrieve_entity_property_values(self):
         toolkit = DummyToolkit(self.team, self.user)
@@ -410,6 +445,32 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
         result = toolkit.retrieve_event_or_action_properties(incorrect_action_id)
         self.assertEqual(result, "No actions exist in the project.")
+
+    @patch.object(DummyToolkit, "_retrieve_event_or_action_taxonomy")
+    def test_retrieve_event_properties_surfaces_stored_descriptions(self, mock_retrieve):
+        # Guards the sync (read_taxonomy) event path passing stored descriptions through.
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="mixer_session_id",
+            property_type="String",
+            description="ID of the live\nmixing session",
+        )
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_retrieve.return_value = (
+            CachedEventTaxonomyQueryResponse(
+                cache_key="stored-description",
+                is_cached=True,
+                last_refresh=now,
+                next_allowed_client_refresh=now,
+                results=[EventTaxonomyItem(property="mixer_session_id", sample_values=[], sample_count=0)],
+                timezone="UTC",
+            ),
+            "event event1",
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+        result = toolkit.retrieve_event_or_action_properties("event1")
+        self.assertIn("- mixer_session_id – ID of the live mixing session", result)
 
     def test_enrich_props_with_descriptions(self):
         toolkit = DummyToolkit(self.team, self.user)
