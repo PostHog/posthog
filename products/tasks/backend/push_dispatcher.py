@@ -78,6 +78,11 @@ def notify_task_run_awaiting_input(task_run: TaskRun) -> None:
     _enqueue(task_run, kind="awaiting", body=f'"{_task_title(task_run)}" needs your input')
 
 
+def notify_task_run_turn_completed(task_run: TaskRun) -> None:
+    _project_completed_activity(task_run)
+    _enqueue(task_run, kind="awaiting", body=f'"{_task_title(task_run)}" finished')
+
+
 def _project_awaiting_input_activity(task_run: TaskRun) -> None:
     """Surface the wait in the in-app Activity feed.
 

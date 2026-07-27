@@ -15,6 +15,7 @@ from products.tasks.backend.push_dispatcher import (
     notify_task_run_cancelled,
     notify_task_run_completed,
     notify_task_run_failed,
+    notify_task_run_turn_completed,
 )
 
 
@@ -46,6 +47,7 @@ class TestPushDispatcher(TestCase):
             ("failed", notify_task_run_failed, "failed"),
             ("cancelled", notify_task_run_cancelled, "cancelled"),
             ("awaiting", notify_task_run_awaiting_input, "needs your input"),
+            ("turn_completed", notify_task_run_turn_completed, "finished"),
         ]
     )
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)

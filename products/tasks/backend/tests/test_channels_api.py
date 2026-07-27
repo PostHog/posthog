@@ -13,7 +13,11 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskActivity, TaskRun, TaskThreadMessage
-from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input, notify_task_run_completed
+from products.tasks.backend.push_dispatcher import (
+    notify_task_run_awaiting_input,
+    notify_task_run_completed,
+    notify_task_run_turn_completed,
+)
 
 
 class ChannelsAPITestCase(TestCase):
@@ -414,6 +418,20 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         with patch("products.tasks.backend.push_dispatcher._enqueue"):
             notify_task_run_awaiting_input(run)
             notify_task_run_completed(run)
+
+        row = self._row_for(self.author_client, self.task)
+        self.assertEqual(row["activity_kind"], "completed")
+        self.assertTrue(row["is_unread"])
+
+    def test_completed_turn_is_unread_for_the_task_creator(self):
+        run = TaskRun.objects.create(
+            team=self.team,
+            task=self.task,
+            state={"mode": "interactive"},
+            status=TaskRun.Status.IN_PROGRESS,
+        )
+        with patch("products.tasks.backend.push_dispatcher._enqueue"):
+            notify_task_run_turn_completed(run)
 
         row = self._row_for(self.author_client, self.task)
         self.assertEqual(row["activity_kind"], "completed")
