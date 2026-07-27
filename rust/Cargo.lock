@@ -7872,6 +7872,8 @@ dependencies = [
  "futures",
  "hdrhistogram",
  "humantime",
+ "k8s-openapi",
+ "kube",
  "metrics",
  "personhog-common",
  "personhog-coordination",
