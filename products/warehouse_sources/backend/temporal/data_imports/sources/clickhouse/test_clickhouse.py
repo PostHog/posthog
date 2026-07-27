@@ -1111,6 +1111,9 @@ class TestHasDuplicatePrimaryKeys:
             "Setting optimize_aggregation_in_order is unknown or readonly",
             # Server-side memory cap below our probe's max_memory_usage.
             "Code: 241. DB::Exception: Query memory limit exceeded ... (MEMORY_LIMIT_EXCEEDED)",
+            # HTTP client read timeout firing before the server-side
+            # max_execution_time cap does (e.g. ClickHouse Cloud cold-resume).
+            "Error HTTPSConnectionPool(host='example.clickhouse.cloud', port=8443): Read timed out. (read timeout=120)",
         ],
     )
     def test_expected_probe_failures_not_captured(self, error_msg):

@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
+from databricks.sql.exc import RequestError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import TableStats
@@ -18,6 +19,13 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _CONNECT_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.databricks.databricks.databricks_sql.connect"
+)
+_SLEEP_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.databricks.databricks.time.sleep"
+
+_SSL_EOF_ERROR_MSG = (
+    "Error during request to server: HTTPSConnectionPool(host='x', port=443): Max retries exceeded"
+    " with url: /oidc/v1/token (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING]"
+    " EOF occurred in violation of protocol')))"
 )
 
 # ---------------------------------------------------------------------------
@@ -182,6 +190,34 @@ class TestConnect:
                 with impl.connect(_make_config()):
                     raise RuntimeError("boom")
             mock_connect.return_value.close.assert_called_once()
+
+    def test_transient_ssl_eof_on_connect_is_retried(self, impl):
+        # The connector's own retry loop treats a bare SSL error during `open_session` (including
+        # the OAuth token fetch) as non-retryable and raises immediately — connect() must recover
+        # a transient peer-close instead of failing the sync on the first blip.
+        mock_conn = MagicMock()
+        with patch(_CONNECT_PATH, side_effect=[RequestError(_SSL_EOF_ERROR_MSG, {}, "x"), mock_conn]) as mock_connect:
+            with patch(_SLEEP_PATH):
+                with impl.connect(_make_config()) as conn:
+                    assert conn is mock_conn
+            assert mock_connect.call_count == 2
+
+    def test_transient_ssl_eof_exhausts_retries_and_raises(self, impl):
+        with patch(_CONNECT_PATH, side_effect=RequestError(_SSL_EOF_ERROR_MSG, {}, "x")) as mock_connect:
+            with patch(_SLEEP_PATH):
+                with pytest.raises(RequestError):
+                    with impl.connect(_make_config()):
+                        pass
+            assert mock_connect.call_count == 5
+
+    def test_non_transient_connect_error_is_not_retried(self, impl):
+        # A permission/config error must surface on the first attempt — only the specific
+        # transient SSL peer-close signature is worth retrying.
+        with patch(_CONNECT_PATH, side_effect=RequestError("[PERMISSION_DENIED] nope", {}, "x")) as mock_connect:
+            with pytest.raises(RequestError):
+                with impl.connect(_make_config()):
+                    pass
+            assert mock_connect.call_count == 1
 
 
 # ---------------------------------------------------------------------------
