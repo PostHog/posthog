@@ -29,11 +29,13 @@ class S3AssumeRoleTestStep(DestinationTestStep):
     def __init__(
         self,
         aws_role_arn: str | None = None,
+        bucket_name: str | None = None,
         organization_id: str | None = None,
         max_attempts: int = 1,
     ) -> None:
         super().__init__()
         self.aws_role_arn = aws_role_arn
+        self.bucket_name = bucket_name
         self.organization_id = organization_id
         # This test verifies user-provided config, where failures are expected, so
         # default to a single attempt and report promptly rather than retrying.
@@ -48,7 +50,7 @@ class S3AssumeRoleTestStep(DestinationTestStep):
         """Run this test step."""
         from botocore.exceptions import ClientError
 
-        if self.aws_role_arn is None:
+        if self.aws_role_arn is None or self.bucket_name is None:
             return DestinationTestStepResult(status=Status.SKIPPED, message="No configured AWS role ARN, skipping test")
 
         external_id = f"posthog-{self.organization_id}"
@@ -58,7 +60,9 @@ class S3AssumeRoleTestStep(DestinationTestStep):
                 external_id,
                 session_name="PostHog-batch-exports-test",
                 policy_statements=[
-                    PolicyStatement(Effect="Allow", Action=["s3:ListBucket"], Resource="arn:aws:s3:::*")
+                    PolicyStatement(
+                        Effect="Allow", Action=["s3:ListBucket"], Resource=f"arn:aws:s3:::{self.bucket_name}"
+                    )
                 ],
                 max_attempts=self.max_attempts,
             )
@@ -288,7 +292,9 @@ class AwsS3DestinationTest(DestinationTest):
     def steps(self) -> collections.abc.Sequence[DestinationTestStep]:
         """Sequence of test steps that make up this destination test."""
         return [
-            S3AssumeRoleTestStep(aws_role_arn=self.aws_role_arn, organization_id=self.organization_id),
+            S3AssumeRoleTestStep(
+                aws_role_arn=self.aws_role_arn, bucket_name=self.bucket_name, organization_id=self.organization_id
+            ),
             S3EnsureBucketTestStep(
                 bucket_name=self.bucket_name,
                 region=self.region,
