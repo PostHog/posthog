@@ -88,10 +88,12 @@ def query_flaky_tests(
     # +1 so a full page tells us more tests qualified than returned.
     placeholders["limit_plus_one"] = ast.Constant(value=limit + 1)
 
+    query = _SELECT.replace("__RUN_EVIDENCE__", run_evidence(bounded=date_to is not None)).replace(
+        "__RUNNER_FILTER__", runner_filter
+    )
+
     response = curated.run(
-        _SELECT.replace("__RUN_EVIDENCE__", run_evidence(bounded=date_to is not None)).replace(
-            "__RUNNER_FILTER__", runner_filter
-        ),
+        query,
         query_type="engineering_analytics.flaky_tests",
         placeholders=placeholders,
         # trace_spans lives on the LOGS ClickHouse cluster, not the warehouse default.

@@ -28,6 +28,7 @@ from products.engineering_analytics.backend.presentation.views._base import (
     _SOURCE_ID,
     EngineeringAnalyticsViewSetBase,
     _bad_request,
+    _optional_enum_param,
     _optional_int_param,
 )
 
@@ -100,7 +101,7 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_to=request.query_params.get("date_to") or None,
                 min_failed_prs=_optional_int_param(request, "min_failed_prs"),
                 limit=_optional_int_param(request, "limit"),
-                runner=CITestRunner(request.query_params["runner"]) if request.query_params.get("runner") else None,
+                runner=_optional_enum_param(request, "runner", CITestRunner),
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,

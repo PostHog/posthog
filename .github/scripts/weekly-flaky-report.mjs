@@ -34,6 +34,7 @@ const GITHUB_REF_NAME = process.env.GITHUB_REF_NAME || 'master'
 const TOP_N = 10
 const CANDIDATE_POOL = 40
 const CLUSTER_MIN_TESTS = 5
+const REPORT_RUNNER = 'pytest'
 
 const RETRY_ATTEMPTS = 3
 const RETRY_DELAY_MS = 30_000
@@ -90,7 +91,7 @@ function flakyTestsUrl() {
         date_from: '-7d',
         limit: 100,
         repo: GITHUB_REPOSITORY,
-        runner: 'pytest',
+        runner: REPORT_RUNNER,
     })
 }
 
@@ -127,7 +128,7 @@ function isMasterBurst(item) {
 
 function selectReportCandidates(items) {
     return collapseClusters(
-        items.filter((item) => item.runner === 'pytest' && !isMasterBurst(item)).slice(0, CANDIDATE_POOL)
+        items.filter((item) => item.runner === REPORT_RUNNER && !isMasterBurst(item)).slice(0, CANDIDATE_POOL)
     )
 }
 
