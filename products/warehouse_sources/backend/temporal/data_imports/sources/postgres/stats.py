@@ -11,6 +11,7 @@ snapshot with a warning rather than failing the sync, so a plain read-only user 
 gets everything Postgres exposes to PUBLIC.
 """
 
+import re
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import _GeneratorContextManager, contextmanager
 from datetime import datetime
@@ -137,14 +138,25 @@ _SETTINGS_COLUMNS: tuple[tuple[str, str, bool], ...] = (
     ("pending_restart", "boolean", True),
 )
 
-# Statements that embed credentials in their text. DML literals are normalized to `$1`
-# placeholders, but utility statements are recorded as written, so `ALTER USER … PASSWORD
-# '…'`, `CREATE/ALTER SUBSCRIPTION … CONNECTION 'host=… password=…'`, `ALTER SYSTEM SET
-# primary_conninfo = '…'`, or a foreign-server user mapping would otherwise land in the
-# warehouse. None carry a performance signal.
-# Postgres spells the word boundary `\y` (`\b` matches nothing), and anchoring to the
-# statement start keeps ordinary queries against tables like `password_resets` intact.
-_CREDENTIAL_STATEMENT_PATTERN = r"^\s*(create|alter|drop)\s+(role|user|group|subscription|server|system)\y"
+# Statement kinds whose text is safe to keep. Everything else has its `query` redacted
+# while its counters are kept.
+#
+# pg_stat_statements normalizes constants in DML to `$1` placeholders, so those never
+# carry a value. Utility statements are recorded as written, and the set that can embed a
+# secret is not closed: besides the obvious `ALTER USER … PASSWORD '…'` and
+# `CREATE SUBSCRIPTION … CONNECTION '…password=…'`, any custom GUC namespace can hold one
+# (`ALTER DATABASE db SET app.api_token = '…'`, `SET app.api_token = '…'`), and those
+# namespaces are user-defined. Naming the safe kinds is the only bound that holds — the
+# same reason `pg_settings` is collected by allowlist.
+#
+# The maintenance commands are here because their timing is a real signal (a slow
+# `CREATE INDEX` or `VACUUM` is a finding) and none of them take a credential. `COPY` is
+# deliberately absent: `COPY … FROM PROGRAM` embeds a shell command.
+_SAFE_STATEMENT_TEXT = re.compile(
+    r"^\s*(?:select|insert|update|delete|with|merge|values|table|explain|vacuum|analyze|reindex|cluster|refresh)\b",
+    re.IGNORECASE,
+)
+_REDACTED_QUERY_COLUMN = "query"
 
 
 class _PostgresStatsCollector(Protocol):
@@ -222,13 +234,11 @@ def _collect_statements(
                         """
                         SELECT * FROM {relation}
                         WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-                          AND query !~* {credential_statements}
                         ORDER BY {order_column} DESC
                         LIMIT {limit}
                         """
                     ).format(
                         relation=relation,
-                        credential_statements=sql.Literal(_CREDENTIAL_STATEMENT_PATTERN),
                         order_column=sql.Identifier(order_column),
                         limit=sql.Literal(STATEMENTS_SNAPSHOT_LIMIT),
                     )
@@ -240,7 +250,20 @@ def _collect_statements(
             logger.warning("database_stats: pg_stat_statements has an unexpected column set, skipping")
             return []
 
-        return snapshot_rows(cur, collected_at, snapshot_id)
+        return _redact_unsafe_statement_text(snapshot_rows(cur, collected_at, snapshot_id))
+
+
+def _redact_unsafe_statement_text(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Null the text of statements outside `_SAFE_STATEMENT_TEXT`, keeping their counters.
+
+    Redacting rather than dropping the row: the timing and call counts of a statement are
+    never sensitive and are worth having, it's only the text that can carry a secret.
+    """
+    for row in rows:
+        text = row.get(_REDACTED_QUERY_COLUMN)
+        if isinstance(text, str) and not _SAFE_STATEMENT_TEXT.match(text):
+            row[_REDACTED_QUERY_COLUMN] = None
+    return rows
 
 
 def _collect_tables(
@@ -427,7 +450,9 @@ POSTGRES_STATS_CATALOGS: dict[str, DatabaseStatsCatalog] = {
             description=(
                 "Snapshots of pg_stat_statements for this database: per-statement call counts, "
                 "execution time, rows and block I/O. Counters are cumulative since the last "
-                "statistics reset. Requires the pg_stat_statements extension."
+                "statistics reset. Query text is kept for queries and maintenance commands and "
+                "nulled for everything else, since utility statements are recorded verbatim and "
+                "can embed credentials. Requires the pg_stat_statements extension."
             ),
             collector=_collect_statements,
         ),

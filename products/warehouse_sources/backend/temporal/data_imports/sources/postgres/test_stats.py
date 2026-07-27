@@ -30,9 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.stats import (
     _COLLECTED_SETTINGS,
-    _CREDENTIAL_STATEMENT_PATTERN,
     POSTGRES_STATS_CATALOGS,
     _collect_statements,
+    _redact_unsafe_statement_text,
     fetch_postgres_stats_columns,
     postgres_database_stats_source,
 )
@@ -326,45 +326,53 @@ class TestCollectStatementsScripted:
         )
         assert _collect_statements(cast(Any, conn), logger, *_snapshot_base()) == []
 
-    def test_credential_bearing_statements_are_excluded(self):
-        # DML literals are normalized to placeholders, but utility statements are recorded
-        # verbatim, so `ALTER USER … PASSWORD '…'` would otherwise land in the warehouse.
-        conn = _ScriptedConnection([self._EXTENSION, ("total_exec_time", self._MODERN_ROWS)])
-        _collect_statements(cast(Any, conn), logger, *_snapshot_base())
+    def test_collector_redacts_unsafe_statement_text(self):
+        rows_with_secret = (
+            ["queryid", "query", "calls", "total_exec_time"],
+            [
+                (1, "ALTER DATABASE appdb SET app.api_token = 'secret'", 1, 2.0),
+                (2, "SELECT * FROM users WHERE id = $1", 9, 5.0),
+            ],
+        )
+        conn = _ScriptedConnection([self._EXTENSION, ("total_exec_time", rows_with_secret)])
 
-        statements_query = next(q for q in conn.executed if "pg_stat_statements" in q and "ORDER BY" in q)
-        assert "query !~*" in statements_query
+        rows = _collect_statements(cast(Any, conn), logger, *_snapshot_base())
 
-    @pytest.mark.django_db
-    def test_credential_statement_pattern_matches_only_credential_statements(self, autocommit_pg_connection):
-        # Postgres spells the word boundary `\y`; `\b` would silently match nothing, so
-        # pin the behaviour against a real server.
-        credential_bearing = [
+        assert rows[0]["query"] is None
+        assert rows[0]["calls"] == 1
+        assert rows[1]["query"] == "SELECT * FROM users WHERE id = $1"
+
+    def test_unsafe_statement_text_is_redacted_but_counters_survive(self):
+        # pg_stat_statements records utility statements verbatim, and the set that can
+        # embed a secret isn't closed — any custom GUC namespace can hold one. So text is
+        # kept only for statement kinds that can't carry a credential.
+        unsafe = [
+            "ALTER DATABASE appdb SET app.api_token = 'secret'",
+            "SET app.api_token = 'secret'",
+            "ALTER ROLE bob SET app.jwt_secret = 'x'",
             "ALTER USER bob PASSWORD 'hunter2'",
-            "  create role app_ro LOGIN PASSWORD 'x'",
-            "CREATE SUBSCRIPTION s CONNECTION 'host=h password=p' PUBLICATION p",
-            "ALTER SUBSCRIPTION s CONNECTION 'host=h password=p'",
             "ALTER SYSTEM SET primary_conninfo = 'host=h password=p'",
+            "CREATE SUBSCRIPTION s CONNECTION 'host=h password=p' PUBLICATION p",
             "CREATE USER MAPPING FOR bob SERVER fdw OPTIONS (password 'x')",
+            "COPY t FROM PROGRAM 'curl -u user:pass https://example.com'",
         ]
-        # Ordinary queries that merely mention a credential-ish word must be kept: they
-        # carry real performance signal, and their literals are normalized away anyway.
-        ordinary = [
+        # Kept: DML has its constants normalized to placeholders by Postgres, and the
+        # maintenance commands take no credential while their timing is a real signal.
+        safe = [
+            "SELECT * FROM users WHERE id = $1",
+            "WITH x AS (SELECT 1) SELECT * FROM x",
+            "UPDATE users SET role = $1",
             "SELECT * FROM password_resets WHERE id = $1",
-            "SELECT u.password_hash FROM users u WHERE u.id = $1",
-            "SELECT * FROM system_events WHERE id = $1",
-            "UPDATE server_configs SET value = $1",
-            "ALTER TABLE users ADD COLUMN role text",
+            "VACUUM ANALYZE public.users",
+            "REINDEX INDEX CONCURRENTLY idx",
         ]
-        with autocommit_pg_connection.cursor() as cur:
-            cur.execute(
-                "SELECT s, s ~* %s FROM unnest(%s::text[]) AS s",
-                (_CREDENTIAL_STATEMENT_PATTERN, [*credential_bearing, *ordinary]),
-            )
-            matched = dict(cur)
-
-        assert {s: matched[s] for s in credential_bearing} == dict.fromkeys(credential_bearing, True)
-        assert {s: matched[s] for s in ordinary} == dict.fromkeys(ordinary, False)
+        rows = _redact_unsafe_statement_text(
+            [{"query": text, "calls": 7, "total_exec_time": 1.5} for text in [*unsafe, *safe]]
+        )
+        assert [row["query"] for row in rows[: len(unsafe)]] == [None] * len(unsafe)
+        assert [row["query"] for row in rows[len(unsafe) :]] == safe
+        # Redaction never costs a counter — that is why rows are kept rather than dropped.
+        assert all(row["calls"] == 7 and row["total_exec_time"] == 1.5 for row in rows)
 
     def test_statements_are_scoped_to_the_connected_database(self):
         # pg_stat_statements is cluster-wide; without the dbid filter another database's
