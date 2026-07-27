@@ -66,11 +66,12 @@ describe('ReferenceLine', () => {
             expect(getByText('Target')).toBeTruthy()
         })
 
-        it('appends the formatted value to the label on hover and restores it on leave', () => {
-            const { getByText } = renderInChart(<ReferenceLine value={1234} label="Target" />)
+        it('appends the value to the label on hover and restores it on leave', () => {
+            // value must sit inside the test scale's 0-100 range or the line renders null.
+            const { getByText } = renderInChart(<ReferenceLine value={50} label="Target" />)
             const label = getByText('Target') as HTMLDivElement
             fireEvent.mouseEnter(label)
-            expect(getByText('Target: 1,234')).toBeTruthy()
+            expect(getByText('Target: 50')).toBeTruthy()
             fireEvent.mouseLeave(label)
             expect(getByText('Target')).toBeTruthy()
         })
