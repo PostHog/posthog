@@ -31,6 +31,10 @@ function asEmbeddedChart(query: Record<string, any>): Node {
         node.showTable = false
         node.showCorrelationTable = false
         node.embedded = true
+        // Forced on rather than left alone: an explicit `false` (which the notebook query node sets,
+        // and a scout can copy from one) makes `InsightVizDisplay` omit the result body entirely, so
+        // the report would draw a titled card with nothing in it.
+        node.showResults = true
     }
     return node as Node
 }

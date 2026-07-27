@@ -52,10 +52,35 @@ CHART_SIZES: tuple[ChartSize, ...] = ("small", "medium", "large")
 # prompt. Generous next to a real query node; small enough that a malformed one can't blow up a call.
 _MAX_CHART_QUERY_CHARS = 20_000
 
+# Bounds nesting so the size check below can serialize at all. `json.dumps` recurses, and past
+# CPython's limit it raises `RecursionError` — which pydantic does not fold into a `ValidationError`,
+# so it escapes the write path as a 500 instead of a 400. Deep enough that no real query node comes
+# close, shallow enough that serializing one stays well inside the limit.
+_MAX_CHART_QUERY_DEPTH = 100
+
 # Query kinds whose payload is a program rather than a description of data. The renderer hands a
 # node's nested source straight to the query service, and `HogQuery` is the branch there that runs
 # its `code` through `execute_hog`.
 _EXECUTABLE_QUERY_KINDS = frozenset({"HogQuery"})
+
+
+def _nests_too_deeply(value: Any) -> bool:
+    """Whether a query nests past `_MAX_CHART_QUERY_DEPTH`, walked on an explicit stack.
+
+    Runs before the serialized-size check because that check is the thing that cannot survive deep
+    input: measuring the size means serializing it first, and `json.dumps` blows the stack on a
+    query far smaller than the size bound would ever reject.
+    """
+    pending: list[tuple[Any, int]] = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        if depth > _MAX_CHART_QUERY_DEPTH:
+            return True
+        if isinstance(item, dict):
+            pending.extend((nested, depth + 1) for nested in item.values())
+        elif isinstance(item, list):
+            pending.extend((nested, depth + 1) for nested in item)
+    return False
 
 
 def _executable_payload(value: Any) -> str | None:
@@ -189,6 +214,8 @@ class ReportChart(BaseModel):
         if not isinstance(kind, str) or kind not in CHART_QUERY_KINDS:
             allowed = ", ".join(sorted(CHART_QUERY_KINDS))
             raise ValueError(f"query.kind must be one of {allowed} (got {kind!r})")
+        if _nests_too_deeply(v):
+            raise ValueError(f"query must not nest deeper than {_MAX_CHART_QUERY_DEPTH} levels")
         if len(json.dumps(v)) > _MAX_CHART_QUERY_CHARS:
             raise ValueError(f"query must not exceed {_MAX_CHART_QUERY_CHARS} characters when serialized")
         executable = _executable_payload(v)

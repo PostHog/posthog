@@ -29,10 +29,11 @@ export function chartOpenTarget(query: Node): ChartOpenTarget | null {
     // would open an empty editor. It resolves to the insight it already points at.
     if (isSavedInsightNode(query)) {
         // The query is stored unparsed and `isSavedInsightNode` reads only `kind`, so the short id
-        // can be missing. Without this the control offers `/insights/undefined` on the one chart
-        // whose body is already telling the reader the insight can't be loaded.
+        // can be missing or not a string at all. Without this the control offers `/insights/undefined`
+        // or a coerced `/insights/123` on the one chart whose body is already telling the reader the
+        // insight can't be loaded. Same bar the renderer mounts on, so the two agree.
         const { shortId } = query as SavedInsightNode
-        return shortId ? { url: urls.insightView(shortId), label: 'Open insight' } : null
+        return typeof shortId === 'string' && shortId ? { url: urls.insightView(shortId), label: 'Open insight' } : null
     }
     // Both forms carry the whole node in the query string, and the control opens a new tab, so the
     // URL goes out as a real request line. A chart near the 20,000-character query bound encodes to

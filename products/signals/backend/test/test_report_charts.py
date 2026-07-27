@@ -149,13 +149,15 @@ class TestReportCharts(SimpleTestCase):
         with self.assertRaises(ValidationError):
             ReportChart.model_validate(content)
 
-    def test_a_deeply_nested_query_is_rejected_rather_than_blowing_the_stack(self) -> None:
-        # 1,500 levels serialize to ~18,000 characters, inside the size bound and past Python's
-        # recursion limit, so this reaches the scan rather than being turned away by the length check
-        # first. Scanning it recursively raises RecursionError, which nothing on the write path
-        # turns into a 400.
+    @parameterized.expand([("past_the_recursion_limit", 1_500), ("past_what_json_can_serialize", 10_000)])
+    def test_a_deeply_nested_query_is_rejected_rather_than_blowing_the_stack(self, _name: str, depth: int) -> None:
+        # Both depths stay under the per-chart size bound, so neither is turned away by the length
+        # check — but they break different things. 1,500 levels serialize fine (~18,000 characters)
+        # and defeat a recursive scan; 10,000 defeat `json.dumps` itself, which the length check has
+        # to call before it can measure anything. A RecursionError from either escapes as a 500,
+        # since pydantic only folds ValueError into ValidationError.
         nested: dict = {"kind": "HogQuery", "code": "while (true) {}"}
-        for _ in range(1_500):
+        for _ in range(depth):
             nested = {"source": nested}
 
         with self.assertRaises(ValidationError):
