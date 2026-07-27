@@ -379,6 +379,75 @@ own cluster's namespace — and refuses to start on a missing topic. Off by
 default because brokers with topic auto-creation make the check misleading
 (the metadata probe itself can create the topic).
 
+## Repartitioning coordinator (design note)
+
+Not built in this PR; this note records where it plugs in so nothing landed
+here has to move. The goal: switch a deployment between clusters partition by
+partition — drain-and-switch with minimal delay — driven by a coordinator,
+with sinks staying pure mechanism.
+
+**Logical shards, decided before the sinks.** The coordinator owns a stable
+shard function: `shard = hash(key) % N` over the same partition key the sink
+would hash, with coordinator-owned `N` (not either cluster's partition
+count). The shard is stamped at prep time — `AddressedPayload` grows
+`shard: Option<u32>`, `None` meaning "let the producer partition as today".
+Stamping at prep keeps the decision above the sinks: both clusters of a
+failover pair see the same shard on the same payload, so a switchover
+decision is consistent across targets by construction.
+
+**A `ShardRouted` output policy.** Routing lives in the outputs layer as a
+policy node holding two child outputs (old cluster, new cluster) and a
+swappable assignment table `shard → Old | New` (an `ArcSwap`, updated by the
+coordinator's control plane the same way the failover breaker's control
+plane seam works). Batch publish splits by assignment and forwards —
+scatter-gather like `Split`, no serialization changes (both clusters share
+the prep/serialization contract, as the AI-secondary split already proves).
+
+**Explicit partition pass-through in the sink.** `ProduceRecord` grows
+`partition: Option<i32>`; the Kafka sink maps `shard` to a concrete
+partition of its own topic (its table realizes the namespace; a shard→
+partition map is the same kind of sink-side data as topic names) and sets it
+on the record. `None` keeps today's key hashing. The sink still makes no
+routing decisions — it realizes an address (topic) and a shard (partition)
+in its own namespace.
+
+**Per-partition fence (drain-and-switch).** Moving shard `s` from Old to
+New, without reordering a key's events across clusters:
+
+1. **Swap** the assignment entry for `s` — new publishes head to New but are
+   *held* (the policy parks `s`-payloads in a short buffer).
+2. **Quiesce**: wait for in-flight `s`-publishes accepted before the swap to
+   resolve (the outputs layer already tracks per-payload acks —
+   `SinkResult` — so this is a count, not a scan).
+3. **Flush** Old's producer for the affected partition (producer-level
+   `flush`, already a `Sink` trait method).
+4. **Watermark**: record Old's end offset for the partition; the consumer
+   side treats it as the fence — consume Old to the watermark, then start
+   New. Only then release the held `s`-payloads to New.
+5. **Handoff complete**; rollback is the same protocol with Old/New
+   reversed. Failure inside the fence window falls back to releasing to the
+   still-assigned side (the swap is not observable until step 4 completes).
+
+The hold window is per-shard and bounded by one producer flush — that is the
+"minimal delay" drain. Shards move independently, so the deployment migrates
+partition by partition.
+
+**Keyless traffic needs no fence.** `KeyPolicy::Null` payloads (anonymous
+analytics without ordering constraints) have no per-key ordering contract —
+they switch clusters with a bare assignment swap, no hold/flush/watermark.
+Replay is keyed by session and follows the fenced path; dlq/custom
+redirects partition on the event key (`token:distinct_id`), same as main.
+
+**Seam inventory** (all already landed):
+
+- `AddressedPayload` — carries key + address; grows `shard`.
+- Outputs policy tree — `ShardRouted` slots in beside single/failover/split.
+- Breaker control-plane seam — the pattern for the coordinator's assignment
+  updates (swappable state, no request-path locks).
+- `ProduceRecord` — grows `partition`; sinks realize shard → partition.
+- Per-pipeline rows + topic tables (Step 18) — a coordinator can retarget
+  one pipeline's row without touching the rest of the deployment.
+
 ## Closing state
 
 All steps are complete. The five strata are landed:
