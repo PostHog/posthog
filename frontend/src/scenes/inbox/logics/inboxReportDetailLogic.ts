@@ -47,6 +47,11 @@ import {
     CurrentReviewerUser,
 } from '../components/detail/reviewerDisplay'
 import {
+    captureInboxReportFeedback,
+    captureInboxReportFeedbackNote,
+    InboxReportFeedbackSentiment,
+} from '../inboxAnalytics'
+import {
     EnrichedReviewer,
     SignalReport,
     SignalReportArtefact,
@@ -144,6 +149,10 @@ export interface inboxReportDetailLogicValues {
     diffArtefactId: string | null
     displayReviewers: EnrichedReviewer[] | null
     expandedTaskIds: string[]
+    feedbackNoteDraft: string
+    feedbackNoteOpen: boolean
+    feedbackNoteSent: boolean
+    feedbackSentiment: InboxReportFeedbackSentiment | null
     hasImplementationPr: boolean
     isReResearch: boolean
     isReportActive: boolean
@@ -301,8 +310,17 @@ export interface inboxReportDetailLogicActions {
         reportTasks: ReportTaskEntry[]
         payload?: any
     }
+    openFeedbackNote: () => {
+        value: true
+    }
+    rateReport: (sentiment: InboxReportFeedbackSentiment) => {
+        sentiment: InboxReportFeedbackSentiment
+    }
     searchAvailableReviewers: (query: string) => {
         query: string
+    }
+    setFeedbackNoteDraft: (draft: string) => {
+        draft: string
     }
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
@@ -312,6 +330,9 @@ export interface inboxReportDetailLogicActions {
     }
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
+    }
+    submitFeedbackNote: (note: string) => {
+        note: string
     }
     toggleExpandedTask: (taskId: string) => {
         taskId: string
@@ -389,6 +410,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setSelectedTaskId: (taskId: string | null) => ({ taskId }),
         // Inline-expand a linked task's run log within the report detail's Runs section.
         toggleExpandedTask: (taskId: string) => ({ taskId }),
+        // Thumbs feedback at the end of the report body. Analytics-only – nothing about the report changes.
+        rateReport: (sentiment: InboxReportFeedbackSentiment) => ({ sentiment }),
+        // Optional note, offered only after a rating is in. The rating is never held up waiting for it.
+        openFeedbackNote: true,
+        setFeedbackNoteDraft: (draft: string) => ({ draft }),
+        // The note rides on the payload: the reducers below clear the draft, and listeners run after them.
+        submitFeedbackNote: (note: string) => ({ note }),
     }),
 
     loaders(({ props, values }) => ({
@@ -562,6 +590,39 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 toggleExpandedTask: (state, { taskId }) =>
                     state.includes(taskId) ? state.filter((id) => id !== taskId) : [...state, taskId],
                 setReport: () => [],
+            },
+        ],
+        // The thumbs rating this reader gave the open report, so the row can read the choice back.
+        // The logic is keyed by report id, so each report keeps its own rating for as long as it's open.
+        feedbackSentiment: [
+            null as InboxReportFeedbackSentiment | null,
+            {
+                rateReport: (_, { sentiment }) => sentiment,
+            },
+        ],
+        // Whether the optional note field is showing. Switching the rating closes an unsent note so
+        // the draft can't end up attached to a sentiment the reader has since changed their mind about.
+        feedbackNoteOpen: [
+            false,
+            {
+                openFeedbackNote: () => true,
+                rateReport: () => false,
+                submitFeedbackNote: () => false,
+            },
+        ],
+        feedbackNoteDraft: [
+            '',
+            {
+                setFeedbackNoteDraft: (_, { draft }) => draft,
+                rateReport: () => '',
+                submitFeedbackNote: () => '',
+            },
+        ],
+        feedbackNoteSent: [
+            false,
+            {
+                submitFeedbackNote: () => true,
+                rateReport: () => false,
             },
         ],
         // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). A failed
@@ -756,6 +817,25 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     }),
 
     listeners(({ actions, values, cache, props }) => ({
+        rateReport: ({ sentiment }) => {
+            if (!values.report) {
+                return
+            }
+            captureInboxReportFeedback({ report: values.report, sentiment, surface: 'detail_footer' })
+        },
+        // Fires on its own event so the rating stays exactly one `Inbox report feedback` per click.
+        submitFeedbackNote: ({ note }) => {
+            const trimmed = note.trim()
+            if (!values.report || !values.feedbackSentiment || !trimmed) {
+                return
+            }
+            captureInboxReportFeedbackNote({
+                report: values.report,
+                sentiment: values.feedbackSentiment,
+                note: trimmed,
+                surface: 'detail_footer',
+            })
+        },
         searchAvailableReviewers: async ({ query }, breakpoint) => {
             await breakpoint(300)
             actions.loadAvailableReviewers({ query: query.trim() || undefined })
