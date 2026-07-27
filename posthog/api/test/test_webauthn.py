@@ -529,6 +529,34 @@ class TestWebAuthnLogin(APIBaseTest):
             self.assertEqual(recorded_user.pk, self.user.pk)
 
 
+class TestSaveSession(APIBaseTest):
+    """Tests for save_session, the guard around explicit session saves in the auth flow."""
+
+    def test_save_session_recreates_when_backing_row_is_gone(self):
+        from types import SimpleNamespace
+        from typing import cast
+
+        from rest_framework.request import Request
+
+        from posthog.api.webauthn import WEBAUTHN_LOGIN_CHALLENGE_KEY, save_session
+
+        store = Session.get_session_store_class()()
+        store[WEBAUTHN_LOGIN_CHALLENGE_KEY] = "challenge-data"
+        store.save()
+        old_key = store.session_key
+
+        # Row purged/expired after the session was loaded: the store still holds the old key and
+        # cached data, so its next force-update would raise UpdateError.
+        Session.objects.filter(session_key=old_key).delete()
+
+        save_session(cast(Request, SimpleNamespace(session=store)))
+
+        self.assertIsNotNone(store.session_key)
+        self.assertNotEqual(store.session_key, old_key)
+        self.assertTrue(Session.objects.filter(session_key=store.session_key).exists())
+        self.assertEqual(store[WEBAUTHN_LOGIN_CHALLENGE_KEY], "challenge-data")
+
+
 class TestWebAuthnCredentialManagement(APIBaseTest):
     """Tests for WebAuthn credential CRUD operations."""
 

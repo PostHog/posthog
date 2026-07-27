@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.signals import user_login_failed
+from django.contrib.sessions.backends.base import UpdateError
 from django.http.response import JsonResponse
 
 import structlog
@@ -57,12 +58,27 @@ def user_uuid_to_handle(user_uuid: uuid.UUID) -> bytes:
     return user_uuid.bytes
 
 
+def save_session(request: Request) -> None:
+    """Persist session changes, recreating the session if its backing row is gone.
+
+    A client can present a session cookie whose row no longer exists (expired, purged, or
+    never persisted in this region). Our SessionStore force-updates existing rows, so saving
+    against a missing row raises UpdateError. In these unauthenticated auth flows we'd rather
+    mint a fresh session (preserving the current session data) than surface a 500, so recreate
+    it on that failure instead of letting it propagate.
+    """
+    try:
+        request.session.save()
+    except UpdateError:
+        request.session.create()
+
+
 def clear_signup_webauthn_session(request: Request) -> None:
     request.session.pop(WEBAUTHN_SIGNUP_CHALLENGE_KEY, None)
     request.session.pop(WEBAUTHN_SIGNUP_EMAIL_KEY, None)
     request.session.pop(WEBAUTHN_SIGNUP_CREDENTIAL_KEY, None)
     request.session.pop(WEBAUTHN_SIGNUP_USER_UUID_KEY, None)
-    request.session.save()
+    save_session(request)
 
 
 class WebAuthnRegistrationViewSet(viewsets.ViewSet):
@@ -112,7 +128,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
 
         # Store challenge in session
         request.session[WEBAUTHN_REGISTRATION_CHALLENGE_KEY] = bytes_to_base64url(options.challenge)
-        request.session.save()
+        save_session(request)
 
         logger.info("webauthn_registration_begin", user_id=user.pk, rp_id=get_webauthn_rp_id())
 
@@ -131,7 +147,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
 
         # Get challenge from session
         challenge_b64 = request.session.pop(WEBAUTHN_REGISTRATION_CHALLENGE_KEY, None)
-        request.session.save()
+        save_session(request)
 
         if not challenge_b64:
             return Response(
@@ -170,7 +186,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
 
             # Store credential ID for verification step
             request.session[WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY] = str(credential.pk)
-            request.session.save()
+            save_session(request)
 
             logger.info("webauthn_registration_complete", user_id=user.pk, credential_id=credential.pk)
 
@@ -229,7 +245,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
 
         # Store challenge in session
         request.session[WEBAUTHN_LOGIN_CHALLENGE_KEY] = bytes_to_base64url(options.challenge)
-        request.session.save()
+        save_session(request)
 
         logger.info("webauthn_login_begin", rp_id=get_webauthn_rp_id())
 
@@ -244,7 +260,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         """
 
         challenge = request.session.pop(WEBAUTHN_LOGIN_CHALLENGE_KEY, None)
-        request.session.save()
+        save_session(request)
 
         if not challenge:
             return Response(
@@ -370,7 +386,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             set_two_factor_verified_in_session(request)
 
             request.session["reauth"] = "true" if was_authenticated_before_login_attempt else "false"
-            request.session.save()
+            save_session(request)
 
             report_user_logged_in(verified_user, social_provider="passkey")
 
@@ -503,7 +519,7 @@ class WebAuthnSignupRegistrationViewSet(viewsets.ViewSet):
         request.session[WEBAUTHN_SIGNUP_CHALLENGE_KEY] = bytes_to_base64url(options.challenge)
         request.session[WEBAUTHN_SIGNUP_EMAIL_KEY] = email
         request.session[WEBAUTHN_SIGNUP_USER_UUID_KEY] = str(user_uuid)
-        request.session.save()
+        save_session(request)
 
         logger.info("webauthn_signup_registration_begin", email_hash=hash(email), rp_id=get_webauthn_rp_id())
 
@@ -550,7 +566,7 @@ class WebAuthnSignupRegistrationViewSet(viewsets.ViewSet):
                 "transports": transports,
             }
 
-            request.session.save()
+            save_session(request)
 
             logger.info("webauthn_signup_registration_complete", email_hash=hash(email))
 
@@ -694,7 +710,7 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
         # Store challenge and credential ID in session
         request.session[WEBAUTHN_VERIFICATION_CHALLENGE_KEY] = bytes_to_base64url(options.challenge)
         request.session[WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY] = str(credential.pk)
-        request.session.save()
+        save_session(request)
 
         logger.info("webauthn_credential_verify_begin", user_id=user.pk, credential_id=credential.pk)
 
@@ -707,7 +723,7 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
 
         challenge_b64 = request.session.pop(WEBAUTHN_VERIFICATION_CHALLENGE_KEY, None)
         session_credential_id = request.session.pop(WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY, None)
-        request.session.save()
+        save_session(request)
 
         if not challenge_b64 or not session_credential_id:
             return Response(
