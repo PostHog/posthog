@@ -8,7 +8,8 @@ from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Q, QuerySet, Sum
+from django.db.models import CharField, Q, QuerySet, Sum
+from django.db.models.functions import Cast
 from django.http import Http404
 from django.utils import timezone
 
@@ -215,11 +216,6 @@ class TicketMessagePagination(pagination.LimitOffsetPagination):
 
 MAX_TAG_FILTER_VALUES = 50
 
-# Bounds the IN list built from comment matches. Searches whose comments match more
-# tickets than this omit the overflow (comment branch only) — a search that broad is
-# unusable without narrowing anyway.
-COMMENT_SEARCH_MATCH_CAP = 1000
-
 
 class TicketPersonSerializer(serializers.Serializer):
     """Minimal person serializer for embedding in ticket responses."""
@@ -378,35 +374,24 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
     _search_path: str | None = None
 
     def _filter_by_text_search(self, queryset: QuerySet, search: str) -> QuerySet:
-        # Two-step comment match: materialize matching ticket ids first so posthog_comment
-        # is scanned once per request (through its trigram index), and the ticket-side OR
-        # stays a plain disjunction of index-eligible predicates. A correlated EXISTS here
-        # would force a per-ticket probe instead.
-        comment_item_ids = (
-            Comment.objects.filter(
-                team_id=self.team_id,
-                scope="conversations_ticket",
-                deleted=False,
-                content__icontains=search,
-            )
-            .values_list("item_id", flat=True)
-            .distinct()[:COMMENT_SEARCH_MATCH_CAP]
-        )
-        comment_ticket_ids: list[uuid.UUID] = []
-        for item_id in comment_item_ids:
-            try:
-                comment_ticket_ids.append(uuid.UUID(item_id))
-            except (ValueError, TypeError):
-                continue
+        # Comment match as a non-correlated subquery: self-contained, so Postgres hashes
+        # it once per query (scanning posthog_comment through its trigram index) instead
+        # of probing comments per ticket the way a correlated EXISTS would. The ticket id
+        # is cast to text rather than item_id to uuid — the id side is always a valid
+        # UUID, while a malformed item_id row would make the whole search error.
+        comment_match = Comment.objects.filter(
+            team_id=self.team_id,
+            scope="conversations_ticket",
+            deleted=False,
+            content__icontains=search,
+        ).values("item_id")
 
-        text_match = (
+        return queryset.alias(id_text=Cast("id", output_field=CharField())).filter(
             Q(anonymous_traits__name__icontains=search)
             | Q(anonymous_traits__email__icontains=search)
             | Q(email_subject__icontains=search)
+            | Q(id_text__in=comment_match)
         )
-        if comment_ticket_ids:
-            text_match |= Q(id__in=comment_ticket_ids)
-        return queryset.filter(text_match)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
