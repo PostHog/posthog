@@ -1368,6 +1368,27 @@ def test_has_duplicate_primary_keys_skips_resource_exceeded_quietly(exception):
     mock_capture.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "exception",
+    [
+        BadRequest(
+            "Name is_qualified not found inside visit; failed to parse view 'my_dataset.my_view' at [5:19]; "
+            "reason: invalidQuery, location: query, message: Name is_qualified not found inside visit; "
+            "failed to parse view 'my_dataset.my_view' at [5:19]"
+        ),
+        BadRequest("Invalid table-valued function EXTERNAL_QUERY; failed to parse view 'my_dataset.my_view' at [1:1]"),
+    ],
+)
+def test_has_duplicate_primary_keys_skips_view_parse_failure_quietly(exception):
+    """A `failed to parse view` BigQuery error during the best-effort duplicate-key probe must NOT
+    be captured to error tracking — the probed table is itself a broken view, a customer-side
+    problem that otherwise fires on every sync of that table."""
+    result, mock_capture = _run_has_duplicate_primary_keys(exception)
+
+    assert result is False
+    mock_capture.assert_not_called()
+
+
 def test_has_duplicate_primary_keys_captures_unexpected_bad_request():
     """A non-resource BadRequest (e.g. a genuinely malformed probe query) is still captured so we
     don't lose visibility into real bugs."""

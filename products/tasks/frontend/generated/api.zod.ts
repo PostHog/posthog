@@ -869,6 +869,28 @@ export const SandboxPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Request body for creating or updating a sandbox environment.')
 
 /**
+ * Clear the unread flag on the requester's feed rows for the given tasks. Read state is per task, so opening a task through any surface clears the same row.
+ * @summary Mark task activity read
+ */
+export const taskActivityMarkReadCreateBodyActivitiesMax = 500
+
+export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
+    .object({
+        activities: zod
+            .array(
+                zod.object({
+                    task_id: zod.uuid().describe('Task whose displayed activity should be marked read.'),
+                    seen_before: zod.iso
+                        .datetime({ offset: true })
+                        .describe('Mark activity at or before this timestamp read without clearing newer activity.'),
+                })
+            )
+            .max(taskActivityMarkReadCreateBodyActivitiesMax)
+            .describe('Displayed task activities to mark read if they have not changed.'),
+    })
+    .describe('Request body for clearing the unread flag on specific tasks.')
+
+/**
  * API for managing scheduled task automations.
  */
 export const taskAutomationsCreateBodyNameMax = 255
