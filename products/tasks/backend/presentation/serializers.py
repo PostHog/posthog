@@ -1966,7 +1966,10 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
             attrs.pop("pending_user_message", None)
 
         runtime_fields = ("runtime_adapter", "model")
-        has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
+        has_runtime_selection = any(
+            attrs.get(field) is not None
+            for field in (*runtime_fields, "reasoning_effort", "context_window", "fast_mode")
+        )
 
         if not has_runtime_selection:
             if errors:
@@ -2146,7 +2149,10 @@ class TaskRunBootstrapCreateRequestSerializer(
                     )
 
         runtime_fields = ("runtime_adapter", "model")
-        has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
+        has_runtime_selection = any(
+            attrs.get(field) is not None
+            for field in (*runtime_fields, "reasoning_effort", "context_window", "fast_mode")
+        )
         if not has_runtime_selection:
             if errors:
                 raise serializers.ValidationError(errors)

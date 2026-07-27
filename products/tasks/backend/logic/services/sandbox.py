@@ -186,7 +186,8 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
         "POSTHOG_CODE_CONTEXT_WINDOW": context_window,
-        "POSTHOG_CODE_FAST_MODE": "true" if fast_mode else None,
+        # Explicit false pins fast mode off even if a stale env value survives in a resumed sandbox.
+        "POSTHOG_CODE_FAST_MODE": None if fast_mode is None else ("true" if fast_mode else "false"),
         "POSTHOG_CODE_INITIAL_PERMISSION_MODE": initial_permission_mode,
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
