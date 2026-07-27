@@ -42,6 +42,7 @@ use metrics::{counter, histogram};
 use parquet::arrow::async_reader::ParquetObjectReader;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::ProjectionMask;
+use parquet::file::metadata::ParquetMetaData;
 use serde_json::Value;
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tracing::{debug, info, instrument};
@@ -62,6 +63,41 @@ const WHOLE_TABLE: &str = "__deltalite_whole_table__";
 const INITIAL_DECODE_ESTIMATE_BYTES: usize = 4 * 1024 * 1024;
 /// First-iteration pre-decode reservation for narrow PK-column probe batches.
 const INITIAL_PROBE_ESTIMATE_BYTES: usize = 256 * 1024;
+
+/// Read batch size (in rows) that keeps a decoded batch near `target_bytes`, derived from
+/// the widest row group's average *uncompressed* bytes/row.
+///
+/// A batch never spans more than one row group, so `total_byte_size / num_rows` upper-bounds
+/// the per-row content a batch decodes. Sizing the read by this bounds a batch's resident
+/// footprint by content rather than by a fixed row count, so a tenant syncing wide or highly
+/// compressible rows can't inflate a single decoded batch far past the pre-decode reservation
+/// (which would otherwise sit unaccounted while the reader tops its permit up). Clamped to
+/// `[1, cap]`; falls back to `cap` when metadata carries no usable sizes.
+fn byte_bounded_batch_rows(meta: &ParquetMetaData, target_bytes: usize, cap: usize) -> usize {
+    let max_bytes_per_row = meta
+        .row_groups()
+        .iter()
+        .filter(|rg| rg.num_rows() > 0)
+        .map(|rg| (rg.total_byte_size().max(0) as usize).div_ceil(rg.num_rows() as usize))
+        .max()
+        .unwrap_or(0);
+    batch_rows_for_bytes_per_row(max_bytes_per_row, target_bytes, cap)
+}
+
+/// Rows that fit `target_bytes` at `max_bytes_per_row`, clamped to `[1, cap]`. Split out
+/// from `byte_bounded_batch_rows` so the sizing arithmetic is unit-testable without a
+/// `ParquetMetaData`. A zero bytes/row (no usable metadata) falls back to the full `cap`.
+fn batch_rows_for_bytes_per_row(
+    max_bytes_per_row: usize,
+    target_bytes: usize,
+    cap: usize,
+) -> usize {
+    let cap = cap.max(1);
+    if max_bytes_per_row == 0 {
+        return cap;
+    }
+    (target_bytes / max_bytes_per_row).clamp(1, cap)
+}
 
 /// How the set of existing files to rewrite is chosen within each affected partition.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -813,11 +849,7 @@ fn ensure_supported_table(table: &DeltaTable) -> Result<()> {
     // CHECK constraints (`delta.constraints.<name>`) and column invariants are enforced by
     // delta-rs's merge/write path, not by the raw `RecordBatchWriter` deltalite uses, so a
     // rewrite could persist rows violating them. Refuse rather than write unchecked data.
-    if let Some(name) = config
-        .keys()
-        .filter_map(|k| k.strip_prefix("delta.constraints."))
-        .next()
-    {
+    if let Some(name) = config.keys().find_map(|k| k.strip_prefix("delta.constraints.")) {
         return Err(Error::Unsupported(format!(
             "table declares CHECK constraint '{name}'; deltalite's writer does not enforce \
              constraints and could persist violating rows"
@@ -1271,9 +1303,14 @@ async fn probe_file(
     }
 
     let mask = ProjectionMask::roots(builder.parquet_schema(), projection);
+    let batch_rows = byte_bounded_batch_rows(
+        builder.metadata(),
+        INITIAL_PROBE_ESTIMATE_BYTES,
+        opts.read_batch_size,
+    );
     let mut stream = builder
         .with_projection(mask)
-        .with_batch_size(opts.read_batch_size)
+        .with_batch_size(batch_rows)
         .build()?;
 
     // Probe batches are narrow (PK columns only) but still decoded data; budget them
@@ -1378,10 +1415,13 @@ async fn filter_file(
     let path = Path::parse(&f.path)
         .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
     let reader = ParquetObjectReader::new(store, path).with_file_size(f.size);
-    let builder = ParquetRecordBatchStreamBuilder::new(reader)
-        .await?
-        .with_batch_size(opts.read_batch_size);
-    let mut stream = builder.build()?;
+    let builder = ParquetRecordBatchStreamBuilder::new(reader).await?;
+    let batch_rows = byte_bounded_batch_rows(
+        builder.metadata(),
+        INITIAL_DECODE_ESTIMATE_BYTES,
+        opts.read_batch_size,
+    );
+    let mut stream = builder.with_batch_size(batch_rows).build()?;
 
     let mut rows_updated = 0usize;
     let mut rows_copied = 0usize;
@@ -1848,6 +1888,19 @@ mod tests {
         // Everything was released exactly once: the full budget is available again.
         let q = budgets.acquire_bytes(512 * 1024).await.unwrap();
         assert_eq!(q.held_local_kb, 512);
+    }
+
+    #[test]
+    fn batch_rows_bounds_decoded_size_by_bytes_per_row() {
+        // Narrow rows: read the full cap.
+        assert_eq!(batch_rows_for_bytes_per_row(100, 4 * 1024 * 1024, 8192), 8192);
+        // Wide/compressible rows: shrink the batch so its decoded size stays near target.
+        assert_eq!(batch_rows_for_bytes_per_row(1024 * 1024, 4 * 1024 * 1024, 8192), 4);
+        // Pathologically wide rows never drop below one row.
+        assert_eq!(batch_rows_for_bytes_per_row(64 * 1024 * 1024, 4 * 1024 * 1024, 8192), 1);
+        // No usable metadata falls back to the cap (but at least one row).
+        assert_eq!(batch_rows_for_bytes_per_row(0, 4 * 1024 * 1024, 8192), 8192);
+        assert_eq!(batch_rows_for_bytes_per_row(0, 4 * 1024 * 1024, 0), 1);
     }
 
     #[tokio::test]
