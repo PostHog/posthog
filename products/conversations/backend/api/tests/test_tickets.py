@@ -579,6 +579,7 @@ class TestTicketAPI(APIBaseTest):
         # Real deadlines sort first (ascending/descending), no-SLA tickets last, ties broken by
         # -ticket_number — a single total order, so the pages concatenate back to exactly it.
         self.assertEqual(seen, [str(tickets[key].id) for key in expected])
+
     def _list_ordered_ids(self, order_by):
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": order_by})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -629,12 +630,13 @@ class TestTicketAPI(APIBaseTest):
     def test_order_by_plan_paginates_deterministically_within_ties(self, mock_on_commit):
         """Tickets tied on plan rank AND SLA (e.g. all null) need a stable
         tiebreak, or LimitOffsetPagination can skip/duplicate rows between
-        page queries. Ties order by id, so page slices always agree."""
+        page queries. Ties order by -ticket_number (the whitelisted
+        orderings' tiebreak), so page slices always agree."""
         self.user.is_staff = True
         self.user.save()
         self.ticket.delete()
         tied = [self._ticket_with_tags("plan_enterprise") for _ in range(5)]  # all sla_due_at=None
-        expected_ids = sorted(str(t.id) for t in tied)
+        expected_ids = [str(t.id) for t in sorted(tied, key=lambda t: t.ticket_number, reverse=True)]
 
         full = self._list_ordered_ids("plan")
         self.assertEqual(full, expected_ids)
