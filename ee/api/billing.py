@@ -5,7 +5,6 @@ from django.contrib.auth.models import AbstractUser
 from django.http import HttpResponse
 from django.shortcuts import redirect
 
-import requests
 import structlog
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
@@ -23,7 +22,7 @@ from posthog.models import Organization, OrganizationIntegration, Team
 from posthog.models.organization import OrganizationMembership
 from posthog.utils import get_trusted_client_ip, relative_date_parse
 
-from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_manager import BillingManager, billing_get
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -417,7 +416,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         license = License(key=serializer.validated_data["license"])
         ip_address = get_trusted_client_ip(request)
-        res = requests.get(
+        res = billing_get(
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=BillingManager(license, ip_address=ip_address).get_auth_headers(organization),
         )

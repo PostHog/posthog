@@ -14,7 +14,9 @@ import jwt
 import requests
 import structlog
 from requests import JSONDecodeError
-from rest_framework.exceptions import NotAuthenticated
+from requests.adapters import HTTPAdapter
+from rest_framework.exceptions import APIException, NotAuthenticated
+from urllib3.util.retry import Retry
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import report_user_action
@@ -166,6 +168,81 @@ def build_billing_provider_webhook_signature_headers(body: bytes) -> dict[str, s
     }
 
 
+# (connect, read) seconds. A hung TLS handshake or slow response must not tie up a worker
+# indefinitely — every billing call gets a bounded timeout.
+BILLING_SERVICE_TIMEOUT = (5, 30)
+
+
+class BillingServiceUnavailableError(APIException):
+    """The billing service could not be reached after retries (transport-level failure).
+
+    Surfacing this as a 503 keeps a transient TLS/connection blip from becoming an uncaught 500.
+    """
+
+    status_code = 503
+    default_detail = "The billing service is temporarily unavailable. Please try again in a moment."
+    default_code = "billing_service_unavailable"
+
+
+_billing_session: requests.Session | None = None
+
+
+def get_billing_session() -> requests.Session:
+    """Shared session that retries billing service calls on connection, SSL, and timeout errors.
+
+    A raw ``requests`` call raises before any response exists when the TLS handshake to the billing
+    service fails mid-connection, so ``handle_billing_service_error`` never runs and the failure
+    surfaces as a 500. The retry adapter backs off and retries these transient transport errors
+    instead. Connection- and handshake-level failures are retried for every method (the request
+    never reached the server, so a retry is safe); read/status retries stay limited to idempotent
+    methods (urllib3's default ``allowed_methods``), so a non-idempotent POST is never silently
+    re-sent after its body was transmitted.
+    """
+    global _billing_session
+    if _billing_session is None:
+        retry = Retry(
+            total=3,
+            backoff_factor=0.5,
+            status_forcelist=(502, 503, 504),
+            # Let handle_billing_service_error surface a persistent 5xx with its response body
+            # rather than raising a bare MaxRetryError once status retries are exhausted.
+            raise_on_status=False,
+        )
+        session = requests.Session()
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        _billing_session = session
+    return _billing_session
+
+
+def billing_request(method: str, url: str, **kwargs: Any) -> requests.Response:
+    """Call the billing service through the shared retry session with a default timeout.
+
+    Raises ``BillingServiceUnavailableError`` when a transport-level failure persists past retries,
+    so callers return a graceful 503 instead of an uncaught 500.
+    """
+    kwargs.setdefault("timeout", BILLING_SERVICE_TIMEOUT)
+    try:
+        return get_billing_session().request(method, url, **kwargs)
+    except requests.exceptions.RequestException as e:
+        logger.exception("billing_service_request_failed", method=method, url=url)
+        capture_exception(e)
+        raise BillingServiceUnavailableError() from e
+
+
+def billing_get(url: str, **kwargs: Any) -> requests.Response:
+    return billing_request("GET", url, **kwargs)
+
+
+def billing_post(url: str, **kwargs: Any) -> requests.Response:
+    return billing_request("POST", url, **kwargs)
+
+
+def billing_patch(url: str, **kwargs: Any) -> requests.Response:
+    return billing_request("PATCH", url, **kwargs)
+
+
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
@@ -246,7 +323,7 @@ class BillingManager:
     def update_billing(
         self, organization: Organization, data: dict[str, Any], authorizer_actor: Optional[User] = None
     ) -> None:
-        res = requests.patch(
+        res = billing_patch(
             f"{BILLING_SERVICE_URL}/api/billing/",
             headers=self.get_auth_headers(organization, authorizer_actor=authorizer_actor),
             json=data,
@@ -255,7 +332,7 @@ class BillingManager:
         handle_billing_service_error(res)
 
     def update_available_product_features(self, organization: Organization) -> list[dict[str, Any]]:
-        res = requests.get(
+        res = billing_get(
             f"{BILLING_SERVICE_URL}/api/billing/available_product_features",
             headers=self.get_auth_headers(organization),
         )
@@ -335,7 +412,7 @@ class BillingManager:
             capture_exception(e, {"organization_id": organization.id})
 
     def activate_subscription(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = requests.post(
+        res = billing_post(
             f"{BILLING_SERVICE_URL}/api/activate",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -346,7 +423,7 @@ class BillingManager:
         return res.json()
 
     def deactivate_products(self, organization: Organization, products: str) -> None:
-        res = requests.post(
+        res = billing_post(
             f"{BILLING_SERVICE_URL}/api/billing/deactivate",
             headers=self.get_auth_headers(organization),
             json={"products": products},
@@ -403,7 +480,7 @@ class BillingManager:
         if not self.license:  # mypy
             raise Exception("No license found")
 
-        res = requests.get(
+        res = billing_get(
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=self.get_auth_headers(organization),
             params=query_params,
@@ -421,7 +498,7 @@ class BillingManager:
         if not self.license:  # mypy
             raise Exception("No license found")
 
-        res = requests.get(
+        res = billing_get(
             f"{BILLING_SERVICE_URL}/api/billing/portal",
             headers=self.get_auth_headers(organization),
         )
@@ -439,7 +516,7 @@ class BillingManager:
         if self.license and organization:
             headers = self.get_auth_headers(organization)
 
-        res = requests.get(
+        res = billing_get(
             f"{BILLING_SERVICE_URL}/api/products-v2",
             params=params,
             headers=headers,
@@ -578,7 +655,7 @@ class BillingManager:
         return headers
 
     def get_invoices(self, organization: Organization, status: str | None):
-        res = requests.get(
+        res = billing_get(
             # TODO(@zach): update this to /api/invoices
             f"{BILLING_SERVICE_URL}/api/billing/get_invoices",
             params={"status": status},
@@ -592,7 +669,7 @@ class BillingManager:
         return data
 
     def credits_overview(self, organization: Organization):
-        res = requests.get(
+        res = billing_get(
             f"{BILLING_SERVICE_URL}/api/credits/overview",
             headers=self.get_auth_headers(organization),
         )
@@ -602,7 +679,7 @@ class BillingManager:
         return res.json()
 
     def purchase_credits(self, organization: Organization, data: dict[str, Any]):
-        res = requests.post(
+        res = billing_post(
             f"{BILLING_SERVICE_URL}/api/credits/purchase",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -620,7 +697,7 @@ class BillingManager:
         would swallow 404 (endpoint not deployed) and 401 (auth failure) as success and record an
         error body as a synced credit, hence the explicit (200,).
         """
-        res = requests.post(
+        res = billing_post(
             f"{BILLING_SERVICE_URL}/api/signals/dispute-pr",
             # The service_action claim is required by billing: it distinguishes this
             # backend-minted token from ones minted for user-initiated billing calls,
@@ -635,7 +712,7 @@ class BillingManager:
         return res.json()
 
     def activate_trial(self, organization: Organization, data: dict[str, Any]):
-        res = requests.post(
+        res = billing_post(
             f"{BILLING_SERVICE_URL}/api/trials/activate",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -648,7 +725,7 @@ class BillingManager:
         return res.json()
 
     def cancel_trial(self, organization: Organization, data: dict[str, Any]):
-        res = requests.post(
+        res = billing_post(
             f"{BILLING_SERVICE_URL}/api/trials/cancel",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -684,7 +761,7 @@ class BillingManager:
 
         data = {"billing_provider": billing_provider}
 
-        res = requests.post(
+        res = billing_post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize",
             headers=self.get_auth_headers(organization, billing_provider),
             json=data,
@@ -695,7 +772,7 @@ class BillingManager:
         return res.json()
 
     def authorize_status(self, organization: Organization, data: dict[str, Any]):
-        res = requests.post(
+        res = billing_post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize/status",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -719,7 +796,7 @@ class BillingManager:
         Returns:
             Response from billing service with success status
         """
-        res = requests.post(
+        res = billing_post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize/uninstall",
             headers=self.get_auth_headers(organization),
             json={"billing_provider": billing_provider.value},
@@ -739,7 +816,7 @@ class BillingManager:
         return res.json()
 
     def switch_plan(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = requests.post(
+        res = billing_post(
             f"{BILLING_SERVICE_URL}/api/subscription/switch-plan/",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -751,7 +828,7 @@ class BillingManager:
         return res.json()
 
     def apply_startup_program(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = requests.post(
+        res = billing_post(
             f"{BILLING_SERVICE_URL}/api/startups/apply",
             json=data,
             headers=self.get_auth_headers(organization),
@@ -761,7 +838,7 @@ class BillingManager:
         return res.json()
 
     def claim_coupon(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = requests.post(
+        res = billing_post(
             f"{BILLING_SERVICE_URL}/api/coupons/claim",
             json=data,
             headers=self.get_auth_headers(organization),
@@ -771,7 +848,7 @@ class BillingManager:
         return res.json()
 
     def coupons_overview(self, organization: Organization) -> dict[str, Any]:
-        res = requests.get(
+        res = billing_get(
             f"{BILLING_SERVICE_URL}/api/coupons/overview",
             headers=self.get_auth_headers(organization),
         )
@@ -799,7 +876,7 @@ class BillingManager:
         url = f"{BILLING_SERVICE_URL}{path}"
         headers = self.get_auth_headers(organization)
 
-        res = requests.get(url, headers=headers, params=self._to_query_params(params))
+        res = billing_get(url, headers=headers, params=self._to_query_params(params))
 
         if res.status_code in (414, 431):
             logger.info(
@@ -808,7 +885,7 @@ class BillingManager:
                 status_code=res.status_code,
                 organization_id=str(organization.id),
             )
-            res = requests.post(url, headers=headers, json=self._to_post_body(params))
+            res = billing_post(url, headers=headers, json=self._to_post_body(params))
 
         handle_billing_service_error(res)
         return res.json()
@@ -880,7 +957,7 @@ class BillingManager:
             "Content-Type": "application/json",
         }
 
-        res = requests.post(
+        res = billing_post(
             f"{BILLING_SERVICE_URL}/api/webhooks/billing-provider",
             headers=headers,
             data=body,
