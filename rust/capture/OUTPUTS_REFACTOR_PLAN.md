@@ -340,6 +340,22 @@ No `--no-verify` — pre-commit hooks must pass.
   `setup.rs`, all capturing test mocks.
 - **Size.** L.
 
+### Per-mode output tables (Step 15)
+
+The deployment's output table is a concrete type — `AnalyticsFamilyOutputs`
+(analytics, ai, heatmaps, warnings, error tracking rows) for Events/Ai pods,
+`ReplayOutputs` for Recordings pods — with required fields, so the narrow
+list of what a deployment must wire is the type itself. Handlers bound on
+sealed capability traits (`PublishesAnalyticsFamily`, `PublishesReplay`);
+`State<T>` is generic over the table and `setup` instantiates the
+monomorphized router per `CaptureMode` (`router` for the analytics family,
+`replay_router` for recordings) — mounting an ingress on a table that cannot
+publish its family is a compile error. Rows share backends (one Kafka
+connection, one S3 client, one breaker controller), so per-row policy trees
+behave as the single pre-table output did. The runtime backstop for a
+pipeline without a row is an explicit fatal error, structurally dead while
+ingress mounting and table type derive from the same mode.
+
 ## Closing state
 
 All steps are complete. The five strata are landed:
@@ -387,3 +403,4 @@ All steps are complete. The five strata are landed:
 | 12 · Prep hoist; `Prepare` retired | done | `refactor(capture): hoist prep into outputs; sinks take prepared payloads only` |
 | 13 · Typed addresses; AI pipeline | done | `refactor(capture): typed per-pipeline lanes; custom redirects and the ai stream become addresses` |
 | 14 · Sinks realize namespaces | done | `refactor(capture): payloads carry addresses; sinks realize them in their own namespace` |
+| 15 · Per-mode output tables | done | `feat(capture): per-mode output tables; handlers bound by publish capabilities` |

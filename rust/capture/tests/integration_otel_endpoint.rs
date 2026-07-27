@@ -10,7 +10,6 @@ use capture::event_restrictions::{
     RestrictionScope, RestrictionType,
 };
 use capture::outputs::PrepSpec;
-use capture::outputs::{Output, OutputTable};
 use capture::pipeline::{Address, AiLane};
 use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
 use capture::router::router;
@@ -69,6 +68,22 @@ impl Sink for CapturingSink {
         self.events.lock().await.extend(prepared);
         results
     }
+}
+
+fn test_outputs(sink: &CapturingSink) -> Arc<capture::outputs::AnalyticsFamilyOutputs> {
+    let row = || {
+        capture::outputs::Output::single(
+            Arc::new(sink.clone()),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        )
+    };
+    Arc::new(capture::outputs::AnalyticsFamilyOutputs {
+        analytics: row(),
+        ai: row(),
+        heatmaps: row(),
+        warnings: row(),
+        error_tracking: row(),
+    })
 }
 
 const TOKEN: &str = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3";
@@ -155,10 +170,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink.clone()),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(sink),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,

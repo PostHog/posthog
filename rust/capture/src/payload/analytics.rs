@@ -28,8 +28,8 @@ use crate::{
     skip_all,
     fields(method, path, token, ip, historical_migration, compression, batch_size)
 )]
-pub async fn handle_event_payload(
-    state: &State<router::State>,
+pub async fn handle_event_payload<T: crate::outputs::PublishesAnalyticsFamily>(
+    state: &State<router::State<T>>,
     InsecureClientIp(ip): &InsecureClientIp,
     query_params: &mut EventQuery,
     headers: &HeaderMap,

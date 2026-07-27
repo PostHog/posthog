@@ -11,9 +11,8 @@ use capture::event_restrictions::{
     RestrictionType,
 };
 use capture::outputs::PrepSpec;
-use capture::outputs::{Output, OutputTable};
 use capture::quota_limiters::CaptureQuotaLimiter;
-use capture::router::router;
+use capture::router::replay_router;
 use capture::sinks::sink::{AddressedPayload, Sink, SinkResult};
 use capture::time::TimeSource;
 use chrono::{DateTime, Utc};
@@ -61,6 +60,15 @@ impl Sink for CapturingSink {
     }
 }
 
+fn test_outputs(sink: &CapturingSink) -> Arc<capture::outputs::ReplayOutputs> {
+    Arc::new(capture::outputs::ReplayOutputs {
+        replay: capture::outputs::Output::single(
+            Arc::new(sink.clone()),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        ),
+    })
+}
+
 async fn setup_recordings_router_with_restriction(
     restriction_type: RestrictionType,
     token: &str,
@@ -97,14 +105,11 @@ async fn setup_recordings_router_with_restriction(
     );
     service.update(manager).await;
 
-    let router = router(
+    let router = replay_router(
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
@@ -472,14 +477,11 @@ async fn setup_recordings_router_with_redirect_to_topic(
     );
     service.update(manager).await;
 
-    let router = router(
+    let router = replay_router(
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,

@@ -16,7 +16,6 @@ use serde_json::Value;
 
 use capture::config::CaptureMode;
 use capture::outputs::PrepSpec;
-use capture::outputs::{Output, OutputTable};
 use capture::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
 };
@@ -37,6 +36,22 @@ impl Sink for MemorySink {
         self.events.lock().unwrap().extend(prepared);
         results
     }
+}
+
+fn test_outputs(sink: &MemorySink) -> Arc<capture::outputs::AnalyticsFamilyOutputs> {
+    let row = || {
+        capture::outputs::Output::single(
+            Arc::new(sink.clone()),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        )
+    };
+    Arc::new(capture::outputs::AnalyticsFamilyOutputs {
+        analytics: row(),
+        ai: row(),
+        heatmaps: row(),
+        warnings: row(),
+        error_tracking: row(),
+    })
 }
 
 impl MemorySink {
@@ -128,10 +143,7 @@ async fn setup_router_with_limits(
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink.clone()),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None,
         quota_limiter,
@@ -1186,10 +1198,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink.clone()),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None,
         quota_limiter,
@@ -1280,10 +1289,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink.clone()),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None,
         quota_limiter,
@@ -1378,10 +1384,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink.clone()),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None,
         quota_limiter,
@@ -1814,10 +1817,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink.clone()),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None,
         quota_limiter,

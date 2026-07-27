@@ -46,8 +46,8 @@ fn destination_for_event_name(name: &str) -> Destination {
     }
 }
 
-pub async fn process_batch(
-    state: &router::State,
+pub async fn process_batch<T: Send + Sync + 'static>(
+    state: &router::State<T>,
     context: &mut Context,
     batch: Batch,
 ) -> Result<BatchResponse, Error> {
@@ -147,7 +147,11 @@ pub async fn process_batch(
 // the trusted marker and exempts it from the llm_events meter; anything else has its
 // `$ai_gateway*` props stripped. The strip path skips the parse unless the raw bytes
 // plausibly carry a gateway key, so ordinary traffic stays off the hot path.
-fn apply_gateway_provenance(state: &router::State, context: &Context, events: &mut [WrappedEvent]) {
+fn apply_gateway_provenance<T: Send + Sync + 'static>(
+    state: &router::State<T>,
+    context: &Context,
+    events: &mut [WrappedEvent],
+) {
     use crate::v1::gateway_provenance as gp;
 
     let secret = state
@@ -285,8 +289,8 @@ fn warning_context_details(context: &Context) -> serde_json::Map<String, serde_j
 /// The batch is rejected as a unit, so `count` charges the full batch length;
 /// no per-event identifiers exist at this point. Unregistered tags emit
 /// nothing (allowlist in `WarningType::from_tag`). Never fails the request.
-fn emit_batch_abort_warning(
-    state: &router::State,
+fn emit_batch_abort_warning<T: Send + Sync + 'static>(
+    state: &router::State<T>,
     context: &Context,
     err: &Error,
     batch_len: usize,
@@ -313,8 +317,8 @@ fn emit_batch_abort_warning(
 /// `distinctId`/`eventUuid` are included only when a tag matched exactly one
 /// event — with multiple events they would be ambiguous, so they are omitted.
 /// Skips entirely when the emitter is off or the batch had no drops.
-fn emit_validation_drop_warnings(
-    state: &router::State,
+fn emit_validation_drop_warnings<T: Send + Sync + 'static>(
+    state: &router::State<T>,
     context: &Context,
     events: &[WrappedEvent],
 ) {
@@ -3288,7 +3292,10 @@ mod tests {
 
     /// State wired to a `CollectingEmitter` so tests can assert exactly what
     /// `process_batch` emitted (type, count, details) without any Kafka.
-    fn state_with_warning_collector() -> (router::State, Arc<CollectingEmitter>) {
+    fn state_with_warning_collector() -> (
+        router::State<crate::outputs::AnalyticsFamilyOutputs>,
+        Arc<CollectingEmitter>,
+    ) {
         let collector = Arc::new(CollectingEmitter::new());
         let state = TestStateBuilder::new()
             .with_ingestion_warning_emitter(collector.clone())

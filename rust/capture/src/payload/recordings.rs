@@ -43,8 +43,8 @@ impl RecordingPayload {
 /// This is optimized to avoid the double serialization that would occur
 /// if we went through RawRequest -> Vec<RawEvent> -> process
 #[instrument(skip_all, fields(batch_size, params_compression))]
-pub async fn handle_recording_payload(
-    state: &State<router::State>,
+pub async fn handle_recording_payload<T: crate::outputs::PublishesReplay>(
+    state: &State<router::State<T>>,
     InsecureClientIp(ip): &InsecureClientIp,
     query_params: &mut EventQuery,
     headers: &HeaderMap,

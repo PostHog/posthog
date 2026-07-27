@@ -660,9 +660,11 @@ use crate::v1::sinks::sink::Sink;
 use crate::v1::sinks::{self as v1_sinks, SinkName};
 
 /// Result of building a test state — gives access to both the `router::State`
-/// and the underlying `MockProducer` so tests can inspect sent records.
+/// and the underlying `MockProducer` so tests can inspect sent records. V1
+/// tests publish via the v1 sink router; the outputs table is an inert
+/// analytics-family table over a noop sink.
 pub struct TestState {
-    pub state: router::State,
+    pub state: router::State<crate::outputs::AnalyticsFamilyOutputs>,
     pub mock_producer: Arc<MockProducer>,
 }
 
@@ -828,12 +830,19 @@ impl TestStateBuilder {
         let v1_router = v1_sinks::Router::new(SinkName::Msk, sinks_map);
 
         // Legacy outputs — no-op since V1 tests go through v1_sink_router
-        let legacy_outputs = Arc::new(crate::outputs::OutputTable::new(
+        let noop_row = || {
             crate::outputs::Output::single(
                 Arc::new(crate::sinks::noop::NoOpSink::new()),
                 crate::outputs::PrepSpec::new(crate::config::EnvelopeCompression::None),
-            ),
-        ));
+            )
+        };
+        let legacy_outputs = Arc::new(crate::outputs::AnalyticsFamilyOutputs {
+            analytics: noop_row(),
+            ai: noop_row(),
+            heatmaps: noop_row(),
+            warnings: noop_row(),
+            error_tracking: noop_row(),
+        });
 
         let timesource: Arc<dyn TimeSource + Send + Sync> = Arc::new(crate::time::SystemTime {});
 

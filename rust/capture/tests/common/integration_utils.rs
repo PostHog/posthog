@@ -9,10 +9,9 @@ use capture::{
     api::{CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
     outputs::PrepSpec,
-    outputs::{Output, OutputTable},
+    outputs::{AnalyticsFamilyOutputs, Output, ReplayOutputs},
     pipeline::{Address, AnalyticsLane, BasicLane, ReplayLane},
     quota_limiters::CaptureQuotaLimiter,
-    router::router,
     sinks::sink::{AddressedPayload, Sink, SinkResult},
     time::TimeSource,
 };
@@ -1081,44 +1080,67 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     let is_mirror_deploy = false; // TODO: remove after migration to 100% capture-rs backend
     let verbose_sample_percent = 0.0_f32;
 
-    (
-        router(
-            timesource,
-            readiness,
-            liveness,
-            Arc::new(OutputTable::new(Output::single(
-                Arc::new(sink.clone()),
-                PrepSpec::from(&DEFAULT_CONFIG.kafka),
-            ))),
-            redis,
-            None, // global_rate_limiter_token_distinctid
-            quota_limiter,
-            TokenDropper::default(),
-            None, // event_restriction_service
-            false,
-            unit.mode,
-            String::from("capture"),
-            None,
-            25 * 1024 * 1024,
-            enable_historical_rerouting,
-            historical_rerouting_threshold_days,
-            is_mirror_deploy,
-            verbose_sample_percent,
-            26_214_400,       // 25MB default for AI endpoint
-            None,             // ai_blob_storage
-            None,             // body_chunk_read_timeout_ms
-            256,              // body_read_chunk_size_kb
-            10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
-            50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
-            None,             // overflow_limiter
-            None,             // replay_overflow_limiter
-            None,             // v1_sink_router
-            8,                // capture_v1_scatter_gather_min_batch
-            None,             // ai_gateway_signing_secret
-            None,             // ingestion_warning_emitter
+    let row = || {
+        Output::single(
+            Arc::new(sink.clone()),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        )
+    };
+
+    macro_rules! build_app {
+        ($router_fn:path, $outputs:expr) => {
+            $router_fn(
+                timesource,
+                readiness,
+                liveness,
+                $outputs,
+                redis,
+                None, // global_rate_limiter_token_distinctid
+                quota_limiter,
+                TokenDropper::default(),
+                None, // event_restriction_service
+                false,
+                unit.mode,
+                String::from("capture"),
+                None,
+                25 * 1024 * 1024,
+                enable_historical_rerouting,
+                historical_rerouting_threshold_days,
+                is_mirror_deploy,
+                verbose_sample_percent,
+                26_214_400,       // 25MB default for AI endpoint
+                None,             // ai_blob_storage
+                None,             // body_chunk_read_timeout_ms
+                256,              // body_read_chunk_size_kb
+                10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+                50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+                None,             // overflow_limiter
+                None,             // replay_overflow_limiter
+                None,             // v1_sink_router
+                8,                // capture_v1_scatter_gather_min_batch
+                None,             // ai_gateway_signing_secret
+                None,             // ingestion_warning_emitter
+            )
+        };
+    }
+
+    let app = match unit.mode {
+        CaptureMode::Events | CaptureMode::Ai => build_app!(
+            capture::router::router,
+            Arc::new(AnalyticsFamilyOutputs {
+                analytics: row(),
+                ai: row(),
+                heatmaps: row(),
+                warnings: row(),
+                error_tracking: row(),
+            })
         ),
-        sink,
-    )
+        CaptureMode::Recordings => build_app!(
+            capture::router::replay_router,
+            Arc::new(ReplayOutputs { replay: row() })
+        ),
+    };
+    (app, sink)
 }
 
 // utility to compress capture payloads for testing

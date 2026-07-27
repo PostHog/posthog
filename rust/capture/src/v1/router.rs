@@ -26,7 +26,7 @@ pub struct RouterConfig {
     pub max_compressed_body_bytes: usize,
 }
 
-pub fn router(cfg: RouterConfig) -> Router<State> {
+pub fn router<T: Send + Sync + 'static>(cfg: RouterConfig) -> Router<State<T>> {
     // v1 endpoints are POST-only; preflight is answered by the CORS layer.
     let cors = CorsLayer::new()
         .allow_methods([Method::POST, Method::OPTIONS])
@@ -34,7 +34,7 @@ pub fn router(cfg: RouterConfig) -> Router<State> {
         .allow_credentials(true)
         .allow_origin(AllowOrigin::mirror_request());
 
-    let mut router = crate::v1::analytics::router::routes()
+    let mut router = crate::v1::analytics::router::routes::<T>()
         .layer(DefaultBodyLimit::max(cfg.max_compressed_body_bytes));
 
     if let Some(limit) = cfg.concurrency_limit {

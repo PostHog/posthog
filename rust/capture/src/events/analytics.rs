@@ -21,7 +21,7 @@ use crate::{
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
     events::overflow_stamping::stamp_overflow_reason,
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
-    outputs::OutputTable,
+    outputs::PublishesAnalyticsFamily,
     prometheus::{report_clock_skew, report_dropped_events},
     router,
     utils::uuid_v7_from_datetime,
@@ -222,8 +222,8 @@ pub fn process_single_event(
 /// the deployment's configured targets.
 #[instrument(skip_all, fields(events = events.len(), request_id))]
 #[allow(clippy::too_many_arguments)]
-pub async fn process_events(
-    outputs: Arc<OutputTable>,
+pub async fn process_events<T: PublishesAnalyticsFamily>(
+    outputs: Arc<T>,
     dropper: Arc<TokenDropper>,
     restriction_service: Option<EventRestrictionService>,
     historical_cfg: router::HistoricalConfig,
@@ -656,15 +656,23 @@ mod tests {
         RestrictionScope, RestrictionType,
     };
     use crate::outputs::registry::test_topics;
-    use crate::outputs::{Output, OutputTable, PrepSpec};
+    use crate::outputs::{AnalyticsFamilyOutputs, Output, PrepSpec};
     use crate::sinks::test_sink::MockSink;
     use crate::sinks::Sink;
 
     /// Wrap a test sink in the outputs surface `process_events` publishes
-    /// through: real prep against the test topics, capture at publish.
-    fn table<S: Sink + 'static>(sink: &Arc<S>) -> Arc<OutputTable> {
+    /// through: an analytics-family table whose rows all share the sink, so
+    /// captures land in one place regardless of pipeline.
+    fn table<S: Sink + 'static>(sink: &Arc<S>) -> Arc<AnalyticsFamilyOutputs> {
         let spec = PrepSpec::new(crate::config::EnvelopeCompression::None);
-        Arc::new(OutputTable::new(Output::single(sink.clone(), spec)))
+        let row = || Output::single(sink.clone(), spec);
+        Arc::new(AnalyticsFamilyOutputs {
+            analytics: row(),
+            ai: row(),
+            heatmaps: row(),
+            warnings: row(),
+            error_tracking: row(),
+        })
     }
 
     use crate::pipeline::{Address, AnalyticsLane, BasicLane};

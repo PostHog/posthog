@@ -2,7 +2,6 @@ use std::{io::Read, ops::Deref};
 
 use axum::{
     body::Body,
-    debug_handler,
     extract::{MatchedPath, Query, State},
     http::{HeaderMap, Method},
     Json,
@@ -34,9 +33,8 @@ pub const UTF8_FAILED: &str = "capture_test_utf8_failed";
 
 // A handler that does nothing except try to parse the request, and produce a tonne of metrics
 // about failures. Once python capture is dead, we should remove file entirely.
-#[debug_handler]
-pub async fn test_black_hole(
-    state: State<router::State>,
+pub async fn test_black_hole<T: Send + Sync + 'static>(
+    state: State<router::State<T>>,
     _ip: InsecureClientIp,
     meta: Query<EventQuery>,
     headers: HeaderMap,

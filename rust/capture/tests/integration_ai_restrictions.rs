@@ -12,7 +12,6 @@ use capture::event_restrictions::{
     RestrictionType,
 };
 use capture::outputs::PrepSpec;
-use capture::outputs::{Output, OutputTable};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::sink::{AddressedPayload, Sink, SinkResult};
@@ -74,6 +73,22 @@ impl Sink for CapturingSink {
         self.events.lock().await.extend(prepared);
         results
     }
+}
+
+fn test_outputs(sink: &CapturingSink) -> Arc<capture::outputs::AnalyticsFamilyOutputs> {
+    let row = || {
+        capture::outputs::Output::single(
+            Arc::new(sink.clone()),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        )
+    };
+    Arc::new(capture::outputs::AnalyticsFamilyOutputs {
+        analytics: row(),
+        ai: row(),
+        heatmaps: row(),
+        warnings: row(),
+        error_tracking: row(),
+    })
 }
 
 async fn send_multipart_request(
@@ -166,10 +181,7 @@ async fn setup_ai_router_with_restriction(
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
@@ -520,10 +532,7 @@ async fn setup_ai_router_with_redirect_to_topic(
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
@@ -600,10 +609,7 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None,
         quota_limiter,

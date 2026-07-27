@@ -18,7 +18,7 @@ use crate::ai_s3::BlobStorage;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::otel;
-use crate::outputs::OutputTable;
+use crate::outputs::{PublishesAnalyticsFamily, PublishesReplay};
 use crate::test_endpoint;
 use crate::v0_request::DataType;
 use crate::{ai_endpoint, time::TimeSource, v0_endpoint};
@@ -37,11 +37,11 @@ const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
 const RECORDING_BODY_SIZE: usize = 25 * 1024 * 1024; // 25MB, up from the default 2MB used for normal event payloads
 
-#[derive(Clone)]
-pub struct State {
-    /// The produce surface: pipelines publish through the outputs layer,
-    /// which owns target selection, serialization, and the sink mechanism.
-    pub outputs: Arc<OutputTable>,
+pub struct State<T> {
+    /// The produce surface: pipelines publish through the deployment's
+    /// output table, whose type carries exactly the pipelines this
+    /// deployment runs (the capability traits handlers bound on).
+    pub outputs: Arc<T>,
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
     pub global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
@@ -96,6 +96,36 @@ pub struct State {
     pub ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 }
 
+impl<T> Clone for State<T> {
+    fn clone(&self) -> Self {
+        Self {
+            outputs: Arc::clone(&self.outputs),
+            timesource: self.timesource.clone(),
+            redis: self.redis.clone(),
+            global_rate_limiter_token_distinctid: self.global_rate_limiter_token_distinctid.clone(),
+            quota_limiter: self.quota_limiter.clone(),
+            token_dropper: self.token_dropper.clone(),
+            event_restriction_service: self.event_restriction_service.clone(),
+            event_payload_size_limit: self.event_payload_size_limit,
+            historical_cfg: self.historical_cfg,
+            is_mirror_deploy: self.is_mirror_deploy,
+            verbose_sample_percent: self.verbose_sample_percent,
+            ai_max_sum_of_parts_bytes: self.ai_max_sum_of_parts_bytes,
+            ai_blob_storage: self.ai_blob_storage.clone(),
+            body_chunk_read_timeout: self.body_chunk_read_timeout,
+            body_read_chunk_size_kb: self.body_read_chunk_size_kb,
+            capture_v1_max_compressed_body_bytes: self.capture_v1_max_compressed_body_bytes,
+            capture_v1_max_decompressed_body_bytes: self.capture_v1_max_decompressed_body_bytes,
+            overflow_limiter: self.overflow_limiter.clone(),
+            replay_overflow_limiter: self.replay_overflow_limiter.clone(),
+            v1_sink_router: self.v1_sink_router.clone(),
+            capture_v1_scatter_gather_min_batch: self.capture_v1_scatter_gather_min_batch,
+            ai_gateway_signing_secret: self.ai_gateway_signing_secret.clone(),
+            ingestion_warning_emitter: self.ingestion_warning_emitter.clone(),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct HistoricalConfig {
     pub enable_historical_rerouting: bool,
@@ -132,12 +162,20 @@ async fn index() -> &'static str {
     "capture"
 }
 
+/// Router for an Events/Ai deployment: mounts the analytics-family ingress
+/// (`/capture`, `/batch`, `/e`, AI, OTEL). The outputs table type must prove
+/// it publishes the analytics family — mounting these routes on a replay
+/// table is a compile error.
 #[allow(clippy::too_many_arguments)]
-pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 'static>(
+pub fn router<
+    TZ: TimeSource + Send + Sync + 'static,
+    R: Client + Send + Sync + 'static,
+    T: PublishesAnalyticsFamily,
+>(
     timesource: TZ,
     readiness: ReadinessHandler,
     liveness: LivenessHandler,
-    outputs: Arc<OutputTable>,
+    outputs: Arc<T>,
     redis: Arc<R>,
     global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
     quota_limiter: CaptureQuotaLimiter,
@@ -326,21 +364,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
             }),
         );
 
-    let recordings_router = Router::new()
-        .route(
-            "/s",
-            post(v0_endpoint::recording)
-                .get(v0_endpoint::recording)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/s/",
-            post(v0_endpoint::recording)
-                .get(v0_endpoint::recording)
-                .options(v0_endpoint::options),
-        )
-        .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE));
-
     // AI endpoint body limit is 110% of max sum of parts to account for multipart overhead
     let ai_body_limit = (state.ai_max_sum_of_parts_bytes as f64 * 1.1) as usize;
 
@@ -366,16 +389,172 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         )
         .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
-    let mut router = match capture_mode {
-        CaptureMode::Events | CaptureMode::Ai => Router::new()
-            .merge(batch_router)
-            .merge(event_router)
-            .merge(test_router)
-            .merge(ai_router)
-            .merge(otel_router),
-        CaptureMode::Recordings => Router::new().merge(recordings_router),
+    let router = Router::new()
+        .merge(batch_router)
+        .merge(event_router)
+        .merge(test_router)
+        .merge(ai_router)
+        .merge(otel_router);
+
+    // The v1 analytics endpoint is only routable when a v1 sink is
+    // configured. Without a sink the handler can't publish, so we keep
+    // the path unregistered (404) rather than advertising an endpoint
+    // that can only ever return 503. This also isolates the route to
+    // deployments that opt in via CAPTURE_V1_SINKS.
+    let v1_config = state
+        .v1_sink_router
+        .is_some()
+        .then_some(crate::v1::router::RouterConfig {
+            concurrency_limit,
+            max_compressed_body_bytes: state.capture_v1_max_compressed_body_bytes,
+        });
+
+    finalize(
+        router,
+        state,
+        status_router,
+        cors,
+        concurrency_limit,
+        v1_config,
+        metrics,
+        capture_mode,
+        deploy_role,
+    )
+}
+
+/// Router for a Recordings deployment: mounts the replay ingress (`/s`). The
+/// outputs table type must prove it publishes the replay pipeline.
+#[allow(clippy::too_many_arguments)]
+pub fn replay_router<
+    TZ: TimeSource + Send + Sync + 'static,
+    R: Client + Send + Sync + 'static,
+    T: PublishesReplay,
+>(
+    timesource: TZ,
+    readiness: ReadinessHandler,
+    liveness: LivenessHandler,
+    outputs: Arc<T>,
+    redis: Arc<R>,
+    global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
+    quota_limiter: CaptureQuotaLimiter,
+    token_dropper: TokenDropper,
+    event_restriction_service: Option<EventRestrictionService>,
+    metrics: bool,
+    capture_mode: CaptureMode,
+    deploy_role: String,
+    concurrency_limit: Option<usize>,
+    event_payload_size_limit: usize,
+    enable_historical_rerouting: bool,
+    historical_rerouting_threshold_days: i64,
+    is_mirror_deploy: bool,
+    verbose_sample_percent: f32,
+    ai_max_sum_of_parts_bytes: usize,
+    ai_blob_storage: Option<Arc<dyn BlobStorage>>,
+    body_chunk_read_timeout_ms: Option<u64>,
+    body_read_chunk_size_kb: usize,
+    capture_v1_max_compressed_body_bytes: usize,
+    capture_v1_max_decompressed_body_bytes: usize,
+    overflow_limiter: Option<Arc<OverflowLimiter>>,
+    replay_overflow_limiter: Option<Arc<RedisLimiter>>,
+    v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
+    capture_v1_scatter_gather_min_batch: usize,
+    ai_gateway_signing_secret: Option<String>,
+    ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+) -> Router {
+    let state = State {
+        outputs,
+        timesource: Arc::new(timesource),
+        redis,
+        global_rate_limiter_token_distinctid,
+        quota_limiter: Arc::new(quota_limiter),
+        event_payload_size_limit,
+        token_dropper: Arc::new(token_dropper),
+        event_restriction_service,
+        historical_cfg: HistoricalConfig::new(
+            enable_historical_rerouting,
+            historical_rerouting_threshold_days,
+        ),
+        is_mirror_deploy,
+        verbose_sample_percent,
+        ai_max_sum_of_parts_bytes,
+        ai_blob_storage,
+        body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
+        body_read_chunk_size_kb,
+        capture_v1_max_compressed_body_bytes,
+        capture_v1_max_decompressed_body_bytes,
+        overflow_limiter,
+        replay_overflow_limiter,
+        v1_sink_router,
+        capture_v1_scatter_gather_min_batch,
+        ai_gateway_signing_secret,
+        ingestion_warning_emitter,
     };
 
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers(AllowHeaders::mirror_request())
+        .allow_credentials(true)
+        .allow_origin(AllowOrigin::mirror_request());
+
+    let status_router = Router::new()
+        .route("/", get(index))
+        .route(
+            "/_readiness",
+            get(move || {
+                let r = readiness.clone();
+                async move { r.check().await }
+            }),
+        )
+        .route(
+            "/_liveness",
+            get(move || {
+                let l = liveness.clone();
+                async move { l.check() }
+            }),
+        );
+
+    let recordings_router = Router::new()
+        .route(
+            "/s",
+            post(v0_endpoint::recording)
+                .get(v0_endpoint::recording)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/s/",
+            post(v0_endpoint::recording)
+                .get(v0_endpoint::recording)
+                .options(v0_endpoint::options),
+        )
+        .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE));
+
+    finalize(
+        Router::new().merge(recordings_router),
+        state,
+        status_router,
+        cors,
+        concurrency_limit,
+        None,
+        metrics,
+        capture_mode,
+        deploy_role,
+    )
+}
+
+/// Shared tail assembly: concurrency cap, health routes outside it, legacy
+/// CORS, optional v1 merge, tracing, and the metrics route.
+#[allow(clippy::too_many_arguments)]
+fn finalize<T: Send + Sync + 'static>(
+    mut router: Router<State<T>>,
+    state: State<T>,
+    status_router: Router<State<T>>,
+    cors: CorsLayer,
+    concurrency_limit: Option<usize>,
+    v1_config: Option<crate::v1::router::RouterConfig>,
+    metrics: bool,
+    capture_mode: CaptureMode,
+    deploy_role: String,
+) -> Router {
     if let Some(limit) = concurrency_limit {
         router = router.layer(ConcurrencyLimitLayer::new(limit));
     }
@@ -387,22 +566,11 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // scoped to v0/status routes; v1 ships its own policy.
     router = router.layer(cors);
 
-    // The v1 analytics endpoint is only routable when a v1 sink is
-    // configured. Without a sink the handler can't publish, so we keep
-    // the path unregistered (404) rather than advertising an endpoint
-    // that can only ever return 503. This also isolates the route to
-    // deployments that opt in via CAPTURE_V1_SINKS.
-    //
     // Merged after every legacy layer above: the v1 router owns its full
     // middleware stack (CORS, limits) and applies the same per-route
-    // concurrency cap to its own routes.
-    if matches!(capture_mode, CaptureMode::Events | CaptureMode::Ai)
-        && state.v1_sink_router.is_some()
-    {
-        router = router.merge(crate::v1::router::router(crate::v1::router::RouterConfig {
-            concurrency_limit,
-            max_compressed_body_bytes: state.capture_v1_max_compressed_body_bytes,
-        }));
+    // concurrency cap to its own routes. `None` on replay deployments.
+    if let Some(config) = v1_config {
+        router = router.merge(crate::v1::router::router(config));
     }
 
     let router = router

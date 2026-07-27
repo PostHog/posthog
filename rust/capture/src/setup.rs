@@ -16,7 +16,7 @@ use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrict
 use crate::failover::FailoverController;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::outputs::registry::OutputRegistry;
-use crate::outputs::{Output, OutputTable, PrepSpec};
+use crate::outputs::{AnalyticsFamilyOutputs, DeploymentOutputs, Output, PrepSpec, ReplayOutputs};
 use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
 };
@@ -27,6 +27,7 @@ use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
+use crate::sinks::Sink;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -137,7 +138,7 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
 pub struct CaptureComponents {
     pub app: Router,
     pub server_handle: lifecycle::Handle,
-    pub outputs: Arc<OutputTable>,
+    pub outputs: Arc<dyn DeploymentOutputs>,
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     pub http1_header_read_timeout_ms: Option<u64>,
 }
@@ -290,11 +291,11 @@ pub async fn build_components(
         (sink_handle, None)
     };
 
-    let primary_output = create_output(&config, primary_handle, advisory_handle)
+    let primary_row = create_row_factory(&config, primary_handle, advisory_handle)
         .await
         .expect("failed to create sink");
 
-    let output = if build_secondary {
+    let make_row: Box<dyn Fn() -> Output + Send + Sync> = if build_secondary {
         // The secondary cluster has its own topic wiring, so it preps with its
         // own spec (checked for completeness like the primary's).
         let secondary_kafka = build_ai_secondary_kafka_config(&config);
@@ -303,13 +304,10 @@ pub async fn build_components(
             .check_complete(config.capture_mode)
             .expect("AI secondary Kafka topics incomplete");
         let secondary_prep = PrepSpec::new(secondary_kafka.kafka_replay_envelope_compression);
-        let secondary = Output::single(
-            Arc::new(
-                KafkaSink::new(secondary_kafka, secondary_handle)
-                    .await
-                    .expect("failed to start AI secondary Kafka sink"),
-            ),
-            secondary_prep,
+        let secondary_sink: Arc<dyn Sink> = Arc::new(
+            KafkaSink::new(secondary_kafka, secondary_handle)
+                .await
+                .expect("failed to start AI secondary Kafka sink"),
         );
         let routing = if config.ai_sink_mode == AiSinkMode::SecondaryAllowlist {
             let allowlist = config
@@ -322,15 +320,19 @@ pub async fn build_components(
             AiRouting::Secondary
         };
         info!(mode = ?config.ai_sink_mode, "AI secondary sink enabled");
-        Output::split(primary_output, secondary, routing)
+        // Parity with the pre-table split composite: token routing applies on
+        // every row of the deployment, not only the ai row. Narrowing the
+        // split to the ai row is a deliberate config change for later.
+        Box::new(move || {
+            Output::split(
+                primary_row(),
+                Output::single(secondary_sink.clone(), secondary_prep),
+                routing.clone(),
+            )
+        })
     } else {
-        primary_output
+        primary_row
     };
-
-    // The outputs table is the produce surface every pipeline publishes
-    // through; the server holds a second handle for the shutdown flush.
-    let outputs = Arc::new(OutputTable::new(output));
-    let outputs_for_flush = outputs.clone();
 
     // Create AI blob storage if S3 is configured
     let ai_blob_storage: Option<Arc<dyn crate::ai_s3::BlobStorage>> =
@@ -397,38 +399,63 @@ pub async fn build_components(
     let ingestion_warning_emitter =
         create_ingestion_warning_emitter(&config, ingestion_warnings_handle).await;
 
-    let app = router::router(
-        crate::time::SystemTime {},
-        readiness,
-        liveness,
-        outputs,
-        redis_client,
-        global_rate_limiter_token_distinctid,
-        quota_limiter,
-        token_dropper,
-        event_restriction_service,
-        config.export_prometheus,
-        config.capture_mode,
-        config.otel_service_name.clone(),
-        config.concurrency_limit,
-        event_payload_max_bytes,
-        config.enable_historical_rerouting,
-        config.historical_rerouting_threshold_days,
-        config.is_mirror_deploy,
-        config.verbose_sample_percent,
-        config.ai_max_sum_of_parts_bytes,
-        ai_blob_storage,
-        config.body_chunk_read_timeout_ms,
-        config.body_read_chunk_size_kb,
-        config.capture_v1_max_compressed_body_bytes,
-        config.capture_v1_max_decompressed_body_bytes,
-        overflow_limiter,
-        replay_overflow_limiter,
-        v1_sink_router.clone(),
-        config.capture_v1_scatter_gather_min_batch,
-        config.ai_gateway_signing_secret.clone(),
-        ingestion_warning_emitter,
-    );
+    // The output table's type is the deployment's declaration: an Events/Ai
+    // pod holds (and must configure) exactly the analytics-family rows, a
+    // Recordings pod exactly the replay row — and each router constructor
+    // demands the matching publish capability at compile time.
+    macro_rules! build_app {
+        ($router_fn:path, $outputs:expr) => {
+            $router_fn(
+                crate::time::SystemTime {},
+                readiness,
+                liveness,
+                $outputs,
+                redis_client,
+                global_rate_limiter_token_distinctid,
+                quota_limiter,
+                token_dropper,
+                event_restriction_service,
+                config.export_prometheus,
+                config.capture_mode,
+                config.otel_service_name.clone(),
+                config.concurrency_limit,
+                event_payload_max_bytes,
+                config.enable_historical_rerouting,
+                config.historical_rerouting_threshold_days,
+                config.is_mirror_deploy,
+                config.verbose_sample_percent,
+                config.ai_max_sum_of_parts_bytes,
+                ai_blob_storage,
+                config.body_chunk_read_timeout_ms,
+                config.body_read_chunk_size_kb,
+                config.capture_v1_max_compressed_body_bytes,
+                config.capture_v1_max_decompressed_body_bytes,
+                overflow_limiter,
+                replay_overflow_limiter,
+                v1_sink_router.clone(),
+                config.capture_v1_scatter_gather_min_batch,
+                config.ai_gateway_signing_secret.clone(),
+                ingestion_warning_emitter,
+            )
+        };
+    }
+
+    let (app, outputs_for_flush): (Router, Arc<dyn DeploymentOutputs>) = match config.capture_mode {
+        CaptureMode::Events | CaptureMode::Ai => {
+            let outputs = Arc::new(AnalyticsFamilyOutputs {
+                analytics: make_row(),
+                ai: make_row(),
+                heatmaps: make_row(),
+                warnings: make_row(),
+                error_tracking: make_row(),
+            });
+            (build_app!(router::router, outputs.clone()), outputs)
+        }
+        CaptureMode::Recordings => {
+            let outputs = Arc::new(ReplayOutputs { replay: make_row() });
+            (build_app!(router::replay_router, outputs.clone()), outputs)
+        }
+    };
 
     info!(
         "config: is_mirror_deploy == {:?} ; log_level == {:?}",
@@ -524,14 +551,16 @@ fn create_v1_sink_router(
     Ok(Arc::new(router))
 }
 
-/// Build the deployment's primary [`Output`] from config: a single backend,
-/// or the health-gated Kafka→S3 failover pair. Policy composition happens at
-/// this layer now — the sinks themselves are single-backend mechanism.
-async fn create_output(
+/// Build the factory that mints one [`Output`] row of the deployment's
+/// table. Every row shares the same backends (one Kafka connection, one S3
+/// client) and — for failover — the same breaker controller and advisory
+/// handle, so per-row policy trees behave as one deployment-wide policy,
+/// exactly as the single pre-table output did.
+async fn create_row_factory(
     config: &Config,
     sink_handle: Option<lifecycle::Handle>,
     advisory_handle: Option<lifecycle::Handle>,
-) -> anyhow::Result<Output> {
+) -> anyhow::Result<Box<dyn Fn() -> Output + Send + Sync>> {
     // Payload assembly is outputs-layer configuration: the registry (with its
     // mode-scoped boot completeness check) and serializers live on the prep
     // spec, shared by every target of the deployment. Print/noop deployments
@@ -545,65 +574,75 @@ async fn create_output(
     };
 
     if config.print_sink {
-        Ok(Output::single(
-            Arc::new(PrintSink {}),
-            PrepSpec::from(&config.kafka),
-        ))
+        let prep = PrepSpec::from(&config.kafka);
+        let sink: Arc<dyn Sink> = Arc::new(PrintSink {});
+        Ok(Box::new(move || Output::single(sink.clone(), prep)))
     } else if config.noop_sink {
         info!("NoOpSink enabled, events will be silently dropped");
-        Ok(Output::single(
-            Arc::new(NoOpSink::new()),
-            PrepSpec::from(&config.kafka),
-        ))
+        let prep = PrepSpec::from(&config.kafka);
+        let sink: Arc<dyn Sink> = Arc::new(NoOpSink::new());
+        Ok(Box::new(move || Output::single(sink.clone(), prep)))
     } else if config.s3_fallback_enabled {
         let s3_handle = sink_handle.expect("sink lifecycle handle required for S3 fallback");
         let kafka_handle = advisory_handle.expect("kafka advisory handle required for fallback");
 
         let prep = kafka_prep()?;
-        let kafka_sink = KafkaSink::new(config.kafka.clone(), Some(kafka_handle.clone()))
-            .await
-            .context("failed to start Kafka sink")?;
+        let kafka_sink: Arc<dyn Sink> = Arc::new(
+            KafkaSink::new(config.kafka.clone(), Some(kafka_handle.clone()))
+                .await
+                .context("failed to start Kafka sink")?,
+        );
 
-        let s3_sink = S3Sink::new(
-            config
-                .s3_fallback_bucket
-                .clone()
-                .expect("S3 bucket required when fallback enabled"),
-            config.s3_fallback_prefix.clone(),
-            config.s3_fallback_endpoint.clone(),
-            s3_handle,
-        )
-        .await
-        .expect("failed to create S3 sink");
+        let s3_sink: Arc<dyn Sink> = Arc::new(
+            S3Sink::new(
+                config
+                    .s3_fallback_bucket
+                    .clone()
+                    .expect("S3 bucket required when fallback enabled"),
+                config.s3_fallback_prefix.clone(),
+                config.s3_fallback_endpoint.clone(),
+                s3_handle,
+            )
+            .await
+            .expect("failed to create S3 sink"),
+        );
 
         // The S3 leaf shares the primary's prep spec: payload bytes are
-        // sink-agnostic, and the topic on the record is inert for S3.
-        if config.failover_enabled {
+        // sink-agnostic, and S3 realizes the address trivially. One breaker
+        // controller is shared across every row so the deployment trips and
+        // recovers as a unit.
+        let controller = if config.failover_enabled {
             // Dark launch: the same primary/secondary pair, with the circuit
             // breaker driving autonomous switchover and recovery probing.
             info!("Breaker-driven failover enabled (dark launch)");
-            Ok(Output::failover_with_breaker(
-                Output::single(Arc::new(kafka_sink), prep),
-                Output::single(Arc::new(s3_sink), prep),
-                kafka_handle,
-                Arc::new(FailoverController::new()),
-            ))
+            Some(Arc::new(FailoverController::new()))
         } else {
-            Ok(Output::failover(
-                Output::single(Arc::new(kafka_sink), prep),
-                Output::single(Arc::new(s3_sink), prep),
-                kafka_handle,
-            ))
-        }
+            None
+        };
+        Ok(Box::new(move || {
+            let primary = Output::single(kafka_sink.clone(), prep);
+            let secondary = Output::single(s3_sink.clone(), prep);
+            match &controller {
+                Some(controller) => Output::failover_with_breaker(
+                    primary,
+                    secondary,
+                    kafka_handle.clone(),
+                    controller.clone(),
+                ),
+                None => Output::failover(primary, secondary, kafka_handle.clone()),
+            }
+        }))
     } else {
         // `sink_handle` is `None` for a primary that must not gate the pod (a
         // full `Secondary` cutover hands the gating handle to the secondary).
         let prep = kafka_prep()?;
-        let kafka_sink = KafkaSink::new(config.kafka.clone(), sink_handle)
-            .await
-            .context("failed to start Kafka sink")?;
+        let kafka_sink: Arc<dyn Sink> = Arc::new(
+            KafkaSink::new(config.kafka.clone(), sink_handle)
+                .await
+                .context("failed to start Kafka sink")?,
+        );
 
-        Ok(Output::single(Arc::new(kafka_sink), prep))
+        Ok(Box::new(move || Output::single(kafka_sink.clone(), prep)))
     }
 }
 
@@ -974,7 +1013,7 @@ mod tests {
             envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
         blank(&mut config.kafka);
 
-        let err = create_output(&config, None, None)
+        let err = create_row_factory(&config, None, None)
             .await
             .err()
             .expect("boot must be refused when an output topic is empty");

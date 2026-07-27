@@ -5,7 +5,7 @@ use crate::router::State;
 
 /// Route declarations only. The shared v1 middleware stack (headers, metrics,
 /// timeout, CORS, limits) is owned by `crate::v1::router`.
-pub fn routes() -> Router<State> {
+pub fn routes<T: Send + Sync + 'static>() -> Router<State<T>> {
     Router::new()
         .route(
             CAPTURE_V1_PATH,

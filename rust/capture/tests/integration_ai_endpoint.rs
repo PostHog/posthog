@@ -8,7 +8,6 @@ use axum_test_helper::TestClient;
 use capture::ai_s3::{BlobStorage, MockBlobStorage};
 use capture::config::CaptureMode;
 use capture::outputs::PrepSpec;
-use capture::outputs::{Output, OutputTable};
 use capture::pipeline::{Address, AiLane};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
@@ -95,6 +94,24 @@ impl Sink for CapturingSink {
     }
 }
 
+fn test_outputs<S: Sink + Clone + 'static>(
+    sink: &S,
+) -> Arc<capture::outputs::AnalyticsFamilyOutputs> {
+    let row = || {
+        capture::outputs::Output::single(
+            Arc::new(sink.clone()),
+            PrepSpec::from(&DEFAULT_CONFIG.kafka),
+        )
+    };
+    Arc::new(capture::outputs::AnalyticsFamilyOutputs {
+        analytics: row(),
+        ai: row(),
+        heatmaps: row(),
+        warnings: row(),
+        error_tracking: row(),
+    })
+}
+
 // Helper to build multipart form and send request
 async fn send_multipart_request(
     client: &TestClient,
@@ -172,10 +189,7 @@ fn setup_ai_test_router() -> Router {
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None,
         quota_limiter,
@@ -1639,10 +1653,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None,
         quota_limiter,
@@ -2560,10 +2571,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None,
         quota_limiter,
@@ -2774,10 +2782,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None,
         quota_limiter,
@@ -2933,10 +2938,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None,
         quota_limiter,
@@ -3077,10 +3079,7 @@ fn ai_router(
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputTable::new(Output::single(
-            Arc::new(sink),
-            PrepSpec::from(&DEFAULT_CONFIG.kafka),
-        ))),
+        test_outputs(&sink),
         redis,
         None,
         quota_limiter,

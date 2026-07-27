@@ -33,6 +33,8 @@ pub mod registry;
 use std::sync::Arc;
 use std::time::Instant;
 
+use async_trait::async_trait;
+
 use metrics::{counter, gauge, histogram};
 use tokio::task::JoinSet;
 use tracing::log::error;
@@ -567,22 +569,134 @@ impl Output {
 /// resolve inside the prep path via the `OutputRegistry`, whose boot-time
 /// completeness check guarantees the addresses this deployment can produce
 /// to are wired.
-pub struct OutputTable {
-    default: Output,
+/// Deployment-agnostic surface for shutdown handling; the publish surfaces
+/// are the per-family capability traits below.
+pub trait DeploymentOutputs: Send + Sync {
+    fn flush(&self) -> Result<(), anyhow::Error>;
 }
 
-impl OutputTable {
-    pub fn new(default: Output) -> Self {
-        Self { default }
-    }
+/// The publish capability of a deployment that runs the analytics family of
+/// pipelines (analytics, ai, heatmaps, warnings, error tracking) — what the
+/// `/capture`-family, AI, and OTEL handlers require of their state. Sealed by
+/// construction: only per-mode output tables implement it.
+#[async_trait]
+pub trait PublishesAnalyticsFamily: DeploymentOutputs + 'static {
+    // (object-safe async publish)
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
+}
 
-    /// Publish a batch through the output its address resolves to.
-    pub async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        self.default.publish(events).await
-    }
+/// The publish capability of a deployment that runs the replay pipeline —
+/// what the `/s` handler requires of its state.
+#[async_trait]
+pub trait PublishesReplay: DeploymentOutputs + 'static {
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
+}
 
-    pub fn flush(&self) -> Result<(), anyhow::Error> {
-        self.default.flush()
+/// The output table of an Events/Ai deployment: one output per pipeline the
+/// analytics-family ingress can produce. Required fields — the narrow list of
+/// what this deployment must wire is the type itself.
+pub struct AnalyticsFamilyOutputs {
+    pub analytics: Output,
+    pub ai: Output,
+    pub heatmaps: Output,
+    pub warnings: Output,
+    pub error_tracking: Output,
+}
+
+/// The output table of a Recordings deployment: the replay pipeline only. A
+/// replay deployment cannot even hold an analytics output.
+pub struct ReplayOutputs {
+    pub replay: Output,
+}
+
+impl AnalyticsFamilyOutputs {
+    /// The row a pipeline publishes through. `None` is the structural
+    /// backstop: replay events cannot arrive here because ingress mounting
+    /// and table type both derive from `CaptureMode`.
+    fn row(&self, pipeline: Pipeline) -> Option<&Output> {
+        match pipeline {
+            Pipeline::Analytics => Some(&self.analytics),
+            Pipeline::Ai => Some(&self.ai),
+            Pipeline::Heatmaps => Some(&self.heatmaps),
+            Pipeline::Warnings => Some(&self.warnings),
+            Pipeline::ErrorTracking => Some(&self.error_tracking),
+            Pipeline::Replay => None,
+        }
+    }
+}
+
+impl ReplayOutputs {
+    fn row(&self, pipeline: Pipeline) -> Option<&Output> {
+        match pipeline {
+            Pipeline::Replay => Some(&self.replay),
+            _ => None,
+        }
+    }
+}
+
+macro_rules! impl_table_publish {
+    ($table:ty) => {
+        impl $table {
+            async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+                // Group by pipeline, preserving within-group order. Batches
+                // are single-request, so almost always a single group; the
+                // grouping exists for multi-address batches like heatmap
+                // redirects (analytics original + heatmaps redirect).
+                let mut groups: Vec<(Pipeline, Vec<ProcessedEvent>)> = Vec::new();
+                for event in events {
+                    let pipeline = Pipeline::from_metadata(&event.metadata);
+                    match groups.iter_mut().find(|(p, _)| *p == pipeline) {
+                        Some((_, group)) => group.push(event),
+                        None => groups.push((pipeline, vec![event])),
+                    }
+                }
+                for (pipeline, group) in groups {
+                    let Some(output) = self.row(pipeline) else {
+                        error!(
+                            "no output configured for pipeline {pipeline:?}; \
+                             ingress and output table disagree on this deployment's pipelines"
+                        );
+                        return Err(CaptureError::NonRetryableSinkError);
+                    };
+                    output.publish(group).await?;
+                }
+                Ok(())
+            }
+        }
+    };
+}
+
+impl_table_publish!(AnalyticsFamilyOutputs);
+impl_table_publish!(ReplayOutputs);
+
+impl DeploymentOutputs for AnalyticsFamilyOutputs {
+    fn flush(&self) -> Result<(), anyhow::Error> {
+        self.analytics.flush()?;
+        self.ai.flush()?;
+        self.heatmaps.flush()?;
+        self.warnings.flush()?;
+        self.error_tracking.flush()?;
+        Ok(())
+    }
+}
+
+impl DeploymentOutputs for ReplayOutputs {
+    fn flush(&self) -> Result<(), anyhow::Error> {
+        self.replay.flush()
+    }
+}
+
+#[async_trait]
+impl PublishesAnalyticsFamily for AnalyticsFamilyOutputs {
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        self.publish_batch(events).await
+    }
+}
+
+#[async_trait]
+impl PublishesReplay for ReplayOutputs {
+    async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        self.publish_batch(events).await
     }
 }
 

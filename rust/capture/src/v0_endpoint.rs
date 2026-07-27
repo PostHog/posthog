@@ -1,7 +1,7 @@
 use axum::body::Body;
 use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
-use axum::{debug_handler, Json};
+use axum::Json;
 use axum_client_ip::InsecureClientIp;
 use tracing::{instrument, Span};
 
@@ -14,9 +14,8 @@ use crate::{
 };
 
 #[instrument(skip(state, body, meta), fields(params_compression))]
-#[debug_handler]
-pub async fn event(
-    state: State<router::State>,
+pub async fn event<T: crate::outputs::PublishesAnalyticsFamily>(
+    state: State<router::State<T>>,
     ip: InsecureClientIp,
     meta: Query<EventQuery>,
     headers: HeaderMap,
@@ -103,9 +102,8 @@ pub async fn event(
         historical_migration
     )
 )]
-#[debug_handler]
-pub async fn recording(
-    state: State<router::State>,
+pub async fn recording<T: crate::outputs::PublishesReplay>(
+    state: State<router::State<T>>,
     ip: InsecureClientIp,
     meta: Query<EventQuery>,
     headers: HeaderMap,
