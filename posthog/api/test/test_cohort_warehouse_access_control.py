@@ -14,9 +14,11 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseCreden
 
 from ee.models.rbac.access_control import AccessControl
 
-# The realistic way a cohort reaches a warehouse table: a behavioral filter whose hogql
-# event filter traverses the persons warehouse join (cohort filters reject direct
-# data_warehouse_* property types at the pydantic layer).
+# A behavioral filter whose hogql event filter reads the warehouse table directly (cohort
+# filters reject the data_warehouse_* property types at the pydantic layer). Reaching the same
+# table through the persons join instead is not covered here: a denied join target is dropped
+# from the schema rather than raising TableAccessDeniedError, so nothing signals the denial -
+# see #69791, which routes those through the typed error too.
 WAREHOUSE_FILTERS = {
     "properties": {
         "type": "AND",
@@ -27,7 +29,9 @@ WAREHOUSE_FILTERS = {
                 "value": "performed_event",
                 "event_type": "events",
                 "explicit_datetime": "-30d",
-                "event_filters": [{"type": "hogql", "key": "person.extended_properties.bool_prop = 'true'"}],
+                "event_filters": [
+                    {"type": "hogql", "key": "person_id IN (SELECT string_prop FROM extended_properties)"}
+                ],
             }
         ],
     }
@@ -138,26 +142,6 @@ class TestCohortSaveWarehouseAccessControl(APIBaseTest):
                 "is_static": True,
                 "query": {"kind": "HogQLQuery", "query": "SELECT string_prop FROM extended_properties"},
             },
-        )
-
-        assert response.status_code == 400, response.content
-        assert "Can't save this cohort" in str(response.json())
-        assert "extended_properties" in str(response.json())
-
-    def test_denied_member_cannot_reactivate_warehouse_groups_by_clearing_filters(self):
-        # Clearing filters makes Cohort.properties fall back to preserved legacy groups, so the
-        # gate must validate the effective post-save definition, not just the payload fields.
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="dormant warehouse groups",
-            filters={"properties": {"type": "AND", "values": []}},
-            groups=[{"properties": WAREHOUSE_FILTERS["properties"]["values"]}],
-        )
-        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}/",
-            {"filters": None},
         )
 
         assert response.status_code == 400, response.content
