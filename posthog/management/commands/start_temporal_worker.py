@@ -213,6 +213,10 @@ from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
 )
+from products.logs.backend.temporal.retention_entitlements import (
+    ACTIVITIES as LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES,
+    WORKFLOWS as LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS,
+)
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
@@ -321,7 +325,8 @@ _task_queue_specs = [
         + JOB_LOGS_WORKFLOWS
         + CI_SIGNALS_WORKFLOWS
         + NOTEBOOKS_WORKFLOWS
-        + SIGNUP_ENRICHMENT_WORKFLOWS,
+        + SIGNUP_ENRICHMENT_WORKFLOWS
+        + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -341,7 +346,8 @@ _task_queue_specs = [
         + JOB_LOGS_ACTIVITIES
         + CI_SIGNALS_ACTIVITIES
         + NOTEBOOKS_ACTIVITIES
-        + SIGNUP_ENRICHMENT_ACTIVITIES,
+        + SIGNUP_ENRICHMENT_ACTIVITIES
+        + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
     # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a
@@ -504,7 +510,7 @@ _task_queue_specs = [
 _workflows: defaultdict[str, set[type[PostHogWorkflow]]] = defaultdict(set)
 _activities: defaultdict[str, set[typing.Callable[..., typing.Any]]] = defaultdict(set)
 for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_specs:
-    _workflows[task_queue_name].update(workflows_for_queue)  # type: ignore
+    _workflows[task_queue_name].update(workflows_for_queue)
     _activities[task_queue_name].update(activities_for_queue)
 
 WORKFLOWS_DICT = _workflows
