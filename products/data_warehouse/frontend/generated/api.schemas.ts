@@ -1137,6 +1137,11 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly user_access_level?: string | null
 }
 
+export interface SavedQueryResumeApi {
+    /** False when the query's materialization was not suspended. */
+    resumed: boolean
+}
+
 export interface DataWarehouseSavedQueryDraftApi {
     readonly id: string
     readonly created_at: string

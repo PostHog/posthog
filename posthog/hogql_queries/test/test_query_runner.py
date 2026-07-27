@@ -983,6 +983,20 @@ class TestApplySeriesCustomNames(BaseTest):
                 [{"action": {"order": 0, "custom_name": None}, "data": [1]}],
             ),
             (
+                # Guards the Greptile P1: a `name`-based rename (set via query editor / API, not the
+                # modal) must survive cache normalization, not revert to the raw event name.
+                "applies_name_based_rename_from_cache",
+                TrendsQuery(series=[EventsNode(event="$pageview", name="Renamed")]),
+                [{"action": {"order": 0, "name": "$pageview", "custom_name": None}, "data": [1]}],
+                [{"action": {"order": 0, "name": "$pageview", "custom_name": "Renamed"}, "data": [1]}],
+            ),
+            (
+                "name_echoing_the_event_is_not_a_rename",
+                TrendsQuery(series=[EventsNode(event="$pageview", name="$pageview")]),
+                [{"action": {"order": 0, "name": "$pageview", "custom_name": None}, "data": [1]}],
+                [{"action": {"order": 0, "name": "$pageview", "custom_name": None}, "data": [1]}],
+            ),
+            (
                 "skips_results_without_action",
                 TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Name")]),
                 [{"action": None, "data": [1]}, {"data": [2]}],

@@ -306,10 +306,10 @@ def provision(
         "/provision",
         json_body={
             "database_name": database_name,
-            # The provisioning team becomes the warehouse's first team (and its billing
-            # team): duckgres creates its team row with this schema. In-product this is
-            # the calling (currently active) team; in the Django admin it's the mandatory
-            # team field on the provision form.
+            # The provisioning team becomes the warehouse's first team: duckgres creates
+            # its team row with this schema. In-product this is the calling (currently
+            # active) team; in the Django admin it's the mandatory team field on the
+            # provision form.
             "team_id": team_id,
             "schema_name": schema_name,
             "ducklake": {"enabled": True},
@@ -449,7 +449,7 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
 
 
 def list_teams(organization_id: UUID | str, require_enabled: bool = True) -> Response:
-    """List the org's duckgres team rows (schema names, legacy table names, billing flag)."""
+    """List the org's duckgres team rows (schema names, legacy table names)."""
     return _request("GET", organization_id, "/teams", require_enabled=require_enabled)
 
 
@@ -568,7 +568,7 @@ def delete_team(organization_id: UUID | str, team_id: int, require_enabled: bool
     """Delete a team row from the org's duckgres warehouse.
 
     duckgres answers 409 for the org's last team (the org must be deprovisioned or deleted
-    instead) and reassigns the billing flag to the oldest remaining team otherwise.
+    instead).
     """
     return _request("DELETE", organization_id, f"/teams/{team_id}", require_enabled=require_enabled)
 
