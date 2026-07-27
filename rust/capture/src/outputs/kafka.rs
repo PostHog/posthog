@@ -113,16 +113,21 @@ impl<P: KafkaProducer + 'static> Outputs for KafkaOutputsBase<P> {
 /// producer, keeping their bodies identical to the pre-outputs era. The
 /// default spec uses the test topics with no envelope compression; lz4
 /// goldens pass their own.
-#[cfg(test)]
 impl<P: KafkaProducer + 'static> KafkaOutputsBase<P> {
-    pub(crate) fn with_producer(producer: P, topics: TopicTable) -> Self {
+    /// Test support: a surface over an injected producer (json, no envelope
+    /// compression). Public so integration-level test harnesses drive the
+    /// exact production path against a mock producer.
+    pub fn with_producer(producer: P, topics: TopicTable) -> Self {
         Self {
-            prep: Self::test_prep_spec(),
+            prep: PrepSpec::new(crate::config::EnvelopeCompression::None),
             topics: Arc::new(topics),
             sink: KafkaSinkBase::with_producer(producer),
         }
     }
+}
 
+#[cfg(test)]
+impl<P: KafkaProducer + 'static> KafkaOutputsBase<P> {
     pub(crate) fn test_prep_spec() -> PrepSpec {
         PrepSpec::new(crate::config::EnvelopeCompression::None)
     }

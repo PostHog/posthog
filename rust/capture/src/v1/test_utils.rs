@@ -648,17 +648,14 @@ use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 
-use crate::config::CaptureMode;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::outputs::simple::NoopOutputs;
 use crate::outputs::{AnalyticsFamilyOutputs, Outputs, PrepSpec};
 use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::router::{self, HistoricalConfig};
+use crate::sinks::producer::MockKafkaProducer;
 use crate::time::TimeSource;
-use crate::v1::sinks::kafka::mock::MockProducer;
-use crate::v1::sinks::kafka::sink::KafkaSink;
-use crate::v1::sinks::sink::Sink;
 use crate::v1::sinks::{self as v1_sinks, SinkName};
 
 /// Result of building a test state — gives access to both the `router::State`
@@ -667,7 +664,7 @@ use crate::v1::sinks::{self as v1_sinks, SinkName};
 /// analytics-family table over a noop sink.
 pub struct TestState {
     pub state: router::State<AnalyticsFamilyOutputs>,
-    pub mock_producer: Arc<MockProducer>,
+    pub mock_producer: MockKafkaProducer,
 }
 
 /// Builder for `router::State` with configurable mock services.
@@ -677,7 +674,7 @@ pub struct TestStateBuilder {
     historical_threshold_days: Option<i64>,
     restriction_service: Option<EventRestrictionService>,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
-    mock_producer: Option<Arc<MockProducer>>,
+    mock_producer: Option<MockKafkaProducer>,
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
 }
@@ -741,8 +738,8 @@ impl TestStateBuilder {
         self
     }
 
-    /// Supply a pre-configured MockProducer (e.g. for error injection).
-    pub fn with_mock_producer(mut self, producer: Arc<MockProducer>) -> Self {
+    /// Supply a pre-configured mock producer (e.g. for error injection).
+    pub fn with_mock_producer(mut self, producer: MockKafkaProducer) -> Self {
         self.mock_producer = Some(producer);
         self
     }
@@ -807,29 +804,18 @@ impl TestStateBuilder {
             .overflow_limiter
             .map(|(per_sec, burst)| Arc::new(OverflowLimiter::new(per_sec, burst, None, false)));
 
-        // Build the v1 sink router with a MockProducer-backed KafkaSink
-        let mock_producer = self
-            .mock_producer
-            .unwrap_or_else(|| Arc::new(MockProducer::new(SinkName::Msk, handle.clone())));
-
-        let kafka_config = test_kafka_config();
-        let sink_config = v1_sinks::Config {
-            produce_timeout: Duration::from_secs(30),
-            kafka: kafka_config,
-        };
-
-        let kafka_sink = KafkaSink::new(
-            SinkName::Msk,
-            Arc::clone(&mock_producer),
-            sink_config,
-            CaptureMode::Events,
-            handle.clone(),
+        // Build the v1 outputs router over the shared mock producer: the
+        // converged production path (to_processed → prep → realize →
+        // transport) runs end to end, with records captured for assertions.
+        let mock_producer = self.mock_producer.unwrap_or_default();
+        let topics = crate::outputs::topics::TopicTable::from(&test_kafka_config());
+        let surface: Arc<dyn Outputs> = Arc::new(
+            crate::outputs::kafka::KafkaOutputsBase::with_producer(mock_producer.clone(), topics),
         );
-
-        let boxed_sink: Box<dyn Sink> = Box::new(kafka_sink);
-        let sinks_map: HashMap<SinkName, Box<dyn Sink>> =
-            [(SinkName::Msk, boxed_sink)].into_iter().collect();
-        let v1_router = v1_sinks::Router::new(SinkName::Msk, sinks_map);
+        let v1_router = v1_sinks::OutputsRouter::new(
+            SinkName::Msk,
+            [(SinkName::Msk, surface)].into_iter().collect(),
+        );
 
         // Legacy outputs — no-op since V1 tests go through v1_sink_router
         let noop_row = || -> Arc<dyn Outputs> {

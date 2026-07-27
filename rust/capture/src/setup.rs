@@ -142,7 +142,7 @@ pub struct CaptureComponents {
     pub app: Router,
     pub server_handle: lifecycle::Handle,
     pub outputs: Arc<dyn Outputs>,
-    pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
+    pub v1_sink_router: Option<Arc<crate::v1::sinks::OutputsRouter>>,
     pub http1_header_read_timeout_ms: Option<u64>,
 }
 
@@ -396,6 +396,7 @@ pub async fn build_components(
     let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
         Some(
             create_v1_sink_router(&config, &sink_env, v1_sink_handles)
+                .await
                 .unwrap_or_else(|e| panic!("fatal: v1 sink router creation failed: {e:#}")),
         )
     } else {
@@ -526,19 +527,22 @@ fn parse_token_allowlist(csv: &str) -> HashSet<String> {
         .collect()
 }
 
-fn create_v1_sink_router(
+async fn create_v1_sink_router(
     config: &Config,
     sink_env: &HashMap<String, String>,
     handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
-) -> anyhow::Result<Arc<crate::v1::sinks::Router>> {
+) -> anyhow::Result<Arc<crate::v1::sinks::OutputsRouter>> {
     let sinks_cfg = crate::v1::sinks::load_sinks_from(&config.capture_v1_sinks, sink_env)
         .context("failed to parse CAPTURE_V1_SINKS")?;
     sinks_cfg
         .validate()
         .context("v1 sink config validation failed")?;
 
-    let mut sink_map: HashMap<crate::v1::sinks::SinkName, Box<dyn crate::v1::sinks::sink::Sink>> =
-        HashMap::new();
+    // Every named sink becomes a shared produce surface: its per-sink env
+    // config maps onto the shared KafkaConfig (one transport path) and its
+    // topic wiring onto a TopicTable. Fallback/split/dynamic policies
+    // compose here exactly as on the v0 rows.
+    let mut surfaces: HashMap<crate::v1::sinks::SinkName, Arc<dyn Outputs>> = HashMap::new();
 
     for (name, cfg) in sinks_cfg.configs {
         let handle = handles
@@ -546,28 +550,21 @@ fn create_v1_sink_router(
             .cloned()
             .with_context(|| format!("missing lifecycle handle for v1 sink '{name}'"))?;
 
-        let producer = crate::v1::sinks::kafka::producer::KafkaProducer::new(
-            name,
-            &cfg.kafka,
-            handle.clone(),
-            config.capture_mode.as_tag(),
-        )
-        .with_context(|| format!("failed to create v1 kafka producer for sink '{name}'"))?;
-
-        let kafka_sink = crate::v1::sinks::kafka::sink::KafkaSink::new(
-            name,
-            Arc::new(producer),
-            cfg,
-            config.capture_mode,
-            handle,
-        );
-        sink_map.insert(name, Box::new(kafka_sink));
+        let kafka_config = cfg
+            .kafka
+            .to_kafka_config()
+            .with_context(|| format!("mapping config for v1 sink '{name}'"))?;
+        let topics = TopicTable::from(&cfg.kafka);
+        let surface = KafkaOutputs::new(kafka_config, topics, Some(handle))
+            .await
+            .with_context(|| format!("failed to create Kafka outputs for v1 sink '{name}'"))?;
+        surfaces.insert(name, Arc::new(surface));
     }
 
-    let router = crate::v1::sinks::Router::new(sinks_cfg.default, sink_map);
+    let router = crate::v1::sinks::OutputsRouter::new(sinks_cfg.default, surfaces);
     info!(
         sinks = config.capture_v1_sinks.as_str(),
-        "V1 sink router initialized"
+        "V1 outputs router initialized"
     );
     Ok(Arc::new(router))
 }
@@ -975,8 +972,8 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    #[test]
-    fn create_v1_sink_router_fails_on_invalid_config() {
+    #[tokio::test]
+    async fn create_v1_sink_router_fails_on_invalid_config() {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", "events"),
@@ -1007,6 +1004,7 @@ mod tests {
                 .collect();
 
         let err = create_v1_sink_router(&config, &HashMap::new(), handles)
+            .await
             .err()
             .expect("should fail with invalid config");
         let msg = format!("{err:#}");

@@ -1,17 +1,12 @@
 mod common;
 
-use std::sync::Arc;
-
-use rdkafka::error::RDKafkaErrorCode;
 use rstest::rstest;
 use uuid::Uuid;
 
+use capture::sinks::producer::MockKafkaProducer;
 use capture::v1::analytics::process::process_batch;
 use capture::v1::analytics::response::BatchResponse;
 use capture::v1::analytics::types::{Batch, EventResult};
-use capture::v1::sinks::kafka::mock::MockProducer;
-use capture::v1::sinks::kafka::producer::ProduceError;
-use capture::v1::sinks::SinkName;
 use capture::v1::test_utils::{self, batch_payload, valid_event, TestStateBuilder};
 use capture::v1::Error;
 
@@ -58,10 +53,9 @@ async fn event_type_routes_to_destination(#[case] event_name: &str, #[case] expe
     assert_eq!(resp.entries().len(), 1);
     assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
 
-    ts.mock_producer.with_records(|records| {
-        assert_eq!(records.len(), 1, "expected exactly 1 Kafka record");
-        assert_eq!(records[0].topic, expected_topic);
-    });
+    let records = ts.mock_producer.get_records();
+    assert_eq!(records.len(), 1, "expected exactly 1 Kafka record");
+    assert_eq!(records[0].topic, expected_topic);
 }
 
 // -------------------------------------------------------------------------
@@ -90,20 +84,9 @@ async fn mixed_batch_all_ok() {
 
 #[tokio::test]
 async fn sink_ack_error_causes_retry() {
-    let mut manager = lifecycle::Manager::builder("test_ack_err")
-        .with_trap_signals(false)
-        .with_prestop_check(false)
-        .build();
-    let handle = manager.register("test_ack_err", lifecycle::ComponentOptions::new());
-    handle.report_healthy();
-    let _monitor = manager.monitor_background();
-
-    let producer =
-        Arc::new(
-            MockProducer::new(SinkName::Msk, handle).with_ack_error(|| ProduceError::Kafka {
-                code: RDKafkaErrorCode::BrokerNotAvailable,
-            }),
-        );
+    // Enqueue fails on the first record: the batch fails retriably, so every
+    // event reports Retry — the converged analogue of the old ack-error case.
+    let producer = MockKafkaProducer::new_failing_at(0);
 
     let events = vec![event_with_name("$pageview"), event_with_name("$identify")];
     let payload = batch_payload(&events);
@@ -177,13 +160,12 @@ async fn historical_rerouting() {
     assert_eq!(resp.entries().len(), 1);
     assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
 
-    ts.mock_producer.with_records(|records| {
-        assert_eq!(records.len(), 1);
-        assert_eq!(
-            records[0].topic, "events_hist",
-            "old event should route to historical topic"
-        );
-    });
+    let records = ts.mock_producer.get_records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(
+        records[0].topic, "events_hist",
+        "old event should route to historical topic"
+    );
 }
 
 // -------------------------------------------------------------------------

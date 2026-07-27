@@ -85,7 +85,7 @@ pub struct State<T> {
     pub replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     /// V1 sink router for the new capture analytics pipeline.
     /// When present, the v1 analytics handler publishes events through this.
-    pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
+    pub v1_sink_router: Option<Arc<crate::v1::sinks::OutputsRouter>>,
     pub capture_v1_scatter_gather_min_batch: usize,
     pub ai_gateway_signing_secret: Option<String>,
     /// Best-effort v2 ingestion warnings emitter (fire-and-forget Kafka
@@ -201,7 +201,7 @@ pub fn router<
     capture_v1_max_decompressed_body_bytes: usize,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
-    v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
+    v1_sink_router: Option<Arc<crate::v1::sinks::OutputsRouter>>,
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
@@ -425,7 +425,7 @@ pub fn ai_router<
     capture_v1_max_decompressed_body_bytes: usize,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
-    v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
+    v1_sink_router: Option<Arc<crate::v1::sinks::OutputsRouter>>,
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
@@ -584,7 +584,7 @@ pub fn session_replay_router<
     capture_v1_max_decompressed_body_bytes: usize,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
-    v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
+    v1_sink_router: Option<Arc<crate::v1::sinks::OutputsRouter>>,
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,

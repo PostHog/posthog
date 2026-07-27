@@ -246,7 +246,7 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
         };
         let v1_flush = async {
             if let Some(ref v1_router) = v1_sink_router {
-                if let Err(e) = v1_router.flush().await {
+                if let Err(e) = v1_router.flush() {
                     error!("V1 sink router flush failed: {e:#}");
                 }
             }

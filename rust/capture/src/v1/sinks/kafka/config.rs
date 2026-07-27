@@ -170,6 +170,105 @@ impl From<&Config> for TopicTable {
     }
 }
 
+impl Config {
+    /// Map this per-sink v1 config onto the shared [`crate::config::KafkaConfig`]
+    /// so the sink's producer is built by the one shared transport path.
+    /// Round-trips through envconfig keys — the v1 config is a field-for-field
+    /// fork of the shared one, so every knob carries over. The only v1 knob
+    /// with no shared equivalent is `statistics_interval_ms` (the shared
+    /// transport pins 10s).
+    pub fn to_kafka_config(&self) -> anyhow::Result<crate::config::KafkaConfig> {
+        use std::collections::HashMap;
+        let entries: HashMap<String, String> = [
+            ("KAFKA_HOSTS", self.hosts.clone()),
+            ("KAFKA_TLS", self.tls.to_string()),
+            ("KAFKA_CLIENT_ID", self.client_id.clone()),
+            ("KAFKA_PRODUCER_LINGER_MS", self.linger_ms.to_string()),
+            ("KAFKA_PRODUCER_QUEUE_MIB", self.queue_mib.to_string()),
+            (
+                "KAFKA_MESSAGE_TIMEOUT_MS",
+                self.message_timeout_ms.to_string(),
+            ),
+            (
+                "KAFKA_PRODUCER_MESSAGE_MAX_BYTES",
+                self.message_max_bytes.to_string(),
+            ),
+            ("KAFKA_COMPRESSION_CODEC", self.compression_codec.clone()),
+            ("KAFKA_PRODUCER_ACKS", self.acks.clone()),
+            (
+                "KAFKA_PRODUCER_ENABLE_IDEMPOTENCE",
+                self.enable_idempotence.to_string(),
+            ),
+            (
+                "KAFKA_PRODUCER_BATCH_NUM_MESSAGES",
+                self.batch_num_messages.to_string(),
+            ),
+            ("KAFKA_PRODUCER_BATCH_SIZE", self.batch_size.to_string()),
+            (
+                "KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS",
+                self.metadata_refresh_interval_ms.to_string(),
+            ),
+            (
+                "KAFKA_METADATA_MAX_AGE_MS",
+                self.metadata_max_age_ms.to_string(),
+            ),
+            (
+                "KAFKA_SOCKET_TIMEOUT_MS",
+                self.socket_timeout_ms.to_string(),
+            ),
+            ("KAFKA_PRODUCER_PARTITIONER", self.partitioner.clone()),
+            ("KAFKA_PRODUCER_MAX_RETRIES", self.max_retries.to_string()),
+            (
+                "KAFKA_PRODUCER_MAX_IN_FLIGHT_REQUESTS",
+                self.max_in_flight_requests.to_string(),
+            ),
+            (
+                "KAFKA_PRODUCER_STICKY_PARTITIONING_LINGER_MS",
+                self.sticky_partitioning_linger_ms.to_string(),
+            ),
+            (
+                "KAFKA_BROKER_ADDRESS_FAMILY",
+                self.broker_address_family.clone(),
+            ),
+            (
+                "KAFKA_LOG_CONNECTION_CLOSE",
+                self.log_connection_close.to_string(),
+            ),
+            (
+                "KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES",
+                self.queue_buffering_max_messages.to_string(),
+            ),
+            (
+                "KAFKA_RETRY_BACKOFF_MAX_MS",
+                self.retry_backoff_max_ms.to_string(),
+            ),
+            (
+                "KAFKA_SOCKET_SEND_BUFFER_BYTES",
+                self.socket_send_buffer_bytes.to_string(),
+            ),
+            (
+                "KAFKA_SOCKET_RECEIVE_BUFFER_BYTES",
+                self.socket_receive_buffer_bytes.to_string(),
+            ),
+            ("KAFKA_TOPIC", self.topic_main.clone()),
+            ("KAFKA_OVERFLOW_TOPIC", self.topic_overflow.clone()),
+            ("KAFKA_HISTORICAL_TOPIC", self.topic_historical.clone()),
+            ("KAFKA_DLQ_TOPIC", self.topic_dlq.clone()),
+            ("KAFKA_ERROR_TRACKING_TOPIC", self.topic_exception.clone()),
+            ("KAFKA_HEATMAPS_TOPIC", self.topic_heatmap.clone()),
+            (
+                "KAFKA_CLIENT_INGESTION_WARNING_TOPIC",
+                self.topic_client_ingestion_warning.clone(),
+            ),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        crate::config::KafkaConfig::init_from_hashmap(&entries)
+            .map_err(|e| anyhow::anyhow!("mapping v1 sink config onto KafkaConfig: {e}"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
