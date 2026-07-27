@@ -1066,6 +1066,10 @@ export const supportLogic = kea<supportLogicType>([
                         lemonToast.success(
                             "Got the message! If we have follow-up information for you, we'll reply via email."
                         )
+                        // The beacon response is opaque, so the Zendesk ticket id is unknown here;
+                        // the client-generated uuid (also embedded in the subject) marks success for
+                        // callers watching lastSubmittedTicketId
+                        actions.setLastSubmittedTicketId(zendesk_ticket_uuid)
                         // Only close and reset the form on success
                         actions.closeSupportForm()
                         actions.resetSendSupportRequest()

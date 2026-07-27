@@ -1352,17 +1352,32 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 rest_api_version=_bigquery_rest_api_version(inputs.api_version),
             )
         finally:
-            # Delete the destination table (if it exists) after we're done with it
-            delete_table(
-                table_id=destination_table,
-                project_id=project_id,
-                location=region,
-                private_key=config.key_file.private_key,
-                private_key_id=config.key_file.private_key_id,
-                client_email=config.key_file.client_email,
-                token_uri=config.key_file.token_uri,
-            )
-            inputs.logger.info(f"Deleting bigquery temp destination table: {destination_table}")
+            # Delete the destination table (if it exists) after we're done with it. A transient
+            # token-refresh failure here (e.g. a 502 from Google's OAuth endpoint) must not turn
+            # an otherwise-successful sync into a failure — retrying the whole sync just to retry
+            # this delete is wasteful. This must NOT swallow a genuine permission denial: this
+            # table holds a real materialized copy of the customer's data, so if we can't delete
+            # it we need the sync to keep failing (via the "Access Denied:" key in
+            # `get_non_retryable_errors`) rather than silently leaving readable copies to
+            # accumulate on every run.
+            try:
+                delete_table(
+                    table_id=destination_table,
+                    project_id=project_id,
+                    location=region,
+                    private_key=config.key_file.private_key,
+                    private_key_id=config.key_file.private_key_id,
+                    client_email=config.key_file.client_email,
+                    token_uri=config.key_file.token_uri,
+                )
+                inputs.logger.info(f"Deleting bigquery temp destination table: {destination_table}")
+            except RefreshError as e:
+                # `invalid_grant` (rejected credentials) is not transient — `_build_source_response`
+                # authenticates with the same credentials, so genuinely dead credentials need to keep
+                # propagating to the sync-path classifier rather than being silently swallowed here.
+                if "invalid_grant" in str(e):
+                    raise
+                inputs.logger.warning(f"Skipping cleanup of bigquery destination table {destination_table}: {e}")
 
     def _build_source_response(
         self,
