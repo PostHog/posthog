@@ -2641,12 +2641,6 @@ export const TasksRunsStartCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * API for managing task runs. Each run represents an execution of a task.
- * @summary Replace the active native task session
- */
-export const TasksRunsTaskSessionSyncCreateBody = /* @__PURE__ */ zod.instanceof(File)
-
-/**
  * Create a stable, editable artifact handle from direct markdown/text content or an existing run artifact. Slack adapters deliver into the mapped Slack thread; document artifacts use external connector storage when available.
  * @summary Create a living artifact for a task run
  */

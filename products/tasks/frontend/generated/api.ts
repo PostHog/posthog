@@ -1696,13 +1696,14 @@ export const tasksRunsTaskSessionSyncCreate = async (
     projectId: string,
     taskId: string,
     id: string,
-    tasksRunsTaskSessionSyncCreateBody?: Blob | string,
+    tasksRunsTaskSessionSyncCreateBody?: Blob,
     options?: RequestInit
 ): Promise<TaskSessionSyncResponseApi> => {
     return apiMutator<TaskSessionSyncResponseApi>(getTasksRunsTaskSessionSyncCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
-        body: JSON.stringify(tasksRunsTaskSessionSyncCreateBody),
+        headers: { 'Content-Type': 'application/octet-stream', ...options?.headers },
+        body: tasksRunsTaskSessionSyncCreateBody,
     })
 }
 
