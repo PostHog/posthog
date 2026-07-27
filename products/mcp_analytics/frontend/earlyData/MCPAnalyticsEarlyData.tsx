@@ -201,6 +201,10 @@ function LiveActivityCard(): JSX.Element {
 
 // `total` is every intent analysed, so the bar reads as this theme's share of them. The backend
 // assigns each intent to at most one theme, which is what keeps the shares adding up.
+//
+// LemonProgress needs an explicit bgColor here: its default is `var(--color-bg-primary)`, which is a
+// neutral in LemonUI but brand orange inside a quill Card, so the unfilled remainder renders as a
+// second, larger-looking value. Applies to every LemonProgress under a quill Card.
 function IntentThemeRow({ theme, total }: { theme: MCPIntentThemeApi; total: number }): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
@@ -208,10 +212,13 @@ function IntentThemeRow({ theme, total }: { theme: MCPIntentThemeApi; total: num
                 <span className="text-base font-medium">{theme.name}</span>
                 <span className="text-muted text-sm shrink-0">{formatNumber(theme.intent_count)}</span>
             </div>
-            <LemonProgress percent={total > 0 ? (theme.intent_count / total) * 100 : 0} />
+            <LemonProgress
+                percent={total > 0 ? (theme.intent_count / total) * 100 : 0}
+                bgColor="var(--color-bg-surface-tertiary)"
+            />
             <p className="text-muted text-sm m-0">{theme.description}</p>
             {theme.example_intent ? (
-                <p className="text-muted text-sm italic m-0 truncate" title={theme.example_intent}>
+                <p className="text-muted text-sm italic m-0 line-clamp-2" title={theme.example_intent}>
                     “{theme.example_intent}”
                 </p>
             ) : null}
@@ -298,7 +305,10 @@ function ClientsCard(): JSX.Element {
                                 </span>
                                 <span className="text-muted">{formatNumber(row.calls)}</span>
                             </div>
-                            <LemonProgress percent={maxCalls > 0 ? (row.calls / maxCalls) * 100 : 0} />
+                            <LemonProgress
+                                percent={maxCalls > 0 ? (row.calls / maxCalls) * 100 : 0}
+                                bgColor="var(--color-bg-surface-tertiary)"
+                            />
                         </div>
                     ))}
                 </div>
