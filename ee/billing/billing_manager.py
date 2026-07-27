@@ -255,13 +255,20 @@ class BillingManager:
 
         available_product_features_json = res.json()
         available_product_features = available_product_features_json.get("available_product_features", [])
-        previous_feature_keys = {feature.get("key") for feature in (organization.available_product_features or [])}
+        previous_feature_keys = {
+            feature.get("key") for feature in (organization.available_product_features or []) if feature
+        }
         organization.available_product_features = available_product_features
         organization.save()
 
-        revoked_feature_keys = previous_feature_keys - {feature.get("key") for feature in available_product_features}
-        if revoked_feature_keys:
-            reset_revoked_logs_retention(organization, revoked_feature_keys)
+        # Only reset on a non-empty list: the retention reset is not self-healing, so an
+        # empty error-path response must not permanently downgrade team settings.
+        if available_product_features:
+            revoked_feature_keys = previous_feature_keys - {
+                feature.get("key") for feature in available_product_features if feature
+            }
+            if revoked_feature_keys:
+                reset_revoked_logs_retention(organization, revoked_feature_keys)
 
         return available_product_features
 
@@ -484,12 +491,14 @@ class BillingManager:
 
         available_product_features = data.get("available_product_features", None)
         revoked_feature_keys: set[str] = set()
-        # An empty list is authoritative (e.g. every paid feature revoked), so only skip on absent.
-        if available_product_features is not None and available_product_features != (
-            organization.available_product_features or []
-        ):
-            previous_feature_keys = {feature.get("key") for feature in (organization.available_product_features or [])}
-            new_feature_keys = {feature.get("key") for feature in available_product_features}
+        # An empty list is deliberately ignored: this runs on hot paths (get_billing, usage
+        # reports) and a partial or error-path billing response must not downgrade the org.
+        # Genuine cancellations still send the (non-empty) free-tier feature list.
+        if available_product_features and available_product_features != organization.available_product_features:
+            previous_feature_keys = {
+                feature.get("key") for feature in (organization.available_product_features or []) if feature
+            }
+            new_feature_keys = {feature.get("key") for feature in available_product_features if feature}
             revoked_feature_keys = previous_feature_keys - new_feature_keys
             organization.available_product_features = data["available_product_features"]
             org_modified = True
