@@ -459,6 +459,12 @@ class TestToast:
 
         assert (now - start).days == 365
 
+    def test_resolve_window_caps_an_arbitrarily_old_start_date(self) -> None:
+        now = datetime(2024, 6, 1, tzinfo=UTC)
+        start, _, _ = resolve_window(TOAST_ENDPOINTS["cash_entries"], "0001-01-01", False, None, now=now)
+
+        assert (now - start).days == 730
+
     def test_resolve_window_never_starts_after_it_ends(self) -> None:
         now = datetime(2024, 6, 1, tzinfo=UTC)
         start, end, _ = resolve_window(TOAST_ENDPOINTS["orders"], None, True, "2030-01-01T00:00:00Z", now=now)

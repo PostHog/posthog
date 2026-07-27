@@ -34,6 +34,10 @@ REQUEST_TIMEOUT_SECONDS = 120
 TOKEN_EXPIRY_SKEW_SECONDS = 60
 # How far back windowed endpoints reach when the user gives no start date.
 DEFAULT_BACKFILL_DAYS = 365
+# Hard floor on how far back a user-supplied start date may reach. Business-date endpoints issue one
+# request per day per restaurant, so an unbounded start date (e.g. `0001-01-01`) would fan out into
+# hundreds of thousands of throttled requests. Cap the backfill so the work per run stays finite.
+MAX_BACKFILL_DAYS = 730
 
 # Stable marker for a login that answered 200 without a usable token — matched by
 # `get_non_retryable_errors`, so keep it in sync with the source class.
@@ -229,6 +233,10 @@ def resolve_window(
         window_start = coerce_datetime(db_incremental_field_last_value)
     if window_start is None:
         window_start = coerce_datetime(start_date)
+        if window_start is not None:
+            # A resumed incremental watermark advances on its own, but a user-supplied start date is
+            # unbounded — clamp it so the walk can't reach arbitrarily far back.
+            window_start = max(window_start, window_end - timedelta(days=MAX_BACKFILL_DAYS))
     if window_start is None:
         window_start = window_end - timedelta(days=DEFAULT_BACKFILL_DAYS)
 
