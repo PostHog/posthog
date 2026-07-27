@@ -132,7 +132,15 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
     write gate, but writes still demand skill-authoring-level authorization (keys need
     `llm_skill:write` on top of `signal_scout:write`, and every writer must clear the
     `llm_skill` RBAC editor bar) — so a note-writer could already steer the fleet by
-    editing its skills, and notes add no new steering power.
+    editing its skills, and notes add no new steering power. The second writer is
+    `../dismissal_notes.py`: judging an inbox report with a note (dismiss, snooze, or
+    restore) also leaves it here as an `origin=report_dismissal` note, targeted at the
+    scout that authored the report, so a reviewer's verdict reaches the scout without it
+    having to re-find the report. Resolving does not, since that says the report did its
+    job rather than that filing it was wrong. That path re-checks canonical-project access
+    and the same `llm_skill` editor bar itself (`_may_steer_scouts`), since dismissing a
+    report needs only `task:write`. The derived row is context with a TTL; the `dismissal`
+    artefact on the report stays the record of truth.
   - `profile.py` — `project_profile_*` tools that read the deterministic
     `SignalProjectProfile` snapshot.
   - `runs.py` — `runs_*` tools that read past `SignalScoutRun` rows for dedupe and
