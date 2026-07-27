@@ -181,21 +181,29 @@ where `(Pipeline, Lane)` makes the per-mode reachable set explicit.
 
 ### Stage C — sinks become mechanism, outputs become the API
 
-#### Step 6 · Narrow sinks to backend mechanism
+#### Step 6 · Narrow the Kafka sink to backend mechanism
 
-- **Goal.** `PreparedPayload { uuid, payload: Bytes, headers, partition_key, topic }`
-  (the v1 `PreparedEvent` shape, addressed) becomes the sink input.
-  `trait Sink { publish(Vec<PreparedPayload>) -> Vec<SinkResult>; flush() }` —
-  no prepare on the trait, no metadata access.
-  Kafka keeps the three-phase batch mechanics
-  (port: `a037f5b4e33 on -sinks-v1` — serial <8 / scatter-gather ≥8 prep is
-  outputs-layer machinery now, serial enqueue + fail-fast ack drain stays in
-  the sink). S3 writes payload bytes; print/noop trivial.
-  The v0 `Event` trait survives this step as a thin bridge
-  (resolve → serialize → publish inside the Kafka `Event` impl)
-  so call sites don't move yet.
-- **Files.** `rust/capture/src/sinks/` (trait, kafka, s3, print, noop).
-- **Parity proof.** Step-1 goldens + `send_batch` three-phase suite unmodified.
+- **Goal.** New `sinks/sink.rs`:
+  `PreparedPayload { uuid, record: ProduceRecord }` (serialized, addressed) is
+  the sink input; `trait Sink { publish(Vec<PreparedPayload>) -> Vec<SinkResult>; flush() }`
+  — no prepare on the trait, no metadata access — plus `Outcome` and
+  `fold_results` (first failure wins).
+  Kafka: `prepare_batch` (serial <8 / scatter-gather ≥8, fail-fast) extracted
+  from `send_batch` as an inherent method the outputs layer will call;
+  `impl Sink` = serial enqueue + fail-fast ack drain, reporting batch-uniform
+  per-event results (the per-event surface refines only with the response
+  model). `Event::send_batch` becomes the bridge: prep → publish → fold.
+  Kafka only — s3/print/noop gain mechanism impls with the outputs layer,
+  which is what needs them.
+- **Sequencing decision.** `FallbackSink` and `SplitKafkaSink` are never
+  ported onto the mechanism trait: the outputs layer owns multi-target
+  policies (single | failover | split) from its first commit, built from the
+  same config, and the Event-era composites are deleted when their last
+  caller migrates. Old Steps 10/11 fold into Steps 7/9 accordingly.
+- **Files.** `rust/capture/src/sinks/sink.rs` (new),
+  `rust/capture/src/sinks/kafka.rs`, `rust/capture/src/sinks/mod.rs`.
+- **Parity proof.** Step-1 goldens + `send_batch` three-phase suite unmodified
+  (they now drive prep → publish → fold — the exact production path).
 - **Risk / rollback.** Medium-high — core mechanism. Revert.
 - **Size.** L.
 
@@ -317,7 +325,7 @@ No `--no-verify` — pre-commit hooks must pass.
 | 3 · `OutputRegistry` + completeness | done | `refactor(capture): output registry with startup completeness check` |
 | 4 · Serialization layer | done | `refactor(capture): serialization layer — format and envelope behind one seam` |
 | 5 · `Pipeline` + `Lane`; lane resolution | done | `refactor(capture): pipeline and lane address; lane decision moves to the pipeline layer` |
-| 6 · Sinks → backend mechanism | pending | `refactor(capture): narrow sinks to backend mechanism over prepared payloads` |
+| 6 · Kafka sink → backend mechanism | done | `refactor(capture): narrow the kafka sink to backend mechanism over prepared payloads` |
 | 7 · Outputs layer; analytics migrates | pending | `feat(capture): outputs layer with (pipeline, lane) table; analytics on outputs` |
 | 8 · AI + OTEL migrate | pending | `refactor(capture): ai and otel publish through outputs` |
 | 9 · Replay migrates; `Event` deleted | pending | `refactor(capture): replay through outputs; retire v0 Event trait` |

@@ -25,6 +25,7 @@ use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 #[cfg(test)]
 pub(crate) use crate::sinks::registry::test_topics;
 use crate::sinks::registry::{OutputRegistry, Outputs};
+use crate::sinks::sink::{fold_results, PreparedPayload, Sink, SinkResult};
 use crate::sinks::Event;
 use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
@@ -424,13 +425,16 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Not `async`: post-refactor there are no await points, and keeping it
     /// synchronous lets `send_batch`'s serial fast path call it inline without
     /// any runtime indirection.
-    fn prepare_record(&self, event: ProcessedEvent) -> Result<ProduceRecord, CaptureError> {
+    fn prepare_record(&self, event: ProcessedEvent) -> Result<PreparedPayload, CaptureError> {
         let (event, metadata) = (event.event, event.metadata);
 
         let decision = resolve(&metadata);
         let serializer = self.serializer_for(decision.pipeline);
         let payload = serializer.serialize(&event)?;
 
+        // Correlation UUID, captured before the (memory-hungry) event is
+        // dropped so the prepared payload can key its per-event `SinkResult`.
+        let uuid = event.uuid;
         let event_key = event.key();
 
         // Use the event's to_headers() method for consistent header serialization
@@ -499,11 +503,14 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             headers.set_content_encoding(encoding.to_string());
         }
 
-        Ok(ProduceRecord {
-            topic: topic.to_string(),
-            key: partition_key,
-            payload,
-            headers,
+        Ok(PreparedPayload {
+            uuid,
+            record: ProduceRecord {
+                topic: topic.to_string(),
+                key: partition_key,
+                payload,
+                headers,
+            },
         })
     }
 
@@ -519,11 +526,162 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     }
 
     /// Prep + enqueue for the single-event path. Retained as a thin wrapper so
-    /// the `Event::send` impl stays unchanged; `send_batch` uses prepare_record
-    /// and enqueue_record directly to parallelize the prep phase.
+    /// the `Event::send` impl stays unchanged; the batch path uses
+    /// `prepare_batch` and `publish` to parallelize the prep phase.
     fn kafka_send(&self, event: ProcessedEvent) -> Result<P::AckFuture, CaptureError> {
-        let record = self.prepare_record(event)?;
-        self.enqueue_record(record)
+        let prepared = self.prepare_record(event)?;
+        self.enqueue_record(prepared.record)
+    }
+}
+
+// Batch machinery needs `P: 'static`: prep tasks and ack futures are spawned
+// onto tokio workers, which require owned, static futures.
+impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
+    /// Prep phase for a whole batch: turn `ProcessedEvent`s into ready-to-publish
+    /// [`PreparedPayload`]s in the original event order. Fail-fast: any single
+    /// prep error aborts the whole batch and produces zero records.
+    ///
+    /// Small batches prep serially; batches at or above
+    /// `SCATTER_GATHER_MIN_BATCH` scatter prep across tokio workers and gather
+    /// back into input order so per-partition ordering downstream is unaffected.
+    pub(crate) async fn prepare_batch(
+        &self,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<Vec<PreparedPayload>, CaptureError> {
+        let batch_size = events.len();
+
+        // Small-batch fast path: the JoinSet spawn overhead dominates any
+        // parallel-prep win, so stay single-threaded.
+        if batch_size < SCATTER_GATHER_MIN_BATCH {
+            let prep_start = Instant::now();
+            let mut prepared: Vec<PreparedPayload> = Vec::with_capacity(batch_size);
+            for event in events {
+                match self.prepare_record(event) {
+                    Ok(payload) => prepared.push(payload),
+                    Err(err) => {
+                        histogram!("capture_kafka_batch_prep_duration_seconds")
+                            .record(prep_start.elapsed().as_secs_f64());
+                        return Err(err);
+                    }
+                }
+            }
+            histogram!("capture_kafka_batch_prep_duration_seconds")
+                .record(prep_start.elapsed().as_secs_f64());
+            return Ok(prepared);
+        }
+
+        // Parallel prep across tokio workers. Each task returns its input index
+        // so results reassemble in the original event order before the serial
+        // enqueue phase. This is where the CPU win lives: payload serialization
+        // + header build run concurrently on up to N worker threads, rather
+        // than sequentially on a single task.
+        let prep_start = Instant::now();
+        let mut prep_set: JoinSet<(usize, Result<PreparedPayload, CaptureError>)> = JoinSet::new();
+        for (idx, event) in events.into_iter().enumerate() {
+            let this = self.clone();
+            prep_set.spawn(
+                async move { (idx, this.prepare_record(event)) }
+                    .instrument(info_span!("prepare_record")),
+            );
+        }
+
+        // Collect into a (idx, payload) Vec and sort rather than indexing into
+        // a `Vec<Option<_>>`. Encodes the "every slot filled" invariant in the
+        // type: no `Option`, no unreachable `expect`, no N-element `None`
+        // preallocation. Our only cancellation source is `prep_set.abort_all()`
+        // below, invoked only from an already-errored branch, so any
+        // `JoinError` observed during normal drain implies a panic inside
+        // `prepare_record` — counted separately so it's alertable.
+        let mut prepared: Vec<(usize, PreparedPayload)> = Vec::with_capacity(batch_size);
+        while let Some(join_result) = prep_set.join_next().await {
+            let (idx, result) = match join_result {
+                Err(err) => {
+                    counter!("capture_kafka_prep_panic_total").increment(1);
+                    error!("join error while preparing Kafka record: {err:#}");
+                    // Drain remaining prep tasks before returning so they can't
+                    // leak records into librdkafka after we've already failed.
+                    // Record the histogram on the error path too so prep-duration
+                    // stays observable during failures (not just happy path).
+                    prep_set.abort_all();
+                    histogram!("capture_kafka_batch_prep_duration_seconds")
+                        .record(prep_start.elapsed().as_secs_f64());
+                    return Err(CaptureError::RetryableSinkError);
+                }
+                Ok(inner) => inner,
+            };
+            match result {
+                Ok(payload) => prepared.push((idx, payload)),
+                Err(err) => {
+                    prep_set.abort_all();
+                    histogram!("capture_kafka_batch_prep_duration_seconds")
+                        .record(prep_start.elapsed().as_secs_f64());
+                    return Err(err);
+                }
+            }
+        }
+        prepared.sort_unstable_by_key(|(idx, _)| *idx);
+        debug_assert_eq!(prepared.len(), batch_size);
+        histogram!("capture_kafka_batch_prep_duration_seconds")
+            .record(prep_start.elapsed().as_secs_f64());
+
+        Ok(prepared.into_iter().map(|(_, payload)| payload).collect())
+    }
+
+    /// Serial, ordering-preserving enqueue of a prepared batch followed by the
+    /// concurrent ack drain. Fail-fast on the first enqueue or ack error; the
+    /// ordering bottleneck is deliberate — librdkafka preserves per-partition
+    /// on-wire order by send_result() call order, and same-distinct_id events
+    /// hash to the same partition via murmur2, so within-batch same-key
+    /// ordering survives (e.g. $identify lands before subsequent events).
+    async fn enqueue_and_drain(&self, prepared: Vec<PreparedPayload>) -> Result<(), CaptureError> {
+        let enqueue_start = Instant::now();
+        let mut ack_set = JoinSet::new();
+        for payload in prepared {
+            match self.enqueue_record(payload.record) {
+                Ok(ack_future) => {
+                    ack_set.spawn(ack_future);
+                }
+                Err(err) => {
+                    // Record enqueue duration on the error path too so slow-fail
+                    // cases (e.g. QueueFull after a long stall) stay observable.
+                    // Dropping `ack_set` when we return Err aborts any already
+                    // spawned ack futures for this batch; DeliveryAckFuture::drop
+                    // then records the "dropped" outcome on
+                    // capture_kafka_produce_ack_duration_ms. This mirrors the
+                    // prep phase's explicit `prep_set.abort_all()`.
+                    histogram!("capture_kafka_batch_enqueue_duration_seconds")
+                        .record(enqueue_start.elapsed().as_secs_f64());
+                    return Err(err);
+                }
+            }
+        }
+        histogram!("capture_kafka_batch_enqueue_duration_seconds")
+            .record(enqueue_start.elapsed().as_secs_f64());
+
+        drain_acks(ack_set).await
+    }
+}
+
+#[async_trait]
+impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
+    /// Publish an already-prepared batch. The mechanism is fail-fast to
+    /// preserve v0's whole-request semantics, so results are batch-uniform:
+    /// all ok, or every payload carrying the batch's error (acks for a failed
+    /// batch are aborted, so no event can honestly claim success).
+    #[instrument(skip_all)]
+    async fn publish(&self, prepared: Vec<PreparedPayload>) -> Vec<SinkResult> {
+        let uuids: Vec<uuid::Uuid> = prepared.iter().map(|p| p.uuid).collect();
+        match self.enqueue_and_drain(prepared).await {
+            Ok(()) => uuids.into_iter().map(SinkResult::ok).collect(),
+            Err(err) => uuids
+                .into_iter()
+                .map(|uuid| SinkResult::err(uuid, err.clone()))
+                .collect(),
+        }
+    }
+
+    fn flush(&self) -> Result<(), anyhow::Error> {
+        self.producer.flush().map_err(|e| anyhow::anyhow!(e))
     }
 }
 
@@ -543,145 +701,18 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         ack_future.instrument(info_span!("ack_wait_one")).await
     }
 
+    /// Bridge onto the mechanism surface: prep → publish → fold. The
+    /// per-event results collapse to today's whole-request response (first
+    /// failure wins), so wire and response semantics are unchanged.
     #[instrument(skip_all)]
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        let batch_size = events.len();
         // Record the batch-size histogram up front so the distribution is a
         // faithful view of batches submitted, not only those that succeeded.
         // Matches the single-event `send` path which records before any await.
-        histogram!("capture_event_batch_size").record(batch_size as f64);
+        histogram!("capture_event_batch_size").record(events.len() as f64);
 
-        // Small-batch fast path. For batches under `SCATTER_GATHER_MIN_BATCH`
-        // the JoinSet spawn overhead dominates any parallel-prep win, so we
-        // stay single-threaded. We keep the scatter-gather path's semantic
-        // "prep error -> no records produced" by prepping all events first
-        // into a Vec, then doing the serial enqueue phase only if all prep
-        // succeeded. Both duration histograms are recorded so dashboards
-        // keep a faithful view of the fast path.
-        if batch_size < SCATTER_GATHER_MIN_BATCH {
-            let prep_start = Instant::now();
-            let mut prepared: Vec<ProduceRecord> = Vec::with_capacity(batch_size);
-            for event in events {
-                match self.prepare_record(event) {
-                    Ok(record) => prepared.push(record),
-                    Err(err) => {
-                        histogram!("capture_kafka_batch_prep_duration_seconds")
-                            .record(prep_start.elapsed().as_secs_f64());
-                        return Err(err);
-                    }
-                }
-            }
-            histogram!("capture_kafka_batch_prep_duration_seconds")
-                .record(prep_start.elapsed().as_secs_f64());
-
-            let enqueue_start = Instant::now();
-            let mut ack_set = JoinSet::new();
-            for record in prepared {
-                match self.enqueue_record(record) {
-                    Ok(ack_future) => {
-                        ack_set.spawn(ack_future);
-                    }
-                    Err(err) => {
-                        // Dropping ack_set aborts any in-flight spawned ack
-                        // futures; DeliveryAckFuture::drop records the
-                        // "dropped" outcome on capture_kafka_produce_ack_duration_ms.
-                        // Mirror of phase-2 behavior in the scatter-gather path.
-                        histogram!("capture_kafka_batch_enqueue_duration_seconds")
-                            .record(enqueue_start.elapsed().as_secs_f64());
-                        return Err(err);
-                    }
-                }
-            }
-            histogram!("capture_kafka_batch_enqueue_duration_seconds")
-                .record(enqueue_start.elapsed().as_secs_f64());
-
-            return drain_acks(ack_set).await;
-        }
-
-        // Phase 1: parallel prep across tokio workers. Each task returns its
-        // input index so we can reassemble results in the original event order
-        // before the serial enqueue phase. This is where the CPU win lives:
-        // payload serialization + header build run concurrently on up to N
-        // worker threads, rather than sequentially on a single task.
-        let prep_start = Instant::now();
-        let mut prep_set: JoinSet<(usize, Result<ProduceRecord, CaptureError>)> = JoinSet::new();
-        for (idx, event) in events.into_iter().enumerate() {
-            let this = self.clone();
-            prep_set.spawn(
-                async move { (idx, this.prepare_record(event)) }
-                    .instrument(info_span!("prepare_record")),
-            );
-        }
-
-        // Collect into a (idx, record) Vec and sort rather than indexing into
-        // a `Vec<Option<ProduceRecord>>`. Encodes the "every slot filled"
-        // invariant in the type: no `Option`, no unreachable `expect`, no
-        // N-element `None` preallocation. Our only cancellation source is
-        // `prep_set.abort_all()` below, invoked only from an already-errored
-        // branch, so any `JoinError` observed during normal drain implies a
-        // panic inside `prepare_record` — counted separately so it's alertable.
-        let mut prepared: Vec<(usize, ProduceRecord)> = Vec::with_capacity(batch_size);
-        while let Some(join_result) = prep_set.join_next().await {
-            let (idx, result) = match join_result {
-                Err(err) => {
-                    counter!("capture_kafka_prep_panic_total").increment(1);
-                    error!("join error while preparing Kafka record: {err:#}");
-                    // Drain remaining prep tasks before returning so they can't
-                    // leak records into librdkafka after we've already failed.
-                    // Record the histogram on the error path too so prep-duration
-                    // stays observable during failures (not just happy path).
-                    prep_set.abort_all();
-                    histogram!("capture_kafka_batch_prep_duration_seconds")
-                        .record(prep_start.elapsed().as_secs_f64());
-                    return Err(CaptureError::RetryableSinkError);
-                }
-                Ok(inner) => inner,
-            };
-            match result {
-                Ok(record) => prepared.push((idx, record)),
-                Err(err) => {
-                    prep_set.abort_all();
-                    histogram!("capture_kafka_batch_prep_duration_seconds")
-                        .record(prep_start.elapsed().as_secs_f64());
-                    return Err(err);
-                }
-            }
-        }
-        prepared.sort_unstable_by_key(|(idx, _)| *idx);
-        debug_assert_eq!(prepared.len(), batch_size);
-        histogram!("capture_kafka_batch_prep_duration_seconds")
-            .record(prep_start.elapsed().as_secs_f64());
-
-        // Phase 2: serial enqueue in original event order. This is the ordering
-        // bottleneck we deliberately keep: librdkafka preserves per-partition
-        // on-wire order by send_result() call order, and same-distinct_id events
-        // hash to the same partition via murmur2. Within-batch same-key ordering
-        // must survive so e.g. $identify lands before subsequent events.
-        let enqueue_start = Instant::now();
-        let mut ack_set = JoinSet::new();
-        for (_, record) in prepared {
-            match self.enqueue_record(record) {
-                Ok(ack_future) => {
-                    ack_set.spawn(ack_future);
-                }
-                Err(err) => {
-                    // Record enqueue duration on the error path too so slow-fail
-                    // cases (e.g. QueueFull after a long stall) stay observable.
-                    // Dropping `ack_set` when we return Err aborts any already
-                    // spawned ack futures for this batch; DeliveryAckFuture::drop
-                    // then records the "dropped" outcome on
-                    // capture_kafka_produce_ack_duration_ms. This is the phase-2
-                    // mirror of phase-1's explicit `prep_set.abort_all()`.
-                    histogram!("capture_kafka_batch_enqueue_duration_seconds")
-                        .record(enqueue_start.elapsed().as_secs_f64());
-                    return Err(err);
-                }
-            }
-        }
-        histogram!("capture_kafka_batch_enqueue_duration_seconds")
-            .record(enqueue_start.elapsed().as_secs_f64());
-
-        drain_acks(ack_set).await
+        let prepared = self.prepare_batch(events).await?;
+        fold_results(self.publish(prepared).await)
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {
@@ -689,7 +720,7 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
     }
 }
 
-/// Phase 3 of `send_batch`: concurrent ack drain, fail-fast on first ack error.
+/// The ack drain: concurrent, fail-fast on first ack error.
 /// Shared between the scatter-gather path and the small-batch serial fast path
 /// so both converge on the same fail-fast + abort-siblings semantics. Dropping
 /// the JoinSet on error aborts remaining spawned ack futures; DeliveryAckFuture

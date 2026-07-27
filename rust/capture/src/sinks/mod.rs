@@ -9,9 +9,12 @@ pub mod print;
 pub mod producer;
 pub mod registry;
 pub mod s3;
+pub mod sink;
 pub mod split;
 #[cfg(test)]
 pub(crate) mod test_sink;
+
+pub use sink::{fold_results, Outcome, PreparedPayload, Sink, SinkResult};
 #[async_trait]
 pub trait Event {
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError>;
