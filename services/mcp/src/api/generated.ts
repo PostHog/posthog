@@ -14171,6 +14171,7 @@ export namespace Schemas {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
+     * * `ultracode` - ultracode
      */
     export type ReasoningEffortEnum = typeof ReasoningEffortEnum[keyof typeof ReasoningEffortEnum];
 
@@ -14181,6 +14182,19 @@ export namespace Schemas {
       High: 'high',
       Xhigh: 'xhigh',
       Max: 'max',
+      Ultracode: 'ultracode',
+    } as const;
+
+    /**
+     * * `200k` - 200k
+     * * `1m` - 1m
+     */
+    export type ContextWindowEnum = typeof ContextWindowEnum[keyof typeof ContextWindowEnum];
+
+
+    export const ContextWindowEnum = {
+      '200k': '200k',
+      '1m': '1m',
     } as const;
 
     /**
@@ -14268,8 +14282,19 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum;
+      /** Context window size for models that support the 1M window.
+       *
+       * * `200k` - 200k
+       * * `1m` - 1m */
+      context_window?: ContextWindowEnum;
+      /**
+         * Enable fast mode for models that support it.
+         * @nullable
+         */
+      fast_mode?: boolean | null;
       /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Claude runtimes.
@@ -14639,8 +14664,19 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum;
+      /** Context window size for models that support the 1M window.
+       *
+       * * `200k` - 200k
+       * * `1m` - 1m */
+      context_window?: ContextWindowEnum;
+      /**
+         * Enable fast mode for models that support it.
+         * @nullable
+         */
+      fast_mode?: boolean | null;
       /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Codex runtimes.
@@ -19117,6 +19153,11 @@ export namespace Schemas {
      * * `Meltwater` - Meltwater
      * * `UserCom` - UserCom
      * * `Latitude` - Latitude
+     * * `Workato` - Workato
+     * * `SideShift` - SideShift
+     * * `DuckLake` - DuckLake
+     * * `Starburst` - Starburst
+     * * `Easybill` - Easybill
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -20371,6 +20412,11 @@ export namespace Schemas {
       Meltwater: 'Meltwater',
       UserCom: 'UserCom',
       Latitude: 'Latitude',
+      Workato: 'Workato',
+      SideShift: 'SideShift',
+      DuckLake: 'DuckLake',
+      Starburst: 'Starburst',
+      Easybill: 'Easybill',
     } as const;
 
     /**
@@ -21638,7 +21684,12 @@ export namespace Schemas {
        * * `Vturb` - Vturb
        * * `Meltwater` - Meltwater
        * * `UserCom` - UserCom
-       * * `Latitude` - Latitude */
+       * * `Latitude` - Latitude
+       * * `Workato` - Workato
+       * * `SideShift` - SideShift
+       * * `DuckLake` - DuckLake
+       * * `Starburst` - Starburst
+       * * `Easybill` - Easybill */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -29226,7 +29277,12 @@ export namespace Schemas {
        * * `Vturb` - Vturb
        * * `Meltwater` - Meltwater
        * * `UserCom` - UserCom
-       * * `Latitude` - Latitude */
+       * * `Latitude` - Latitude
+       * * `Workato` - Workato
+       * * `SideShift` - SideShift
+       * * `DuckLake` - DuckLake
+       * * `Starburst` - Starburst
+       * * `Easybill` - Easybill */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -30507,7 +30563,12 @@ export namespace Schemas {
        * * `Vturb` - Vturb
        * * `Meltwater` - Meltwater
        * * `UserCom` - UserCom
-       * * `Latitude` - Latitude */
+       * * `Latitude` - Latitude
+       * * `Workato` - Workato
+       * * `SideShift` - SideShift
+       * * `DuckLake` - DuckLake
+       * * `Starburst` - Starburst
+       * * `Easybill` - Easybill */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -38311,7 +38372,8 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
@@ -44947,7 +45009,8 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * Presigned S3 URL for log access (valid for 1 hour).
@@ -49860,7 +49923,8 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
@@ -53053,7 +53117,8 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -63328,7 +63393,12 @@ export namespace Schemas {
        * * `Vturb` - Vturb
        * * `Meltwater` - Meltwater
        * * `UserCom` - UserCom
-       * * `Latitude` - Latitude */
+       * * `Latitude` - Latitude
+       * * `Workato` - Workato
+       * * `SideShift` - SideShift
+       * * `DuckLake` - DuckLake
+       * * `Starburst` - Starburst
+       * * `Easybill` - Easybill */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -64622,7 +64692,12 @@ export namespace Schemas {
        * * `Vturb` - Vturb
        * * `Meltwater` - Meltwater
        * * `UserCom` - UserCom
-       * * `Latitude` - Latitude */
+       * * `Latitude` - Latitude
+       * * `Workato` - Workato
+       * * `SideShift` - SideShift
+       * * `DuckLake` - DuckLake
+       * * `Starburst` - Starburst
+       * * `Easybill` - Easybill */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -65908,7 +65983,12 @@ export namespace Schemas {
        * * `Vturb` - Vturb
        * * `Meltwater` - Meltwater
        * * `UserCom` - UserCom
-       * * `Latitude` - Latitude */
+       * * `Latitude` - Latitude
+       * * `Workato` - Workato
+       * * `SideShift` - SideShift
+       * * `DuckLake` - DuckLake
+       * * `Starburst` - Starburst
+       * * `Easybill` - Easybill */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -67391,7 +67471,8 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -67760,8 +67841,19 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum;
+      /** Context window size for models that support the 1M window.
+       *
+       * * `200k` - 200k
+       * * `1m` - 1m */
+      context_window?: ContextWindowEnum;
+      /**
+         * Enable fast mode for models that support it.
+         * @nullable
+         */
+      fast_mode?: boolean | null;
       /** Ephemeral GitHub user token from PostHog Desktop for user-authored cloud pull requests. */
       github_user_token?: string;
       /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
@@ -68373,7 +68465,8 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -69590,7 +69683,8 @@ export namespace Schemas {
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
-       * * `max` - max */
+       * * `max` - max
+       * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
          * Optional sandbox environment to provision before the task is submitted.
