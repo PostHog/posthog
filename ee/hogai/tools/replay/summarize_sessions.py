@@ -1,7 +1,7 @@
 import json
 import asyncio
 from textwrap import dedent
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import structlog
 from pydantic import BaseModel, Field
@@ -38,7 +38,22 @@ from ee.hogai.session_summaries.tracking import (
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.state import prepare_reasoning_progress_message
 
+if TYPE_CHECKING:
+    from posthog.session_recordings.queries.session_replay_events import SessionsWithTimestamps
+
 logger = structlog.get_logger(__name__)
+
+# Recordings were requested but nothing matched at all (empty filter result or unknown session IDs).
+NO_RECORDINGS_MATCHED_MESSAGE = (
+    "No recordings were found for these criteria. Try widening the date range or removing narrow "
+    "filters like a minimum duration or test-account exclusion, then run the summary again."
+)
+# Recordings matched, but none had linked analytics events, so there's nothing to summarize.
+NO_LINKED_EVENTS_MESSAGE = (
+    "Found recordings for these criteria, but none had linked analytics events, so there's nothing "
+    "to summarize. This usually means the events on these sessions aren't tagged with a session ID, "
+    "which can happen with some SDK or consent setups, or when an ad blocker strips analytics events."
+)
 
 
 class SummarizeSessionsToolArgs(BaseModel):
@@ -121,12 +136,14 @@ class SummarizeSessionsTool(MaxTool):
             raise ValueError(msg)
         # If LLM provided no session ids - nothing to summarize
         if not llm_provided_session_ids:
-            return "No sessions were found matching the specified criteria.", None
+            return NO_RECORDINGS_MATCHED_MESSAGE, None
         # Confirm that the sessions provided by the LLM (through filters or explicitly) are true sessions with events (to avoid DB query failures)
-        session_ids = await database_sync_to_async(self._validate_specific_session_ids, thread_sensitive=False)(
+        validation = await database_sync_to_async(self._validate_specific_session_ids, thread_sensitive=False)(
             llm_provided_session_ids
         )
-        # LLM provided session ids, but no actual sessions with events were found
+        # Preserve the original order, keeping only sessions that can actually be summarized
+        session_ids = [sid for sid in llm_provided_session_ids if sid in validation.session_ids]
+        # LLM provided session ids, but no summarizable sessions were found
         if not session_ids:
             llm_provided_input = (
                 recordings_filters_or_explicit_session_ids
@@ -135,12 +152,17 @@ class SummarizeSessionsTool(MaxTool):
             )
             logger.warning(
                 (
-                    f"No sessions with events were found for the LLM-provided session IDs ({llm_provided_session_ids}) "
-                    f"for the source ({llm_provided_session_ids_source}): {llm_provided_input}"
+                    f"No summarizable sessions were found for the LLM-provided session IDs ({llm_provided_session_ids}) "
+                    f"for the source ({llm_provided_session_ids_source}): {llm_provided_input}. "
+                    f"Recordings present in the replay table: {len(validation.replay_session_ids)}"
                 ),
                 signals_type="session-summaries",
             )
-            return "No sessions were found matching the specified criteria.", None
+            # Distinguish "no recording matched" from "recordings matched but had no linked analytics
+            # events", so the user (and support) can tell which of the two dead-ends they hit.
+            if validation.replay_session_ids:
+                return NO_LINKED_EVENTS_MESSAGE, None
+            return NO_RECORDINGS_MATCHED_MESSAGE, None
         # We have session IDs - start tracking
         summary_type: Literal["single", "group"] = (
             "single" if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS else "group"
@@ -452,16 +474,17 @@ class SummarizeSessionsTool(MaxTool):
         )
         return summaries_content, session_group_summary_id, failed_sessions
 
-    def _validate_specific_session_ids(self, session_ids: list[str]) -> list[str] | None:
-        """Validate that specific session IDs exist in the database."""
+    def _validate_specific_session_ids(self, session_ids: list[str]) -> "SessionsWithTimestamps":
+        """Check which of the provided session IDs can actually be summarized.
+
+        A session is summarizable only when it exists in both the replay table and the events table
+        (the summary reads analytics events by $session_id). The returned object also carries
+        ``replay_session_ids`` so the caller can tell "no recording matched" apart from "recordings
+        matched but had no linked analytics events".
+        """
         from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
-        replay_events = SessionReplayEvents()
-        sessions_found = replay_events.sessions_found_with_timestamps(
+        return SessionReplayEvents().sessions_found_with_timestamps(
             session_ids=session_ids,
             team=self._team,
-        ).session_ids
-        if not sessions_found:
-            return None
-        # Preserve the original order, filtering out invalid sessions
-        return [sid for sid in session_ids if sid in sessions_found]
+        )

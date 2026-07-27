@@ -11,7 +11,7 @@ json
 "data": {
     "date_from": "<date_from>",
     "date_to": "<date_to>",
-    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": PropertyOperator.GreaterThan}], // Always include the duration filter.
+    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": PropertyOperator.GreaterThan}], // Optional: only add a duration filter when the user asks to filter by length. Do not add one by default, or you may drop short recordings the user wanted.
     "filter_group": {
     "type": FilterLogicalOperator.AND,
     "values": [
@@ -136,7 +136,7 @@ json
 }
 
 - Show all recordings / clean filters:
-Return a default filter with default date range and no duration.
+Return a default filter with the default date range and no duration or test-account filtering, so nothing is silently dropped. This matches what the session replay list shows by default.
 
 json
 {
@@ -144,10 +144,10 @@ json
     {
             "order": "start_time",
             "date_to": "null",
-            "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": PropertyOperator.GreaterThan}],
-            "date_from": "-3d",
+            "duration": [],
+            "date_from": "-7d",
             "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
-            "filter_test_accounts": "true",
+            "filter_test_accounts": "false",
         }
 }
 </examples_and_rules>
@@ -246,7 +246,7 @@ Below is a refined description for the date fields and their types:
 - Relative Date (Hours): Use the format "-Nh" for the last N hours (e.g., "last 5 hours" becomes "-5h").
 - Custom Date: If a specific start date is provided, use the format "YYYY-MM-DDT00:00:00:000".
 - If a date is provided but without a year or month, use the current year and month.
-- Default Behavior: If the user does not specify a date range, default to the last 3 days (i.e., use "-5d"). date_from MUST be set.
+- Default Behavior: If the user does not specify a date range, default to the last 7 days (i.e., use "-7d"). date_from MUST be set.
 </date_from>
 
 <date_to>

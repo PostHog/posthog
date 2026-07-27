@@ -100,7 +100,7 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         ```
 
         ## Date Range
-        - **date_from**: "-7d" (relative), "2025-01-15" (absolute). Default: "-3d"
+        - **date_from**: "-7d" (relative), "2025-01-15" (absolute). Default: "-7d"
         - **date_to**: null (current time, default) or "2025-01-20" (absolute)
 
         ## Ordering
@@ -108,7 +108,7 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         - **order_direction**: "DESC" (default), "ASC"
 
         ## Test Accounts
-        - **filter_test_accounts**: true (recommended, exclude test accounts), false/null (include all)
+        - **filter_test_accounts**: false/null (include all, default - matches the session replay list), true (exclude test accounts, only when the user asks to)
 
         # Operators by Data Type
         **String**: "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "is_set", "is_not_set"
@@ -129,7 +129,7 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         1. **Property discovery**: ALWAYS use read_taxonomy to discover ALL properties and events before creating filters - never assume they exist
         2. **Don't repeat tool calls**: If a property isn't found, try the next best option
         3. **Minimalism**: Only include essential filters
-        4. **Defaults**: date_from="-3d", duration=[], filter_test_accounts=true
+        4. **Defaults**: date_from="-7d", duration=[], filter_test_accounts=false (match the session replay list; only narrow these when the user asks)
         5. **Duration placement**: Duration filters go in `duration` array, NOT filter_group
         6. **Value types**: Arrays for "exact"/"is_not", single values for comparisons
         7. **Output format**: Valid JSON object only, no markdown or explanatory text

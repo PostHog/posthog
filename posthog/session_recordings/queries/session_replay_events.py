@@ -1,6 +1,6 @@
 import re
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -56,11 +56,17 @@ class SessionTimestamps:
 
 @dataclass(frozen=True)
 class SessionsWithTimestamps:
-    """Sessions present in both replay and events tables, with the whole batch's time bounds."""
+    """Sessions present in both replay and events tables, with the whole batch's time bounds.
+
+    ``replay_session_ids`` is the wider set present in the replay table regardless of whether
+    they also have linked analytics events, so callers can tell "no recording matched" apart
+    from "recordings matched but had no linked analytics events to summarize".
+    """
 
     session_ids: set[str]
     min_timestamp: Optional[datetime]
     max_timestamp: Optional[datetime]
+    replay_session_ids: set[str] = field(default_factory=set)
 
 
 def uuidv7_session_lower_bound(session_id: str, now: datetime | None = None) -> datetime | None:
@@ -295,23 +301,33 @@ class SessionReplayEvents:
         found_sessions = self._find_with_timestamps(session_ids, team)
         if not found_sessions:
             return SessionsWithTimestamps(session_ids=set(), min_timestamp=None, max_timestamp=None)
+        # Sessions present in the replay table, regardless of whether they also have linked events.
+        replay_session_ids = {found.session_id for found in found_sessions}
         # Calculate min/max timestamps for the entire list of sessions
-        replay_session_ids = [found.session_id for found in found_sessions]
         min_timestamp = min(found.min_timestamp for found in found_sessions)
         max_timestamp = max(found.max_timestamp for found in found_sessions)
         # Check which sessions also have events in the events table
-        sessions_with_events = self._find_sessions_in_events(replay_session_ids, min_timestamp, max_timestamp, team)
+        sessions_with_events = self._find_sessions_in_events(
+            list(replay_session_ids), min_timestamp, max_timestamp, team
+        )
         if not sessions_with_events:
-            return SessionsWithTimestamps(session_ids=set(), min_timestamp=None, max_timestamp=None)
+            return SessionsWithTimestamps(
+                session_ids=set(), min_timestamp=None, max_timestamp=None, replay_session_ids=replay_session_ids
+            )
         # Filter to only sessions that exist in both tables
         session_ids_found = {found.session_id for found in found_sessions if found.session_id in sessions_with_events}
         if not session_ids_found:
-            return SessionsWithTimestamps(session_ids=set(), min_timestamp=None, max_timestamp=None)
+            return SessionsWithTimestamps(
+                session_ids=set(), min_timestamp=None, max_timestamp=None, replay_session_ids=replay_session_ids
+            )
         # Recalculate timestamps for filtered sessions only
         min_timestamp = min(found.min_timestamp for found in found_sessions if found.session_id in session_ids_found)
         max_timestamp = max(found.max_timestamp for found in found_sessions if found.session_id in session_ids_found)
         return SessionsWithTimestamps(
-            session_ids=session_ids_found, min_timestamp=min_timestamp, max_timestamp=max_timestamp
+            session_ids=session_ids_found,
+            min_timestamp=min_timestamp,
+            max_timestamp=max_timestamp,
+            replay_session_ids=replay_session_ids,
         )
 
     @staticmethod

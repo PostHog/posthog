@@ -271,6 +271,9 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         assert sessions == set()
         assert min_ts is None
         assert max_ts is None
+        # Nothing existed in the replay table either, so callers can tell this apart from the
+        # "recordings exist but have no linked events" case below.
+        assert result.replay_session_ids == set()
 
     def test_sessions_found_with_timestamps_single_session(self) -> None:
         result = SessionReplayEvents().sessions_found_with_timestamps(
@@ -335,6 +338,9 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         assert sessions == set()
         assert min_ts is None
         assert max_ts is None
+        # The recordings do exist in the replay table, they just have no linked analytics events.
+        # Callers rely on this to explain the "recordings matched but nothing to summarize" case.
+        assert result.replay_session_ids == {"no_events_1", "no_events_2"}
 
 
 def _uuidv7_session_id_for(ts) -> str:
