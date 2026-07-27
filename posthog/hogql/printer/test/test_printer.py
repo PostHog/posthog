@@ -451,15 +451,22 @@ class TestPrinter(BaseTest):
         [
             ("union all by name", "UNION ALL"),
             ("union by name", "UNION DISTINCT"),
-            ("intersect by name", "INTERSECT"),
-            ("except by name", "EXCEPT"),
         ]
     )
-    def test_by_name_lowered_for_clickhouse(self, operator: str, lowered: str):
+    def test_union_by_name_lowered_for_clickhouse(self, operator: str, lowered: str):
         response = self._select(f"select 1 as a, 2 as b {operator} select 3 as b, 4 as a")
         self.assertNotIn("BY NAME", response)
         self.assertIn(f" {lowered} ", response)
         self.assertIn("SELECT 4 AS a, 3 AS b", response)
+
+    @parameterized.expand([("intersect by name",), ("except by name",)])
+    def test_intersect_except_by_name_rejected_for_clickhouse(self, operator: str):
+        # INTERSECT/EXCEPT bind tighter than UNION, so aligning their operand to the first branch
+        # rather than the true set partner would silently mispair columns. No engine supports them,
+        # so they are refused rather than lowered.
+        with self.assertRaises(QueryError) as context:
+            self._select(f"select 1 as a, 2 as b {operator} select 3 as b, 4 as a")
+        self.assertIn("is not supported", str(context.exception))
 
     def test_union_by_name_executes_on_clickhouse(self):
         sql = self._select("select 1 as a, 2 as b union all by name select 3 as b, 4 as a")
@@ -482,6 +489,11 @@ class TestPrinter(BaseTest):
                 "unexpected: b",
             ),
             (
+                "same_arity_renamed_column",
+                "select 1 as a, 2 as b union all by name select 3 as a, 4 as c",
+                "missing: b",
+            ),
+            (
                 "duplicate_columns",
                 "select uuid, uuid from events union all by name select uuid from events",
                 "uniquely named columns",
@@ -499,9 +511,13 @@ class TestPrinter(BaseTest):
         self.assertIn(expected_error, str(context.exception))
 
     def test_union_by_name_remaps_positional_order_by(self):
-        response = self._select("select 1 as a, 2 as b union all by name select 3 as b, 4 as a order by 1")
-        self.assertIn("SELECT 4 AS a, 3 AS b", response)
-        self.assertIn("ORDER BY 2", response)
+        # `order by 2` on the reordered branch must still sort by the column the user meant. ClickHouse
+        # binds a trailing ORDER BY to the last operand, so this needs multiple rows to be observable —
+        # a string check alone passes even when the ordinal points at the wrong column.
+        sql = self._select(
+            "select 0 as x, 0 as y union all by name select number as y, (10 - number) as x from numbers(3) order by 2"
+        )
+        self.assertEqual(sync_execute(sql), [(0, 0), (8, 2), (9, 1), (10, 0)])
 
     def test_union_by_name_kept_for_postgres_dialect(self):
         response, _ = prepare_and_print_ast(
@@ -511,6 +527,18 @@ class TestPrinter(BaseTest):
         )
         self.assertIn("UNION ALL BY NAME", response)
         self.assertIn("SELECT 3 AS b, 4 AS a", response)
+
+    @parameterized.expand([("intersect by name",), ("except by name",)])
+    def test_intersect_except_by_name_rejected_for_postgres_dialect(self, operator: str):
+        # DuckDB supports UNION BY NAME natively but rejects INTERSECT/EXCEPT BY NAME, so the postgres
+        # printer must refuse them rather than emit SQL DuckDB won't run.
+        with self.assertRaises(QueryError) as context:
+            prepare_and_print_ast(
+                parse_select(f"select 1 as a, 2 as b {operator} select 3 as b, 4 as a"),
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                "postgres",
+            )
+        self.assertIn("is not supported", str(context.exception))
 
     @parameterized.expand([("mysql",), ("snowflake",), ("redshift",)])
     def test_by_name_rejected_in_warehouse_dialects(self, dialect: str):

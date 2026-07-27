@@ -415,13 +415,21 @@ class Resolver(CloningVisitor):
         return result
 
     def _lower_by_name_operators(self, node: ast.SelectSetQuery) -> None:
-        """ClickHouse has no `UNION/INTERSECT/EXCEPT ... BY NAME` syntax, so the operator cannot be
-        printed there. Lower it instead: reorder each BY NAME operand's select lists to the first
-        branch's column order and emit the plain operator. Dialects with native support (DuckDB behind
-        the postgres printer) keep the operator untouched. Differing column sets raise here, where
-        DuckDB's native BY NAME would null-fill — the error tells the user how to close the gap."""
+        """ClickHouse has no `UNION ... BY NAME` syntax, so the operator cannot be printed there. Lower
+        it instead: reorder each BY NAME operand's select lists to the first branch's column order and
+        emit the plain operator. Dialects with native support (DuckDB behind the postgres printer) keep
+        the operator untouched. Differing column sets raise here, where DuckDB's native BY NAME would
+        null-fill — the error tells the user how to close the gap.
+
+        Only UNION variants are lowered. INTERSECT/EXCEPT BY NAME bind tighter than UNION, so their
+        real set partner is the preceding operand rather than the first branch; aligning to the first
+        branch would silently misalign them. No engine we target supports them either, so they are
+        refused rather than lowered."""
         if self.dialect != "clickhouse":
             return
+        for sub in node.subsequent_select_queries:
+            if sub.set_operator.endswith(_BY_NAME_SUFFIX) and not sub.set_operator.startswith("UNION "):
+                raise QueryError(f"{sub.set_operator} is not supported in the '{self.dialect}' dialect")
         if not any(sub.set_operator.endswith(_BY_NAME_SUFFIX) for sub in node.subsequent_select_queries):
             return
         initial = node.initial_select_query
