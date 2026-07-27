@@ -46,7 +46,7 @@ def get_resource(name: str) -> EndpointResource:
 
     # Only set data_selector for endpoints that return wrapped responses {data: [...], total_count: ...}
     if config.is_wrapped_response:
-        endpoint_config["data_selector"] = "data"
+        endpoint_config["data_selector"] = config.data_key
 
     return {
         "name": config.name,
@@ -60,10 +60,11 @@ def get_resource(name: str) -> EndpointResource:
 class ClerkPaginator(BasePaginator):
     """Paginator for Clerk API using offset-based pagination."""
 
-    def __init__(self, limit: int = 100) -> None:
+    def __init__(self, limit: int = 100, data_key: str = "data") -> None:
         super().__init__()
         self._limit = limit
         self._offset = 0
+        self._data_key = data_key
 
     def init_request(self, request: Request) -> None:
         # Emit the seeded offset on the first request so resume starts from the
@@ -91,9 +92,10 @@ class ClerkPaginator(BasePaginator):
         # Clerk endpoints return either:
         # - Direct array: /users, /invitations
         # - Wrapped object {data: [...], total_count: ...}: /organizations, /organization_memberships
+        #   (/m2m_tokens wraps under `m2m_tokens` instead of `data`)
         total_count: Optional[int] = None
-        if isinstance(res, dict) and "data" in res:
-            items = res["data"]
+        if isinstance(res, dict) and self._data_key in res:
+            items = res[self._data_key]
             raw_total = res.get("total_count")
             if isinstance(raw_total, int):
                 total_count = raw_total
@@ -143,6 +145,17 @@ TIMESTAMP_FIELDS = [
     "password_last_updated_at",
     "legal_accepted_at",
     "expires_at",  # invitations
+    "expire_at",  # sessions
+    "abandon_at",  # sessions
+    "expiration",  # api_keys, m2m_tokens
+    "last_used_at",  # api_keys, m2m_tokens
+    "idp_certificate_issued_at",  # saml_connections
+    "idp_certificate_expires_at",  # saml_connections
+    "period_start",  # commerce_subscription_items
+    "period_end",  # commerce_subscription_items
+    "canceled_at",  # commerce_subscription_items
+    "past_due_at",  # commerce_subscription_items
+    "ended_at",  # commerce_subscription_items
 ]
 
 
@@ -201,7 +214,7 @@ def clerk_source(
             "headers": {
                 "Content-Type": "application/json",
             },
-            "paginator": ClerkPaginator(limit=endpoint_config.page_size),
+            "paginator": ClerkPaginator(limit=endpoint_config.page_size, data_key=endpoint_config.data_key),
         },
         "resource_defaults": {
             "write_disposition": "replace",
@@ -234,6 +247,13 @@ def clerk_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     ).add_map(_convert_timestamps)
+
+    if endpoint_config.partition_key is None:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: resource,
+            primary_keys=["id"],
+        )
 
     return SourceResponse(
         name=endpoint,
