@@ -125,23 +125,49 @@ class TestDeepenToWidestWarmableRange(BaseTest):
     def test_deepening(
         self, _name: str, representative_from: str, observed: list[str], max_days: int, expected_from: str
     ) -> None:
-        query = {"kind": "WebOverviewQuery", "dateRange": {"date_from": representative_from}}
+        query = {
+            "kind": "WebOverviewQuery",
+            "useWebAnalyticsPrecompute": True,
+            "dateRange": {"date_from": representative_from},
+        }
 
         result = deepen_to_widest_warmable_range(query, observed, max_days)
 
         self.assertEqual(result["dateRange"]["date_from"], expected_from)
 
-    def test_preserves_other_date_range_keys(self) -> None:
-        # Deepening only moves date_from; date_to and flags must survive, or a
-        # widened replay would silently shift the window it precomputes.
-        query = {
-            "kind": "WebStatsTableQuery",
-            "dateRange": {"date_from": "-7d", "date_to": "-1d", "explicitDate": True},
-        }
-
-        result = deepen_to_widest_warmable_range(query, ["-7d", "-90d"], 180)
-
-        self.assertEqual(result["dateRange"], {"date_from": "-90d", "date_to": "-1d", "explicitDate": True})
+    @parameterized.expand(
+        [
+            # Deepening is confined to the lazy path and open-ended ranges, so each
+            # of these must ignore the deeper -90d sibling. Opted-out and non-lazy
+            # shapes replay raw — a deeper scan there is background load the tenant
+            # never ran, counted only at the shallow variant. A fixed date_to can't
+            # be paired with another variant's date_from (normalization dropped
+            # which endpoints went together), so splicing -90d onto it could
+            # reverse or balloon the span.
+            (
+                "opted_out",
+                {"kind": "WebOverviewQuery", "useWebAnalyticsPrecompute": False, "dateRange": {"date_from": "-7d"}},
+            ),
+            (
+                "non_lazy_kind",
+                {
+                    "kind": "WebExternalClicksTableQuery",
+                    "useWebAnalyticsPrecompute": True,
+                    "dateRange": {"date_from": "-7d"},
+                },
+            ),
+            (
+                "explicit_date_to",
+                {
+                    "kind": "WebOverviewQuery",
+                    "useWebAnalyticsPrecompute": True,
+                    "dateRange": {"date_from": "-7d", "date_to": "-1d"},
+                },
+            ),
+        ]
+    )
+    def test_leaves_non_lazy_or_bounded_ranges_untouched(self, _name: str, query: dict) -> None:
+        self.assertIs(deepen_to_widest_warmable_range(query, ["-7d", "-90d"], 180), query)
 
 
 class TestBuildReplayRunner(BaseTest):
@@ -156,7 +182,16 @@ class TestBuildReplayRunner(BaseTest):
         reset_query_tags()
         super().tearDown()
 
-    def test_lazy_eligible_shape_keeps_widened_range(self) -> None:
+    @parameterized.expand(
+        [
+            # No deep demand: a sub-30d shape widens to the standard warm depth.
+            ("no_deep_demand_widens_to_30d", [], "-30d"),
+            # Deep demand: the replay deepens to the widest range the shape needs,
+            # past the -30d default — so one warm covers the -90d variant too.
+            ("deep_demand_deepens", ["-7d", "-90d"], "-90d"),
+        ]
+    )
+    def test_lazy_eligible_shape_range(self, _name: str, observed: list[str], expected_from: str) -> None:
         # Under the warming tag even a non-enrolled team widens: building
         # buckets for not-yet-enrolled teams is the warmer's purpose.
         query = {
@@ -166,19 +201,19 @@ class TestBuildReplayRunner(BaseTest):
             "dateRange": {"date_from": "-7d"},
         }
 
-        runner, used_json, lazy_eligible = build_replay_runner(self.team, query)
+        runner, used_json, lazy_eligible = build_replay_runner(self.team, query, observed)
 
         self.assertIsNotNone(runner)
         self.assertTrue(lazy_eligible)
-        self.assertEqual(used_json["dateRange"]["date_from"], "-30d")
+        self.assertEqual(used_json["dateRange"]["date_from"], expected_from)
 
     @parameterized.expand(
         [
-            # Shapes every lazy family rejects execute on the raw path — a
-            # widened replay there is a 30-day scan the tenant never ran,
-            # outside their request throttles. If this stops falling back, the
-            # warmer becomes a background-load amplifier for mintable
-            # ineligible shapes.
+            # Shapes every lazy family rejects execute on the raw path — a deepened
+            # or widened replay there is a scan the tenant never ran, outside their
+            # request throttles. The deep -90d demand below must NOT be adopted:
+            # its count belongs to the shallow variant, and the raw guard would let
+            # it through, so an ineligible shape would replay a 90-day scan hourly.
             ("conversion_goal", {"kind": "WebOverviewQuery", "conversionGoal": {"customEventName": "purchase"}}),
             # Passes the shared gate; rejected by all three stats families
             # (paths/frustration: wrong breakdown, simple: bounce rate).
@@ -196,7 +231,7 @@ class TestBuildReplayRunner(BaseTest):
             **extra,
         }
 
-        runner, used_json, lazy_eligible = build_replay_runner(self.team, query)
+        runner, used_json, lazy_eligible = build_replay_runner(self.team, query, ["-7d", "-90d"])
 
         self.assertIsNotNone(runner)
         self.assertFalse(lazy_eligible)
@@ -211,7 +246,7 @@ class TestBuildReplayRunner(BaseTest):
             "dateRange": {"date_from": "-7d"},
         }
 
-        runner, used_json, lazy_eligible = build_replay_runner(self.team, query)
+        runner, used_json, lazy_eligible = build_replay_runner(self.team, query, [])
 
         self.assertIsNotNone(runner)
         self.assertFalse(lazy_eligible)
@@ -221,13 +256,12 @@ class TestBuildReplayRunner(BaseTest):
 class TestFleetQuerySelection(BaseTest):
     @patch("products.web_analytics.dags.cache_warming.sync_execute")
     def test_parses_fleet_rows_into_query_infos(self, mock_exec: MagicMock) -> None:
-        # Guards the row-shape contract with the selection SQL and the wiring of
-        # both new columns: the summed and representative counts are distinct (the
-        # raw guard keys on the representative, so they must not be swapped), and
-        # observed_date_froms must reach deepening. Row 1's demand reaches -90d, so
-        # the replay deepens off its -7d representative; row 2's only range is a
-        # variable preset, so it stays exactly as selected. A column reorder, a
-        # dropped column, or a broken deepen call fails here.
+        # Guards the row-shape contract with the selection SQL: the summed and
+        # representative counts are distinct columns (the raw guard keys on the
+        # representative, so they must not be swapped), and observed_date_froms is
+        # carried through untouched for build_replay_runner to deepen later — the
+        # selection output keeps each shape's faithful representative range. A
+        # column reorder or dropped column fails here.
         mock_exec.return_value = [
             (101, '{"kind": "WebOverviewQuery", "dateRange": {"date_from": "-7d"}}', 50, 8, "hash-a", ["-7d", "-90d"]),
             (202, '{"kind": "WebStatsTableQuery"}', 12, 12, "hash-b", ["mStart"]),
@@ -239,10 +273,11 @@ class TestFleetQuerySelection(BaseTest):
             [
                 {
                     "team_id": 101,
-                    "query_json": {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-90d"}},
+                    "query_json": {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-7d"}},
                     "query_count": 50,
                     "representative_query_count": 8,
                     "normalized_query_hash": "hash-a",
+                    "observed_date_froms": ["-7d", "-90d"],
                 },
                 {
                     "team_id": 202,
@@ -250,6 +285,7 @@ class TestFleetQuerySelection(BaseTest):
                     "query_count": 12,
                     "representative_query_count": 12,
                     "normalized_query_hash": "hash-b",
+                    "observed_date_froms": ["mStart"],
                 },
             ],
         )

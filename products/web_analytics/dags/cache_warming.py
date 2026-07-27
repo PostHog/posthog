@@ -182,7 +182,7 @@ def _is_within_30_days(date_from: str | None) -> bool:
 
 
 def deepen_to_widest_warmable_range(query_json: dict, observed_date_froms: list[str], max_days: int) -> dict:
-    """Point a shape's replay at the deepest -Nd/-Nw/-Nh range its own demand
+    """Point a lazy-path replay at the deepest -Nd/-Nw/-Nh range its own demand
     covers, capped at max_days.
 
     Fragmentation grouping collapses every date-range variant of a shape into one
@@ -191,8 +191,24 @@ def deepen_to_widest_warmable_range(query_json: dict, observed_date_froms: list[
     buckets every narrower variant reuses — otherwise a shape whose deepest demand
     is -90d but whose representative is -7d only warms 30 days, and each -90d
     request cold-builds the 31-90d tail inline. Ranges past max_days can't be
-    precomputed at all, so they're excluded rather than picked and rejected.
+    precomputed, so they're excluded.
+
+    Deepening is confined to shapes the lazy path will serve, and only to
+    open-ended ("to now") ranges. A raw-path shape must replay its faithful range
+    — a deeper raw scan is background load the tenant never ran, and its demand
+    was only counted at the shallow variant. And a fixed date_to can't be paired
+    with another variant's date_from (normalization dropped which endpoints went
+    together), so splicing one in could reverse or balloon the span. This mirrors
+    maybe_expand_warming_date_range's gate; build_replay_runner applies both before
+    the eligibility check and falls back to the untouched range for the raw path.
     """
+    if query_json.get("kind") not in LAZY_PRECOMPUTE_QUERY_KINDS:
+        return query_json
+    if query_json.get("useWebAnalyticsPrecompute") is not True:
+        return query_json
+    date_range = query_json.get("dateRange") or {}
+    if date_range.get("date_to"):
+        return query_json
     depths = [
         (days, date_from)
         for date_from in observed_date_froms
@@ -201,7 +217,6 @@ def deepen_to_widest_warmable_range(query_json: dict, observed_date_froms: list[
     if not depths:
         return query_json
     _, deepest = max(depths)
-    date_range = query_json.get("dateRange") or {}
     return {**query_json, "dateRange": {**date_range, "date_from": deepest}}
 
 
@@ -243,34 +258,45 @@ def _is_lazy_eligible(runner: "QueryRunner", query_json: dict) -> bool:
     return any(check(runner) for check in family_checks)
 
 
-def build_replay_runner(team: Team, query_json: dict) -> tuple[Optional["QueryRunner"], dict, bool]:
-    """Build the runner for a warming replay, widening the date range only for
-    shapes the lazy path will actually serve. Returns (runner, replay json,
-    lazy-eligible) — the caller holds raw-path replays to a higher demand bar.
+def build_replay_runner(
+    team: Team, query_json: dict, observed_date_froms: list[str]
+) -> tuple[Optional["QueryRunner"], dict, bool]:
+    """Build the runner for a warming replay, deepening and widening the date
+    range only for shapes the lazy path will actually serve. Returns (runner,
+    replay json, lazy-eligible) — the caller holds raw-path replays to a higher
+    demand bar.
 
     The per-query opt-in does not guarantee the lazy path: shapes the gates
     reject (conversion goals, sampling, unsupported breakdowns/metrics like
-    bounce rate, …) execute on the raw path, where a widened replay would be a
-    30-day scan the tenant never ran — background load outside their request
-    throttles, mintable up to MAX_SHAPES_PER_TEAM per hour. Those shapes replay
-    with their faithful original range instead. Eligibility is decided by the
-    same per-family `can_use_lazy_precompute` dispatch the runner uses, so this
+    bounce rate, …) execute on the raw path, where a deepened or widened replay
+    would be a scan the tenant never ran — up to MAX_PRECOMPUTE_DAYS wide,
+    background load outside their request throttles, mintable up to
+    MAX_SHAPES_PER_TEAM per hour, and its demand was only ever counted at the
+    shallow variant. Those shapes replay with their faithful original range
+    instead. Eligibility is decided by the same per-family
+    `can_use_lazy_precompute` dispatch the runner uses, so this
     check and execution can't disagree. Under the warming tag the enrollment
     gate is bypassed by design — building buckets for not-yet-enrolled teams is
     the warmer's purpose — so the decision rests on the shape itself.
     """
-    expanded_json = maybe_expand_warming_date_range(query_json)
-    if expanded_json is query_json:
+    # The lazy candidate: deepen to the widest range the shape's demand covers,
+    # then widen a sub-30d range up to the standard warm depth. Both are no-ops
+    # off the lazy path, so an unchanged result means nothing to try there.
+    lazy_json = maybe_expand_warming_date_range(
+        deepen_to_widest_warmable_range(query_json, observed_date_froms, MAX_PRECOMPUTE_DAYS)
+    )
+    if lazy_json is query_json:
         runner = get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
         if runner is None:
             return None, query_json, False
         return runner, query_json, _is_lazy_eligible(runner, query_json)
 
-    runner = get_query_runner_or_none(query=expanded_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
+    runner = get_query_runner_or_none(query=lazy_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
     if runner is None:
-        return None, expanded_json, False
-    if _is_lazy_eligible(runner, expanded_json):
-        return runner, expanded_json, True
+        return None, lazy_json, False
+    if _is_lazy_eligible(runner, lazy_json):
+        return runner, lazy_json, True
+    # Raw path: replay the faithful original range, never the deepened/widened one.
     return (
         get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC),
         query_json,
@@ -451,10 +477,13 @@ def queries_to_keep_fresh(
     return [
         {
             "team_id": result[0],
-            "query_json": deepen_to_widest_warmable_range(json.loads(result[1]), result[5], MAX_PRECOMPUTE_DAYS),
+            # Faithful representative range — deepening happens in
+            # build_replay_runner, gated on lazy eligibility, off the raw path.
+            "query_json": json.loads(result[1]),
             "query_count": result[2],
             "representative_query_count": result[3],
             "normalized_query_hash": result[4],
+            "observed_date_froms": result[5],
         }
         for result in results
     ]
@@ -478,7 +507,7 @@ def queries_to_keep_fresh(
 # selection query (new filter, different grouping) would otherwise keep replaying
 # a stale blob written by the old logic until its TTL expired. Bump the version
 # whenever the selection query changes so the new logic takes effect on deploy.
-_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v4.json.gz"
+_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v5.json.gz"
 
 
 def _read_cached_warmable_queries(
@@ -600,7 +629,9 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             # None only for kinds without a get_query_runner branch — the backstop
             # for runnerless kinds the selection doesn't know to exclude yet.
             # Validation errors on supported kinds still raise into the failure path.
-            runner, query_json, lazy_eligible = build_replay_runner(team, query_json)
+            runner, query_json, lazy_eligible = build_replay_runner(
+                team, query_json, query_info.get("observed_date_froms", [])
+            )
             if runner is None:
                 WARMING_QUERIES_COUNTER.labels(outcome="unsupported").inc()
                 return "unsupported"
