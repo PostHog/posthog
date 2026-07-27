@@ -107,7 +107,7 @@ env:
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so the merge-base (PR)
     # and HEAD (push) key computations below can't drift.
     # ci-e2e-playwright.yml, ci-dagster.yml, and ci-mcp.yml restore by the same key; keep their copies in sync when bumping.
-    SCHEMA_CACHE_EPOCH: v1
+    SCHEMA_CACHE_EPOCH: v2
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -499,6 +499,8 @@ jobs:
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
+                  # Routing decides which app labels are in the dump, and ci-mcp replays them from the PR's copy of this file, so it belongs in the key.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml)
                   PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   # A blobless checkout fetches docker-compose.base.yml lazily, so git show can come back empty without failing.
@@ -509,7 +511,7 @@ jobs:
                       echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
                   else
-                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
             - name: Install pnpm dependencies
@@ -1106,6 +1108,8 @@ jobs:
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
+                  # Routing decides which app labels are in the dump, and ci-mcp replays them from the PR's copy of this file, so it belongs in the key.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml)
                   PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   # A blobless checkout fetches docker-compose.base.yml lazily, so git show can come back empty without failing.
@@ -1116,7 +1120,7 @@ jobs:
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "::notice::no migration files matched, so master's schema will be rebuilt by a full migrate"
                   else
-                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
             - name: Restore master schema dump from cache
@@ -1216,6 +1220,8 @@ jobs:
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
+                  # Routing decides which app labels are in the dump, and ci-mcp replays them from the PR's copy of this file, so it belongs in the key.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml)
                   PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   # A blobless checkout fetches docker-compose.base.yml lazily, so git show can come back empty without failing.
@@ -1226,7 +1232,7 @@ jobs:
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "::notice::no migration files matched — skipping migration-set schema save"
                   else
-                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
             - name: Save schema to Actions cache (migration-set key)

@@ -264,7 +264,7 @@ jobs:
                   IS_PUSH: ${{ github.event_name == 'push' }}
                   # Manual cache-bust knob — keep in sync with SCHEMA_CACHE_EPOCH in
                   # ci-backend.yml, which saves these caches on master pushes.
-                  SCHEMA_CACHE_EPOCH: v1
+                  SCHEMA_CACHE_EPOCH: v2
               run: |
                   if [ "$IS_PUSH" = "true" ]; then
                       # Pushed commit is checked out directly — no merge commit, no base ref.
@@ -292,6 +292,8 @@ jobs:
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
+                  # Routing decides which app labels are in the dump, and ci-mcp replays them from the PR's copy of this file, so it belongs in the key.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" -- products/db_routing.yaml)
                   PG_IMAGE=$(git show "${REF}:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   # A blobless checkout fetches docker-compose.base.yml lazily, so git show can come back empty without failing.
@@ -302,7 +304,7 @@ jobs:
                       echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
                   else
-                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
