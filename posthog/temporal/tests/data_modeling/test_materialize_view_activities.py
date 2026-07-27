@@ -1,5 +1,6 @@
+import asyncio
 import contextlib
-from collections.abc import Collection, Iterable
+from collections.abc import AsyncIterator, Collection, Iterable
 from typing import Any, cast
 
 import pytest
@@ -11,6 +12,8 @@ from django.test import override_settings
 import pyarrow as pa
 import deltalake
 import pytest_asyncio
+
+from posthog.hogql.resolver import ResolverFactory
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import (
@@ -33,6 +36,7 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
 )
 
 from products.data_modeling.backend.facade.api import compute_enrichment_hash
+from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import (
     DAG,
     DataModelingJob,
@@ -1058,6 +1062,8 @@ class TestMaterializeViewActivity:
 
 
 class _EmptyArrowClient:
+    describe_body = b"id\tInt64\n"
+
     def __init__(self, schema: pa.Schema):
         self.schema = schema
         self.arrow_query_calls = 0
@@ -1073,7 +1079,7 @@ class _EmptyArrowClient:
     @contextlib.asynccontextmanager
     async def apost_query(self, query, *data, query_parameters=None, query_id=None):
         if query.startswith("DESCRIBE TABLE"):
-            body = b"id\tInt64\n"
+            body = self.describe_body
         else:
             self.schema_query_calls += 1
             buffer = pa.BufferOutputStream()
@@ -1109,3 +1115,48 @@ class TestHogqlTableEmptyResults:
         assert batches[0][0].num_rows == 0
         assert client.arrow_query_calls == 1
         assert client.schema_query_calls == 0
+
+
+class _SlowDescribeClient(_EmptyArrowClient):
+    describe_body = b"ts\tDateTime\n"
+
+    def __init__(self, schema: pa.Schema, describe_seconds: float):
+        super().__init__(schema)
+        self.describe_seconds = describe_seconds
+
+    @contextlib.asynccontextmanager
+    async def apost_query(self, query, *data, query_parameters=None, query_id=None):
+        await asyncio.sleep(self.describe_seconds)
+        async with super().apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+            yield response
+
+
+class TestHogqlTableResolutionDeadline:
+    async def test_slow_describe_does_not_exhaust_the_resolution_deadline(self, ateam):
+        # regression: a DateTime column sends hogql_table back through prepare_ast_for_printing to
+        # wrap the select in toTimeZone. That second pass used to share the first pass's deadline
+        # anchor, so a DESCRIBE slower than the deadline made it raise ResolutionTimeoutError.
+        deadline_seconds = 1.0
+        client = _SlowDescribeClient(
+            pa.schema([pa.field("ts", pa.timestamp("us"))]), describe_seconds=deadline_seconds + 0.2
+        )
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_SlowDescribeClient]:
+            yield client
+
+        def short_deadline_factory(view_name: str | None, **kwargs: Any) -> ResolverFactory:
+            return bounded_resolver_factory_for_view(view_name, **{**kwargs, "deadline_seconds": deadline_seconds})
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.bounded_resolver_factory_for_view",
+                short_deadline_factory,
+            ),
+        ):
+            batches = [batch async for batch in hogql_table("SELECT now() AS ts", ateam, LOGGER.bind())]
+
+        assert [name for name, _ in batches[0][1]] == ["ts"]

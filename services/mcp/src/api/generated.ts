@@ -3673,6 +3673,14 @@ export namespace Schemas {
       InitialUTMTerm: 'InitialUTMTerm',
       InitialUTMContent: 'InitialUTMContent',
       InitialUTMSourceMediumCampaign: 'InitialUTMSourceMediumCampaign',
+      FirstPageviewChannelType: 'FirstPageviewChannelType',
+      FirstPageviewReferringDomain: 'FirstPageviewReferringDomain',
+      FirstPageviewUTMSource: 'FirstPageviewUTMSource',
+      FirstPageviewUTMCampaign: 'FirstPageviewUTMCampaign',
+      FirstPageviewUTMMedium: 'FirstPageviewUTMMedium',
+      FirstPageviewUTMTerm: 'FirstPageviewUTMTerm',
+      FirstPageviewUTMContent: 'FirstPageviewUTMContent',
+      FirstPageviewUTMSourceMediumCampaign: 'FirstPageviewUTMSourceMediumCampaign',
       Browser: 'Browser',
       Os: 'OS',
       Viewport: 'Viewport',
@@ -14891,6 +14899,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `conversation` - conversation
+     * * `review` - review
+     */
+    export type CommentTypeEnum = typeof CommentTypeEnum[keyof typeof CommentTypeEnum];
+
+
+    export const CommentTypeEnum = {
+      Conversation: 'conversation',
+      Review: 'review',
+    } as const;
+
+    /**
      * Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
      * repository default branch.
      */
@@ -15231,6 +15251,11 @@ export namespace Schemas {
       readonly task: ConversationTask | null;
     }
 
+    export interface ConversationsTicketImage {
+      url: string;
+      author: string;
+    }
+
     export interface ConversationsTicketSignalExtra {
       ticket_number: number;
       channel_source: string;
@@ -15239,6 +15264,7 @@ export namespace Schemas {
       priority: string | null;
       created_at: string;
       email_subject: string | null;
+      images?: ConversationsTicketImage[] | null;
     }
 
     export interface ConversionGoalSummary {
@@ -17298,7 +17324,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.
+      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
        *
        * * `never` - never
        * * `15min` - 15min
@@ -17310,6 +17336,8 @@ export namespace Schemas {
        * * `7day` - 7day
        * * `30day` - 30day */
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
+      /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
+      readonly sync_frequency_managed_by_dag: boolean;
       readonly columns: readonly DataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *
@@ -17474,6 +17502,8 @@ export namespace Schemas {
       readonly description: string;
       /** @nullable */
       readonly sync_frequency: string | null;
+      /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
+      readonly sync_frequency_managed_by_dag: boolean;
       readonly columns: readonly DataWarehouseSavedQueryMinimalColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *
@@ -22275,6 +22305,15 @@ export namespace Schemas {
      */
     export type EarlyAccessFeaturePayload = { [key: string]: unknown };
 
+    /**
+     * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+     * @nullable
+     */
+    export type EarlyAccessFeatureAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null;
+
     export type MinimalFeatureFlagFilters = { [key: string]: unknown };
 
     export interface MinimalFeatureFlag {
@@ -22358,12 +22397,28 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
       readonly created_at: string;
+      /** The user who created this early access feature. Null for features created before creator tracking was added. */
+      readonly created_by: UserBasic | null;
+      /**
+         * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+         * @nullable
+         */
+      readonly assignee: EarlyAccessFeatureAssignee;
       /**
          * The effective access level the user has for this object
          * @nullable
          */
       readonly user_access_level: string | null;
     }
+
+    /**
+     * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+     * @nullable
+     */
+    export type EarlyAccessFeatureSerializerCreateOnlyAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null;
 
     /**
      * Mixin for serializers to add user access control fields
@@ -22394,6 +22449,13 @@ export namespace Schemas {
       /** Arbitrary JSON metadata associated with this feature. */
       payload?: unknown;
       readonly created_at: string;
+      /** The user who created this early access feature. Null for features created before creator tracking was added. */
+      readonly created_by: UserBasic | null;
+      /**
+         * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+         * @nullable
+         */
+      readonly assignee: EarlyAccessFeatureSerializerCreateOnlyAssignee;
       /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate. */
       feature_flag_id?: number;
       readonly feature_flag: MinimalFeatureFlag;
@@ -47208,7 +47270,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.
+      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
        *
        * * `never` - never
        * * `15min` - 15min
@@ -47220,6 +47282,8 @@ export namespace Schemas {
        * * `7day` - 7day
        * * `30day` - 30day */
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
+      /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
+      readonly sync_frequency_managed_by_dag?: boolean;
       readonly columns?: readonly PatchedDataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *
@@ -47446,6 +47510,15 @@ export namespace Schemas {
     export type PatchedEarlyAccessFeaturePayload = { [key: string]: unknown };
 
     /**
+     * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+     * @nullable
+     */
+    export type PatchedEarlyAccessFeatureAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null;
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface PatchedEarlyAccessFeature {
@@ -47475,6 +47548,13 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
       readonly created_at?: string;
+      /** The user who created this early access feature. Null for features created before creator tracking was added. */
+      readonly created_by?: UserBasic | null;
+      /**
+         * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+         * @nullable
+         */
+      readonly assignee?: PatchedEarlyAccessFeatureAssignee;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -55079,6 +55159,50 @@ export namespace Schemas {
     }
 
     /**
+     * One scout in either bucket of `inventory.scout_fleet`.
+     */
+    export interface ScoutFleetEntry {
+      /** The `signals-scout-*` skill this config schedules. */
+      skill_name: string;
+      /** Minutes between runs when no cron schedule is set (default 1440, every 24 hours). */
+      run_interval_minutes: number;
+      /**
+         * Optional cron expression, evaluated in the project timezone. Takes precedence over the interval.
+         * @nullable
+         */
+      run_cron_schedule: string | null;
+      /** Whether this scout's findings actually reach the inbox. False means dry-run: it runs and logs but emits nothing, so its silence says nothing about the surface it watches. */
+      emit: boolean;
+      /**
+         * ISO-8601 timestamp the coordinator last dispatched this scout, or null if it has never run.
+         * @nullable
+         */
+      last_run_at: string | null;
+      /**
+         * ISO-8601 timestamp this scout last produced output on either channel (a finding, or an authored/edited report), within `emitted_lookback_days`. Null means quiet for at least that window, not never.
+         * @nullable
+         */
+      last_emitted_at: string | null;
+      /**
+         * Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.
+         * @nullable
+         */
+      not_running_reason: string | null;
+    }
+
+    /**
+     * `inventory.scout_fleet` — the other scouts running on this project, split by enablement.
+     */
+    export interface ScoutFleet {
+      /** Scouts that actually run on this team: enabled, with a live skill the coordinator dispatches. */
+      enabled: ScoutFleetEntry[];
+      /** Scouts that do not run, each carrying a `not_running_reason` — turned off, or left on with a skill that can't dispatch. Different from a surface no scout ever covered. */
+      disabled: ScoutFleetEntry[];
+      /** The window `last_emitted_at` was resolved over, so a null reads as 'quiet', not 'never'. */
+      emitted_lookback_days: number;
+    }
+
+    /**
      * One row in `inventory.recent_activity.by_scope`.
      */
     export interface ScopeActivityEntry {
@@ -55499,6 +55623,8 @@ export namespace Schemas {
       signal_source_configs: SignalSourceConfigsBuckets;
       /** Whether scout findings can actually reach the inbox for this team — the org-level AI data-processing consent gate and the `signals_scout` source toggle, plus a one-line remediation pointer. Read at cold start to quick-close before doing throwaway work. */
       emit_eligibility: EmitEligibility;
+      /** The other scouts configured on this project, split into enabled / disabled, each with its cadence, dry-run posture, last run, and last emit. Read it to see who else is watching this project before investigating a surface a sibling already covers. */
+      scout_fleet: ScoutFleet;
       /** Counts of reports already in the inbox, grouped by status. */
       existing_inbox_reports: ExistingInboxReports;
       /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`. */
@@ -55802,6 +55928,126 @@ export namespace Schemas {
       results: ProxyRecord[];
       /** Maximum number of proxy records allowed for this organization's current plan. */
       max_proxy_records: number;
+    }
+
+    /**
+     * One CI check on a pull request's head commit — a GitHub Actions check run or a legacy commit
+     * status, normalized to a common shape.
+     */
+    export interface PullRequestCheck {
+      /** Check run name or status context. */
+      readonly name: string;
+      /**
+         * Lifecycle state: 'queued', 'in_progress', or 'completed'.
+         * @nullable
+         */
+      readonly status: string | null;
+      /**
+         * Outcome once completed: 'success', 'failure', 'neutral', 'cancelled', 'skipped', 'timed_out', or 'action_required'. Null while still running.
+         * @nullable
+         */
+      readonly conclusion: string | null;
+      /**
+         * Link to the check run / status detail on GitHub.
+         * @nullable
+         */
+      readonly url: string | null;
+    }
+
+    /**
+     * Response for the PR checks endpoint — the CI status of a report's implementation PR.
+     */
+    export interface PullRequestChecksResponse {
+      readonly checks: readonly PullRequestCheck[];
+    }
+
+    /**
+     * * `LEFT` - LEFT
+     * * `RIGHT` - RIGHT
+     */
+    export type SideEnum = typeof SideEnum[keyof typeof SideEnum];
+
+
+    export const SideEnum = {
+      Left: 'LEFT',
+      Right: 'RIGHT',
+    } as const;
+
+    /**
+     * One comment on a pull request — a conversation comment or an inline review comment.
+     */
+    export interface PullRequestComment {
+      /** GitHub comment id. */
+      readonly id: string;
+      /**
+         * Comment author's GitHub login.
+         * @nullable
+         */
+      readonly author: string | null;
+      /**
+         * Author's GitHub avatar URL.
+         * @nullable
+         */
+      readonly author_avatar_url: string | null;
+      /** Comment body (GitHub-flavored markdown). */
+      readonly body: string;
+      /**
+         * ISO 8601 creation timestamp.
+         * @nullable
+         */
+      readonly created_at: string | null;
+      /**
+         * Link to the comment on GitHub.
+         * @nullable
+         */
+      readonly url: string | null;
+      /** 'conversation' for a PR discussion comment, 'review' for an inline code-review comment.
+       *
+       * * `conversation` - conversation
+       * * `review` - review */
+      readonly comment_type: CommentTypeEnum;
+      /**
+         * File path the review comment is anchored to (review comments only).
+         * @nullable
+         */
+      readonly path: string | null;
+      /**
+         * Line in the diff the review comment is anchored to — the end line for multi-line comments (review comments only; null when the comment is outdated relative to the PR head).
+         * @nullable
+         */
+      readonly line: number | null;
+      /**
+         * First line of a multi-line review comment's range (review comments only).
+         * @nullable
+         */
+      readonly start_line: number | null;
+      /** Diff side the review comment is anchored to: 'LEFT' = deletions, 'RIGHT' = additions (review comments only).
+       *
+       * * `LEFT` - LEFT
+       * * `RIGHT` - RIGHT */
+      readonly side: SideEnum | null;
+      /**
+         * Diff hunk excerpt the review comment applies to (review comments only).
+         * @nullable
+         */
+      readonly diff_hunk: string | null;
+      /**
+         * Id of the thread root comment this one replies to; null for thread roots and conversation comments.
+         * @nullable
+         */
+      readonly in_reply_to_id: string | null;
+      /**
+         * SHA of the commit the review comment was made against (review comments only).
+         * @nullable
+         */
+      readonly commit_id: string | null;
+    }
+
+    /**
+     * Response for the PR comments endpoint — conversation and review comments merged chronologically.
+     */
+    export interface PullRequestCommentsResponse {
+      readonly comments: readonly PullRequestComment[];
     }
 
     export interface PushCISample {
@@ -60363,6 +60609,8 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
+      /** Where the note came from: `human` for one left directly through this API, or `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports. A `report_dismissal` note is one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. */
+      origin: string;
     }
 
     /**
