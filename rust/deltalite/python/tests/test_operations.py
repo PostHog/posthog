@@ -604,6 +604,29 @@ def test_deletion_vector_table_is_refused_cleanly(tmp_path):
     assert deltalake.DeltaTable(uri).version() == 0
 
 
+@pytest.mark.parametrize(
+    "config_key",
+    ["delta.appendOnly", "delta.enableChangeDataFeed"],
+)
+def test_unsupported_table_property_is_refused_cleanly(tmp_path, config_key):
+    import deltalite
+
+    uri = str(tmp_path / "prop")
+    schema = simple([], "p", [])[:0].schema
+    deltalake.DeltaTable.create(
+        uri,
+        deltalake.Schema.from_arrow(schema),
+        partition_by=[PARTITION_KEY],
+        configuration={config_key: "true"},
+    )
+
+    t = deltalite.DeltaLiteTable.open(uri)
+    feature = config_key.removeprefix("delta.")
+    with pytest.raises(deltalite.DeltaLiteUnsupportedTableError, match=feature):
+        t.upsert(simple(["a"], "p", 1), ["id"], PARTITION_KEY)
+    assert deltalake.DeltaTable(uri).version() == 0
+
+
 def test_legacy_column_mapping_table_is_refused(tmp_path):
     """A LEGACY-protocol column-mapping table (minReaderVersion=2/minWriterVersion=5,
     no feature lists) -- the python package cannot create one, but they exist in the
