@@ -25,8 +25,9 @@ use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 #[cfg(test)]
 pub(crate) use crate::sinks::registry::test_topics;
 use crate::sinks::registry::{OutputRegistry, Outputs};
-use crate::sinks::sink::{fold_results, PreparedPayload, Sink, SinkResult};
-use crate::sinks::Event;
+#[cfg(test)]
+use crate::sinks::sink::fold_results;
+use crate::sinks::sink::{PreparedPayload, Sink, SinkResult};
 use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
 use metrics::{counter, gauge, histogram};
@@ -524,14 +525,6 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             .increment(payload_bytes);
         self.producer.send(record)
     }
-
-    /// Prep + enqueue for the single-event path. Retained as a thin wrapper so
-    /// the `Event::send` impl stays unchanged; the batch path uses
-    /// `prepare_batch` and `publish` to parallelize the prep phase.
-    fn kafka_send(&self, event: ProcessedEvent) -> Result<P::AckFuture, CaptureError> {
-        let prepared = self.prepare_record(event)?;
-        self.enqueue_record(prepared.record)
-    }
 }
 
 // Batch machinery needs `P: 'static`: prep tasks and ack futures are spawned
@@ -702,31 +695,18 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
 /// or above this threshold where parallel prep wins back its spawn cost.
 pub(crate) const SCATTER_GATHER_MIN_BATCH: usize = 8;
 
-#[async_trait]
-impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
-    #[instrument(skip_all)]
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let ack_future = self.kafka_send(event)?;
-        histogram!("capture_event_batch_size").record(1.0);
-        ack_future.instrument(info_span!("ack_wait_one")).await
+/// Test-only produce helpers: the goldens and integration suites drive the
+/// exact production path (prep → publish → fold) without going through an
+/// output, keeping their bodies identical to the pre-outputs era.
+#[cfg(test)]
+impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
+    pub(crate) async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+        self.send_batch(vec![event]).await
     }
 
-    /// Bridge onto the mechanism surface: prep → publish → fold. The
-    /// per-event results collapse to today's whole-request response (first
-    /// failure wins), so wire and response semantics are unchanged.
-    #[instrument(skip_all)]
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        // Record the batch-size histogram up front so the distribution is a
-        // faithful view of batches submitted, not only those that succeeded.
-        // Matches the single-event `send` path which records before any await.
-        histogram!("capture_event_batch_size").record(events.len() as f64);
-
+    pub(crate) async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         let prepared = self.prepare_batch(events).await?;
         fold_results(self.publish(prepared).await)
-    }
-
-    fn flush(&self) -> Result<(), anyhow::Error> {
-        self.producer.flush().map_err(|e| anyhow::anyhow!(e))
     }
 }
 
@@ -762,7 +742,6 @@ mod tests {
     use crate::api::CaptureError;
     use crate::config::{self, EnvelopeCompression};
     use crate::sinks::kafka::KafkaSink;
-    use crate::sinks::Event;
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
@@ -2627,7 +2606,7 @@ mod tests {
                 data_type: DataType::SnapshotMain,
                 ..Default::default()
             });
-            sink.kafka_send(event).unwrap().await.unwrap();
+            sink.send(event).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1);
@@ -2650,7 +2629,7 @@ mod tests {
                 data_type: DataType::SnapshotMain,
                 ..Default::default()
             });
-            sink.kafka_send(event).unwrap().await.unwrap();
+            sink.send(event).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1);
@@ -2683,7 +2662,7 @@ mod tests {
                 data_type: DataType::AnalyticsMain,
                 ..Default::default()
             });
-            sink.kafka_send(event).unwrap().await.unwrap();
+            sink.send(event).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1);

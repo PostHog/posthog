@@ -30,15 +30,12 @@
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use metrics::{counter, gauge, histogram};
-use tracing::instrument;
+use metrics::{counter, gauge};
 use tracing::log::error;
 
 use crate::api::CaptureError;
 use crate::config::AiRouting;
 use crate::sinks::sink::{fold_results, Prepare};
-use crate::sinks::Event;
 use crate::v0_request::ProcessedEvent;
 
 /// A produce destination: a single backend, or a policy composing two of them.
@@ -241,29 +238,6 @@ impl OutputTable {
 
     pub fn flush(&self) -> Result<(), anyhow::Error> {
         self.default.flush()
-    }
-}
-
-/// Transitional facade: the v0 `Event` surface served by the outputs layer,
-/// so call sites migrate to `OutputTable::publish` one commit at a time. The
-/// batch-size histogram is recorded here — where the old sink impls recorded
-/// it — and moves to the call sites as they migrate.
-#[async_trait]
-impl Event for OutputTable {
-    #[instrument(skip_all)]
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        histogram!("capture_event_batch_size").record(1.0);
-        self.publish(vec![event]).await
-    }
-
-    #[instrument(skip_all)]
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        histogram!("capture_event_batch_size").record(events.len() as f64);
-        self.publish(events).await
-    }
-
-    fn flush(&self) -> Result<(), anyhow::Error> {
-        OutputTable::flush(self)
     }
 }
 

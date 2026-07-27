@@ -316,7 +316,7 @@ No `--no-verify` — pre-commit hooks must pass.
 | 6 · Kafka sink → backend mechanism | done | `refactor(capture): narrow the kafka sink to backend mechanism over prepared payloads` |
 | 7 · Outputs layer with policies; composites retired | done | `feat(capture): outputs layer owns failover and split policies` |
 | 8a · Call sites on the table | done | `refactor(capture): call sites publish through outputs` |
-| 8b · `Event` retired | pending | `refactor(capture): retire v0 Event trait` |
+| 8b · `Event` retired | done | `refactor(capture): retire v0 Event trait` |
 | 9 · Mode-scoped completeness | pending | `refactor(capture): mode-scoped output registry completeness` |
 | 10 · Breaker mode (dark) | pending | `feat(capture): breaker-driven failover mode (dark)` |
 | 11 · v1 convergence | pending | `refactor(capture): v1 resolves through shared pipeline/lane strata` |

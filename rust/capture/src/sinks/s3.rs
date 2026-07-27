@@ -17,7 +17,6 @@ use tracing::instrument;
 use tracing::log::{debug, error, info};
 
 use crate::api::CaptureError;
-use crate::sinks::Event;
 
 const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 const HEALTH_INTERVAL: Duration = Duration::from_secs(10);
@@ -52,14 +51,6 @@ impl EventBuffer {
             time_elapsed: Instant::now(),
             tx,
         }
-    }
-
-    fn add_event(&mut self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let json = serde_json::to_string(&event.event)?;
-        self.event_bytes.extend_from_slice(json.as_bytes());
-        self.event_bytes.push(b'\n');
-        self.event_count += 1;
-        Ok(())
     }
 
     fn should_flush(&self) -> bool {
@@ -274,33 +265,6 @@ impl Inner {
 }
 
 #[async_trait]
-impl Event for S3Sink {
-    #[instrument(skip_all)]
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let mut buffer = self.inner.buffer.lock().await;
-        buffer.add_event(event)?;
-        let mut rx = buffer.tx.subscribe();
-        drop(buffer);
-        rx.recv()
-            .await
-            .map_err(|_| CaptureError::NonRetryableSinkError)?
-    }
-
-    #[instrument(skip_all)]
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        let mut buffer = self.inner.buffer.lock().await;
-        for event in events {
-            buffer.add_event(event)?;
-        }
-        let mut rx = buffer.tx.subscribe();
-        drop(buffer);
-        rx.recv()
-            .await
-            .map_err(|_| CaptureError::NonRetryableSinkError)?
-    }
-}
-
-#[async_trait]
 impl crate::sinks::sink::Prepare for S3Sink {
     /// S3 stores newline-delimited serialized events; the payload bytes are the
     /// whole contract. Topic, key, and headers on the prepared record are inert
@@ -434,6 +398,18 @@ mod tests {
                 skip_heatmap_processing: false,
                 overflow_reason: None,
             },
+        }
+    }
+
+    impl S3Sink {
+        async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+            self.send_batch(vec![event]).await
+        }
+
+        async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+            use crate::sinks::sink::{fold_results, Prepare, Sink};
+            let prepared = self.prepare_batch(events).await?;
+            fold_results(self.publish(prepared).await)
         }
     }
 
