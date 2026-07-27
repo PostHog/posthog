@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.
     FACTORIAL_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FactorialSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.factorial import (
+    FactorialSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -96,6 +98,7 @@ Create an API key in your Factorial account under **Settings > API keys** (or **
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -115,7 +118,11 @@ Create an API key in your Factorial account under **Settings > API keys** (or **
         return schemas
 
     def validate_credentials(
-        self, config: FactorialSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FactorialSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_factorial_credentials(config.api_key)
 

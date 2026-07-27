@@ -5,7 +5,6 @@ name: Agent services CI
 
 on:
     pull_request:
-    merge_group:
     push:
         branches:
             - master
@@ -68,7 +67,7 @@ jobs:
         if: needs.changes.outputs.agents == 'true'
         name: ${{ matrix.workspace }} typecheck + lint + format
         needs: changes
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         strategy:
             fail-fast: false
@@ -108,7 +107,7 @@ jobs:
         if: needs.changes.outputs.agents == 'true'
         name: ${{ matrix.workspace }} unit tests
         needs: changes
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         # agent-tests is the e2e suite — runs in the separate `e2e-tests`
         # job below with the docker-compose stack.
@@ -202,7 +201,7 @@ jobs:
         if: needs.changes.outputs.agents == 'true'
         name: agent-tests e2e (Postgres + Redis + Kafka + SeaweedFS)
         needs: changes
-        runs-on: depot-ubuntu-latest-4
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 25 # vitest runs file-serial; ~100s locally
         env:
             COMPOSE_FILE: docker-compose.dev.yml

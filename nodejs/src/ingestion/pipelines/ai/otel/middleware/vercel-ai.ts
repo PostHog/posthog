@@ -2,6 +2,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { mustAddReasoningCost } from '~/ingestion/pipelines/ai/costs/output-costs'
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { promotePosthogCustomMetadata } from './custom-metadata'
 import { OtelLibraryMiddleware } from './types'
 
 // Vercel AI SDK attributes to strip after processing. Includes both
@@ -151,6 +152,14 @@ function process(event: PluginEvent, next: () => void): void {
     }
     delete props['ai.response.text']
 
+    // Promote a groups map supplied via telemetry metadata before next(), so the
+    // generic mapper's normalizeGroups() can parse the JSON string and attach it.
+    // Skip if a $groups span attribute was already set directly.
+    const groupsMetadata = props['ai.telemetry.metadata.$groups']
+    if (props['$groups'] === undefined && isNonEmptyString(groupsMetadata)) {
+        props['$groups'] = groupsMetadata
+    }
+
     next()
 
     // For trace-level spans (top-level generateText/streamText), set input/output state.
@@ -242,6 +251,15 @@ function process(event: PluginEvent, next: () => void): void {
     if (props[AI_PROMPT_VERSION_KEY] === undefined && isPromptVersion(promptVersion)) {
         props[AI_PROMPT_VERSION_KEY] = promptVersion
     }
+
+    // Vercel repeats telemetry metadata across provider spans, so only use the
+    // custom call name for the top-level event.
+    const spanNameOverride = props['ai.telemetry.metadata.$ai_span_name']
+    if (isTopLevel && isNonEmptyString(spanNameOverride)) {
+        props['$ai_span_name'] = spanNameOverride
+    }
+
+    promotePosthogCustomMetadata(props, 'ai.telemetry.metadata.')
 
     // Strip Vercel-specific telemetry metadata and request headers after preserving
     // the PostHog identifiers we rely on for event linkage and session grouping.

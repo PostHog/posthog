@@ -67,6 +67,7 @@ A single command handles both desktop/server formats:
 
 - **Linux (ELF):** executables, shared libraries, and `objcopy --only-keep-debug` companions that carry a GNU build id. This branch is cross-platform.
 - **macOS (Apple `.dSYM`):** dSYM bundles are packaged through the same path as `posthog-cli dsym upload`. That path shells out to `dwarfdump` (bundled with Xcode), so it only runs on macOS — if `dwarfdump` is missing, the bundle is reported and skipped while any ELF symbols in the same directory still upload.
+- **macOS (Mach-O executables):** binaries that embed their own DWARF upload directly, keyed by their `LC_UUID`; universal (fat) binaries upload one symbol set per architecture slice. This branch is cross-platform. It exists mainly for Go, which never produces a dSYM (`dsymutil` reports "no debug symbols in executable") — but note Go compresses the embedded DWARF by default, which symbolication can't read yet, so build with `-ldflags=-compressdwarf=false`. C/Swift/Rust executables normally carry no embedded DWARF; upload their dSYMs instead.
 
 Pass `--include-source` to bundle the referenced source files for richer context around frames.
 

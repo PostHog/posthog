@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional, cast
+from typing import Literal, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
@@ -24,13 +24,7 @@ from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
-from posthog.clickhouse.materialized_columns import (
-    MATERIALIZATION_VALID_TABLES,
-    MaterializedColumn,
-    TablesWithMaterializedColumns,
-    get_materialized_column_for_property,
-)
-from posthog.property_columns import PropertyName, TableColumn
+from posthog.clickhouse.materialized_column_types import MATERIALIZATION_VALID_TABLES, MaterializedColumn
 
 _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
     "JSONExtractString": ("String", ""),
@@ -369,11 +363,10 @@ class PropertySwapper(CloningVisitor):
         if not isinstance(property_name, str):
             return None
 
-        field_name = cast(TableColumn, database_field.name)
-        mat_col = get_materialized_column_for_property(
-            cast(TablesWithMaterializedColumns, table_name),
-            field_name,
-            property_name,
+        mat_col = (
+            self.context.property_metadata.materialized_column(table_name, database_field.name, property_name)
+            if self.context.property_metadata is not None
+            else None
         )
         if mat_col is None:
             return None
@@ -828,11 +821,4 @@ class PropertySwapper(CloningVisitor):
             start=max(node.start, node.end - len(escape_hogql_identifier(node.chain[-1]))),
             end=node.end,
             message=message,
-        )
-
-    def _get_materialized_column(
-        self, table_name: str, property_name: PropertyName, field_name: TableColumn
-    ) -> MaterializedColumn | None:
-        return get_materialized_column_for_property(
-            cast(TablesWithMaterializedColumns, table_name), field_name, property_name
         )

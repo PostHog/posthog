@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SalesforceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.salesforce import (
+    SalesforceSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth import (
     salesforce_refresh_access_token,
 )
@@ -73,6 +75,19 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             "expired access/refresh token": "Your Salesforce connection has expired or been revoked. Please reconnect the source.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `salesforce_refresh_access_token` builds its own tracked session rather than going
+        # through the shared REST client, so a proxy CONNECT failure during token refresh isn't
+        # retried in-process beyond `DEFAULT_RETRY`'s few attempts before it re-raises here. Once
+        # Temporal retries the whole activity the failure is transient and self-recovering (same
+        # class of egress-proxy blip already classified this way for ClickHouse), so don't
+        # surface it as tracked exception noise.
+        return {
+            "Tunnel connection failed: 502",
+            "Tunnel connection failed: 503",
+            "Tunnel connection failed: 504",
+        }
+
     def get_schemas(
         self,
         config: SalesforceSourceConfig,
@@ -80,6 +95,7 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

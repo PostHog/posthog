@@ -7,8 +7,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
+import type { FeatureFlagsSet } from '~/lib/logic/featureFlagLogic'
 import type { Breakdown, CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
+import type { ExperimentIdType } from '~/types'
 
 import {
     experimentsMetricsRecalculationCreate,
@@ -20,8 +22,6 @@ import type {
     TriggerEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
-import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { ExperimentIdType } from '../../types'
 import { isLaunched } from './experimentsLogic'
 
 type ExperimentSavedMetric = {
@@ -56,6 +56,16 @@ export const RECALCULATION_STATUSES = {
 } as const
 
 export type RecalculationStatuses = (typeof RECALCULATION_STATUSES)[keyof typeof RECALCULATION_STATUSES]
+
+/** Transient per-metric retry state written by the calc activity between failed attempts. */
+export interface MetricRetryInfo {
+    attempt: number
+    max_attempts: number
+    error_type: string
+    /** The server error that triggered the retry, surfaced so the UI can show why. */
+    message?: string
+    next_retry_at?: string
+}
 
 /**
  * transform shared metrics into experiment metrics.
@@ -156,6 +166,8 @@ export interface experimentMetricsLogicValues {
         recalculationId: string
         rowsRead: number
     } | null
+    metricRetries: Record<string, MetricRetryInfo>
+    nextRetryAt: string | null
     primaryMetricsResults: CachedNewExperimentQueryResponse[]
     primaryMetricsResultsErrors: (unknown | null)[]
     recalculatingMetricUuids: string[]
@@ -184,6 +196,7 @@ export interface experimentMetricsLogicActions {
             succeeded?: number
             total_metrics?: number
             trigger?:
+                | 'agent_mcp'
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
@@ -204,6 +217,7 @@ export interface experimentMetricsLogicActions {
             succeeded?: number | undefined
             total_metrics?: number | undefined
             trigger?:
+                | 'agent_mcp'
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
@@ -262,6 +276,10 @@ export interface experimentMetricsLogicMeta {
         }
         totalMetricsCount: (arg: any) => number
         lastRefresh: (currentRecalculation: ExperimentMetricsRecalculationApi | null) => string | null
+        metricRetries: (
+            currentRecalculation: ExperimentMetricsRecalculationApi | null
+        ) => Record<string, MetricRetryInfo>
+        nextRetryAt: (metricRetries: Record<string, MetricRetryInfo>) => string | null
         recalculationDisplayState: (
             recalculationLoading: boolean,
             currentRecalculation: ExperimentMetricsRecalculationApi | null
@@ -391,6 +409,27 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         lastRefresh: [
             (s) => [s.currentRecalculation],
             (recalc: ExperimentMetricsRecalculationApi | null): string | null => recalc?.query_to ?? null,
+        ],
+        metricRetries: [
+            (s) => [s.currentRecalculation],
+            (recalc: ExperimentMetricsRecalculationApi | null): Record<string, MetricRetryInfo> => {
+                const raw = (recalc?.metric_retries ?? {}) as Record<string, MetricRetryInfo>
+                const landed = new Set([
+                    ...(recalc?.results ?? []).map(({ metric_uuid }) => metric_uuid),
+                    ...Object.keys((recalc?.metric_errors as Record<string, unknown> | null) ?? {}),
+                ])
+                return Object.fromEntries(Object.entries(raw).filter(([uuid]) => !landed.has(uuid)))
+            },
+        ],
+        nextRetryAt: [
+            (s) => [s.metricRetries],
+            (metricRetries: Record<string, MetricRetryInfo>): string | null => {
+                const upcoming = Object.values(metricRetries)
+                    .map(({ next_retry_at }) => next_retry_at)
+                    .filter((value): value is string => !!value)
+                    .sort()
+                return upcoming[0] ?? null
+            },
         ],
         recalculationDisplayState: [
             (s) => [s.recalculationLoading, s.currentRecalculation],
@@ -727,6 +766,11 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         applyResults(recalculation)
                         emitTerminalEvent(recalculation)
                     } else {
+                        if (trigger === 'manual' && !recalculation.is_existing) {
+                            lemonToast.info(
+                                'Recalculating metrics in the background. Results will update as they finish.'
+                            )
+                        }
                         actions.pollRecalculation(recalculation.id)
                     }
                 } catch (error: any) {

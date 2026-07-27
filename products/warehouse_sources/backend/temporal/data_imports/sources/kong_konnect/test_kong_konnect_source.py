@@ -7,7 +7,9 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KongKonnectSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kongkonnect import (
+    KongKonnectSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect.kong_konnect import (
     DEFAULT_INITIAL_LOOKBACK_DAYS,

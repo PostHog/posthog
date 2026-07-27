@@ -9,7 +9,9 @@ from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType, S
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MixpanelSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixpanel import (
+    MixpanelSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.mixpanel import MixpanelResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.source import MixpanelSource

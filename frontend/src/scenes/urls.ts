@@ -6,6 +6,7 @@ import { fileSystemTypes, productUrls } from '~/products'
 import {
     DataTableNode,
     DataVisualizationNode,
+    HogQLFilters,
     ProductKey,
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
@@ -76,6 +77,7 @@ export const urls = {
         source,
         connectionId,
         dashboard,
+        filters,
     }: {
         /** Raw SQL, or a node whose visualization settings (display, chartSettings) should survive the trip */
         query?: string | DataVisualizationNode | DataTableNode
@@ -87,6 +89,8 @@ export const urls = {
         source?: string
         connectionId?: string
         dashboard?: number
+        /** Applied on top of the opened query/insight — carries unsaved view-mode filter edits into the editor */
+        filters?: HogQLFilters
     } = {}): string => {
         const params = new URLSearchParams()
 
@@ -120,6 +124,9 @@ export const urls = {
         const hashParams = new URLSearchParams()
         if (connectionId) {
             hashParams.set('c', connectionId)
+        }
+        if (filters) {
+            hashParams.set('filters', JSON.stringify(filters))
         }
 
         const hashString = hashParams.toString()
@@ -162,7 +169,7 @@ export const urls = {
     /** After linking a social provider to an existing session (OAuth `next`; see posthog/api/authentication.py sso_login). */
     accountSocialConnected: (): string => '/account/social-connected',
     /**
-     * PostHog Code / web return page after connecting an account. Use `github-login` (social SSO),
+     * PostHog Desktop / web return page after connecting an account. Use `github-login` (social SSO),
      * `github-integration` (user GitHub App integration), or `slack-integration` (team Slack integration);
      * see `AccountConnected` and `posthog/api/authentication.py` / `user_integration.py`.
      */

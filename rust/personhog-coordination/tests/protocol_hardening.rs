@@ -48,6 +48,7 @@ async fn put_handoff(
         phase,
         started_at: 0,
         handoff_id: format!("test-handoff-{partition}"),
+        new_owner_address: None,
     };
     // Raw put on purpose: fixtures force arbitrary handoff states,
     // including overwriting an existing one, which the guarded
@@ -384,11 +385,13 @@ async fn restarted_pod_rewarms_assigned_partitions() {
                 partition: 0,
                 owner: "phoenix-pod".to_string(),
                 status: AssignmentStatus::Active,
+                advertise_address: None,
             },
             PartitionAssignment {
                 partition: 1,
                 owner: "phoenix-pod".to_string(),
                 status: AssignmentStatus::Active,
+                advertise_address: None,
             },
         ])
         .await
@@ -427,6 +430,7 @@ async fn restarted_old_owner_serves_again_after_handoff_cancelled() {
             partition: 0,
             owner: "victim-pod".to_string(),
             status: AssignmentStatus::Active,
+            advertise_address: None,
         }])
         .await
         .expect("write assignment");
@@ -476,6 +480,7 @@ async fn restarted_old_owner_refences_when_handoff_in_warming() {
             partition: 0,
             owner: "frozen-pod".to_string(),
             status: AssignmentStatus::Active,
+            advertise_address: None,
         }])
         .await
         .expect("write assignment");
@@ -797,6 +802,7 @@ async fn dead_old_owner_handoff_advances_in_place_not_cleaned_up() {
                 registered_at: 0,
                 last_heartbeat: 0,
                 controller: None,
+                advertise_address: None,
             },
             lease,
         )
@@ -848,6 +854,7 @@ async fn dead_old_owner_handoff_advances_in_place_not_cleaned_up() {
                 registered_at: 0,
                 last_heartbeat: 0,
                 controller: None,
+                advertise_address: None,
             },
             bystander_lease,
         )
@@ -1320,6 +1327,7 @@ async fn late_joining_router_stashes_before_populating_table() {
                 partition: 0,
                 owner: "pod-old".to_string(),
                 status: AssignmentStatus::Active,
+                advertise_address: None,
             }],
             &[],
             &[],

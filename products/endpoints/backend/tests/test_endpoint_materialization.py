@@ -23,8 +23,9 @@ from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE
 from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 
+from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node
 from products.data_warehouse.backend.facade.api import get_saved_query_schedule
 from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.logic.materialization import (
@@ -62,14 +63,20 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.delete_schedule_patcher = mock.patch(
             "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"
         )
+        # The DAG node exists by scheduling time, so the v2 lookup would hit Temporal for real.
+        self.v2_dag_ids_patcher = mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids", return_value=set()
+        )
         self.mock_sync_workflow = self.sync_workflow_patcher.start()
         self.mock_workflow_exists = self.workflow_exists_patcher.start()
         self.mock_delete_schedule = self.delete_schedule_patcher.start()
+        self.mock_v2_dag_ids = self.v2_dag_ids_patcher.start()
 
     def tearDown(self):
         self.sync_workflow_patcher.stop()
         self.workflow_exists_patcher.stop()
         self.delete_schedule_patcher.stop()
+        self.v2_dag_ids_patcher.stop()
         super().tearDown()
 
     def test_enable_materialization_creates_saved_query(self):
@@ -121,6 +128,38 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(
             DataWarehouseModelPath.objects.filter(team=self.team, saved_query=saved_query).exists(),
             "DataWarehouseModelPath should be created for the saved_query",
+        )
+
+    def test_unsatisfiable_freshness_rolls_back_the_whole_enable(self):
+        # if scheduling rejects the chosen freshness (finer than an upstream source can deliver),
+        # the enable must unwind completely — no dangling saved query, version link, or DAG node
+        # left behind with no schedule; the request just 400s
+        endpoint = create_endpoint_with_version(
+            name="rollback_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        version = endpoint.versions.first()
+        assert version is not None
+
+        with mock.patch.object(
+            DataWarehouseSavedQuery,
+            "schedule_materialization",
+            side_effect=UnsatisfiableFrequencyError("15min is finer than the 24h upstream source"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True, "data_freshness_seconds": 86400},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        version.refresh_from_db()
+        self.assertIsNone(version.saved_query)
+        self.assertFalse(
+            DataWarehouseSavedQuery.objects.filter(team=self.team, name=f"{endpoint.name}_v{version.version}").exists()
         )
 
     def test_data_freshness_updates_saved_query_sync_interval(self):
@@ -1765,6 +1804,65 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             observed.get("link_committed"),
             "EndpointVersion must be linked to the saved query before materialization is scheduled",
         )
+
+    def test_enable_materialization_syncs_dag_node_before_scheduling(self):
+        # the v2 detection and freshness write-through in schedule_materialization resolve the
+        # saved query through its Node row — scheduling before the node exists silently routes
+        # new endpoints on v2 teams back onto v1 schedules
+        endpoint = create_endpoint_with_version(
+            name="node-first",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        observed: dict = {}
+
+        def capture_node_state(self_saved_query):
+            observed["node_exists"] = Node.objects.filter(saved_query_id=self_saved_query.id).exists()
+
+        with mock.patch.object(
+            DataWarehouseSavedQuery,
+            "schedule_materialization",
+            autospec=True,
+            side_effect=capture_node_state,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True, "data_freshness_seconds": 86400},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertTrue(
+            observed.get("node_exists"),
+            "The DAG node must exist before materialization is scheduled",
+        )
+
+    def test_unsatisfiable_freshness_returns_400(self):
+        endpoint = create_endpoint_with_version(
+            name="too-fresh",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        with mock.patch.object(
+            DataWarehouseSavedQuery,
+            "schedule_materialization",
+            autospec=True,
+            side_effect=UnsatisfiableFrequencyError("target 0:15:00 is fresher than its sources deliver (6:00:00)"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True, "data_freshness_seconds": 900},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("fresher than", response.json()["detail"])
 
     def _create_materialized_trends_endpoint(self, name: str, breakdowns: list[dict], optional: list[str]):
         """Shared helper for the optional-breakdown tests. Stands up a materialized TrendsQuery

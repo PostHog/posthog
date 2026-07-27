@@ -19,14 +19,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RuddrSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ruddr import RuddrSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.ruddr import (
     RuddrResumeConfig,
     ruddr_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.settings import ENDPOINTS, RUDDR_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    RUDDR_ENDPOINTS,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -88,25 +95,15 @@ You can create a workspace API key under **Settings → API Keys** in [Ruddr](ht
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Ruddr's list endpoints expose no reliably ordered
-        # server-side update timestamp, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # server-side update timestamp, so there is no incremental cursor to advance (INCREMENTAL_FIELDS
+        # is empty, so build_endpoint_schemas marks each endpoint full-refresh).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: RuddrSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: RuddrSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # The API key is workspace-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key)
@@ -126,6 +123,8 @@ You can create a workspace API key under **Settings → API Keys** in [Ruddr](ht
         return ruddr_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Ruddr endpoint is full refresh
         )

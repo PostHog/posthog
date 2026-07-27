@@ -126,6 +126,16 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
         ),
         (
             ServerException(
+                "Code: 376. DB::Exception: Cannot parse uuid 2026072018044213140: while converting '2026072018044213140' to UUID: while executing function equals. Stack trace:\n\n0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x00000000141cccd0",
+                code=376,
+            ),
+            "CHQueryErrorCannotParseUuid",
+            "Cannot parse uuid 2026072018044213140: while converting '2026072018044213140' to UUID: while executing function equals.",
+            376,
+            "CHQueryErrorCannotParseUuid",
+        ),
+        (
+            ServerException(
                 "Code: 43. DB::Exception: Illegal type String of argument of function toInt64.",
                 code=43,
             ),

@@ -3,7 +3,9 @@ import json
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkedinads import (
+    LinkedinAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source import (
     LINKEDIN_ADS_VERSION_202606,

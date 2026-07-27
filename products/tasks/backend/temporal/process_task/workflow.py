@@ -420,6 +420,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _finish_active_followup(self) -> None:
         self._shutting_down = True
+        if self._completion_status == "cancelled":
+            self._pending_followup = None
+            self._pending_followups.clear()
+            if self._active_followup_task is not None:
+                task = self._active_followup_task
+                self._active_followup_task = None
+                await self._cancel_relay(task)
+            return
+
         while True:
             if self._active_followup_task is not None:
                 task = self._active_followup_task
@@ -1029,7 +1038,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # those changes, opens the PR, and keeps it green (it never implements PostHog itself).
         await self._run_wizard_if_configured(sandbox_output)
 
-        # Start agent-server for direct connection from PostHog Code
+        # Start agent-server for direct connection from PostHog Desktop
         if sandbox_output.agent_server_launched:
             agent_server_output = await self._await_agent_server_ready(sandbox_output)
         else:

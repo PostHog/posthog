@@ -1,12 +1,19 @@
-from typing import Any
+import json
+from collections.abc import Iterable
+from typing import Any, cast
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from unittest import mock
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor import teamtailor
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor.settings import (
     ENDPOINTS,
@@ -16,154 +23,187 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor
     API_VERSION,
     PAGE_SIZE,
     TeamtailorResumeConfig,
-    TeamtailorRetryableError,
     check_access,
-    get_rows,
     teamtailor_source,
     validate_credentials,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = teamtailor._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# The RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 
 
-class _FakeResumableManager:
-    def __init__(self, state: TeamtailorResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[TeamtailorResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> TeamtailorResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: TeamtailorResumeConfig) -> None:
-        self.saved.append(data)
+def _page(rows: list[dict], next_url: str | None = None, status: int = 200) -> Response:
+    body: dict[str, Any] = {"data": rows, "links": {"next": next_url} if next_url else {}, "meta": {}}
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-def _page(rows: list[dict], next_url: str | None) -> dict:
-    return {"data": rows, "links": {"next": next_url} if next_url else {}, "meta": {}}
+def _raw(body: Any, status: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: list[dict],
-        endpoint: str = "candidates",
-    ) -> tuple[list[dict], list[str | None]]:
-        calls: list[str | None] = []
-        queue = list(pages)
+def _make_manager(resume_state: TeamtailorResumeConfig | None = None) -> MagicMock:
+    manager = MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
-        def fake_fetch(session: Any, url: str, params: Any, logger: Any) -> dict:
-            # Record whether the first page (params present) or a followed `next` URL was requested.
-            calls.append(None if params is not None else url)
-            return queue.pop(0)
 
-        monkeypatch.setattr(teamtailor, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(teamtailor, "make_tracked_session", lambda **kwargs: MagicMock())
+def _wire(mock_make_session: MagicMock, responses: list[Any]) -> tuple[requests.Session, list[str]]:
+    """Route the RESTClient's session through a real ``requests.Session`` so ``prepared.url`` is a
+    genuine URL, while ``send`` returns each fixture in order. A fixture that is an ``Exception`` is
+    raised. Returns the session and the list of URLs sent, in order."""
+    session = requests.Session()
+    sent: list[str] = []
+    queue = list(responses)
 
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="tt-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows, calls
+    def _send(prepared: Any, **kwargs: Any) -> Response:
+        sent.append(prepared.url)
+        result = queue.pop(0) if len(queue) > 1 else queue[0]
+        if isinstance(result, Exception):
+            raise result
+        return result
 
-    def test_single_page_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows, _ = self._collect(manager, monkeypatch, [_page([{"id": "1"}, {"id": "2"}], next_url=None)])
+    cast(Any, session).send = mock.MagicMock(side_effect=_send)
+    mock_make_session.return_value = session
+    return session, sent
+
+
+def _rows(endpoint: str, manager: MagicMock) -> list[dict[str, Any]]:
+    response = teamtailor_source("tt-key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+    return [row for page in cast("Iterable[Any]", response.items()) for row in page]
+
+
+class TestPagination:
+    @patch(CLIENT_SESSION_PATCH)
+    def test_single_page_yields_and_stops(self, mock_make_session: MagicMock) -> None:
+        _wire(mock_make_session, [_page([{"id": "1"}, {"id": "2"}], next_url=None)])
+        manager = _make_manager()
+        rows = _rows("candidates", manager)
+
         assert rows == [{"id": "1"}, {"id": "2"}]
-        # Only one page, no `next` link, so nothing is persisted.
-        assert manager.saved == []
+        # No `next` link, so nothing is persisted.
+        manager.save_state.assert_not_called()
 
-    def test_follows_next_link_until_null(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = [
-            _page([{"id": "1"}], next_url="https://api.teamtailor.com/v1/candidates?page%5Bnumber%5D=2"),
-            _page([{"id": "2"}], next_url=None),
-        ]
-        rows, calls = self._collect(manager, monkeypatch, pages)
+    @patch(CLIENT_SESSION_PATCH)
+    def test_first_page_sends_page_size_param(self, mock_make_session: MagicMock) -> None:
+        _, sent = _wire(mock_make_session, [_page([{"id": "1"}], next_url=None)])
+        _rows("jobs", _make_manager())
+
+        assert sent[0].startswith("https://api.teamtailor.com/v1/jobs")
+        assert parse_qs(urlsplit(sent[0]).query) == {"page[size]": [str(PAGE_SIZE)]}
+
+    @patch(CLIENT_SESSION_PATCH)
+    def test_follows_next_link_verbatim_until_null(self, mock_make_session: MagicMock) -> None:
+        next_url = "https://api.teamtailor.com/v1/candidates?page%5Bnumber%5D=2"
+        _, sent = _wire(
+            mock_make_session,
+            [_page([{"id": "1"}], next_url=next_url), _page([{"id": "2"}], next_url=None)],
+        )
+        manager = _make_manager()
+        rows = _rows("candidates", manager)
+
         assert rows == [{"id": "1"}, {"id": "2"}]
-        # First call sends params (first page), the second follows the saved `next` URL verbatim.
-        assert calls == [None, "https://api.teamtailor.com/v1/candidates?page%5Bnumber%5D=2"]
-        assert [s.next_url for s in manager.saved] == ["https://api.teamtailor.com/v1/candidates?page%5Bnumber%5D=2"]
+        # First request carries the page[size] param; the second follows the `next` URL verbatim,
+        # with no first-page params re-appended.
+        assert sent[0].startswith("https://api.teamtailor.com/v1/candidates?page%5Bsize%5D=30")
+        assert sent[1] == next_url
+        # Saved after page 1 (a next page remains), never after the final page.
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [TeamtailorResumeConfig(next_url=next_url)]
 
-    def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
+    @patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_cursor(self, mock_make_session: MagicMock) -> None:
         resume_url = "https://api.teamtailor.com/v1/candidates?page%5Bnumber%5D=3"
-        manager = _FakeResumableManager(TeamtailorResumeConfig(next_url=resume_url))
-        rows, calls = self._collect(manager, monkeypatch, [_page([{"id": "9"}], next_url=None)])
+        _, sent = _wire(mock_make_session, [_page([{"id": "9"}], next_url=None)])
+        manager = _make_manager(TeamtailorResumeConfig(next_url=resume_url))
+        rows = _rows("candidates", manager)
+
         assert rows == [{"id": "9"}]
         # The first fetch follows the saved cursor, never re-requesting the first page.
-        assert calls == [resume_url]
+        assert sent == [resume_url]
 
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows, _ = self._collect(manager, monkeypatch, [_page([], next_url=None)])
+    @patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, mock_make_session: MagicMock) -> None:
+        _wire(mock_make_session, [_page([], next_url=None)])
+        manager = _make_manager()
+        rows = _rows("candidates", manager)
+
         assert rows == []
-        assert manager.saved == []
+        manager.save_state.assert_not_called()
 
 
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else {"data": []}
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
-
+class TestErrorHandling:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(TeamtailorRetryableError):
-            _fetch_page_unwrapped(session, "https://api.teamtailor.com/v1/candidates", None, MagicMock())
+    @patch("tenacity.nap.time.sleep")
+    @patch(CLIENT_SESSION_PATCH)
+    def test_retryable_statuses_are_retried_then_reraised(
+        self, _name: str, status: int, mock_make_session: MagicMock, _sleep: MagicMock
+    ) -> None:
+        session, _ = _wire(mock_make_session, [_raw({"errors": []}, status=status)])
+        with pytest.raises(RESTClientRetryableError):
+            _rows("candidates", _make_manager())
+        # The client retries transient statuses up to its default attempt cap before giving up.
+        assert cast("MagicMock", session.send).call_count == 5
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
+    @patch("tenacity.nap.time.sleep")
+    @patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_fail_permanently_without_retry(
+        self, _name: str, status: int, mock_make_session: MagicMock, _sleep: MagicMock
+    ) -> None:
+        session, _ = _wire(mock_make_session, [_raw({"errors": []}, status=status)])
         with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, "https://api.teamtailor.com/v1/candidates", None, MagicMock())
+            _rows("candidates", _make_manager())
+        # Auth/not-found failures are permanent — the request is issued exactly once.
+        assert cast("MagicMock", session.send).call_count == 1
 
-    def test_success_returns_object_body(self) -> None:
-        body = {"data": [{"id": "1"}], "links": {}}
-        session = self._session_returning(200, body)
-        result = _fetch_page_unwrapped(session, "https://api.teamtailor.com/v1/candidates", None, MagicMock())
-        assert result == body
-
-    def test_non_object_body_is_retryable(self) -> None:
-        session = self._session_returning(200, [{"id": "1"}])
-        with pytest.raises(TeamtailorRetryableError):
-            _fetch_page_unwrapped(session, "https://api.teamtailor.com/v1/candidates", None, MagicMock())
-
-    def test_first_page_sends_page_size_param(self) -> None:
-        session = self._session_returning(200, {"data": []})
-        _fetch_page_unwrapped(session, "https://api.teamtailor.com/v1/jobs", {"page[size]": PAGE_SIZE}, MagicMock())
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == {"page[size]": PAGE_SIZE}
-
-    def test_next_url_sent_without_params(self) -> None:
-        session = self._session_returning(200, {"data": []})
-        _fetch_page_unwrapped(session, "https://api.teamtailor.com/v1/jobs?page=2", None, MagicMock())
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] is None
+    @patch("tenacity.nap.time.sleep")
+    @patch(CLIENT_SESSION_PATCH)
+    def test_non_list_body_is_retried(self, mock_make_session: MagicMock, _sleep: MagicMock) -> None:
+        # JSON:API always wraps rows under `data`; a bare-array (or otherwise misshapen) 200 body is
+        # treated as a transient malformed payload and retried rather than ingested as rows.
+        session, _ = _wire(mock_make_session, [_raw([{"id": "1"}], status=200)])
+        with pytest.raises(RESTClientRetryableError):
+            _rows("candidates", _make_manager())
+        assert cast("MagicMock", session.send).call_count == 5
 
 
-class TestHeaders:
+class TestAuthHeaders:
     def test_headers_carry_token_and_api_version(self) -> None:
         headers = teamtailor._headers("tt-key")
         assert headers["Authorization"] == "Token token=tt-key"
         assert headers["X-Api-Version"] == API_VERSION
+        assert headers["Accept"] == "application/vnd.api+json"
+
+    def test_version_headers_carry_no_secret(self) -> None:
+        # The API key travels via the framework auth config, not these static headers.
+        headers = teamtailor._version_headers()
+        assert "Authorization" not in headers
+        assert headers["X-Api-Version"] == API_VERSION
+
+    @patch(CLIENT_SESSION_PATCH)
+    def test_token_auth_header_is_sent(self, mock_make_session: MagicMock) -> None:
+        session, _ = _wire(mock_make_session, [_page([{"id": "1"}], next_url=None)])
+        captured: dict[str, str] = {}
+
+        original_prepare = session.prepare_request
+
+        def _prepare(request: Any) -> Any:
+            prepared = original_prepare(request)
+            captured.update(prepared.headers)
+            return prepared
+
+        cast(Any, session).prepare_request = mock.MagicMock(side_effect=_prepare)
+        _rows("candidates", _make_manager())
+
+        assert captured["Authorization"] == "Token token=tt-key"
+        assert captured["X-Api-Version"] == API_VERSION
 
 
 class TestCheckAccess:
@@ -235,10 +275,7 @@ class TestTeamtailorSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
         response = teamtailor_source(
-            api_key="tt-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
+            "tt-key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
         )
         assert response.name == endpoint
         assert response.primary_keys == ["id"]

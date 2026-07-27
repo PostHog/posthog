@@ -16,7 +16,6 @@ on:
         paths:
             - 'posthog/clickhouse/hcl/**'
             - '.github/workflows/ci-clickhouse-hcl-schema.yml'
-    merge_group:
     workflow_dispatch:
 
 concurrency:

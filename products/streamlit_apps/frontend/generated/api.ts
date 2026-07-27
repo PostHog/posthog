@@ -14,7 +14,7 @@ import type {
     AppContractApi,
     AppVersionContractApi,
     CreateAppInputApi,
-    PaginatedAppContractListApi,
+    PaginatedAppSummaryContractListApi,
     PatchedUpdateAppInputApi,
     StreamlitAppStatusApi,
     StreamlitAppVersionListApi,
@@ -47,8 +47,8 @@ export const streamlitAppsList = async (
     projectId: string,
     params?: StreamlitAppsListParams,
     options?: RequestInit
-): Promise<PaginatedAppContractListApi> => {
-    return apiMutator<PaginatedAppContractListApi>(getStreamlitAppsListUrl(projectId, params), {
+): Promise<PaginatedAppSummaryContractListApi> => {
+    return apiMutator<PaginatedAppSummaryContractListApi>(getStreamlitAppsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

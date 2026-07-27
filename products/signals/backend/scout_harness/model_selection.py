@@ -34,8 +34,10 @@ distinct_id) is the single source of truth; a team with no entry runs entirely o
   that scout's runs (0..1) it serves. `signals-scout-team-self-driving` above runs 20% on glm-5.2,
   20% on gpt-5.5, and the remaining 60% on the agent-server default. `"*"` is the fallback
   distribution for scouts not listed explicitly. A model's value may instead be an object
-  `{"fraction": 0.2, "runtime_adapter": "codex"}` to pin its runtime explicitly; with the bare-number
-  form the runtime is inferred from the id (`claude-*` → `claude`, everything else → `codex`).
+  `{"fraction": 0.2, "runtime_adapter": "codex", "reasoning_effort": "high"}` to pin its runtime
+  (and optionally the reasoning effort) explicitly; with the bare-number form the runtime is
+  inferred from the id (`claude-*` → `claude`, everything else → `codex`) and the effort is left
+  unset (agent-server default).
 - The reserved `"default"` key inside a scout's map names the model the *remaining* (unallocated)
   runs use instead of the agent-server default — its value is a model-id string, not a fraction.
 
@@ -83,9 +85,10 @@ WILDCARD = "*"
 DEFAULT_MODEL_KEY = "default"
 
 # Keys recognized in the object form of a model entry (the alternative to a bare fraction):
-# `{"fraction": <0..1>, "runtime_adapter": "claude"|"codex"}`.
+# `{"fraction": <0..1>, "runtime_adapter": "claude"|"codex", "reasoning_effort": "high"}`.
 FRACTION_KEY = "fraction"
 RUNTIME_ADAPTER_KEY = "runtime_adapter"
+REASONING_EFFORT_KEY = "reasoning_effort"
 
 # The two agent runtimes the agent server exposes. A model id alone can't be routed — the server
 # derives its provider (Anthropic / OpenAI) from the runtime — so every routed model also carries a
@@ -99,20 +102,28 @@ RUNTIME_ADAPTER_CODEX = "codex"
 # be able to break.
 _KNOWN_RUNTIME_ADAPTERS = frozenset({RUNTIME_ADAPTER_CLAUDE, RUNTIME_ADAPTER_CODEX})
 
+# The reasoning efforts a payload may pin, mirroring the tasks `ReasoningEffort` enum. Same
+# defensive posture as `_KNOWN_RUNTIME_ADAPTERS`: an unknown value is dropped (effort unset,
+# agent-server default) rather than threaded into the run state where it could fail the run.
+_KNOWN_REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
+
 
 @dataclass(frozen=True)
 class ScoutModel:
     """The agent-model override resolved for one scout run.
 
-    `model` is the model id; `None` keeps the agent-server default (and `runtime_adapter` is then
-    also `None`). When a model is chosen, `runtime_adapter` names the agent runtime that can serve it
-    — it must travel with the model because the agent server derives the LLM provider from the
-    runtime, and a model id handed over with no runtime can't be routed (it silently falls back to
-    the server default, which is the bug this resolution exists to avoid).
+    `model` is the model id; `None` keeps the agent-server default (and `runtime_adapter` /
+    `reasoning_effort` are then also `None`). When a model is chosen, `runtime_adapter` names the
+    agent runtime that can serve it — it must travel with the model because the agent server derives
+    the LLM provider from the runtime, and a model id handed over with no runtime can't be routed
+    (it silently falls back to the server default, which is the bug this resolution exists to
+    avoid). `reasoning_effort` is the optional per-model effort pin from the payload's object form;
+    `None` keeps the agent-server default effort.
     """
 
     model: str | None
     runtime_adapter: str | None
+    reasoning_effort: str | None = None
 
 
 def _infer_runtime_adapter(model_id: str) -> str:
@@ -172,38 +183,43 @@ def _team_scouts(payload: object, team_id: int, canonical_team_id: int) -> dict:
     return scouts if isinstance(scouts, dict) else {}
 
 
-def _parse_model_spec(spec: object) -> tuple[float | None, str | None]:
-    """A `(fraction, runtime_adapter)` from one model entry's value.
+def _parse_model_spec(spec: object) -> tuple[float | None, str | None, str | None]:
+    """A `(fraction, runtime_adapter, reasoning_effort)` from one model entry's value.
 
-    A model entry's value is either a bare number (its fraction; runtime inferred from the id) or an
-    object `{"fraction": <0..1>, "runtime_adapter": "claude"|"codex"}` that pins the runtime
-    explicitly. Returns `(None, ...)` for a malformed fraction (not a positive number, or a bool) so
-    the caller drops the entry rather than failing the run. A `runtime_adapter` that isn't one of the
-    known runtimes (non-string, typo, unsupported) is ignored (treated as unset → inferred from the
-    id), so a payload typo can't route the run onto a runtime the agent server can't honor.
+    A model entry's value is either a bare number (its fraction; runtime inferred from the id,
+    effort unset) or an object `{"fraction": <0..1>, "runtime_adapter": "claude"|"codex",
+    "reasoning_effort": "high"}` that pins the runtime (and optionally the effort) explicitly.
+    Returns `(None, ...)` for a malformed fraction (not a positive number, or a bool) so the caller
+    drops the entry rather than failing the run. A `runtime_adapter` or `reasoning_effort` that
+    isn't one of the known values (non-string, typo, unsupported) is ignored (treated as unset), so
+    a payload typo can't route the run onto a runtime or effort the agent server can't honor.
     """
     if isinstance(spec, dict):
         weight = spec.get(FRACTION_KEY)
         adapter_value = spec.get(RUNTIME_ADAPTER_KEY)
+        effort_value = spec.get(REASONING_EFFORT_KEY)
         # `isinstance` first: an unhashable value (JSON array/object) would raise from the set
         # membership test, and that escapes `_read_payload`'s guard and would fail the run.
         adapter = adapter_value if isinstance(adapter_value, str) and adapter_value in _KNOWN_RUNTIME_ADAPTERS else None
+        effort = effort_value if isinstance(effort_value, str) and effort_value in _KNOWN_REASONING_EFFORTS else None
     else:
         weight = spec
         adapter = None
+        effort = None
     if not isinstance(weight, int | float) or isinstance(weight, bool) or weight <= 0:
-        return None, adapter
-    return min(1.0, float(weight)), adapter
+        return None, adapter, effort
+    return min(1.0, float(weight)), adapter, effort
 
 
-def _scout_config(scouts: dict, skill_name: str) -> tuple[dict[str, float], dict[str, str], str | None]:
-    """The `(distribution, adapters, default_model)` for one scout from a team's scout map.
+def _scout_config(scouts: dict, skill_name: str) -> tuple[dict[str, float], dict[str, str], dict[str, str], str | None]:
+    """The `(distribution, adapters, efforts, default_model)` for one scout from a team's scout map.
 
     Looks up `scouts[skill_name]`, falling back to the `"*"` scout wildcard. The reserved `"default"`
     string key is pulled out as `default_model` (the model for the unallocated remainder; `None` =
-    agent-server default); every other entry is a `model_id -> fraction | {fraction, runtime_adapter}`
-    weight. `adapters` carries only the model ids whose runtime was pinned explicitly in the payload;
-    the rest are inferred from the id at resolve time. Defensive — a missing/non-object scout entry,
+    agent-server default); every other entry is a `model_id -> fraction | {fraction, runtime_adapter,
+    reasoning_effort}` weight. `adapters` and `efforts` carry only the model ids whose runtime /
+    effort was pinned explicitly in the payload; unpinned runtimes are inferred from the id at
+    resolve time and unpinned efforts stay unset. Defensive — a missing/non-object scout entry,
     or a malformed weight (not a positive number, or a bool) is dropped rather than failing the run,
     so a typo can't crash a scout or route it unintended.
     """
@@ -211,25 +227,28 @@ def _scout_config(scouts: dict, skill_name: str) -> tuple[dict[str, float], dict
     if not isinstance(raw, dict):
         raw = scouts.get(WILDCARD)
     if not isinstance(raw, dict):
-        return {}, {}, None
+        return {}, {}, {}, None
 
     default_value = raw.get(DEFAULT_MODEL_KEY)
     default_model = default_value if isinstance(default_value, str) and default_value else None
 
     distribution: dict[str, float] = {}
     adapters: dict[str, str] = {}
+    efforts: dict[str, str] = {}
     for model_id, spec in raw.items():
         if model_id == DEFAULT_MODEL_KEY:
             continue
         if not isinstance(model_id, str) or not model_id:
             continue
-        fraction, adapter = _parse_model_spec(spec)
+        fraction, adapter, effort = _parse_model_spec(spec)
         if fraction is None:
             continue
         distribution[model_id] = fraction
         if adapter is not None:
             adapters[model_id] = adapter
-    return distribution, adapters, default_model
+        if effort is not None:
+            efforts[model_id] = effort
+    return distribution, adapters, efforts, default_model
 
 
 def _bucket(run_id: str) -> float:
@@ -271,8 +290,12 @@ def resolve_scout_model(team: Team, skill_name: str, run_id: str) -> ScoutModel:
     """
     payload = _read_payload()
     scouts = _team_scouts(payload, team.id, team.parent_team_id or team.id)
-    distribution, adapters, default_model = _scout_config(scouts, skill_name)
+    distribution, adapters, efforts, default_model = _scout_config(scouts, skill_name)
     model = _select_model(run_id, distribution, default_model)
     if model is None:
         return ScoutModel(model=None, runtime_adapter=None)
-    return ScoutModel(model=model, runtime_adapter=adapters.get(model) or _infer_runtime_adapter(model))
+    return ScoutModel(
+        model=model,
+        runtime_adapter=adapters.get(model) or _infer_runtime_adapter(model),
+        reasoning_effort=efforts.get(model),
+    )

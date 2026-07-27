@@ -38,18 +38,19 @@ Every action object has these common fields plus a type-specific `config`:
 
 Use **only** these `type` values — they are the complete supported set. An unknown or unsupported `type` breaks the editor's parse for the entire graph.
 
-| `type`                   | `config`                                                                                                                                                                                                                                                                            |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `trigger`                | a trigger config (see below). Exactly one trigger node per workflow.                                                                                                                                                                                                                |
-| `delay`                  | `{ "delay_duration": "30m" }` — see duration rules below.                                                                                                                                                                                                                           |
-| `conditional_branch`     | `{ "conditions": [ { "filters": {"properties": [<cond>]}, "name?": "" } ] }`. Index N pairs with the `branch` edge `index: N`.                                                                                                                                                      |
-| `random_cohort_branch`   | `{ "cohorts": [ { "percentage": 50, "name?": "A" } ] }`. Percentages should sum to 100 — a shortfall leaves an unrouted remainder, an excess makes later cohorts unreachable.                                                                                                       |
-| `wait_until_condition`   | `{ "condition?": {"filters": {"properties": [<cond>]}}, "events?": [{"filters": {...}, "name?": ""}], "max_wait_duration": "7d" }`. `condition` is optional: an **events-only** wait is valid (server seeds a missing `condition` as `{filters: null}`). Duration rules as `delay`. |
-| `wait_until_time_window` | `{ "timezone": "UTC", "use_person_timezone?": false, "day": <"weekday" / "weekend" / "any" / ["monday",...]>, "time": <"any" / ["10:00","11:00"]> }`.                                                                                                                               |
-| `function`               | `{ "template_id": "<live template id>", "inputs": { ... }, "mappings?": [] }`. Don't guess the id or its inputs — discover them live (see below).                                                                                                                                   |
-| `function_email`         | `{ "template_id": "template-email", "inputs": {"email": {"value": {...}}}, "message_category_type?": <"marketing" / "transactional"> }`. `template_id` is the **literal** `template-email`.                                                                                         |
-| `function_sms`           | `{ "template_id": "template-twilio", "inputs": { ... }, "message_category_type?": "..." }`. `template_id` is the **literal** `template-twilio`.                                                                                                                                     |
-| `exit`                   | `{ "reason?": "Done" }`. Usually one terminal exit node.                                                                                                                                                                                                                            |
+| `type`                   | `config`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trigger`                | a trigger config (see below). Exactly one trigger node per workflow.                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `delay`                  | `{ "delay_duration": "30m" }` — see duration rules below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `conditional_branch`     | `{ "conditions": [ { "filters": {"properties": [<cond>]}, "name?": "" } ] }`. Index N pairs with the `branch` edge `index: N`.                                                                                                                                                                                                                                                                                                                                                                                                |
+| `random_cohort_branch`   | `{ "cohorts": [ { "percentage": 50, "name?": "A" } ] }`. Percentages should sum to 100 — a shortfall leaves an unrouted remainder, an excess makes later cohorts unreachable.                                                                                                                                                                                                                                                                                                                                                 |
+| `wait_until_condition`   | `{ "condition?": {"filters": {"properties": [<cond>]}}, "events?": [{"filters": {...}, "name?": ""}], "max_wait_duration": "7d" }`. `condition` is optional: an **events-only** wait is valid (server seeds a missing `condition` as `{filters: null}`). Duration rules as `delay`.                                                                                                                                                                                                                                           |
+| `wait_until_time_window` | `{ "timezone": "UTC", "use_person_timezone?": false, "day": <"weekday" / "weekend" / "any" / ["monday",...]>, "time": <"any" / ["10:00","11:00"]> }`.                                                                                                                                                                                                                                                                                                                                                                         |
+| `function`               | `{ "template_id": "<live template id>", "inputs": { ... }, "mappings?": [] }`. Don't guess the id or its inputs — discover them live (see below).                                                                                                                                                                                                                                                                                                                                                                             |
+| `function_email`         | `{ "template_id": "template-email", "template_uuid?": "<saved template UUID>", "inputs": {"email": {"value": {...}}}, "message_category_type?": <"marketing" / "transactional"> }`. `template_id` is the **literal** `template-email` — reference a saved library template (from `workflows-list-email-templates`) by putting its UUID in `template_uuid`, never in `template_id`.                                                                                                                                            |
+| `function_sms`           | `{ "template_id": "template-twilio", "inputs": { ... }, "message_category_type?": "..." }`. `template_id` is the **literal** `template-twilio`.                                                                                                                                                                                                                                                                                                                                                                               |
+| `function_push`          | `{ "template_id": "template-native-push", "inputs": { ... }, "message_category_type?": <"marketing" / "transactional"> }`. `template_id` is the **literal** `template-native-push`. Sends a mobile push notification via FCM/APNs. Its `inputs` are richer than email's — `title`, `body`, and a `channels` list of the FCM/APNs integration ids to send through — so retrieve the `template-native-push` `inputs_schema` (as with `function`) for the exact keys, and use the project's push integration ids for `channels`. |
+| `exit`                   | `{ "reason?": "Done" }`. Usually one terminal exit node.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ### Branch and wait condition filters (the `filters` wrapper is mandatory)
 
@@ -112,7 +113,7 @@ Inputs are keyed by the template's input schema, each wrapped in `{value: ...}`:
 ```
 
 - **Wrap values in `{value: ...}`.** A flat string won't enable templating.
-- Templating uses `{person.x}` / `{event.x}` inside the value string.
+- Templating uses **single-curly** `{person.x}` / `{event.x}` inside the value string. Liquid-style `{{ ... }}` is rejected on hog-templated fields ("Placeholders are not allowed in this context") — the only fields that accept Liquid are ones whose input schema declares `templating: liquid` (the email input on `function_email` does; most others don't).
 - **Dictionary input values are template strings too** — write booleans/numbers as single-expression templates: `"{true}"`, `"{42}"`, which evaluate to the typed value.
 - Required inputs must be present, or create fails with "This field is required".
 
@@ -124,7 +125,33 @@ The set of available `function` templates and their required inputs is **live da
 2. `cdp-function-templates-retrieve` with that id to read its **`inputs_schema`** — the exact keys, types, and which are required.
 3. Build `inputs` from that schema. A `template_id` not in the live list fails with "Template not found".
 
-`function_email` and `function_sms` are the exception — their `template_id` is the fixed literal `template-email` / `template-twilio` (required by the editor), so you don't look those up.
+`function_email`, `function_sms`, and `function_push` are the exception — their `template_id` is the fixed literal `template-email` / `template-twilio` / `template-native-push` (required by the editor), so you don't look the `template_id` up. A saved email template's UUID goes in `template_uuid` alongside the literal, never in `template_id`. `function_push` still has variable `inputs` (notably `channels`), so retrieve its `inputs_schema` even though the id is fixed.
+
+### `function_push` worked example
+
+Retrieve `template-native-push` with `cdp-function-templates-retrieve` for the full `inputs_schema` (it has many optional Android/iOS keys), but the core shape is:
+
+```json
+{
+  "id": "push_1",
+  "name": "Re-engagement push",
+  "type": "function_push",
+  "config": {
+    "template_id": "template-native-push",
+    "inputs": {
+      "distinctId": { "value": "{event.distinct_id}" },
+      "channels": { "value": [6, 7] },
+      "title": { "value": "Notification from {event.event}" },
+      "body": { "value": "Hi {{ person.properties.first_name }}, come finish setting up.", "templating": "liquid" }
+    }
+  }
+}
+```
+
+- **`channels`** is an `integration_multi` input: its `value` is an array of **integration id numbers** (e.g. `[6, 7]`), not objects. Find the FCM/APNs integration ids with `integrations-list` (look for `kind` `firebase` / `apns`); at least one is required or the send throws "No push channel configured".
+- **Templating differs per input.** `body` is **liquid** — interpolate with `{{ person.x }}` / `{{ event.x }}` (double braces) and set `"templating": "liquid"`. `title` and the other string inputs are **hog** — use `{event.x}` / `{person.x}` (single braces). The wrong brace style leaves the expression as a literal.
+- Required: `distinctId`, `channels`, `title`. Optional: `body`, `image`, `data`, `ttlSeconds`, `android_*`, `ios_*` (retrieve the `inputs_schema` for the full set).
+- Never hand-author `bytecode` — the server compiles it from `value`. Omit `order` too: the editor lays fields out in the template's `inputs_schema` order (fixed and consistent), not by the `order` on your inputs, so leaving it off doesn't change the form. Push has no delivered/opened/clicked signal (FCM/APNs respond synchronously), so a successful send means "accepted for delivery", nothing more.
 
 ## Duration strings (`delay_duration`, `max_wait_duration`)
 
@@ -147,7 +174,7 @@ Must match `^\d*\.?\d+[dhm]$` — a number plus unit `m` | `h` | `d`. Examples: 
 - [ ] Exactly **one** `type: "trigger"` action; usually exactly one `exit`.
 - [ ] Every action `type` and `config` matches a row above (no types outside the supported set).
 - [ ] `on_error` is only `continue` or `abort`.
-- [ ] `function_email.template_id == "template-email"`, `function_sms.template_id == "template-twilio"`.
+- [ ] `function_email.template_id == "template-email"`, `function_sms.template_id == "template-twilio"`, `function_push.template_id == "template-native-push"`.
 - [ ] Every non-exit node has an outgoing edge; `branch` edges have an `index` matching a condition.
 - [ ] Every `conditional_branch` / `wait_until_condition` condition is wrapped: `{filters: {properties: [...]}}`, not `{properties: [...]}`.
 - [ ] All durations match `^\d*\.?\d+[dhm]$` and dodge the silent per-unit clamp.

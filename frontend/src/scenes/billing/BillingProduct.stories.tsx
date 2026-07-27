@@ -50,7 +50,7 @@ const makePostHogCodeUsageBilling = ({
     ) as BillingProductV2Type
     const product: BillingProductV2Type = {
         ...sourceProduct,
-        name: 'PostHog Code',
+        name: 'PostHog Desktop',
         headline: 'AI coding agents for your PostHog workspace.',
         description: 'AI coding agents for automating PostHog work.',
         usage_key: POSTHOG_CODE_USAGE_PRODUCT_KEY,

@@ -839,6 +839,48 @@ describe('experimentMetricsLogic', () => {
             logic.actions.setCurrentRecalculation(asRecalc({ ...inProgressRecalculation, id: 'recalc-3' }))
             expect(logic.values.liveRowsProgress).toBeNull()
         })
+
+        it('metricRetries drops resolved entries and nextRetryAt picks the soonest', () => {
+            // Server-side the terminal write clears entries, but a crash between the result write and the
+            // clear can leave one behind; the outcome must win over the stale "retrying" state.
+            const draft = { ...EXPERIMENT, status: undefined, start_date: null, end_date: null } as Experiment
+            logic = experimentMetricsLogic({ experiment: draft })
+            logic.mount()
+
+            logic.actions.setCurrentRecalculation(
+                asRecalc({
+                    ...inProgressRecalculation,
+                    metric_retries: {
+                        [PRIMARY_METRIC_UUID]: {
+                            attempt: 2,
+                            max_attempts: 8,
+                            error_type: 'rate_limited',
+                            next_retry_at: '2026-06-10T00:01:00Z',
+                        },
+                        [SECONDARY_METRIC_UUID]: { attempt: 1, max_attempts: 8, error_type: 'server_error' },
+                        'resolved-uuid': {
+                            attempt: 1,
+                            max_attempts: 8,
+                            error_type: 'server_error',
+                            next_retry_at: '2026-06-10T00:00:30Z',
+                        },
+                    },
+                    results: [
+                        {
+                            metric_uuid: 'resolved-uuid',
+                            status: 'completed',
+                            result: primaryResult,
+                            error_message: null,
+                        },
+                    ],
+                })
+            )
+            expect(Object.keys(logic.values.metricRetries).sort()).toEqual(
+                [PRIMARY_METRIC_UUID, SECONDARY_METRIC_UUID].sort()
+            )
+            // The resolved metric's earlier next_retry_at must not win; entries without one are skipped.
+            expect(logic.values.nextRetryAt).toEqual('2026-06-10T00:01:00Z')
+        })
     })
 
     describe('tab focus does not clobber a loaded run', () => {

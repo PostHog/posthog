@@ -511,8 +511,6 @@ export function createHogTransformerService(
     const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
     const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
-        writeEnabled: config.EMAIL_SUPPRESSION_WRITE_ENABLED,
-        enforceEnabled: config.EMAIL_SUPPRESSION_ENFORCE_ENABLED,
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
     })
     const emailService = new EmailService(

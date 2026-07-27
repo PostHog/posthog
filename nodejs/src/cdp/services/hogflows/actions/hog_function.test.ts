@@ -86,7 +86,7 @@ describe('HogFunctionHandler', () => {
             mockHogFunctionExecutor
         )
         mockRecipientPreferencesService = {
-            shouldSkipAction: jest.fn().mockResolvedValue(false),
+            shouldSkipAction: jest.fn().mockResolvedValue(null),
         } as any
         mockEmailValidationService = {
             getSkipReason: jest.fn().mockResolvedValue(null),
@@ -372,8 +372,8 @@ describe('HogFunctionHandler', () => {
         expect(calledConfig.mappings).toEqual([{ name: 'input mapping field' }])
     })
 
-    it('should skip execution if recipient preferences service returns true', async () => {
-        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(true)
+    it('should skip execution and log an opt-out message when recipient preferences returns opted_out', async () => {
+        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('opted_out')
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queue: 'hog',
@@ -390,6 +390,39 @@ describe('HogFunctionHandler', () => {
         expect(invocationResult.logs[0].message).toContain(
             `[Action:function] Recipient has opted out, skipping message delivery.`
         )
+        // Opt-out skips do not emit an app metric — no billable_invocation, no email_suppressed.
+        expect(invocationResult.metrics).toEqual([])
+        expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    // Guards the fix that split suppression from opt-out: previously both branches collapsed to a
+    // single "opted out" log with no metric, so a customer couldn't tell why a workflow send was
+    // skipped or measure suppression volume from the app-metrics view.
+    it('should skip execution, log a suppression message, and emit email_suppressed when recipient preferences returns suppressed', async () => {
+        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('suppressed')
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(handlerResult.nextAction?.id).toBe('exit')
+        expect(invocationResult.logs).toHaveLength(1)
+        expect(invocationResult.logs[0].message).toContain(
+            `[Action:function] Skipping send: recipient is on the suppression list.`
+        )
+        expect(invocationResult.metrics).toEqual([
+            {
+                team_id: team.id,
+                app_source_id: invocation.functionId,
+                instance_id: action.id,
+                metric_kind: 'email',
+                metric_name: 'email_suppressed',
+                count: 1,
+            },
+        ])
         expect(mockFetch).not.toHaveBeenCalled()
     })
 
@@ -485,7 +518,7 @@ describe('HogFunctionHandler', () => {
     })
 
     it('should not emit a billable_invocation metric when recipient opts out', async () => {
-        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(true)
+        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('opted_out')
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queue: 'hog',

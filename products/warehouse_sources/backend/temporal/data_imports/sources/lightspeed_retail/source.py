@@ -13,7 +13,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceInputs,
     SourceResponse,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -23,8 +27,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lightspeedretail import (
     LightspeedRetailSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.constants import (
+    LIGHTSPEED_RETAIL_API_VERSION_2_0,
+    LIGHTSPEED_RETAIL_API_VERSION_2026_01,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.lightspeed_retail import (
     LightspeedRetailResumeConfig,
@@ -40,8 +48,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, LightspeedRetailResumeConfig]):
-    supported_versions = ("2.0",)
-    default_version = "2.0"
+    supported_versions = (LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2026_01)
+    default_version = LIGHTSPEED_RETAIL_API_VERSION_2026_01
+    api_docs_url = "https://x-series-api.lightspeedhq.com/docs/introduction"
+    # X-Series deprecated the legacy 2.0 version; no firm sunset date is published (deprecated
+    # endpoints increasingly return 410 Gone before an eventual retirement).
+    deprecated_versions = (VersionDeprecation(version=LIGHTSPEED_RETAIL_API_VERSION_2_0, sunset_at=None),)
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -66,6 +78,8 @@ class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, Light
         return {
             "401 Client Error: Unauthorized for url": "Lightspeed Retail authentication failed. Please check your personal token and store domain prefix.",
             "403 Client Error: Forbidden for url": "Lightspeed Retail denied access. Please check that your personal token has the required permissions.",
+            # A retired API version answers 410 forever — retrying can't recover it.
+            "410 Client Error: Gone for url": "Lightspeed Retail no longer serves this API version. Please update the source to a supported API version.",
         }
 
     @property
@@ -111,13 +125,22 @@ Your domain prefix is the first part of your store URL — for `mystore.retail.l
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
+        # Static endpoint catalog — identical across supported versions, so no vendor call to pin.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: LightspeedRetailSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LightspeedRetailSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_lightspeed_credentials(config.domain_prefix, config.api_token):
+        # The probe URL carries the version path segment, so a pinned source must probe its own pin.
+        if validate_lightspeed_credentials(
+            config.domain_prefix, config.api_token, self.resolve_api_version(api_version)
+        ):
             return True, None
 
         return False, "Invalid Lightspeed Retail credentials"
@@ -137,8 +160,10 @@ Your domain prefix is the first part of your store URL — for `mystore.retail.l
             domain_prefix=config.domain_prefix,
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

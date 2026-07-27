@@ -11,7 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.source import CalendlySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CalendlySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calendly import (
+    CalendlySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

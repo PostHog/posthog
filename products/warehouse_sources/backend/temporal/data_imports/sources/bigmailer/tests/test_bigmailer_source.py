@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer.
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer.source import BigMailerSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BigMailerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigmailer import (
+    BigMailerSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -118,6 +120,9 @@ class TestPipelineHandoff:
     def test_source_for_pipeline_builds_response(self, endpoint: str, expected_keys: list[str]) -> None:
         src = BigMailerSource()
         inputs = _inputs(endpoint)
-        response = src.source_for_pipeline(_config(), src.get_resumable_source_manager(inputs), inputs)
+        # the transport reads resume state while building the resource, so a Redis-free stand-in is used
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+        response = src.source_for_pipeline(_config(), manager, inputs)
         assert response.name == endpoint
         assert response.primary_keys == expected_keys

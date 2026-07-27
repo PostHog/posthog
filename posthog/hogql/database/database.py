@@ -1547,7 +1547,7 @@ class Database(BaseModel):
                     events_table.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
                 elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
-                    events_table.fields["person_id"] = StringDatabaseField(name="person_id")
+                    events_table.fields["person_id"] = UUIDDatabaseField(name="person_id")
                     _use_person_properties_from_events(database)
 
                 elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
@@ -2127,7 +2127,7 @@ def _use_person_properties_from_events(database: Database) -> None:
 
 def _use_person_id_from_person_overrides(database: Database) -> None:
     table = database.get_table("events")
-    table.fields["event_person_id"] = StringDatabaseField(name="person_id")
+    table.fields["event_person_id"] = UUIDDatabaseField(name="person_id")
     table.fields["override"] = LazyJoin(
         from_field=["distinct_id"],
         join_table=database.get_table("person_distinct_id_overrides"),
