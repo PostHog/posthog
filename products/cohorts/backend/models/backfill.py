@@ -95,6 +95,14 @@ class CohortBackfillRun(TeamScopedRootMixin, UUIDTModel):
         indexes = [
             models.Index(fields=["team", "status"], name="cohort_bfr_team_status_idx"),
             models.Index(fields=["team", "-created_at"], name="cohort_bfr_team_created_idx"),
+            # The finalizer discovers observed runs across all teams, so it can't use the
+            # team-prefixed indexes above. Partial on status keeps that scan proportional to the
+            # live run set instead of to the table's ever-growing terminal history.
+            models.Index(
+                fields=["backfill_kind", "reconcile_observed_at"],
+                condition=Q(status=CohortBackfillRunStatus.RECONCILING),
+                name="cohort_bfr_reconciling_idx",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(
