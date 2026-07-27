@@ -574,17 +574,19 @@ class TestQueryRunner(BaseTest):
         assert response.clickhouse is not None
         assert "events.`mat_$browser" not in response.clickhouse
 
-    @mock.patch("posthog.hogql_queries.query_runner.get_query_cache_manager")
-    def test_schema_change_triggers_recalculation(self, mock_get_cache_manager):
+    @mock.patch("posthog.hogql_queries.query_runner.QueryCache")
+    def test_schema_change_triggers_recalculation(self, mock_query_cache_cls):
         TestQueryRunner = self.setup_test_query_runner_class()
         mock_cache_manager = mock.MagicMock()
         mock_cache_manager.cache_key = "test_cache_key"
-        mock_cache_manager.get_cache_data.return_value = {
+        mock_entry = mock.MagicMock()
+        mock_entry.as_full_response.return_value = {
             "is_cached": True,
             "invalid_field": "this will cause validation to fail",
             # Missing all the actual required fields like results, last_refresh, etc.
         }
-        mock_get_cache_manager.return_value = mock_cache_manager
+        mock_cache_manager.lookup.return_value.entry = mock_entry
+        mock_query_cache_cls.return_value = mock_cache_manager
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
@@ -593,8 +595,8 @@ class TestQueryRunner(BaseTest):
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, False, "Should get a fresh response, not a cached one")
             self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
-            mock_cache_manager.get_cache_data.assert_called_once()
-            mock_cache_manager.set_cache_data.assert_called_once()
+            mock_cache_manager.lookup.assert_called_once()
+            mock_cache_manager.store_result.assert_called_once()
 
     @parameterized.expand(
         [
