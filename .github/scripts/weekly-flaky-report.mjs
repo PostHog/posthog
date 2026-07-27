@@ -14,6 +14,7 @@
 // retry-enabled lanes. Master-burst breakage is filtered out client-side.
 
 import { execFileSync } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
 
 const HOST = (process.env.POSTHOG_HOST || 'https://us.posthog.com').replace(/\/$/, '')
 const PROJECT_ID = process.env.POSTHOG_PROJECT_ID || ''
@@ -106,13 +107,20 @@ function hogql(query, values) {
     )
 }
 
-// One bad merge is breakage, not flakiness; keep it off the table. The endpoint's
-// classification does not separate master bursts yet, so this stays client-side.
+// A same-commit recovery proves a flake, so only suppress likely one-merge bursts
+// when the endpoint has no recovery proof.
 function isMasterBurst(item) {
     return (
+        item.classification === 'suspected_regression' &&
         item.failed_run_count > 0 &&
         item.master_failed_run_count / item.failed_run_count >= 0.5 &&
         item.failed_pr_count <= 3
+    )
+}
+
+function selectReportCandidates(items) {
+    return collapseClusters(
+        items.filter((item) => item.runner === 'pytest' && !isMasterBurst(item)).slice(0, CANDIDATE_POOL)
     )
 }
 
@@ -187,7 +195,7 @@ function selectorVariants(selector) {
 
 // Rescue counts (failed at attempt N, run green at a later attempt) and the two most
 // recent failing (run, job) pairs, from the product's ci_failures view.
-async function enrich(items) {
+async function enrich(items, runHogql = hogql) {
     const bySelector = new Map()
     for (const item of items) {
         for (const variant of selectorVariants(item.selector)) {
@@ -201,15 +209,17 @@ async function enrich(items) {
     }
     let rows = []
     try {
-        const result = await hogql(
+        const result = await runHogql(
             `SELECT f.test_id AS test_id,
                 uniqIf(f.run_id, r.run_attempt > f.run_attempt AND r.conclusion = 'success') AS runs_rescued,
                 arraySlice(arrayReverseSort(x -> x.1, groupUniqArray(20)((toUnixTimestamp(f.timestamp), f.run_id, f.job_id))), 1, 6) AS recent
             FROM engineering_analytics_ci_failures f
             LEFT JOIN ${RUNS_TABLE} r ON r.id = f.run_id
-            WHERE f.timestamp >= now() - INTERVAL 7 DAY AND f.test_id IN {selectors}
+            WHERE f.timestamp >= now() - INTERVAL 7 DAY
+                AND lower(f.repo) = lower({repository})
+                AND f.test_id IN {selectors}
             GROUP BY f.test_id`,
-            { selectors }
+            { repository: GITHUB_REPOSITORY, selectors }
         )
         rows = result.results || []
     } catch (err) {
@@ -271,8 +281,12 @@ function cell(text) {
     return { type: 'raw_text', text }
 }
 
-function mrkdwnCell(text) {
-    return { type: 'mrkdwn', text }
+function linkedCell(links) {
+    const elements = links.flatMap(({ url, text }, index) => [
+        ...(index > 0 ? [{ type: 'text', text: ' ' }] : []),
+        { type: 'link', url, text },
+    ])
+    return { type: 'rich_text', elements: [{ type: 'rich_text_section', elements }] }
 }
 
 function shortName(selector) {
@@ -284,23 +298,24 @@ function tableRows(items, ownerFor, extrasFor) {
     return items.map((item) => {
         const { owner, repoPath } = ownerFor(item)
         const { runsRescued, evidence } = extrasFor(item)
-        const name = item.cluster_size ? `${item.selector.split('/').pop()} (${item.cluster_size} tests)` : shortName(item.selector)
+        const name = item.cluster_size
+            ? `${item.selector.split('/').pop()} (${item.cluster_size} tests)`
+            : shortName(item.selector)
         const testCell = repoPath
-            ? mrkdwnCell(`<${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/master/${repoPath}|${name}>`)
+            ? linkedCell([{ url: `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/master/${repoPath}`, text: name }])
             : cell(name)
-        const quarantined = item.classification === 'quarantined' || item.quarantined_failed_run_count > 0 ? ' (quarantined)' : ''
-        const logs = evidence
-            .map(({ runId, jobId }, i) => {
-                const url = `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${runId}${jobId ? `/job/${jobId}` : ''}`
-                return `<${url}|${i + 1}>`
-            })
-            .join(' ')
+        const quarantined =
+            item.classification === 'quarantined' || item.quarantined_failed_run_count > 0 ? ' (quarantined)' : ''
+        const logLinks = evidence.map(({ runId, jobId }, index) => ({
+            url: `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${runId}${jobId ? `/job/${jobId}` : ''}`,
+            text: String(index + 1),
+        }))
         return [
             testCell,
             cell(owner.replace(/^team-/, '') + quarantined),
             cell(runsRescued == null ? '-' : String(runsRescued)),
             cell(String(item.failed_run_count)),
-            logs ? mrkdwnCell(logs) : cell('-'),
+            logLinks.length > 0 ? linkedCell(logLinks) : cell('-'),
         ]
     })
 }
@@ -310,7 +325,10 @@ function buildBlocks(now, rows) {
     const blocks = [
         {
             type: 'section',
-            text: { type: 'mrkdwn', text: `*Top ${rows.length} flaky tests — ${dateLabel}* _(backend CI, last 7 days)_` },
+            text: {
+                type: 'mrkdwn',
+                text: `*Top ${rows.length} flaky tests — ${dateLabel}* _(backend CI, last 7 days)_`,
+            },
         },
         {
             type: 'table',
@@ -354,7 +372,10 @@ async function postToSlack(blocks) {
     })
     const data = await res.json()
     if (!data.ok) {
-        throw new Error(`Slack chat.postMessage failed: ${data.error}`)
+        const validationDetails = Array.isArray(data.response_metadata?.messages)
+            ? `: ${data.response_metadata.messages.join('; ')}`
+            : ''
+        throw new Error(`Slack chat.postMessage failed: ${data.error}${validationDetails}`)
     }
 }
 
@@ -365,11 +386,15 @@ async function main() {
     }
     const now = new Date()
     const result = await fetchFlakyTests()
-    const pool = collapseClusters((result.items || []).filter((item) => !isMasterBurst(item)).slice(0, CANDIDATE_POOL))
+    const pool = selectReportCandidates(result.items || [])
     const extrasFor = await enrich(pool.filter((item) => !item.cluster_size))
     // Rescued runs first (the strongest per-test signal), clusters and the rest by volume.
     const flaky = pool
-        .sort((a, b) => (extrasFor(b).runsRescued ?? 0) - (extrasFor(a).runsRescued ?? 0) || b.failed_run_count - a.failed_run_count)
+        .sort(
+            (a, b) =>
+                (extrasFor(b).runsRescued ?? 0) - (extrasFor(a).runsRescued ?? 0) ||
+                b.failed_run_count - a.failed_run_count
+        )
         .slice(0, TOP_N)
     if (flaky.length === 0) {
         console.info('No qualifying flaky tests this week — nothing to post.')
@@ -388,7 +413,11 @@ async function main() {
     console.info(`Posted weekly flaky report to ${SLACK_CHANNEL}.`)
 }
 
-main().catch((err) => {
-    console.error(err)
-    process.exit(1)
-})
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    main().catch((err) => {
+        console.error(err)
+        process.exit(1)
+    })
+}
+
+export { buildBlocks, enrich, selectReportCandidates, tableRows }
