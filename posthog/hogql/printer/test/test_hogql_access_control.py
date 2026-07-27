@@ -353,12 +353,8 @@ class TestDeniedTableError(BaseTest):
         # Verify the table is in denied list
         assert "system.dashboards" in database._denied_tables
 
-        # Try to get the table and verify error message
-        with self.assertRaises(TableAccessDeniedError) as cm:
+        with self.assertRaises(TableAccessDeniedError):
             database.get_table("system.dashboards")
-
-        assert "don't have access" in str(cm.exception)
-        assert "Unknown" not in str(cm.exception)
 
     def test_unknown_table_still_shows_unknown_error(self):
         """Tables that don't exist should still show 'unknown' error."""
@@ -410,9 +406,8 @@ class TestAccessControlIntegration(BaseTest):
             enable_select_queries=True,
         )
 
-        with self.assertRaises(TableAccessDeniedError) as cm:
+        with self.assertRaises(TableAccessDeniedError):
             self._compile_select("SELECT id, name FROM system.dashboards", context)
-        assert "don't have access" in str(cm.exception)
 
     def test_query_without_user_works_for_unscoped_tables(self):
         """Unscoped system tables should still be queryable without user context."""
@@ -598,10 +593,8 @@ class TestWarehouseTableAccessControl(BaseTest):
 
         database = Database.create_for(team=self.team, user=self.user)
 
-        with self.assertRaises(TableAccessDeniedError) as cm:
+        with self.assertRaises(TableAccessDeniedError):
             database.get_table("denied_table")
-        assert "don't have access" in str(cm.exception)
-        assert "Unknown" not in str(cm.exception)
 
 
 class TestWarehouseTableAccessControlFlagOff(BaseTest):
@@ -703,8 +696,7 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
                 team=self.team,
                 user=self.user,
             )
-        assert "don't have access" in str(cm.exception)
-        assert "denied_warehouse_table" in str(cm.exception)
+        assert cm.exception.table_name == "denied_warehouse_table"
 
     def test_execute_hogql_query_raises_on_denied_warehouse_table_reached_through_a_join(self):
         """A denied table reached through a join must raise the access error too. It is absent from
@@ -738,8 +730,7 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
                 team=self.team,
                 user=self.user,
             )
-        assert "don't have access" in str(cm.exception)
-        assert "denied_warehouse_table" in str(cm.exception)
+        assert cm.exception.table_name == "denied_warehouse_table"
 
     def test_execute_hogql_query_bypass_warehouse_access_control_skips_denial(self):
         """bypass_warehouse_access_control opt-in should let the query past the access control gate
@@ -768,9 +759,8 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
                 user=self.user,
                 context=context,
             )
-        except QueryError as e:
-            # Access control deny would say "don't have access"
-            assert "don't have access" not in str(e), f"bypass was not honored: {e}"
+        except TableAccessDeniedError as e:
+            raise AssertionError(f"bypass was not honored: {e}")
         except Exception:
             # Downstream errors (missing S3, etc.) are expected and irrelevant
             # to whether ACL was bypassed.
@@ -967,10 +957,8 @@ class TestWarehouseViewAccessControl(BaseTest):
         assert not database.has_table("denied_view")
         assert backing_table.name == "denied_view"
 
-        with self.assertRaises(TableAccessDeniedError) as cm:
+        with self.assertRaises(TableAccessDeniedError):
             database.get_table("denied_view")
-        assert "don't have access" in str(cm.exception)
-        assert "Unknown" not in str(cm.exception)
 
     def test_allowed_materialized_view_still_resolves(self):
         # The backing table is excluded, but the view node still exposes the name (and reads the

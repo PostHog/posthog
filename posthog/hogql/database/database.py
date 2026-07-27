@@ -2002,18 +2002,17 @@ class Database(BaseModel):
 
         with timings.measure("data_warehouse_joins", emit_span=True):
             for join in sources.data_warehouse_joins:
+                # A denied table is absent from the schema just like a deleted one, but the two must
+                # not behave the same: dropping the join would surface the denial as "Field not
+                # found", indistinguishable from a typo. Keep it, and target the table by name so
+                # resolution goes through Database.get_table and raises TableAccessDeniedError.
+                joining_table_denied = database.is_table_access_denied(join.joining_table_name)
+
                 # Skip if either table is not present. This can happen if the table was deleted after the join was created.
                 # User will be prompted on UI to resolve missing tables underlying the JOIN
-                if not database.has_table(join.source_table_name):
-                    continue
-
-                # An access-denied joining table is absent from the schema just like a deleted one,
-                # but the two must not behave the same: dropping the join would surface the denial
-                # as "Field not found", indistinguishable from a typo. Keep the join and target the
-                # table by name, so LazyJoin.resolve_table looks it up through Database.get_table at
-                # resolution time and raises TableAccessDeniedError, matching a direct reference.
-                joining_table_denied = database.is_table_access_denied(join.joining_table_name)
-                if not database.has_table(join.joining_table_name) and not joining_table_denied:
+                if not database.has_table(join.source_table_name) or (
+                    not database.has_table(join.joining_table_name) and not joining_table_denied
+                ):
                     continue
 
                 try:
