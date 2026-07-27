@@ -376,19 +376,15 @@ class TestRunEvaluationWorkflow:
                 assert props["$ai_output_tokens"] == 18
                 assert props["$ai_evaluation_type"] == "online"
 
-    @parameterized.expand(
-        [
-            # (status_code, should_raise) — a 402 means the team is over its ingestion quota, which
-            # is a billing condition we swallow so the workflow succeeds instead of exhausting retries.
-            ("over_quota_swallowed", 402, False),
-            ("other_capture_error_raises", 500, True),
-        ]
-    )
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_emit_evaluation_event_activity_billing_limit(
-        self, _name: str, status_code: int, should_raise: bool, setup_data
-    ):
+    @pytest.mark.parametrize(
+        "status_code,should_raise",
+        # A 402 means the team is over its ingestion quota, which is a billing condition we swallow
+        # so the workflow succeeds instead of exhausting retries on a request that can't recover.
+        [(402, False), (500, True)],
+    )
+    async def test_emit_evaluation_event_activity_billing_limit(self, setup_data, status_code: int, should_raise: bool):
         team = setup_data["team"]
         evaluation = {"id": str(setup_data["evaluation"].id), "name": "Test Evaluation"}
         event_data = create_mock_event_data(team.id, properties={})
