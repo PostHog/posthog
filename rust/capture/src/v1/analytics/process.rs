@@ -3287,13 +3287,14 @@ mod tests {
     // Ingestion warning emission — process_batch with a CollectingEmitter
     // =========================================================================
 
+    use crate::outputs::AnalyticsFamilyOutputs;
     use common_ingestion_warnings::test_support::CollectingEmitter;
     use common_ingestion_warnings::WarningType;
 
     /// State wired to a `CollectingEmitter` so tests can assert exactly what
     /// `process_batch` emitted (type, count, details) without any Kafka.
     fn state_with_warning_collector() -> (
-        router::State<crate::outputs::AnalyticsFamilyOutputs>,
+        router::State<AnalyticsFamilyOutputs>,
         Arc<CollectingEmitter>,
     ) {
         let collector = Arc::new(CollectingEmitter::new());

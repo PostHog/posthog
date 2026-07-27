@@ -376,8 +376,9 @@ mod tests {
 
         async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
             use crate::pipeline::{Address, AnalyticsLane};
+            use crate::serialization::Serializer;
             use crate::sinks::sink::fold_results;
-            let serializer = crate::serialization::Serializer::json();
+            let serializer = Serializer::json();
             let prepared = events
                 .iter()
                 .map(|event| {

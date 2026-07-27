@@ -11,6 +11,7 @@ use crate::{
     api::CaptureError,
     config::CaptureMode,
     config::Config,
+    pipeline::AI_EVENT_PREFIX,
     prometheus::{report_quota_limit_exceeded, CAPTURE_EVENTS_DROPPED_TOTAL},
 };
 
@@ -43,7 +44,7 @@ pub fn is_survey_event(info: EventInfo) -> bool {
 
 // for QuotaResource::LLMEvents
 pub fn is_llm_event(info: EventInfo) -> bool {
-    info.name.starts_with(crate::pipeline::AI_EVENT_PREFIX)
+    info.name.starts_with(AI_EVENT_PREFIX)
 }
 
 // TODO: define more limiter predicates here!

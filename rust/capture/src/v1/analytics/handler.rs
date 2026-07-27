@@ -182,12 +182,13 @@ mod tests {
     use tower::ServiceExt;
     use uuid::Uuid;
 
+    use crate::outputs::AnalyticsFamilyOutputs;
     use crate::router;
     use crate::v1::analytics::constants::CAPTURE_V1_PATH;
     use crate::v1::constants::*;
     use crate::v1::test_utils::{batch_payload, compressed_payload, valid_event, TestStateBuilder};
 
-    fn test_app(state: router::State<crate::outputs::AnalyticsFamilyOutputs>) -> Router {
+    fn test_app(state: router::State<AnalyticsFamilyOutputs>) -> Router {
         Router::new()
             .route(CAPTURE_V1_PATH, axum::routing::post(super::handle_request))
             .layer(axum::middleware::from_fn(

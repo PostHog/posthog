@@ -22,7 +22,7 @@ use crate::api::CaptureError;
 use crate::config::EnvelopeCompression;
 use crate::config::KafkaConfig;
 #[cfg(test)]
-use crate::outputs::PrepSpec;
+use crate::outputs::{prepare_batch, PrepSpec};
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 #[cfg(test)]
 use crate::sinks::sink::fold_results;
@@ -503,7 +503,7 @@ impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
         spec: &PrepSpec,
         events: Vec<ProcessedEvent>,
     ) -> Result<(), CaptureError> {
-        let prepared = crate::outputs::prepare_batch(spec, events).await?;
+        let prepared = prepare_batch(spec, events).await?;
         fold_results(self.publish(prepared).await)
     }
 }

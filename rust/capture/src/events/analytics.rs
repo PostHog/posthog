@@ -676,9 +676,10 @@ mod tests {
     }
 
     use crate::pipeline::{Address, AnalyticsLane, BasicLane, Pipeline as CapturePipeline};
+    use crate::sinks::AddressedPayload;
 
     /// Deserialize a captured payload back into the event it carries.
-    fn event_of(p: &crate::sinks::AddressedPayload) -> common_types::CapturedEvent {
+    fn event_of(p: &AddressedPayload) -> common_types::CapturedEvent {
         serde_json::from_slice(&p.payload).expect("payload must be json")
     }
     use rstest::rstest;
@@ -1099,9 +1100,7 @@ mod tests {
     // warnings) must pass through the restriction stage untouched so that an
     // analytics-scoped DropEvent/RedirectToDlq/etc. does not cross pipelines.
 
-    async fn process_single_with_drop_restriction(
-        event_name: &str,
-    ) -> Vec<crate::sinks::AddressedPayload> {
+    async fn process_single_with_drop_restriction(event_name: &str) -> Vec<AddressedPayload> {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);

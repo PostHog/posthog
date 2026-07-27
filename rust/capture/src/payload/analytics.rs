@@ -16,6 +16,7 @@ use crate::{
     api::CaptureError,
     debug_or_info,
     extractors::extract_body_with_timeout,
+    outputs::PublishesAnalyticsFamily,
     payload::{extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     utils::extract_and_verify_token,
@@ -28,7 +29,7 @@ use crate::{
     skip_all,
     fields(method, path, token, ip, historical_migration, compression, batch_size)
 )]
-pub async fn handle_event_payload<T: crate::outputs::PublishesAnalyticsFamily>(
+pub async fn handle_event_payload<T: PublishesAnalyticsFamily>(
     state: &State<router::State<T>>,
     InsecureClientIp(ip): &InsecureClientIp,
     query_params: &mut EventQuery,
