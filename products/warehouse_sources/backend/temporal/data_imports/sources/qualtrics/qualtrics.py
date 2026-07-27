@@ -44,8 +44,14 @@ EXPORT_SPOOL_MAX_BYTES = 32 * 1024 * 1024
 MAX_EXPORT_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024
 MAX_EXPORT_DECOMPRESSED_BYTES = 16 * 1024 * 1024 * 1024
 # Cap a single NDJSON line so a newline-free member can't buffer unbounded before the byte
-# budget is checked. Qualtrics response rows are far smaller than this.
-MAX_EXPORT_LINE_BYTES = 64 * 1024 * 1024
+# budget is checked. A real Qualtrics response row is far smaller than this.
+MAX_EXPORT_LINE_BYTES = 16 * 1024 * 1024
+# Flush a batch once its accumulated rows reach this many serialized bytes, so a run of large
+# rows can't pin far more than this in memory before the row-count batch size is hit.
+MAX_EXPORT_BATCH_BYTES = 32 * 1024 * 1024
+# A real export is a single NDJSON member; `zipfile` builds a `ZipInfo` per entry as soon as it
+# reads the central directory, so cap the declared member count before that memory is spent.
+MAX_EXPORT_ARCHIVE_MEMBERS = 1024
 
 # Export jobs are asynchronous: create, then poll until Qualtrics reports `complete`.
 EXPORT_POLL_INTERVAL_SECONDS = 3.0
@@ -491,6 +497,36 @@ def _iter_ndjson(stream: IO[bytes], budget: _DecompressionBudget) -> Iterator[di
         yield from _parse_ndjson_line(bytes(buffer))
 
 
+_EOCD_SIGNATURE = b"PK\x05\x06"
+# The zip end-of-central-directory record is 22 bytes plus a comment of up to 65535 bytes.
+_EOCD_MAX_SCAN_BYTES = 22 + 65535
+
+
+def _guard_zip_member_count(buffer: IO[bytes]) -> None:
+    """Reject an archive whose central directory declares too many members.
+
+    The end-of-central-directory record carries the entry count cheaply, so read it before
+    handing the buffer to `zipfile` — that materializes a `ZipInfo` per member and a crafted
+    archive full of empty entries could exhaust memory before any decompressed byte is charged.
+    The ZIP64 sentinel (0xFFFF) reads well past the cap and is rejected on the same path.
+    """
+    buffer.seek(0, 2)
+    size = buffer.tell()
+    scan = min(size, len(_EOCD_SIGNATURE) + _EOCD_MAX_SCAN_BYTES)
+    buffer.seek(size - scan)
+    tail = buffer.read(scan)
+    marker = tail.rfind(_EOCD_SIGNATURE)
+    # A missing/short record isn't our concern — `zipfile` raises its own BadZipFile for that.
+    if marker == -1 or marker + 12 > len(tail):
+        return
+    total_members = int.from_bytes(tail[marker + 10 : marker + 12], "little")
+    if total_members > MAX_EXPORT_ARCHIVE_MEMBERS:
+        raise QualtricsResponseTooLargeError(
+            f"Qualtrics export archive declared {total_members} members, exceeding the "
+            f"{MAX_EXPORT_ARCHIVE_MEMBERS}-member limit"
+        )
+
+
 def _iter_export_file(response: requests.Response) -> Iterator[dict[str, Any]]:
     """Stream the export download, transparently unpacking Qualtrics' zip envelope.
 
@@ -528,6 +564,7 @@ def _iter_export_file(response: requests.Response) -> Iterator[dict[str, Any]]:
             yield from _iter_ndjson(buffer, budget)
             return
 
+        _guard_zip_member_count(buffer)
         buffer.seek(0)
         with zipfile.ZipFile(buffer) as archive:
             for info in archive.infolist():
@@ -563,6 +600,11 @@ def _normalize_response_row(survey_id: str, row: dict[str, Any]) -> dict[str, An
         "displayedFields": json.dumps(row.get("displayedFields") or []),
         "displayedValues": json.dumps(row.get("displayedValues") or {}),
     }
+
+
+def _approx_row_bytes(row: dict[str, Any]) -> int:
+    """Rough in-memory size of a normalized row, dominated by its JSON-encoded blob columns."""
+    return sum(len(row[key]) for key in ("values", "labels", "displayedFields", "displayedValues"))
 
 
 def _export_responses(
@@ -611,11 +653,16 @@ def _export_responses(
         raise
 
     batch: list[dict[str, Any]] = []
+    batch_bytes = 0
     for row in _iter_export_file(response):
-        batch.append(_normalize_response_row(survey_id, row))
-        if len(batch) >= EXPORT_BATCH_SIZE:
+        normalized = _normalize_response_row(survey_id, row)
+        batch.append(normalized)
+        batch_bytes += _approx_row_bytes(normalized)
+        # Flush on either bound so a run of large rows can't outgrow memory before the count limit.
+        if len(batch) >= EXPORT_BATCH_SIZE or batch_bytes >= MAX_EXPORT_BATCH_BYTES:
             yield batch
             batch = []
+            batch_bytes = 0
     if batch:
         yield batch
 

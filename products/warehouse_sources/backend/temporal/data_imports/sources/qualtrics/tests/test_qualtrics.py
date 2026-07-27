@@ -471,6 +471,25 @@ class TestResponseExport:
             with pytest.raises(QualtricsResponseTooLargeError):
                 list(_iter_export_file(_response(body=body)))
 
+    def test_archive_with_too_many_members_is_refused(self) -> None:
+        # The member count is rejected from the central directory before zipfile builds a
+        # ZipInfo per entry, so a crafted many-membered archive can't exhaust memory first.
+        body = _multi_member_zip_bytes({f"m_{i}.ndjson": self.NDJSON for i in range(3)})
+        with mock.patch.object(qualtrics_module, "MAX_EXPORT_ARCHIVE_MEMBERS", 2):
+            with pytest.raises(QualtricsResponseTooLargeError):
+                list(_iter_export_file(_response(body=body)))
+
+    def test_export_batches_flush_on_accumulated_bytes(self) -> None:
+        rows = "\n".join(json.dumps({"responseId": f"R_{i}", "values": {"blob": "x" * 500}}) for i in range(3))
+        session = self._export_session(_zip_bytes("responses.ndjson", rows))
+
+        with mock.patch.object(qualtrics_module, "MAX_EXPORT_BATCH_BYTES", 400):
+            batches = self._run(session)
+
+        # Each row's blob column alone exceeds the byte cap, so batches flush per row despite the
+        # far larger row-count batch size.
+        assert [len(batch) for batch in batches] == [1, 1, 1]
+
 
 class TestNormalizeResponseRow:
     def test_flattens_values_and_json_encodes_the_survey_specific_blobs(self) -> None:
