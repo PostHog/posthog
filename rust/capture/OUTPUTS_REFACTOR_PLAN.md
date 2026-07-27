@@ -77,8 +77,12 @@ is the shape our output→sink handoff adopts.
 
 ### Vocabulary rules
 
-- **Pipeline** and **Lane** are the two halves of an event's address.
-  Never reintroduce a flat destination enum that conflates them.
+- An event's **Address** is a lane of its pipeline (lanes typed per
+  pipeline — `AnalyticsLane`, `AiLane`, `ReplayLane`, `BasicLane` — so
+  invalid pairs are unrepresentable), or an admin **custom redirect** that
+  carries its own topic outside the lane model. Pipeline and lane kind are
+  projections; construction goes through `resolve`. Never reintroduce a flat
+  destination enum that conflates pipeline and lane.
 - **Output** = the addressed destination: targets + selection policy +
   serializer. **OutputTable** = the `(Pipeline, Lane)` → output mapping with
   the per-mode completeness check. The Step-3 `OutputRegistry` (output → topic)
@@ -377,3 +381,4 @@ All steps are complete. The five strata are landed:
 | 10 · Breaker mode (dark) | done | `feat(capture): breaker-driven failover mode (dark)` |
 | 11 · v1 convergence | done | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
 | 12 · Prep hoist; `Prepare` retired | done | `refactor(capture): hoist prep into outputs; sinks take prepared payloads only` |
+| 13 · Typed addresses; AI pipeline | done | `refactor(capture): typed per-pipeline lanes; custom redirects and the ai stream become addresses` |

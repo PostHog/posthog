@@ -42,7 +42,10 @@ use crate::api::CaptureError;
 use crate::config::{AiRouting, EnvelopeCompression, KafkaConfig};
 use crate::failover::{AttemptOutcome, FailoverController, Route as FailoverRoute};
 use crate::outputs::registry::{OutputRegistry, Outputs};
-use crate::pipeline::{resolve, KeyPolicy, Lane, LaneDecision, LaneEffect, Pipeline};
+use crate::pipeline::AiLane;
+use crate::pipeline::{
+    resolve, Address, AnalyticsLane, BasicLane, KeyPolicy, LaneEffect, Pipeline, ReplayLane,
+};
 use crate::serialization::{Format, Serializer};
 use crate::sinks::producer::ProduceRecord;
 use crate::sinks::sink::{fold_results, PreparedPayload, Sink};
@@ -93,24 +96,31 @@ impl From<&KafkaConfig> for PrepSpec {
     }
 }
 
-/// Bridge from a resolved `(pipeline, lane)` address to the registry's output
-/// vocabulary, which resolves to a topic.
-///
-/// `unreachable!` arms are lane/pipeline pairs [`resolve`] — the sole
-/// `LaneDecision` constructor — never produces, pinned by its unit tests.
-fn output_for<'a>(decision: &'a LaneDecision<'a>) -> Outputs<'a> {
-    match (decision.pipeline, &decision.lane) {
-        (_, Lane::Dlq) => Outputs::Dlq,
-        (_, Lane::Custom(topic)) => Outputs::Custom(topic),
-        (Pipeline::Analytics, Lane::Main) => Outputs::Main,
-        (Pipeline::Analytics, Lane::Overflow) => Outputs::Overflow,
-        (Pipeline::Analytics, Lane::Historical) => Outputs::Historical,
-        (Pipeline::Heatmaps, Lane::Main) => Outputs::Heatmaps,
-        (Pipeline::Warnings, Lane::Main) => Outputs::ClientIngestionWarning,
-        (Pipeline::ErrorTracking, Lane::Main) => Outputs::ErrorTracking,
-        (Pipeline::Replay, Lane::Main) => Outputs::Main,
-        (Pipeline::Replay, Lane::Overflow) => Outputs::ReplayOverflow,
-        (pipeline, lane) => unreachable!("lane {lane:?} is not reachable for {pipeline:?}"),
+/// Bridge from a resolved [`Address`] to the registry's output vocabulary,
+/// which resolves to a topic. Total — lanes are typed per pipeline, so there
+/// is no invalid pair to reject. The AI pipeline maps onto the analytics
+/// topics today; giving it its own outputs is a registry change, not a
+/// routing change.
+fn output_for<'a>(address: &'a Address<'a>) -> Outputs<'a> {
+    match address {
+        Address::Custom { topic, .. } => Outputs::Custom(topic),
+        Address::Analytics(AnalyticsLane::Main) => Outputs::Main,
+        Address::Analytics(AnalyticsLane::Overflow) => Outputs::Overflow,
+        Address::Analytics(AnalyticsLane::Historical) => Outputs::Historical,
+        Address::Analytics(AnalyticsLane::Dlq) => Outputs::Dlq,
+        Address::Ai(AiLane::Main) => Outputs::Main,
+        Address::Ai(AiLane::Overflow) => Outputs::Overflow,
+        Address::Ai(AiLane::Historical) => Outputs::Historical,
+        Address::Ai(AiLane::Dlq) => Outputs::Dlq,
+        Address::Heatmaps(BasicLane::Main) => Outputs::Heatmaps,
+        Address::Heatmaps(BasicLane::Dlq) => Outputs::Dlq,
+        Address::Warnings(BasicLane::Main) => Outputs::ClientIngestionWarning,
+        Address::Warnings(BasicLane::Dlq) => Outputs::Dlq,
+        Address::ErrorTracking(BasicLane::Main) => Outputs::ErrorTracking,
+        Address::ErrorTracking(BasicLane::Dlq) => Outputs::Dlq,
+        Address::Replay(ReplayLane::Main) => Outputs::Main,
+        Address::Replay(ReplayLane::Overflow) => Outputs::ReplayOverflow,
+        Address::Replay(ReplayLane::Dlq) => Outputs::Dlq,
     }
 }
 
@@ -130,7 +140,7 @@ fn prepare_payload(
     let (event, metadata) = (event.event, event.metadata);
 
     let decision = resolve(&metadata);
-    let serializer = spec.serializer_for(decision.pipeline);
+    let serializer = spec.serializer_for(decision.address.pipeline());
     let payload = serializer.serialize(&event)?;
 
     // Correlation UUID, captured before the (memory-hungry) event is
@@ -184,7 +194,7 @@ fn prepare_payload(
 
     // Single output→topic resolution point: the registry owns the wiring,
     // and `Custom` returns its inline admin-supplied topic.
-    let output = output_for(&decision);
+    let output = output_for(&decision.address);
     let topic: &str = spec.registry.topic_for(&output);
 
     let partition_key: Option<String> = match decision.key_policy {

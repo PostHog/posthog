@@ -43,7 +43,7 @@ pub fn is_survey_event(info: EventInfo) -> bool {
 
 // for QuotaResource::LLMEvents
 pub fn is_llm_event(info: EventInfo) -> bool {
-    info.name.starts_with("$ai_")
+    info.name.starts_with(crate::pipeline::AI_EVENT_PREFIX)
 }
 
 // TODO: define more limiter predicates here!

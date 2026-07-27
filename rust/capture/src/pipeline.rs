@@ -1,26 +1,40 @@
-//! The pipeline layer's routing vocabulary: an event's address is the
-//! **pipeline** it belongs to and the **lane** it leaves through.
+//! The pipeline layer's routing vocabulary: an event's [`Address`] — the
+//! **pipeline** it belongs to and the **lane** it leaves through, or an
+//! admin-configured **custom redirect** that bypasses the lane model with an
+//! inline topic.
 //!
 //! - [`Pipeline`] is the high-level classification decided at the edge
 //!   (endpoint + event name): which product stream is this event part of.
-//! - [`Lane`] is decided once per event by [`resolve`], which folds the intent
-//!   stamped during processing (restrictions, overflow reasons, the historical
-//!   flag) through one precedence chain: dlq > custom topic > historical >
-//!   overflow > main.
+//! - Each pipeline has its own lane type ([`AnalyticsLane`], [`ReplayLane`],
+//!   [`BasicLane`]), so an invalid pair — a historical heatmap, an
+//!   overflowing warning — is unrepresentable rather than merely unreached.
+//!   [`resolve`] folds the intent stamped during processing (restrictions,
+//!   overflow reasons, the historical flag) through one precedence chain:
+//!   dlq > custom topic > historical > overflow > main.
 //!
 //! [`resolve`] is pure policy over [`ProcessedEventMetadata`] — no counters,
 //! no headers, no I/O. The mechanical consequences of a decision (which topic,
-//! which headers to stamp, which counters to fire) are applied by whoever
-//! publishes the event: today the Kafka sink's prepare path, and the outputs
-//! layer once it exists. Nothing below this module makes a routing decision.
+//! which headers to stamp, which counters to fire) are applied by the outputs
+//! layer, which publishes the event. Nothing below this module makes a
+//! routing decision.
 
 use crate::v0_request::{DataType, OverflowReason, ProcessedEventMetadata};
+
+/// The event-name prefix that marks an event as part of the AI pipeline.
+/// Shared with the LLM quota predicate so "what is an AI event" has exactly
+/// one definition.
+pub const AI_EVENT_PREFIX: &str = "$ai_";
 
 /// Which product stream an event belongs to. Decided at the edge; never
 /// changes as the event moves through its pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pipeline {
     Analytics,
+    /// LLM analytics: `$ai_*` events. They ride the analytics data types and
+    /// (today) the analytics topics, but are their own product stream — with
+    /// their own ingress, quota resource, and cluster-migration story — so
+    /// they are addressable as their own pipeline.
+    Ai,
     Heatmaps,
     Warnings,
     ErrorTracking,
@@ -28,12 +42,22 @@ pub enum Pipeline {
 }
 
 impl Pipeline {
-    /// The pipeline half of a `DataType`. `DataType` conflates the pipeline
-    /// with the historical lane (`AnalyticsMain` vs `AnalyticsHistorical`);
-    /// this extracts the pipeline, [`resolve`] extracts the lane.
-    pub fn from_data_type(data_type: DataType) -> Self {
-        match data_type {
-            DataType::AnalyticsMain | DataType::AnalyticsHistorical => Pipeline::Analytics,
+    /// Classify an event's pipeline from its metadata. `DataType` conflates
+    /// the pipeline with the historical lane (`AnalyticsMain` vs
+    /// `AnalyticsHistorical`) and does not distinguish the AI stream at all
+    /// (`$ai_*` events are analytics data types); this extracts the pipeline,
+    /// [`resolve`] extracts the lane. Classification is by event name, not
+    /// ingress, so `$ai_*` events reaching plain `/capture` land in the AI
+    /// pipeline too — consistent with the LLM quota predicate.
+    pub fn from_metadata(metadata: &ProcessedEventMetadata) -> Self {
+        match metadata.data_type {
+            DataType::AnalyticsMain | DataType::AnalyticsHistorical => {
+                if metadata.event_name.starts_with(AI_EVENT_PREFIX) {
+                    Pipeline::Ai
+                } else {
+                    Pipeline::Analytics
+                }
+            }
             DataType::HeatmapMain => Pipeline::Heatmaps,
             DataType::ClientIngestionWarning => Pipeline::Warnings,
             DataType::ExceptionErrorTracking => Pipeline::ErrorTracking,
@@ -42,23 +66,86 @@ impl Pipeline {
     }
 }
 
-/// Which lane of its pipeline an event leaves through. Lanes are shared
-/// vocabulary across pipelines; not every pipeline reaches every lane
-/// ([`resolve`] is the sole constructor and only produces valid pairs).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Lane<'a> {
+/// The analytics pipeline's lanes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnalyticsLane {
     Main,
     Overflow,
     Historical,
     Dlq,
-    /// Admin-configured redirect topic, borrowed from
-    /// `ProcessedEventMetadata::redirect_to_topic`.
-    Custom(&'a str),
+}
+
+/// The AI pipeline's lanes: a mirror of [`AnalyticsLane`] because AI events
+/// ride the analytics data types (and, today, the analytics topics) —
+/// including historical batch migrations. Distinct type so the streams stay
+/// independently addressable as their routing diverges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiLane {
+    Main,
+    Overflow,
+    Historical,
+    Dlq,
+}
+
+/// The replay pipeline's lanes: main, its own overflow, and dlq.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplayLane {
+    Main,
+    Overflow,
+    Dlq,
+}
+
+/// Lanes of the main-only pipelines (heatmaps, warnings, error tracking).
+/// Shared because their lane sets are identical today; split the moment one
+/// diverges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BasicLane {
+    Main,
+    Dlq,
+}
+
+/// Where an event is published: a lane of its pipeline, or an
+/// admin-configured custom redirect. Lanes are typed per pipeline, so only
+/// valid pairs exist; [`resolve`] is the sole constructor on the produce
+/// path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Address<'a> {
+    Analytics(AnalyticsLane),
+    Ai(AiLane),
+    Heatmaps(BasicLane),
+    Warnings(BasicLane),
+    ErrorTracking(BasicLane),
+    Replay(ReplayLane),
+    /// Admin-configured redirect: carries its own topic (borrowed from
+    /// `ProcessedEventMetadata::redirect_to_topic`) and sits outside the
+    /// lane model — it never registers in the output registry. The pipeline
+    /// is carried as provenance: serialization policy (e.g. the replay lz4
+    /// envelope) follows the pipeline even on a redirect.
+    Custom {
+        pipeline: Pipeline,
+        topic: &'a str,
+    },
+}
+
+impl Address<'_> {
+    /// The pipeline this address belongs to. Total — a custom redirect
+    /// carries its provenance.
+    pub fn pipeline(&self) -> Pipeline {
+        match self {
+            Address::Analytics(_) => Pipeline::Analytics,
+            Address::Ai(_) => Pipeline::Ai,
+            Address::Heatmaps(_) => Pipeline::Heatmaps,
+            Address::Warnings(_) => Pipeline::Warnings,
+            Address::ErrorTracking(_) => Pipeline::ErrorTracking,
+            Address::Replay(_) => Pipeline::Replay,
+            Address::Custom { pipeline, .. } => *pipeline,
+        }
+    }
 }
 
 /// How the partition key is derived when the event is published. Decided with
-/// the lane (overflow without locality drops the key); resolved against the
-/// event's own values by the publisher, which owns them.
+/// the address (overflow without locality drops the key); resolved against
+/// the event's own values by the publisher, which owns them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyPolicy {
     /// Partition on the event's `token:distinct_id` key.
@@ -92,8 +179,7 @@ pub enum LaneEffect {
 /// with it. Everything the publisher needs; nothing it may second-guess.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaneDecision<'a> {
-    pub pipeline: Pipeline,
-    pub lane: Lane<'a>,
+    pub address: Address<'a>,
     pub key_policy: KeyPolicy,
     pub effect: LaneEffect,
 }
@@ -109,17 +195,42 @@ fn person_key_policy(skip_person_processing: bool) -> KeyPolicy {
     }
 }
 
+/// Every pipeline's dlq lane, in its own lane type.
+fn dlq_address(pipeline: Pipeline) -> Address<'static> {
+    match pipeline {
+        Pipeline::Analytics => Address::Analytics(AnalyticsLane::Dlq),
+        Pipeline::Ai => Address::Ai(AiLane::Dlq),
+        Pipeline::Heatmaps => Address::Heatmaps(BasicLane::Dlq),
+        Pipeline::Warnings => Address::Warnings(BasicLane::Dlq),
+        Pipeline::ErrorTracking => Address::ErrorTracking(BasicLane::Dlq),
+        Pipeline::Replay => Address::Replay(ReplayLane::Dlq),
+    }
+}
+
+/// The analytics data types carry two pipelines (analytics and AI); route a
+/// lane to whichever the event classified into.
+fn analytics_family(pipeline: Pipeline, lane: AnalyticsLane) -> Address<'static> {
+    match pipeline {
+        Pipeline::Ai => Address::Ai(match lane {
+            AnalyticsLane::Main => AiLane::Main,
+            AnalyticsLane::Overflow => AiLane::Overflow,
+            AnalyticsLane::Historical => AiLane::Historical,
+            AnalyticsLane::Dlq => AiLane::Dlq,
+        }),
+        _ => Address::Analytics(lane),
+    }
+}
+
 /// The lane decision: one precedence chain over the intent flags stamped
 /// upstream. DLQ and custom-topic redirects take priority over per-pipeline
 /// and overflow routing.
 pub fn resolve(metadata: &ProcessedEventMetadata) -> LaneDecision<'_> {
-    let pipeline = Pipeline::from_data_type(metadata.data_type);
+    let pipeline = Pipeline::from_metadata(metadata);
 
     // redirect_to_dlq takes priority over all other routing.
     if metadata.redirect_to_dlq {
         return LaneDecision {
-            pipeline,
-            lane: Lane::Dlq,
+            address: dlq_address(pipeline),
             key_policy: KeyPolicy::EventKey,
             effect: LaneEffect::Dlq,
         };
@@ -127,8 +238,7 @@ pub fn resolve(metadata: &ProcessedEventMetadata) -> LaneDecision<'_> {
 
     if let Some(ref topic) = metadata.redirect_to_topic {
         return LaneDecision {
-            pipeline,
-            lane: Lane::Custom(topic),
+            address: Address::Custom { pipeline, topic },
             key_policy: KeyPolicy::EventKey,
             effect: LaneEffect::CustomTopic,
         };
@@ -138,8 +248,7 @@ pub fn resolve(metadata: &ProcessedEventMetadata) -> LaneDecision<'_> {
         DataType::AnalyticsHistorical => LaneDecision {
             // Historical events never overflow — force_overflow and
             // overflow_reason are deliberately ignored here.
-            pipeline,
-            lane: Lane::Historical,
+            address: analytics_family(pipeline, AnalyticsLane::Historical),
             key_policy: KeyPolicy::EventKey,
             effect: LaneEffect::Standard,
         },
@@ -148,50 +257,52 @@ pub fn resolve(metadata: &ProcessedEventMetadata) -> LaneDecision<'_> {
             // (pipeline-stamped) -> default main-lane routing.
             if metadata.force_overflow {
                 LaneDecision {
-                    pipeline,
-                    lane: Lane::Overflow,
+                    address: analytics_family(pipeline, AnalyticsLane::Overflow),
                     key_policy: person_key_policy(metadata.skip_person_processing),
                     effect: LaneEffect::Standard,
                 }
             } else {
                 match &metadata.overflow_reason {
                     Some(OverflowReason::ForceLimited) => LaneDecision {
-                        pipeline,
-                        lane: Lane::Overflow,
+                        address: analytics_family(pipeline, AnalyticsLane::Overflow),
                         key_policy: KeyPolicy::Null,
                         effect: LaneEffect::ForceDisablePersonProcessing,
                     },
                     Some(OverflowReason::RateLimited {
                         preserve_locality: true,
                     }) => LaneDecision {
-                        pipeline,
-                        lane: Lane::Overflow,
+                        address: analytics_family(pipeline, AnalyticsLane::Overflow),
                         key_policy: KeyPolicy::EventKey,
                         effect: LaneEffect::Standard,
                     },
                     Some(OverflowReason::RateLimited {
                         preserve_locality: false,
                     }) => LaneDecision {
-                        pipeline,
-                        lane: Lane::Overflow,
+                        address: analytics_family(pipeline, AnalyticsLane::Overflow),
                         key_policy: KeyPolicy::Null,
                         effect: LaneEffect::Standard,
                     },
                     // ReplayLimited never applies to AnalyticsMain; fall through to main.
                     Some(OverflowReason::ReplayLimited) | None => LaneDecision {
-                        pipeline,
-                        lane: Lane::Main,
+                        address: analytics_family(pipeline, AnalyticsLane::Main),
                         key_policy: person_key_policy(metadata.skip_person_processing),
                         effect: LaneEffect::Standard,
                     },
                 }
             }
         }
-        DataType::ClientIngestionWarning
-        | DataType::HeatmapMain
-        | DataType::ExceptionErrorTracking => LaneDecision {
-            pipeline,
-            lane: Lane::Main,
+        DataType::ClientIngestionWarning => LaneDecision {
+            address: Address::Warnings(BasicLane::Main),
+            key_policy: KeyPolicy::EventKey,
+            effect: LaneEffect::Standard,
+        },
+        DataType::HeatmapMain => LaneDecision {
+            address: Address::Heatmaps(BasicLane::Main),
+            key_policy: KeyPolicy::EventKey,
+            effect: LaneEffect::Standard,
+        },
+        DataType::ExceptionErrorTracking => LaneDecision {
+            address: Address::ErrorTracking(BasicLane::Main),
             key_policy: KeyPolicy::EventKey,
             effect: LaneEffect::Standard,
         },
@@ -205,13 +316,12 @@ pub fn resolve(metadata: &ProcessedEventMetadata) -> LaneDecision<'_> {
                     metadata.overflow_reason,
                     Some(OverflowReason::ReplayLimited)
                 ) {
-                Lane::Overflow
+                ReplayLane::Overflow
             } else {
-                Lane::Main
+                ReplayLane::Main
             };
             LaneDecision {
-                pipeline,
-                lane,
+                address: Address::Replay(lane),
                 key_policy: KeyPolicy::SessionId,
                 effect: LaneEffect::Standard,
             }
@@ -249,10 +359,67 @@ mod tests {
             (DataType::SnapshotMain, Pipeline::Replay),
         ] {
             assert_eq!(
-                Pipeline::from_data_type(dt),
+                Pipeline::from_metadata(&meta(dt)),
                 pipeline,
                 "wrong pipeline for {dt:?}"
             );
+        }
+    }
+
+    #[test]
+    fn ai_events_classify_as_ai_pipeline_by_name() {
+        // `$ai_*` events ride the analytics data types but classify as the AI
+        // pipeline — through any ingress, and on the historical lane too.
+        let mut m = meta(DataType::AnalyticsMain);
+        m.event_name = "$ai_generation".to_string();
+        assert_eq!(Pipeline::from_metadata(&m), Pipeline::Ai);
+        assert_eq!(resolve(&m).address, Address::Ai(AiLane::Main));
+
+        m.overflow_reason = Some(OverflowReason::ForceLimited);
+        assert_eq!(resolve(&m).address, Address::Ai(AiLane::Overflow));
+        m.overflow_reason = None;
+
+        m.redirect_to_dlq = true;
+        assert_eq!(resolve(&m).address, Address::Ai(AiLane::Dlq));
+        m.redirect_to_dlq = false;
+
+        m.redirect_to_topic = Some("warpstream_topic".to_string());
+        assert_eq!(
+            resolve(&m).address,
+            Address::Custom {
+                pipeline: Pipeline::Ai,
+                topic: "warpstream_topic",
+            }
+        );
+        m.redirect_to_topic = None;
+
+        m.data_type = DataType::AnalyticsHistorical;
+        assert_eq!(resolve(&m).address, Address::Ai(AiLane::Historical));
+    }
+
+    #[test]
+    fn address_pipeline_projection_is_total() {
+        for (address, pipeline) in [
+            (
+                Address::Analytics(AnalyticsLane::Historical),
+                Pipeline::Analytics,
+            ),
+            (Address::Heatmaps(BasicLane::Main), Pipeline::Heatmaps),
+            (Address::Warnings(BasicLane::Dlq), Pipeline::Warnings),
+            (
+                Address::ErrorTracking(BasicLane::Main),
+                Pipeline::ErrorTracking,
+            ),
+            (Address::Replay(ReplayLane::Overflow), Pipeline::Replay),
+            (
+                Address::Custom {
+                    pipeline: Pipeline::Replay,
+                    topic: "t",
+                },
+                Pipeline::Replay,
+            ),
+        ] {
+            assert_eq!(address.pipeline(), pipeline);
         }
     }
 
@@ -267,8 +434,7 @@ mod tests {
         assert_eq!(
             resolve(&m),
             LaneDecision {
-                pipeline: Pipeline::Analytics,
-                lane: Lane::Dlq,
+                address: Address::Analytics(AnalyticsLane::Dlq),
                 key_policy: KeyPolicy::EventKey,
                 effect: LaneEffect::Dlq,
             }
@@ -276,16 +442,51 @@ mod tests {
     }
 
     #[test]
+    fn every_pipeline_resolves_its_own_dlq_lane() {
+        for (dt, expected) in [
+            (
+                DataType::AnalyticsMain,
+                Address::Analytics(AnalyticsLane::Dlq),
+            ),
+            (
+                DataType::AnalyticsHistorical,
+                Address::Analytics(AnalyticsLane::Dlq),
+            ),
+            (DataType::HeatmapMain, Address::Heatmaps(BasicLane::Dlq)),
+            (
+                DataType::ClientIngestionWarning,
+                Address::Warnings(BasicLane::Dlq),
+            ),
+            (
+                DataType::ExceptionErrorTracking,
+                Address::ErrorTracking(BasicLane::Dlq),
+            ),
+            (DataType::SnapshotMain, Address::Replay(ReplayLane::Dlq)),
+        ] {
+            let mut m = meta(dt);
+            m.redirect_to_dlq = true;
+            assert_eq!(
+                resolve(&m).address,
+                expected,
+                "wrong dlq address for {dt:?}"
+            );
+        }
+    }
+
+    #[test]
     fn custom_topic_wins_over_datatype() {
-        // Custom-topic redirect beats per-datatype/overflow routing (but not DLQ).
+        // Custom-topic redirect beats per-datatype/overflow routing (but not
+        // DLQ), and carries its pipeline as provenance.
         let mut m = meta(DataType::AnalyticsMain);
         m.redirect_to_topic = Some("my_topic".to_string());
         m.force_overflow = true;
         assert_eq!(
             resolve(&m),
             LaneDecision {
-                pipeline: Pipeline::Analytics,
-                lane: Lane::Custom("my_topic"),
+                address: Address::Custom {
+                    pipeline: Pipeline::Analytics,
+                    topic: "my_topic",
+                },
                 key_policy: KeyPolicy::EventKey,
                 effect: LaneEffect::CustomTopic,
             }
@@ -293,31 +494,30 @@ mod tests {
     }
 
     #[test]
-    fn per_datatype_lanes() {
-        for (dt, pipeline, lane) in [
-            (DataType::AnalyticsMain, Pipeline::Analytics, Lane::Main),
+    fn per_datatype_addresses() {
+        for (dt, address) in [
+            (
+                DataType::AnalyticsMain,
+                Address::Analytics(AnalyticsLane::Main),
+            ),
             (
                 DataType::AnalyticsHistorical,
-                Pipeline::Analytics,
-                Lane::Historical,
+                Address::Analytics(AnalyticsLane::Historical),
             ),
             (
                 DataType::ClientIngestionWarning,
-                Pipeline::Warnings,
-                Lane::Main,
+                Address::Warnings(BasicLane::Main),
             ),
-            (DataType::HeatmapMain, Pipeline::Heatmaps, Lane::Main),
+            (DataType::HeatmapMain, Address::Heatmaps(BasicLane::Main)),
             (
                 DataType::ExceptionErrorTracking,
-                Pipeline::ErrorTracking,
-                Lane::Main,
+                Address::ErrorTracking(BasicLane::Main),
             ),
-            (DataType::SnapshotMain, Pipeline::Replay, Lane::Main),
+            (DataType::SnapshotMain, Address::Replay(ReplayLane::Main)),
         ] {
             let m = meta(dt);
             let d = resolve(&m);
-            assert_eq!(d.pipeline, pipeline, "wrong pipeline for {dt:?}");
-            assert_eq!(d.lane, lane, "wrong lane for {dt:?}");
+            assert_eq!(d.address, address, "wrong address for {dt:?}");
             assert_eq!(d.effect, LaneEffect::Standard, "wrong effect for {dt:?}");
         }
     }
@@ -330,7 +530,10 @@ mod tests {
         assert_eq!(resolve(&m).key_policy, KeyPolicy::EventKey);
         m.skip_person_processing = true;
         assert_eq!(resolve(&m).key_policy, KeyPolicy::Null);
-        assert_eq!(resolve(&m).lane, Lane::Overflow);
+        assert_eq!(
+            resolve(&m).address,
+            Address::Analytics(AnalyticsLane::Overflow)
+        );
     }
 
     #[test]
@@ -342,8 +545,7 @@ mod tests {
         assert_eq!(
             resolve(&force_limited),
             LaneDecision {
-                pipeline: Pipeline::Analytics,
-                lane: Lane::Overflow,
+                address: Address::Analytics(AnalyticsLane::Overflow),
                 key_policy: KeyPolicy::Null,
                 effect: LaneEffect::ForceDisablePersonProcessing,
             }
@@ -354,19 +556,28 @@ mod tests {
             preserve_locality: true,
         });
         assert_eq!(resolve(&preserve).key_policy, KeyPolicy::EventKey);
-        assert_eq!(resolve(&preserve).lane, Lane::Overflow);
+        assert_eq!(
+            resolve(&preserve).address,
+            Address::Analytics(AnalyticsLane::Overflow)
+        );
 
         let mut no_preserve = base.clone();
         no_preserve.overflow_reason = Some(OverflowReason::RateLimited {
             preserve_locality: false,
         });
         assert_eq!(resolve(&no_preserve).key_policy, KeyPolicy::Null);
-        assert_eq!(resolve(&no_preserve).lane, Lane::Overflow);
+        assert_eq!(
+            resolve(&no_preserve).address,
+            Address::Analytics(AnalyticsLane::Overflow)
+        );
 
         // ReplayLimited never applies to AnalyticsMain: falls through to main.
         let mut replay = base;
         replay.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(resolve(&replay).lane, Lane::Main);
+        assert_eq!(
+            resolve(&replay).address,
+            Address::Analytics(AnalyticsLane::Main)
+        );
     }
 
     #[test]
@@ -375,19 +586,18 @@ mod tests {
         assert_eq!(
             resolve(&m),
             LaneDecision {
-                pipeline: Pipeline::Replay,
-                lane: Lane::Main,
+                address: Address::Replay(ReplayLane::Main),
                 key_policy: KeyPolicy::SessionId,
                 effect: LaneEffect::Standard,
             }
         );
 
         m.force_overflow = true;
-        assert_eq!(resolve(&m).lane, Lane::Overflow);
+        assert_eq!(resolve(&m).address, Address::Replay(ReplayLane::Overflow));
         assert_eq!(resolve(&m).key_policy, KeyPolicy::SessionId);
 
         m.force_overflow = false;
         m.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(resolve(&m).lane, Lane::Overflow);
+        assert_eq!(resolve(&m).address, Address::Replay(ReplayLane::Overflow));
     }
 }
