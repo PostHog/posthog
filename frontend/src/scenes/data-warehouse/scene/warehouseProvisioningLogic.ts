@@ -1,11 +1,14 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DataWarehouseProvisioningStatus } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { DataWarehouseProvisioningState, DataWarehouseProvisioningStatus } from '~/types'
 
 import type { warehouseProvisioningLogicType } from './warehouseProvisioningLogicType'
 
@@ -31,6 +34,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
         checkDatabaseName: (name: string) => ({ name }),
         setDatabaseNameAvailable: (available: boolean | null) => ({ available }),
         setDatabaseNameChecking: (checking: boolean) => ({ checking }),
+        setPreviousWarehouseState: (state: DataWarehouseProvisioningState | null) => ({ state }),
     }),
 
     loaders({
@@ -116,6 +120,15 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 resetPasswordComplete: () => false,
             },
         ],
+        // Tracks the last observed provisioning state so we can emit lifecycle telemetry
+        // only on genuine transitions (e.g. provisioning -> ready), not on every 10s poll
+        // or on mount for a warehouse that was already provisioned in a previous session.
+        previousWarehouseState: [
+            null as DataWarehouseProvisioningState | null,
+            {
+                setPreviousWarehouseState: (_, { state }) => state,
+            },
+        ],
     }),
 
     selectors({
@@ -179,11 +192,20 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             provisionWarehouse: async ({ databaseName }) => {
                 actions.setLastRequestedDatabaseName(databaseName)
                 window.localStorage.setItem(databaseNameStorageKey(teamLogic.values.currentTeamId), databaseName)
+                posthog.capture('managed warehouse provision started', {
+                    is_retry: values.warehouseStatus?.state === 'failed',
+                })
                 try {
                     const result = await api.dataWarehouse.provisionWarehouse(databaseName)
                     if (result.password) {
                         actions.setInitialPassword(result.password)
                     }
+                    // Requesting a managed warehouse is a deliberate, settings-deep action, so it's
+                    // our genuine intent signal for this product (distinct from data warehouse imports).
+                    addProductIntent({
+                        product_type: ProductKey.MANAGED_WAREHOUSE,
+                        intent_context: ProductIntentContext.MANAGED_WAREHOUSE_PROVISIONED,
+                    })
                     lemonToast.success('Warehouse provisioning started')
                     actions.loadWarehouseStatus()
                     actions.pollStatus()
@@ -199,6 +221,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                     if (result.password) {
                         actions.setInitialPassword(result.password)
                     }
+                    posthog.capture('managed warehouse password reset')
                     lemonToast.success('Password has been reset')
                 } catch (e: any) {
                     lemonToast.error(`Failed to reset password: ${e.message || 'Unknown error'}`)
@@ -208,6 +231,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
 
             deprovisionWarehouse: async () => {
                 window.localStorage.removeItem(databaseNameStorageKey(teamLogic.values.currentTeamId))
+                posthog.capture('managed warehouse deprovision started')
                 try {
                     await api.dataWarehouse.deprovisionWarehouse()
                     lemonToast.success('Warehouse deprovisioning started')
@@ -228,6 +252,18 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             },
 
             loadWarehouseStatusSuccess: ({ warehouseStatus }) => {
+                // Emit outcome telemetry only on genuine transitions, comparing against the
+                // previously observed state (see the `previousWarehouseState` reducer).
+                const previousState = values.previousWarehouseState
+                const newState = warehouseStatus?.state ?? null
+                if ((previousState === 'pending' || previousState === 'provisioning') && newState === 'ready') {
+                    posthog.capture('managed warehouse provisioned')
+                }
+                if (previousState === 'deleting' && newState === 'deleted') {
+                    posthog.capture('managed warehouse deprovisioned')
+                }
+                actions.setPreviousWarehouseState(newState)
+
                 if (warehouseStatus?.state === 'deleted') {
                     actions.setLastRequestedDatabaseName(null)
                     window.localStorage.removeItem(databaseNameStorageKey(teamLogic.values.currentTeamId))

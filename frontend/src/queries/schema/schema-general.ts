@@ -6392,6 +6392,7 @@ export enum ProductKey {
     LLM_EVALUATIONS = 'llm_evaluations',
     LLM_PROMPTS = 'llm_prompts',
     LOGS = 'logs',
+    MANAGED_WAREHOUSE = 'managed_warehouse',
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     MOBILE_REPLAY = 'mobile_replay',
@@ -6431,6 +6432,9 @@ export enum ProductIntentContext {
     SELECTED_CONNECTOR = 'selected connector',
     SQL_EDITOR_EMPTY_STATE = 'sql editor empty state',
     DATA_WAREHOUSE_SOURCES_TABLE = 'data warehouse sources table',
+
+    // Managed Warehouse
+    MANAGED_WAREHOUSE_PROVISIONED = 'managed warehouse provisioned',
 
     // Experiments
     EXPERIMENT_CREATED = 'experiment created',

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from django.core.cache import cache
@@ -12,6 +12,7 @@ from rest_framework import serializers
 
 from posthog.schema import ProductIntentContext, ProductKey
 
+from posthog.clickhouse.client import sync_execute
 from posthog.exceptions_capture import capture_exception
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_flow.hog_flow import HogFlow
@@ -58,6 +59,31 @@ Note: single-event activation metrics that can also happen at the same time the 
 is created won't have tracking events sent for them. Unless you want to solve this,
 make activation metrics require multiple things to happen.
 """
+
+# Activation threshold for the managed warehouse: a warehouse that is provisioned but never
+# queried still emits small idle compute heartbeats, so we require meaningful compute before
+# counting the team as activated. Provisional value drawn from PostHog's own dogfood warehouse
+# (the only one with data today); retune once real customer warehouses report usage.
+MANAGED_WAREHOUSE_ACTIVATION_CPU_SECONDS = 100_000
+MANAGED_WAREHOUSE_ACTIVATION_WINDOW_DAYS = 30
+
+
+def get_managed_warehouse_compute_usage(team_id: int, start: datetime, end: datetime) -> float:
+    # Sums cpu_seconds from the `managed warehouse compute usage` heartbeat (emitted by the
+    # external duckgres service into the owning project) over the [start, end) window.
+    rows = sync_execute(
+        """
+        SELECT sum(JSONExtractFloat(properties, 'cpu_seconds'))
+        FROM events
+        WHERE team_id = %(team_id)s
+          AND event = 'managed warehouse compute usage'
+          AND timestamp >= %(start)s
+          AND timestamp < %(end)s
+        """,
+        {"team_id": team_id, "start": start, "end": end},
+        team_id=team_id,
+    )
+    return (rows and rows[0][0]) or 0.0
 
 
 class ProductIntentSerializer(serializers.Serializer):
@@ -211,6 +237,14 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         # At least one workflow needs to be active (not just drafted)
         return HogFlow.objects.filter(team=self.team, status=HogFlow.State.ACTIVE).exists()
 
+    def has_activated_managed_warehouse(self) -> bool:
+        # Provisioning is the intent; genuine usage is compute crossing the threshold within
+        # 30 days of the intent. Once past the window it's fixed, so a warehouse that stayed
+        # idle in its first 30 days can no longer activate (mirrors has_activated_data_warehouse).
+        window_end = self.created_at + timedelta(days=MANAGED_WAREHOUSE_ACTIVATION_WINDOW_DAYS)
+        usage = get_managed_warehouse_compute_usage(self.team_id, self.created_at, window_end)
+        return usage >= MANAGED_WAREHOUSE_ACTIVATION_CPU_SECONDS
+
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
         # If the intent is already activated, we don't need to check again
         if self.activated_at:
@@ -230,6 +264,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
             "surveys": self.has_activated_surveys,
             "llm_analytics": self.has_activated_llm_analytics,
             "workflows": self.has_activated_workflows,
+            "managed_warehouse": self.has_activated_managed_warehouse,
         }
 
         if self.product_type in activation_checks and activation_checks[self.product_type]():

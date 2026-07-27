@@ -16,6 +16,7 @@ from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.insight import Insight
 from posthog.models.product_intent.product_intent import (
+    MANAGED_WAREHOUSE_ACTIVATION_CPU_SECONDS,
     ProductIntent,
     _fetch_product_intents,
     _team_product_intents_cache_key,
@@ -370,6 +371,68 @@ class TestProductIntent(BaseTest):
                 "realm": get_instance_realm(),
             },
             team=self.team,
+        )
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @patch("posthog.models.product_intent.product_intent.get_managed_warehouse_compute_usage", return_value=0.0)
+    @patch("posthog.event_usage.report_user_action")
+    def test_register_managed_warehouse_intent(self, mock_report_user_action, mock_compute_usage):
+        # Managed warehouse is a distinct product from data_warehouse imports. Provisioning is the
+        # intent; activation requires compute usage above a threshold within 30 days, which cannot
+        # be true at intent time (usage only accrues after provisioning), so it never auto-activates here.
+        ProductIntent.register(
+            team=self.team,
+            product_type=ProductKey.MANAGED_WAREHOUSE,
+            context=ProductIntentContext.MANAGED_WAREHOUSE_PROVISIONED,
+            user=self.user,
+        )
+
+        intent = ProductIntent.objects.filter(team=self.team, product_type=ProductKey.MANAGED_WAREHOUSE).first()
+        assert intent is not None
+        assert intent.contexts == {ProductIntentContext.MANAGED_WAREHOUSE_PROVISIONED: 1}
+        assert intent.activated_at is None
+        assert intent.check_and_update_activation() is False
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "user showed product intent",
+            {
+                "product_key": ProductKey.MANAGED_WAREHOUSE,
+                "$set_once": {},
+                "intent_context": ProductIntentContext.MANAGED_WAREHOUSE_PROVISIONED,
+                "is_first_intent_for_product": True,
+                "intent_created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+                "intent_updated_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+                "realm": get_instance_realm(),
+            },
+            team=self.team,
+        )
+
+    @parameterized.expand(
+        [
+            ("zero", 0.0, False),
+            ("below_threshold", float(MANAGED_WAREHOUSE_ACTIVATION_CPU_SECONDS - 1), False),
+            ("at_threshold", float(MANAGED_WAREHOUSE_ACTIVATION_CPU_SECONDS), True),
+            ("above_threshold", float(MANAGED_WAREHOUSE_ACTIVATION_CPU_SECONDS * 2), True),
+        ]
+    )
+    @patch("posthog.models.product_intent.product_intent.get_managed_warehouse_compute_usage")
+    def test_has_activated_managed_warehouse(self, _name, usage, expected, mock_compute_usage):
+        mock_compute_usage.return_value = usage
+        intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.MANAGED_WAREHOUSE)
+        assert intent.has_activated_managed_warehouse() is expected
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @patch("posthog.models.product_intent.product_intent.get_managed_warehouse_compute_usage", return_value=0.0)
+    def test_managed_warehouse_activation_uses_30_day_window(self, mock_compute_usage):
+        # Usage is only counted within 30 days of the intent, so the compute lookup must be
+        # bounded to [created_at, created_at + 30 days).
+        intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.MANAGED_WAREHOUSE)
+        assert intent.has_activated_managed_warehouse() is False
+        mock_compute_usage.assert_called_once_with(
+            self.team.id,
+            datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+            datetime(2024, 1, 31, 12, 0, 0, tzinfo=UTC),
         )
 
     def test_has_activated_product_analytics_with_all_criteria(self):
