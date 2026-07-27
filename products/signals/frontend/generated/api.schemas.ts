@@ -3287,7 +3287,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Pair with a single source_product to narrow the lookup.
+     * Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Requires exactly one source_product, since a source id is only unique within its product.
      */
     source_id?: string
     /**

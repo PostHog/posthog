@@ -848,6 +848,11 @@ class SignalReportViewSet(
         """Reports a specific source record contributed to, e.g. one support ticket's reports.
 
         The owning product asks with the id it already has, instead of reaching into signals.
+
+        Requires a single `source_product`, because a source id is only unique within one: emitters
+        pass through the external system's own id, so GitHub issue 42 and Jira issue 42 both arrive as
+        `"42"`. `SignalEmissionRecord` says the same thing with its `(team, source_product, source_type,
+        source_id)` constraint. Without the product this would quietly mix products together.
         """
         source_id_filter = self.request.query_params.get("source_id")
         if not source_id_filter:
@@ -858,9 +863,14 @@ class SignalReportViewSet(
             return queryset
 
         source_product = self.request.query_params.get("source_product")
-        # A single product narrows the ClickHouse scan; a comma-separated list can't, since the
-        # query takes one product, so leave it unfiltered and let source_id alone select.
-        product = source_product if source_product and "," not in source_product else None
+        product = source_product.strip() if source_product else ""
+        if not product or "," in product:
+            raise exceptions.ValidationError(
+                {
+                    "source_id": "Pass exactly one source_product alongside source_id. A source id is only "
+                    "unique within its product, so filtering without one would mix products together."
+                }
+            )
         by_source = fetch_live_report_ids_for_source_ids(self.team, source_ids, product)
         report_ids = {report_id for ids in by_source.values() for report_id in ids}
         return queryset.filter(id__in=report_ids)
@@ -1342,8 +1352,8 @@ class SignalReportViewSet(
                 description=(
                     "Comma-separated list of source record ids. Reports are kept if at least one of their "
                     "contributing signals came from one of these records — e.g. pass a support ticket's UUID to "
-                    "see what the inbox already found for that ticket. Pair with a single source_product to "
-                    "narrow the lookup."
+                    "see what the inbox already found for that ticket. Requires exactly one source_product, "
+                    "since a source id is only unique within its product."
                 ),
             ),
             OpenApiParameter(

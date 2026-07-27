@@ -16,27 +16,23 @@ from posthog.models import Team
 
 from products.conversations.backend.facade import api as conversations_facade
 from products.signals.backend.enums import SignalSourceProduct
-from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport
 
 logger = structlog.get_logger(__name__)
 
-MAX_SUMMARY_CHARS = 4000
 
+def _note_body(report_url: str) -> str:
+    """A pointer, deliberately carrying none of the report's own content.
 
-def _note_body(report: SignalReport, report_url: str, pr_url: str | None) -> str:
-    summary = (report.summary or "").strip()
-    if len(summary) > MAX_SUMMARY_CHARS:
-        summary = summary[:MAX_SUMMARY_CHARS].rstrip() + "…"
-    blocks = ["**Self-driving looked into this ticket.** Internal note, not sent to the customer."]
-    if report.title:
-        blocks.append(f"**{report.title}**")
-    if summary:
-        blocks.append(summary)
-    if pr_url:
-        blocks.append(f"Proposed fix: {pr_url}")
-    blocks.append(f"Full findings: {report_url}")
-    return "\n\n".join(blocks)
+    Comments authorize as the `comment` resource while reports authorize as `task`, so a teammate with
+    ticket access but no inbox access can read this note. Copying the title or summary here would hand
+    them research they aren't entitled to; a link makes them pass the report's own access check. The
+    ticket's Associated reports panel reads through that check, so the findings still surface in the
+    ticket for anyone allowed to see them.
+    """
+    return (
+        f"**Self-driving investigated this ticket.** Internal note, not sent to the customer.\n\nFindings: {report_url}"
+    )
 
 
 def post_report_findings_to_tickets(team: Team, report_id: str, signals: list[dict]) -> int:
@@ -55,13 +51,10 @@ def post_report_findings_to_tickets(team: Team, report_id: str, signals: list[di
     if not ticket_ids:
         return 0
 
-    report = SignalReport.objects.filter(id=report_id, team_id=team.pk).only("title", "summary").first()
-    if report is None:
+    if not SignalReport.objects.filter(id=report_id, team_id=team.pk).exists():
         return 0
 
-    pr_url = fetch_implementation_pr_urls_for_reports([report_id]).get(report_id)
-    report_url = f"{settings.SITE_URL}/project/{team.pk}/inbox/{report_id}"
-    body = _note_body(report, report_url, pr_url)
+    body = _note_body(f"{settings.SITE_URL}/project/{team.pk}/inbox/{report_id}")
 
     posted = 0
     for ticket_id in ticket_ids:

@@ -97,9 +97,14 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
     # Re-derive source products at send time so a deferred notification reflects the current signals.
     signals = fetch_signals_for_report_sync(team, report_id)
     source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
-    # Hand the findings back to any support ticket that raised this report. Shares this function's
-    # READY guard and its wait for the implementation PR, so the note can cite the PR.
-    post_report_findings_to_tickets(team, report_id, signals)
+    # Point any support ticket that raised this report at it. Shares this function's READY guard.
+    # Guarded here as well as inside: the write-back is supplementary, and letting it raise would fail
+    # the activity before the Slack notification below, so a retry loop would drop the notification
+    # entirely over a side errand.
+    try:
+        post_report_findings_to_tickets(team, report_id, signals)
+    except Exception:
+        logger.exception("inbox notification: support write-back failed", report_id=report_id, team_id=team_id)
     return dispatch_inbox_item_notifications(
         report_id=report_id,
         team_id=team_id,
