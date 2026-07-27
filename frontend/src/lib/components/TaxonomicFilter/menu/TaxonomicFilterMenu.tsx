@@ -391,7 +391,9 @@ export function TaxonomicFilterMenu({
             const declaredGroupType =
                 mergedItem && typeof mergedItem === 'object' && 'group' in mergedItem ? mergedItem.group : undefined
             const committedGroup = groups.find((group) => group.type === declaredGroupType) ?? entry.group
-            const itemValue = committedGroup.getValue?.(mergedItem) ?? entry.name ?? null
+            const itemValue = committedGroup.getValue
+                ? (committedGroup.getValue(mergedItem) ?? null)
+                : (entry.name ?? null)
             const committedEntry = { ...entry, group: committedGroup, item: mergedItem }
             hadCommitRef.current = true
             posthog.capture('taxonomic filter menu item selected', {

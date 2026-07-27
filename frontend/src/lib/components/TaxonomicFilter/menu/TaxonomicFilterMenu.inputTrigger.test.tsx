@@ -145,6 +145,26 @@ describe('TaxonomicFilterMenu input trigger', () => {
         )
     })
 
+    it('preserves null values returned by a group', async () => {
+        const onChange = jest.fn()
+        renderInputTriggerMenu({ groupTypes: [TaxonomicFilterGroupType.Events], onChange })
+
+        await userEvent.click(screen.getByTestId('taxonomic-filter-menu-input'))
+        await screen.findByTestId('menu-filter-search')
+        const allEventsRow = screen
+            .getAllByText('All events')
+            .map((match) => match.closest('[data-slot="taxonomic-filter-menu-row"]'))
+            .find(Boolean)
+        expect(allEventsRow).toBeInTheDocument()
+        await userEvent.click(allEventsRow!)
+
+        expect(onChange).toHaveBeenCalledWith(
+            expect.objectContaining({ type: TaxonomicFilterGroupType.Events }),
+            null,
+            expect.objectContaining({ name: 'All events', value: null })
+        )
+    })
+
     it('does not render properties excluded by the consumer', async () => {
         render(
             <Provider>
