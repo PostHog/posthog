@@ -356,19 +356,32 @@ mod test {
             );
         }
 
+        // Post-flip senders emit canonical order: outermost wrapper first.
+        let make_canonical_list = || -> ExceptionList {
+            vec![
+                exception_with_frames("Wrapper", &["main", "wrap"]),
+                exception_with_frames("RootCause", &["main", "boom"]),
+            ]
+            .into()
+        };
+
         for version in ["7.31.0", "7.31.1", "7.32.0", "8.0.0"] {
-            let mut list = make_list();
+            let mut list = make_canonical_list();
             let legacy = normalize_wire_order(&mut list, Some("posthog-python"), Some(version));
             assert!(legacy.is_none(), "{version} should pass through");
-            assert_eq!(list[0].exception_type, "RootCause", "list untouched");
+            assert_eq!(
+                list[0].exception_type, "Wrapper",
+                "canonical list untouched"
+            );
         }
 
-        // Legacy hashing still reconstructs pre-flip list order post-cutoff.
-        let canonical = make_list();
+        // Legacy hashing still reconstructs the pre-flip (root-cause-first)
+        // list order from the canonical stored order post-cutoff.
+        let canonical = make_canonical_list();
         let legacy = legacy_wire_order(Some("posthog-python"), &canonical)
             .expect("reconstruction must ignore the cutoff");
-        assert_eq!(legacy[0].exception_type, "Wrapper");
-        assert_eq!(frame_names(&legacy[0]), vec!["main", "wrap"]);
+        assert_eq!(legacy[0].exception_type, "RootCause");
+        assert_eq!(frame_names(&legacy[0]), vec!["main", "boom"]);
     }
 
     #[test]
