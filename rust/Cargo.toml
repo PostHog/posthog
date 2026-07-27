@@ -37,6 +37,7 @@ members = [
   "common/hypercache",
   "feature-flags",
   "flags-consumer",
+  "flags-stream-gateway",
   "hypercache-server",
   "cyclotron-core",
   "cyclotron-node",

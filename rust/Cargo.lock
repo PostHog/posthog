@@ -4011,6 +4011,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "flags-stream-gateway"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.9",
+ "common-types",
+ "dashmap 6.1.0",
+ "envconfig",
+ "rstest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "flate2"
 version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,0 +1,27 @@
+[package]
+name = "flags-stream-gateway"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+# Milestone 3 is the lib-only core: domain, fanout registry, wire protocol, and
+# config. The binary, Redis/HyperCache wiring, auth, SSE handler, and trigger
+# tasks arrive in Milestone 4, which adds common-redis, common-hypercache,
+# lifecycle, common-metrics, and common-alloc. Keep this dependency set minimal
+# so the core stays small and dependency-light (plan §2.3).
+[dependencies]
+axum = { workspace = true }
+common-types = { path = "../common/types" }
+dashmap = { workspace = true }
+envconfig = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+rstest = "0.26"
