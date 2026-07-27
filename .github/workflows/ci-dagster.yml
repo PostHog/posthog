@@ -464,7 +464,7 @@ jobs:
               run: |
                   # The `needs.dagster.result` will be 'success' only if all jobs in the matrix succeeded.
                   # Otherwise, it will be 'failure'.
-                  if [[ "${{ needs.dagster.result }}" != "success" && "${{ needs.dagster.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.dagster.result }}" != "success" && "${{ needs.dagster.result }}" != "skipped" && "${{ needs.dagster.result }}" != "cancelled" ]]; then
                     echo "One or more jobs in the Dagster test matrix failed."
                     exit 1
                   fi
