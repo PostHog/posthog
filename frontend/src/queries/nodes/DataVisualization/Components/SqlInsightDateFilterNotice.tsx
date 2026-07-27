@@ -40,7 +40,10 @@ export function isAffectedByDateFilterResolutionChange(source: HogQLQuery): bool
 export function SqlInsightDateFilterNotice({ source }: { source: HogQLQuery }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (!featureFlags[FEATURE_FLAGS.SQL_INSIGHT_DATE_FILTER_NOTICE] || !isAffectedByDateFilterResolutionChange(source)) {
+    if (
+        !featureFlags[FEATURE_FLAGS.SQL_INSIGHT_DATE_FILTER_NOTICE] ||
+        !isAffectedByDateFilterResolutionChange(source)
+    ) {
         return null
     }
 
