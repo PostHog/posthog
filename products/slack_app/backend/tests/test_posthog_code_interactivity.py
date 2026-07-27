@@ -26,7 +26,11 @@ from posthog.utils import relative_date_parse
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
-from products.slack_app.backend.api import _extract_alert_snooze_hints, _handle_insight_alert_snooze
+from products.slack_app.backend.api import (
+    _extract_alert_snooze_hints,
+    _handle_insight_alert_snooze,
+    _handle_insight_alert_snooze_modal_submit,
+)
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 if TYPE_CHECKING:
@@ -1408,3 +1412,109 @@ class TestExtractAlertSnoozeHints(TestCase):
     def test_returns_none_for_garbage(self, _name, value):
         payload = self._payload(value) if value is not None else {"actions": []}
         assert _extract_alert_snooze_hints(payload) is None
+
+
+class TestInsightAlertSnoozeModal(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Snooze Modal Org")
+        self.team = Team.objects.create(organization=self.organization, name="Snooze Modal Team")
+        self.user = User.objects.create(email="modal@example.com", distinct_id="modal-user-1")
+        OrganizationMembership.objects.create(user=self.user, organization=self.organization)
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T-MODAL",
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        self.insight = Insight.objects.create(team=self.team, short_id="ins-modal", name="Signups")
+        self.alert = AlertConfiguration.objects.create(
+            team=self.team, insight=self.insight, name="Signups alert", state=AlertState.FIRING
+        )
+
+    def _select_custom_payload(self) -> dict:
+        return {
+            "type": "block_actions",
+            "team": {"id": "T-MODAL"},
+            "user": {"id": "U1"},
+            "trigger_id": "trig.123",
+            "channel": {"id": "C1"},
+            "message": {"ts": "111.222"},
+            "actions": [{"action_id": "insight_alert_snooze", "selected_option": {"value": f"{self.alert.id}|custom"}}],
+        }
+
+    def _modal_submit_payload(self, selected_date: str, selected_time: str, *, alert_id=None) -> dict:
+        return {
+            "type": "view_submission",
+            "team": {"id": "T-MODAL"},
+            "user": {"id": "U1"},
+            "view": {
+                "callback_id": "insight_alert_snooze_modal",
+                "private_metadata": json.dumps(
+                    {"alert_id": str(alert_id or self.alert.id), "channel": "C1", "message_ts": "111.222"}
+                ),
+                "state": {
+                    "values": {
+                        "snooze_date": {"date": {"selected_date": selected_date}},
+                        "snooze_time": {"time": {"selected_time": selected_time}},
+                    }
+                },
+            },
+        }
+
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    @patch("products.slack_app.backend.api._is_org_member")
+    def test_custom_option_opens_modal_without_snoozing(self, mock_is_org_member, mock_slack):
+        mock_is_org_member.return_value = self.user
+
+        response = _handle_insight_alert_snooze(self._select_custom_payload())
+
+        assert response.status_code == 200
+        mock_slack.return_value.client.views_open.assert_called_once()
+        view = mock_slack.return_value.client.views_open.call_args.kwargs["view"]
+        assert view["callback_id"] == "insight_alert_snooze_modal"
+        assert str(self.alert.id) in view["private_metadata"]
+        self.alert.refresh_from_db()
+        assert self.alert.state == AlertState.FIRING
+        assert self.alert.snoozed_until is None
+
+    @freeze_time("2026-07-21T12:00:00Z")
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    @patch("products.slack_app.backend.api._is_org_member")
+    def test_modal_submit_snoozes_to_picked_time(self, mock_is_org_member, mock_slack):
+        mock_is_org_member.return_value = self.user
+
+        response = _handle_insight_alert_snooze_modal_submit(self._modal_submit_payload("2026-07-23", "09:30"))
+
+        assert response.status_code == 200
+        self.alert.refresh_from_db()
+        assert self.alert.state == AlertState.SNOOZED
+        assert self.alert.snoozed_until == datetime(2026, 7, 23, 9, 30, tzinfo=UTC)
+        mock_slack.return_value.client.chat_postMessage.assert_called_once()
+
+    @parameterized.expand([("past", "2020-01-01", "09:00"), ("beyond_31_days", "2026-09-30", "09:00")])
+    @freeze_time("2026-07-21T12:00:00Z")
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    @patch("products.slack_app.backend.api._is_org_member")
+    def test_modal_submit_rejects_out_of_bounds(self, _name, sel_date, sel_time, mock_is_org_member, mock_slack):
+        mock_is_org_member.return_value = self.user
+
+        response = _handle_insight_alert_snooze_modal_submit(self._modal_submit_payload(sel_date, sel_time))
+
+        assert json.loads(response.content)["response_action"] == "errors"
+        self.alert.refresh_from_db()
+        assert self.alert.state == AlertState.FIRING
+        assert self.alert.snoozed_until is None
+
+    @freeze_time("2026-07-21T12:00:00Z")
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    @patch("products.slack_app.backend.api._is_org_member")
+    def test_modal_submit_refuses_non_org_member(self, mock_is_org_member, mock_slack):
+        mock_is_org_member.return_value = None
+
+        response = _handle_insight_alert_snooze_modal_submit(self._modal_submit_payload("2026-07-23", "09:00"))
+
+        assert response.status_code == 200
+        self.alert.refresh_from_db()
+        assert self.alert.state == AlertState.FIRING
+        assert self.alert.snoozed_until is None
+        mock_slack.return_value.client.chat_postMessage.assert_not_called()

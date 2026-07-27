@@ -5,7 +5,7 @@ import uuid
 import asyncio
 import hashlib
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse, urlunparse
 
@@ -3344,6 +3344,11 @@ INSIGHT_ALERT_SNOOZE_DURATION_LABELS: dict[str, str] = {
     "1d": "1 day",
     "1w": "1 week",
 }
+# Dropdown option that opens a modal date/time picker instead of snoozing immediately.
+INSIGHT_ALERT_SNOOZE_CUSTOM_TOKEN = "custom"
+INSIGHT_ALERT_SNOOZE_MODAL_CALLBACK_ID = "insight_alert_snooze_modal"
+INSIGHT_ALERT_SNOOZE_MODAL_DATE_BLOCK = "snooze_date"
+INSIGHT_ALERT_SNOOZE_MODAL_TIME_BLOCK = "snooze_time"
 
 
 def _insight_alert_snooze_action(payload: dict) -> dict | None:
@@ -3362,7 +3367,7 @@ def _parse_insight_alert_snooze_value(value: str) -> tuple[uuid.UUID, str] | Non
     if len(parts) != 2:
         return None
     alert_uuid_str, duration = parts
-    if duration not in INSIGHT_ALERT_SNOOZE_DURATION_LABELS:
+    if duration not in INSIGHT_ALERT_SNOOZE_DURATION_LABELS and duration != INSIGHT_ALERT_SNOOZE_CUSTOM_TOKEN:
         return None
     try:
         alert_uuid = uuid.UUID(alert_uuid_str)
@@ -3405,8 +3410,24 @@ def _parse_insight_alert_snooze_action(action: dict) -> tuple[uuid.UUID, str | N
     return parsed[0], parsed[1], None
 
 
+def _snooze_modal_alert_uuid(view: dict) -> uuid.UUID | None:
+    """Alert UUID stashed in the snooze modal's private_metadata."""
+    try:
+        meta = json.loads(view.get("private_metadata", "") or "{}")
+        return uuid.UUID(meta.get("alert_id"))
+    except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
+        return None
+
+
 def _extract_alert_snooze_hints(payload: dict) -> uuid.UUID | None:
-    """Alert UUID carried by a snooze interaction, used for region-ownership routing."""
+    """Alert UUID carried by a snooze interaction, used for region-ownership routing.
+
+    Covers both the dropdown/button block_actions and the date/time modal's view_submission
+    (which carries the alert id in private_metadata, not in an action).
+    """
+    view = payload.get("view")
+    if isinstance(view, dict) and view.get("callback_id") == INSIGHT_ALERT_SNOOZE_MODAL_CALLBACK_ID:
+        return _snooze_modal_alert_uuid(view)
     action = _insight_alert_snooze_action(payload)
     if not action:
         return None
@@ -3459,6 +3480,12 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
         logger.warning("insight_alert_snooze_not_org_member", alert_id=str(alert_uuid), slack_user_id=slack_user_id)
         return HttpResponse(status=200)
 
+    # "Pick a date & time…" opens a modal instead of snoozing now. The real snooze happens on
+    # modal submit (_handle_insight_alert_snooze_modal_submit), which re-runs this same auth.
+    if duration == INSIGHT_ALERT_SNOOZE_CUSTOM_TOKEN:
+        _open_insight_alert_snooze_modal(integration, payload, alert_uuid)
+        return HttpResponse(status=200)
+
     # Everything below this point is untrusted alert_id/duration re-derived from the alert row
     # itself, not the Slack button value — see snooze_alert_from_slack's docstring.
     outcome = snooze_alert_from_slack(alert_uuid, duration=duration, until=until, user=org_member)
@@ -3498,6 +3525,130 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
     actor = f"<@{slack_user_id}>" if slack_user_id else "a teammate"
     _replace_message_stripping_actions(payload, f"😴 Snoozed {snoozed_wording} by {actor}")
     return HttpResponse(status=200)
+
+
+def _render_insight_alert_snooze_modal(private_metadata: str) -> dict:
+    tomorrow = (timezone.now() + timedelta(days=1)).date().isoformat()
+    return {
+        "type": "modal",
+        "callback_id": INSIGHT_ALERT_SNOOZE_MODAL_CALLBACK_ID,
+        "private_metadata": private_metadata,
+        "title": {"type": "plain_text", "text": "Snooze alert"},
+        "submit": {"type": "plain_text", "text": "Snooze"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {
+                "type": "input",
+                "block_id": INSIGHT_ALERT_SNOOZE_MODAL_DATE_BLOCK,
+                "label": {"type": "plain_text", "text": "Snooze until date"},
+                "element": {"type": "datepicker", "action_id": "date", "initial_date": tomorrow},
+            },
+            {
+                "type": "input",
+                "block_id": INSIGHT_ALERT_SNOOZE_MODAL_TIME_BLOCK,
+                "label": {"type": "plain_text", "text": "Time (UTC)"},
+                "element": {"type": "timepicker", "action_id": "time", "initial_time": "09:00"},
+            },
+        ],
+    }
+
+
+def _open_insight_alert_snooze_modal(integration: Integration, payload: dict, alert_uuid: uuid.UUID) -> None:
+    trigger_id = payload.get("trigger_id")
+    if not trigger_id:
+        return
+    container = payload.get("container", {}) or {}
+    private_metadata = json.dumps(
+        {
+            "alert_id": str(alert_uuid),
+            "channel": (payload.get("channel") or {}).get("id") or container.get("channel_id"),
+            "message_ts": (payload.get("message") or {}).get("ts") or container.get("message_ts"),
+        }
+    )
+    try:
+        SlackIntegration(integration).client.views_open(
+            trigger_id=trigger_id, view=_render_insight_alert_snooze_modal(private_metadata)
+        )
+    except Exception:
+        logger.exception("insight_alert_snooze_modal_open_failed", alert_id=str(alert_uuid))
+
+
+def _snooze_modal_error(message: str) -> JsonResponse:
+    # A view_submission error keeps the modal open and shows the message under the date field.
+    return JsonResponse({"response_action": "errors", "errors": {INSIGHT_ALERT_SNOOZE_MODAL_DATE_BLOCK: message}})
+
+
+def _handle_insight_alert_snooze_modal_submit(payload: dict) -> HttpResponse:
+    """Snooze an alert to the date/time picked in the modal opened from the 'Pick a date & time…'
+    dropdown option. Re-runs the same workspace/org authorization the block-action path does —
+    a modal can be submitted by anyone who has it open, so the submit is the authoritative gate.
+    """
+    view = payload.get("view", {})
+    try:
+        meta = json.loads(view.get("private_metadata", "") or "{}")
+        alert_uuid = uuid.UUID(meta.get("alert_id"))
+    except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
+        return HttpResponse(status=200)
+
+    values = view.get("state", {}).get("values", {})
+    selected_date = values.get(INSIGHT_ALERT_SNOOZE_MODAL_DATE_BLOCK, {}).get("date", {}).get("selected_date")
+    selected_time = values.get(INSIGHT_ALERT_SNOOZE_MODAL_TIME_BLOCK, {}).get("time", {}).get("selected_time")
+    if not selected_date or not selected_time:
+        return _snooze_modal_error("Pick a date and time.")
+    try:
+        until = datetime.strptime(f"{selected_date} {selected_time}", "%Y-%m-%d %H:%M").replace(tzinfo=UTC)
+    except ValueError:
+        return _snooze_modal_error("Pick a date and time.")
+
+    slack_team_id = payload.get("team", {}).get("id")
+    slack_user_id = payload.get("user", {}).get("id", "")
+
+    from products.alerts.backend.facade.api import (  # noqa: PLC0415 — cross-product calls kept off the slack import path
+        SLACK_SNOOZE_MAX_DAYS,
+        get_alert_team_id,
+        snooze_alert_from_slack,
+    )
+
+    alert_team_id = get_alert_team_id(alert_uuid)
+    if alert_team_id is None or not slack_team_id:
+        return HttpResponse(status=200)
+    try:
+        # nosemgrep: idor-lookup-without-team
+        integration = Integration.objects.get(
+            kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id, team_id=alert_team_id
+        )
+    except Integration.DoesNotExist:
+        return HttpResponse(status=200)
+
+    org_member = _is_org_member(integration, slack_user_id)
+    if org_member is None:
+        return _snooze_modal_error("You don't have access to this alert.")
+
+    outcome = snooze_alert_from_slack(alert_uuid, until=until, user=org_member)
+    if outcome == "invalid_until":
+        return _snooze_modal_error(f"Pick a time in the next {SLACK_SNOOZE_MAX_DAYS} days.")
+    if outcome in ("no_access", "not_found", "disabled"):
+        logger.info("insight_alert_snooze_modal_submit_rejected", alert_id=str(alert_uuid), outcome=outcome)
+        return HttpResponse(status=200)
+
+    _post_insight_alert_snooze_modal_confirmation(integration, meta, until, slack_user_id)
+    return HttpResponse(status=200)
+
+
+def _post_insight_alert_snooze_modal_confirmation(
+    integration: Integration, meta: dict, until: datetime, slack_user_id: str
+) -> None:
+    channel = meta.get("channel")
+    if not channel:
+        return
+    actor = f"<@{slack_user_id}>" if slack_user_id else "a teammate"
+    text = f"😴 Snoozed until {until.strftime('%Y-%m-%d %H:%M')} UTC by {actor}"
+    try:
+        SlackIntegration(integration).client.chat_postMessage(
+            channel=channel, thread_ts=meta.get("message_ts"), text=text
+        )
+    except Exception:
+        logger.warning("insight_alert_snooze_modal_confirm_failed")
 
 
 def _handle_terminate_task_submit(payload: dict) -> HttpResponse:
@@ -3702,6 +3853,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         return _handle_repo_picker_options(payload)
 
     if payload_type == "view_submission":
+        if payload.get("view", {}).get("callback_id") == INSIGHT_ALERT_SNOOZE_MODAL_CALLBACK_ID:
+            return _handle_insight_alert_snooze_modal_submit(payload)
         return _handle_app_home_view_submission(payload)
 
     if payload_type == "block_actions":

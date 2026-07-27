@@ -1007,12 +1007,12 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                                             text: { text: 'For 1 week', type: 'plain_text' },
                                             value: '{event.properties.alert_id}|1w',
                                         },
+                                        {
+                                            text: { text: 'Pick a date & time…', type: 'plain_text' },
+                                            value: '{event.properties.alert_id}|custom',
+                                        },
                                     ],
                                     type: 'static_select',
-                                },
-                                {
-                                    action_id: 'insight_alert_snooze_until',
-                                    type: 'datetimepicker',
                                 },
                             ],
                         },

@@ -72,9 +72,9 @@ tools:
                           {"text": {"type": "plain_text", "text": "For 1 hour"}, "value": "{event.properties.alert_id}|1h"},
                           {"text": {"type": "plain_text", "text": "For 6 hours"}, "value": "{event.properties.alert_id}|6h"},
                           {"text": {"type": "plain_text", "text": "For 1 day"}, "value": "{event.properties.alert_id}|1d"},
-                          {"text": {"type": "plain_text", "text": "For 1 week"}, "value": "{event.properties.alert_id}|1w"}
-                        ]},
-                       {"type": "datetimepicker", "action_id": "insight_alert_snooze_until"}
+                          {"text": {"type": "plain_text", "text": "For 1 week"}, "value": "{event.properties.alert_id}|1w"},
+                          {"text": {"type": "plain_text", "text": "Pick a date & time…"}, "value": "{event.properties.alert_id}|custom"}
+                        ]}
                      ]}
                    ]}
                  }
