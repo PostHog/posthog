@@ -17,9 +17,6 @@ import { BreakdownColorConfig, denormalizeBreakdownValue, findBreakdownColorConf
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 
-// Re-exported for back-compat; the type lives in dashboardBreakdownColors.ts
-export type { BreakdownColorConfig }
-
 export function DashboardInsightColorsModal(): JSX.Element {
     const { isOpen, insightTilesLoading, breakdownValues } = useValues(dashboardInsightColorsModalLogic)
     const { hideInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
