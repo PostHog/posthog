@@ -84,6 +84,7 @@ from products.cohorts.backend.models.cohort import (
     Cohort,
     CohortOrEmpty,
     CohortType,
+    Group,
 )
 from products.cohorts.backend.models.dependencies import get_flag_excluded_behavioral_cohort_ids
 from products.cohorts.backend.models.util import (
@@ -556,6 +557,30 @@ class CohortFiltersField(serializers.JSONField):
     pass
 
 
+# Keep in sync with CohortConditionFlags / Cohort.compute_condition_type in
+# products/cohorts/backend/models/cohort.py — pydantic can't share that TypedDict directly,
+# so a new flag added to one won't raise a type error if the other is missed.
+class CohortConditionTypeFlags(BaseModel, extra="forbid"):
+    person_properties: bool = Field(description="The filters include a person property or person_metadata condition.")
+    behavioral: bool = Field(
+        description="The filters include a behavioral condition that is not lifecycle-style "
+        "(e.g. performed_event, performed_event_multiple, performed_event_sequence, or their "
+        "negations)."
+    )
+    lifecycle: bool = Field(
+        description="The filters include a lifecycle-style behavioral condition (first-seen/regularly/"
+        "stopped/restarted performing an event)."
+    )
+    cohorts: bool = Field(description="The filters include a nested reference to another cohort.")
+
+
+@extend_schema_field(CohortConditionTypeFlags)  # type: ignore[arg-type]
+class CohortConditionTypeField(serializers.JSONField):
+    """Custom JSONField that exposes proper OpenAPI schema for condition_type flags."""
+
+    pass
+
+
 class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = earliest_timestamp_func
@@ -566,6 +591,14 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
     # Explicit filters field with proper OpenAPI schema
     filters = CohortFiltersField(required=False, allow_null=True)
+
+    # Explicit condition_type field with proper OpenAPI schema
+    condition_type = CohortConditionTypeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Flags describing which kinds of conditions the cohort's filters contain. "
+        "Null when the cohort has no filters to classify.",
+    )
 
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)  # ty: ignore[invalid-assignment]
@@ -593,6 +626,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "count",
             "is_static",
             "cohort_type",
+            "condition_type",
             "experiment_set",
             "search_match_type",
             "_create_in_folder",
@@ -611,6 +645,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "last_error_message",
             "count",
             "experiment_set",
+            "condition_type",
         ]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -963,6 +998,23 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         else:
             raise ValidationError(f"Query must be an ActorsQuery or HogQLQuery. Got: {query.get('kind')}")
         return query
+
+    def validate_groups(self, groups: Optional[list]) -> Optional[list]:
+        # Legacy `groups` payloads are turned into `Group` objects during creation, where a group
+        # missing all of properties/action_id/event_id (or carrying unexpected keys) raises a plain
+        # exception. Validate here so bad input returns a 400 instead of surfacing as a 500.
+        if groups is None:
+            return groups
+        if not isinstance(groups, list):
+            raise ValidationError("Groups must be a list of cohort group definitions.")
+        for index, group in enumerate(groups):
+            if not isinstance(group, dict):
+                raise ValidationError(f"Cohort group at index {index} must be an object.")
+            try:
+                Group(**group)
+            except (ValueError, TypeError) as exc:
+                raise ValidationError(f"Invalid cohort group at index {index}: {exc}")
+        return groups
 
     def _cohort_will_be_static(self) -> bool:
         if "is_static" in self.initial_data:

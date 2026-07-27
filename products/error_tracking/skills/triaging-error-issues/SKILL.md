@@ -116,7 +116,7 @@ posthog:query-error-tracking-issue-events
 {
   "issueId": "<issue_id>",
   "limit": 1,
-  "verbosity": "stack"
+  "include": ["exception", "stacktrace", "environment", "navigation", "correlation"]
 }
 ```
 

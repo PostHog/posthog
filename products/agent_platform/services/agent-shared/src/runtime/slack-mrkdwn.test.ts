@@ -135,7 +135,7 @@ describe('markdownToMrkdwn', () => {
     })
 
     describe('realistic mixed messages', () => {
-        it('a kudos-bot style digest', () => {
+        it('a weekly digest with links and a rule', () => {
             const md = [
                 '# Kudos — week of Jun 16',
                 '',

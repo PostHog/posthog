@@ -53,6 +53,8 @@ See [`docs/compatibility.md`](docs/compatibility.md) for the Node consumer
 compatibility checklist and [`src/modes/resolution/README.md`](src/modes/resolution/README.md)
 for rollout and dashboard guidance.
 
+Fetched JavaScript sources and external source maps are limited to 25 MB after HTTP decompression by default. Set `SOURCEMAP_MAX_RESPONSE_BYTES` to adjust this limit.
+
 ### Terms
 
 We use a lot of terms in this and other error tracking code, with implied meanings. Here are some of them:

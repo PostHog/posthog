@@ -30,6 +30,7 @@ function createMockPrompt(overrides: Partial<LLMPrompt> & { name: string }): LLM
         latest_version: 1,
         version_count: 1,
         first_version_created_at: '2025-01-15T10:00:00Z',
+        activity_item_id: overrides.name,
         ...overrides,
     }
 }

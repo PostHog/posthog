@@ -447,7 +447,7 @@ export class PgSessionQueue implements SessionQueue {
             `SELECT ${SELECT_COLS}
              FROM agent_session
              WHERE ${where.join(' AND ')}
-             ORDER BY created_at DESC
+             ORDER BY updated_at DESC
              LIMIT $${params.length - 1} OFFSET $${params.length}`,
             params
         )
@@ -475,7 +475,7 @@ export class PgSessionQueue implements SessionQueue {
             `SELECT ${SUMMARY_COLS}
              FROM agent_session
              WHERE ${where.join(' AND ')}
-             ORDER BY created_at DESC
+             ORDER BY updated_at DESC
              LIMIT $${params.length - 1} OFFSET $${params.length}`,
             params
         )

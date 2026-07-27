@@ -12,7 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.freshdesk import FreshdeskResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.source import FreshdeskSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshdeskSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshdesk import (
+    FreshdeskSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = (

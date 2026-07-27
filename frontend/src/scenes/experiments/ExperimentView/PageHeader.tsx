@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
@@ -74,9 +74,9 @@ export function PageHeaderCustom(): JSX.Element {
         createExperimentDashboard,
         updateExperiment,
         setHogfettiTrigger,
-        freezeExposure,
-        unfreezeExposure,
     } = useActions(experimentLogic)
+    // Promise-returning dispatch so the confirm dialogs can await completion (shouldAwaitSubmit).
+    const { freezeExposure, unfreezeExposure } = useAsyncActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
@@ -267,7 +267,7 @@ export function PageHeaderCustom(): JSX.Element {
                                                 <ButtonPrimitive
                                                     menuItem
                                                     data-attr="freeze-exposure"
-                                                    onClick={() => confirmFreezeExposure(freezeExposure)}
+                                                    onClick={() => confirmFreezeExposure(() => freezeExposure())}
                                                     disabledReasons={{
                                                         'Freezing exposure...': freezeExposureLoading,
                                                     }}
@@ -279,7 +279,7 @@ export function PageHeaderCustom(): JSX.Element {
                                                 <ButtonPrimitive
                                                     menuItem
                                                     data-attr="unfreeze-exposure"
-                                                    onClick={() => confirmUnfreezeExposure(unfreezeExposure)}
+                                                    onClick={() => confirmUnfreezeExposure(() => unfreezeExposure())}
                                                     disabledReasons={{
                                                         'Unfreezing exposure...': unfreezeExposureLoading,
                                                     }}

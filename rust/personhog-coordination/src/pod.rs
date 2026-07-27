@@ -26,8 +26,12 @@ use crate::util;
 /// crash-restart inside its lease TTL, which preserves its registration
 /// and assignments but wipes its cache and fences) is repaired by
 /// re-deriving rather than by replaying remembered events.
+/// Public because the stateright model (`personhog-stateright`) drives
+/// its pod transitions through this exact function — the model checks
+/// the code production runs, so the pod state machine cannot drift from
+/// its verified form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DesiredState {
+pub enum DesiredState {
     /// This pod owns the partition and no handoff constrains it: cache
     /// warm, writes admitted. Also the old owner's state during Freezing
     /// (routers are still collecting the freeze quorum; writes keep
@@ -56,7 +60,7 @@ enum DesiredState {
 /// when it involves this pod, takes precedence over the assignment: the
 /// assignment names the *old* owner (or nobody) for the whole life of a
 /// handoff and only flips to the new owner atomically at Complete.
-fn desired_state(
+pub fn desired_state(
     pod: &str,
     assignment: Option<&PartitionAssignment>,
     handoff: Option<&HandoffState>,
@@ -142,6 +146,9 @@ pub struct PodConfig {
     /// Should be less than K8s terminationGracePeriodSeconds to allow
     /// time for lease revocation before SIGKILL.
     pub drain_timeout: Duration,
+    /// `host:port` where this pod's gRPC server is reachable; registered
+    /// so routers can dial the pod through the routing table.
+    pub advertise_address: Option<String>,
 }
 
 impl Default for PodConfig {
@@ -153,6 +160,7 @@ impl Default for PodConfig {
             lease_ttl: 30,
             heartbeat_interval: Duration::from_secs(10),
             drain_timeout: Duration::from_secs(30),
+            advertise_address: None,
         }
     }
 }
@@ -312,6 +320,7 @@ impl PodHandle {
             registered_at: now,
             last_heartbeat: now,
             controller: self.config.controller.clone(),
+            advertise_address: self.config.advertise_address.clone(),
         };
         self.store.register_pod(&pod, lease_id).await
     }
@@ -609,6 +618,7 @@ mod tests {
         PartitionAssignment {
             partition: 1,
             owner: owner.to_string(),
+            advertise_address: None,
             status: AssignmentStatus::Active,
         }
     }
@@ -621,6 +631,7 @@ mod tests {
             phase,
             started_at: 0,
             handoff_id: "h-test".to_string(),
+            new_owner_address: None,
         }
     }
 

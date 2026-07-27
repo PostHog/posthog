@@ -38,6 +38,17 @@ def _make_response(nodes: list[dict[str, Any]], has_next_page: bool, end_cursor:
     return response
 
 
+def _make_response_for(query_name: str, nodes: list[dict[str, Any]]) -> MagicMock:
+    """Single-page response keyed under an arbitrary GraphQL query name (e.g. cycles/projects)."""
+    response = MagicMock()
+    response.status_code = 200
+    response.ok = True
+    response.json.return_value = {
+        "data": {query_name: {"nodes": nodes, "pageInfo": {"hasNextPage": False, "endCursor": None}}}
+    }
+    return response
+
+
 def _make_rate_limited_response(headers: dict[str, str] | None = None) -> MagicMock:
     """Mimic Linear's HTTP-level 429: an HTML body that fails JSON parsing."""
     response = MagicMock()
@@ -243,6 +254,12 @@ class TestMakePaginatedRequest:
         [
             ("read_timeout", requests.exceptions.ReadTimeout("Read timed out. (read timeout=60)")),
             ("connection_reset", requests.exceptions.ConnectionError("Connection aborted")),
+            # ChunkedEncodingError is not a ConnectionError subclass, so it must be listed explicitly
+            # to ride the retry path instead of failing the activity on a connection broken mid-body.
+            (
+                "chunked_encoding_broken",
+                requests.exceptions.ChunkedEncodingError("Connection broken: InvalidChunkLength"),
+            ),
         ]
     )
     @patch("time.sleep", return_value=None)
@@ -358,6 +375,36 @@ class TestMakePaginatedRequest:
 
         assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
         assert "secret customer issue" not in str(exc_info.value)
+
+
+class TestFloatFieldCoercion:
+    @parameterized.expand([("cycles",), ("projects",)])
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_whole_number_progress_is_coerced_to_float(self, endpoint_name: str, mock_session_cls: MagicMock) -> None:
+        # Whole progress values (0, 1) arrive as JSON ints. Left as ints, a table-creating batch of
+        # only whole values infers int64 and the first fractional progress wedges the sync with
+        # ArrowInvalid. The source must yield floats so the column always infers as float64.
+        session = MagicMock()
+        session.post.side_effect = [
+            _make_response_for(
+                endpoint_name,
+                [{"id": "a", "progress": 0}, {"id": "b", "progress": 1}, {"id": "c", "progress": None}],
+            )
+        ]
+        mock_session_cls.return_value = session
+
+        pages = list(
+            _make_paginated_request(
+                access_token="tok",
+                endpoint_name=endpoint_name,
+                logger=MagicMock(),
+                resumable_source_manager=_make_resumable_manager(),
+            )
+        )
+
+        progress_values = [node["progress"] for node in pages[0]]
+        assert progress_values == [0.0, 1.0, None]
+        assert all(isinstance(v, float) for v in progress_values if v is not None)
 
 
 class TestRateLimitBackoff:

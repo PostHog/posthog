@@ -4,7 +4,6 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -135,11 +134,11 @@ describe('InsightDisplayConfig', () => {
                     ],
                     displayItems: [
                         'Show values on series',
-                        'Show legend',
                         'Show alert threshold lines',
                         'Show multiple Y-axes',
                         'Show trend lines',
                         'Show annotations',
+                        'Show legendBottom',
                     ],
                 },
             ],
@@ -151,11 +150,11 @@ describe('InsightDisplayConfig', () => {
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
-                        'Show legend',
                         'Show alert threshold lines',
                         'Show multiple Y-axes',
                         'Show trend lines',
                         'Show annotations',
+                        'Show legendBottom',
                     ],
                 },
             ],
@@ -167,11 +166,11 @@ describe('InsightDisplayConfig', () => {
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
-                        'Show legend',
                         'Show alert threshold lines',
                         'Show multiple Y-axes',
                         'Show trend lines',
                         'Show annotations',
+                        'Show legendBottom',
                     ],
                 },
             ],
@@ -188,8 +187,9 @@ describe('InsightDisplayConfig', () => {
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
-                        'Show legend',
                         'Show total below chart',
+                        // In-chart legend toggle + position select ("Bottom" is the prospective default)
+                        'Show legendBottom',
                     ],
                 },
             ],
@@ -231,7 +231,7 @@ describe('InsightDisplayConfig', () => {
                 makeStickinessQuery(),
                 {
                     sections: ['Display'],
-                    displayItems: ['Show values on series', 'Show legend', 'Show multiple Y-axes'],
+                    displayItems: ['Show values on series', 'Show multiple Y-axes', 'Show legendBottom'],
                 },
             ],
             [
@@ -334,7 +334,7 @@ describe('InsightDisplayConfig', () => {
             await openOptionsMenu()
 
             const items = getDisplaySectionItems()
-            expect(items).toContain('Show legend')
+            expect(items.some((item) => item.includes('Show legend'))).toBe(true)
             expect(items).toContain('Show values on series')
             expect(items).toContain('Show alert threshold lines')
             expect(items).toContain('Show trend lines')
@@ -365,13 +365,7 @@ describe('InsightDisplayConfig', () => {
         })
     })
 
-    describe('line graph display options with the quill legend flag', () => {
-        beforeEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true,
-            })
-        })
-
+    describe('in-chart legend position options', () => {
         it('keeps the "Show legend" checkbox and adds a position select on the same row', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
             await openOptionsMenu()
@@ -385,6 +379,7 @@ describe('InsightDisplayConfig', () => {
         it.each([
             ['trends bar', () => makeTrendsQuery(ChartDisplayType.ActionsBar)],
             ['trends unstacked bar', () => makeTrendsQuery(ChartDisplayType.ActionsUnstackedBar)],
+            ['trends pie', () => makeTrendsQuery(ChartDisplayType.ActionsPie)],
             ['stickiness line', () => makeStickinessQuery(ChartDisplayType.ActionsLineGraph)],
             ['stickiness bar', () => makeStickinessQuery(ChartDisplayType.ActionsBar)],
             ['lifecycle', () => makeLifecycleQuery()],

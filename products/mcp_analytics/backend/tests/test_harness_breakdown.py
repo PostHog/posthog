@@ -121,6 +121,18 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
                 "Claude Desktop",
             ),
             ("ua_openai", {"$mcp_client_user_agent": "openai-mcp/1.0.0"}, "OpenAI"),
+            # grok.com Connectors: the grok- UA must beat the generic "connectors-manager"
+            # clientInfo.name it also reports, or the vendor is lost to 'Other'.
+            (
+                "grok_connectors_ua_beats_generic_name",
+                {
+                    "$mcp_client_user_agent": "grok-connectors-manager/0.1.0",
+                    "$mcp_client_name": "connectors-manager",
+                },
+                "Grok",
+            ),
+            # xAI API surface: no grok UA, buckets via its grok- clientInfo.name.
+            ("grok_shell_client_name", {"$mcp_client_name": "grok-shell-posthog"}, "Grok"),
             ("session_librechat", {"mcp_session_client_name": "@librechat/api-client"}, "LibreChat"),
             (
                 "mcp_remote_suffix_stripped",

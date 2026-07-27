@@ -12,14 +12,13 @@ import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { TZLabelProps } from 'lib/components/TZLabel'
 
+import { isPinnedColumn } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import {
     createConfiguredColumn,
     createControlsColumn,
-    createMessageColumn,
-    createTimestampColumn,
 } from 'products/logs/frontend/components/VirtualizedLogsList/columnDefinitions'
 import {
     LOG_ROW_HEADER_HEIGHT,
@@ -64,6 +63,7 @@ interface LogsListRowProps {
     showPinnedWithOpacity: boolean
     disableCursor: boolean
     wrapBody: boolean
+    hasMessageColumn: boolean
     togglePinLog: (log: ParsedLogMessage) => void
     handleLogRowClick: (log: ParsedLogMessage, index: number) => void
     rowWidth?: number
@@ -87,6 +87,7 @@ function LogsListRow({
     showPinnedWithOpacity,
     disableCursor,
     wrapBody,
+    hasMessageColumn,
     togglePinLog,
     handleLogRowClick,
     rowWidth,
@@ -122,6 +123,7 @@ function LogsListRow({
                 pinned={!!pinnedLogs[log.uuid]}
                 showPinnedWithOpacity={showPinnedWithOpacity}
                 wrapBody={wrapBody}
+                hasMessageColumn={hasMessageColumn}
                 onTogglePin={togglePinLog}
                 onClick={() => handleLogRowClick(log, index)}
                 rowWidth={rowWidth}
@@ -207,26 +209,24 @@ export function VirtualizedLogsList({
     }, [columnConfigs, customColumnAliases])
 
     // Columns memoized on structural deps only — per-row state (selection,
-    // expansion, prettify) is read from kea inside cell components.
+    // expansion, prettify) is read from kea inside cell components. Everything after the
+    // pinned controls column is a configured column; there are no special cases here.
     const columns = useMemo(() => {
-        const managed = columnConfigs.filter((config) => config.type !== 'timestamp' && config.type !== 'message')
+        const rendering = { tzLabelFormat, orderBy, onChangeOrderBy, wrapBody, prettifyJson, flexWidthRef }
+        // Move bounds range over movable columns only — pinned columns sort last and never swap
+        const movable = columnConfigs.filter((config) => !isPinnedColumn(config))
         return [
             createControlsColumn({ dataSourceRef }),
-            ...columnConfigs.map((config) => {
-                if (config.type === 'timestamp') {
-                    return createTimestampColumn({ tzLabelFormat, orderBy, onChangeOrderBy })
-                }
-                if (config.type === 'message') {
-                    return createMessageColumn({ wrapBody, prettifyJson, flexWidthRef })
-                }
-                return createConfiguredColumn({
+            ...columnConfigs.map((config) =>
+                createConfiguredColumn({
                     config,
                     alias: aliasById.get(config.id),
                     callbacks: { onResize: setColumnWidth, onRemove: removeColumn, onMove: moveColumn },
-                    isFirst: managed.indexOf(config) === 0,
-                    isLast: managed.indexOf(config) === managed.length - 1,
+                    rendering,
+                    isFirst: config === movable[0],
+                    isLast: config === movable[movable.length - 1],
                 })
-            }),
+            ),
         ]
     }, [
         tzLabelFormat,
@@ -307,6 +307,7 @@ export function VirtualizedLogsList({
             showPinnedWithOpacity,
             disableCursor,
             wrapBody,
+            hasMessageColumn: columnConfigs.some((config) => config.type === 'message'),
             togglePinLog,
             handleLogRowClick,
             rowWidth,
@@ -321,6 +322,7 @@ export function VirtualizedLogsList({
         [
             dataSource,
             columns,
+            columnConfigs,
             cursorIndex,
             expandedLogIds,
             pinnedLogs,

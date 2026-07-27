@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 from posthog.test.base import BaseTest
 
+from django.conf import settings
 from django.test import override_settings
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
@@ -19,56 +20,65 @@ class TestLazyJoins(BaseTest):
     snapshot: Any
     maxDiff = None
 
+    def _schema_snapshot(self, printed: str):
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed:
+            return self.snapshot(name="new_events_schema")
+        return self.snapshot
+
+    def _assert_matches_snapshot(self, printed: str) -> None:
+        assert printed == self._schema_snapshot(printed)
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_tables(self):
         printed = self._print_select("select event, pdi.person_id from events")
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_lazy_tables_traversed_fields(self):
         printed = self._print_select("select event, person_id from events")
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_tables_two_levels(self):
         printed = self._print_select("select event, pdi.person.id from events")
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_lazy_tables_two_levels_traversed(self):
         printed = self._print_select("select event, person.id from events")
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_lazy_tables_one_level_properties(self):
         printed = self._print_select("select person.properties.$browser from person_distinct_ids")
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_lazy_tables_one_level_properties_deep(self):
         printed = self._print_select("select person.properties.$browser.in.json from person_distinct_ids")
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_tables_two_levels_properties(self):
         printed = self._print_select("select event, pdi.person.properties.$browser from events")
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_lazy_tables_two_levels_properties_duplicate(self):
         printed = self._print_select("select event, person.properties, person.properties.name from events")
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_lazy_table_as_select_table(self):
         printed = self._print_select("select id, properties.email, properties.$browser from persons")
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -76,12 +86,12 @@ class TestLazyJoins(BaseTest):
         printed = self._print_select(
             "select event, distinct_id, events.person_id, persons.properties.email from events left join persons on persons.id = events.person_id limit 10"
         )
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_select_count_from_lazy_table(self):
         printed = self._print_select("select count() from persons")
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     def test_sample_on_lazy_table_is_stripped(self):
         # A lazy table expands into an aggregating subquery; ClickHouse rejects a SAMPLE modifier on
@@ -120,7 +130,7 @@ class TestLazyJoins(BaseTest):
         ).save()
 
         printed = self._print_select("select new_person.id from cohort_people")
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_lazy_join_on_lazy_table_with_properties(self):
@@ -134,7 +144,7 @@ class TestLazyJoins(BaseTest):
         ).save()
 
         printed = self._print_select("select new_person.id from cohort_people")
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_lazy_join_on_lazy_table_with_person_properties(self):
@@ -148,7 +158,7 @@ class TestLazyJoins(BaseTest):
         ).save()
 
         printed = self._print_select("select events.event from persons")
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_table_indirectly_referenced(self):
@@ -159,7 +169,7 @@ class TestLazyJoins(BaseTest):
             "select person.id from events",
             HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
         )
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_table_indirect_duplicate_references(self):
@@ -169,7 +179,45 @@ class TestLazyJoins(BaseTest):
             "select person_id, person.properties from events",
             HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
         )
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
+
+    def test_person_override_join_ordered_before_dependent_warehouse_joins(self):
+        # A data-warehouse join keyed on `person_id` produces an ON constraint that references the
+        # person-overrides join (`e__override`). When another warehouse join that does *not* depend
+        # on the override is emitted between the events table and the override join, the override
+        # join must still come before the dependent one: ClickHouse resolves joins left-to-right, so
+        # a forward reference to `e__override` throws "Unknown identifier". Regression test for an
+        # aliased events actors query that produced exactly that broken ordering.
+        DataWarehouseJoin(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="event",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="event_link",
+        ).save()
+        DataWarehouseJoin(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="person_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="person_link",
+        ).save()
+
+        printed = self._print_select(
+            "SELECT e.person_id AS actor_id, e.event_link.id AS a, e.person_link.id AS b FROM events AS e",
+            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+        )
+
+        flat = " ".join(printed.split())
+        override_pos = flat.find("AS e__override ON")
+        dependent_pos = flat.find("AS e__person_link ON")
+        assert override_pos != -1, "person-overrides join was not emitted"
+        assert dependent_pos != -1, "person_id-keyed warehouse join was not emitted"
+        # Guard against a vacuous assertion: the dependent join's ON must actually reference the override.
+        assert "e__override." in flat[dependent_pos : dependent_pos + 300]
+        assert override_pos < dependent_pos, "override join must be emitted before the join that references it"
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_events_session_join_with_timestamp_filter(self):
@@ -179,7 +227,7 @@ class TestLazyJoins(BaseTest):
             "FROM events "
             "WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08'"
         )
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_events_sessions_join_with_alias(self):
@@ -189,7 +237,7 @@ class TestLazyJoins(BaseTest):
             "FROM events AS e "
             "WHERE e.timestamp >= '2024-01-01' AND event = 'my-event'"
         )
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_events_session_join_with_multiple_predicates(self):
@@ -202,7 +250,7 @@ class TestLazyJoins(BaseTest):
             "AND event = '$pageview' "
             "AND $session_id IS NOT NULL"
         )
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_events_session_join_with_session_duration_filter(self):
@@ -213,4 +261,4 @@ class TestLazyJoins(BaseTest):
             "WHERE timestamp >= '2024-01-01' "
             "AND session.$session_duration > 0"
         )
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)

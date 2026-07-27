@@ -5,13 +5,14 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metabase import (
     MetabaseAuthMethodConfig,
     MetabaseSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.metabase import (
     API_KEY_AUTH,
     SESSION_AUTH,
+    SESSION_RESPONSE_NOT_JSON_ERROR,
     MetabaseAuth,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.settings import ENDPOINTS
@@ -64,7 +65,10 @@ class TestMetabaseSource:
         }
         assert secret_field_names == {"api_key", "password"}
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", "Invalid Metabase credentials"])
+    @pytest.mark.parametrize(
+        "expected_key",
+        ["401 Client Error", "403 Client Error", "Invalid Metabase credentials", SESSION_RESPONSE_NOT_JSON_ERROR],
+    )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
 

@@ -1,29 +1,28 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    EndpointResource,
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.settings import SAVVYCAL_ENDPOINTS
 
 SAVVYCAL_BASE_URL = "https://api.savvycal.com/v1"
 # List endpoints accept a `limit` of up to 100; the largest page minimises round trips.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRY_ATTEMPTS = 5
 # Cheap single-object endpoint used to confirm a token is genuine. Personal access tokens carry
 # the account's full read access, so one probe validates every list endpoint.
 DEFAULT_PROBE_PATH = "/me"
-
-
-class SavvyCalRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -36,10 +35,6 @@ class SavvyCalResumeConfig:
     # verbatim on resume so the saved cursor stays paired with the query it was minted under, even
     # if the watermark advanced between attempts.
     from_date: str | None = None
-
-
-def _headers(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
 
 def _format_from_date(value: Any) -> str:
@@ -55,45 +50,7 @@ def _format_from_date(value: Any) -> str:
     return str(value)
 
 
-@retry(
-    retry=retry_if_exception_type((SavvyCalRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    path: str,
-    params: dict[str, Any],
-    logger: FilteringBoundLogger,
-) -> tuple[list[dict[str, Any]], Optional[str]]:
-    response = session.get(f"{SAVVYCAL_BASE_URL}{path}", params=params, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise SavvyCalRetryableError(f"SavvyCal API error (retryable): status={response.status_code}, path={path}")
-
-    if not response.ok:
-        logger.error(f"SavvyCal API error: status={response.status_code}, body={response.text}, path={path}")
-        response.raise_for_status()
-
-    data = response.json()
-    # List endpoints wrap records in {"entries": [...], "metadata": {"after": ..., "before": ..., "limit": ...}}.
-    if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
-        raise SavvyCalRetryableError(f"SavvyCal returned an unexpected payload for {path}: {type(data).__name__}")
-
-    metadata = data.get("metadata")
-    after = metadata.get("after") if isinstance(metadata, dict) else None
-    return data["entries"], after if isinstance(after, str) and after else None
-
-
-def _redact(items: list[dict[str, Any]], redact_fields: frozenset[str]) -> list[dict[str, Any]]:
-    """Strip secret-bearing fields from a page before it lands in the warehouse."""
-    if not redact_fields:
-        return items
-    return [{k: v for k, v in item.items() if k not in redact_fields} for item in items]
-
-
-def _base_params(
+def _build_params(
     endpoint: str,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
@@ -118,63 +75,88 @@ def _base_params(
     return params
 
 
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SavvyCalResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    after = resume.after if resume else None
-    params = _base_params(
-        endpoint,
-        should_use_incremental_field,
-        db_incremental_field_last_value,
-        resumed_from_date=resume.from_date if resume else None,
-    )
-    if resume and resume.after is not None:
-        logger.debug(f"SavvyCal: resuming {endpoint} from cursor {after}")
-
-    config = SAVVYCAL_ENDPOINTS[endpoint]
-    while True:
-        page_params = {**params, "after": after} if after is not None else params
-        items, after = _fetch_page(session, config.path, page_params, logger)
-        if items:
-            yield _redact(items, config.redact_fields)
-
-        # A null `metadata.after` cursor means we've reached the end of the collection.
-        if not after:
-            break
-
-        # Save AFTER yielding so a crash re-fetches from the next cursor (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(SavvyCalResumeConfig(after=after, from_date=params.get("from")))
-
-
 def savvycal_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[SavvyCalResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = SAVVYCAL_ENDPOINTS[endpoint]
 
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    params = _build_params(
+        endpoint,
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        resumed_from_date=resume.from_date if resume else None,
+    )
+    # The `from` bound the saved cursor is paired with — persisted alongside every checkpoint so a
+    # resumed run keeps the cursor and its query in lockstep.
+    saved_from_date = params.get("from")
+
+    endpoint_resource: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {
+            "path": config.path,
+            "params": params,
+            # List endpoints wrap records in {"entries": [...], "metadata": {"after": ...}}.
+            "data_selector": "entries",
+            # A 200 whose body isn't the {"entries": [...]} shape is treated as transient (a
+            # truncating proxy / partial read) and retried, matching the old defensive handling.
+            "data_selector_malformed_retryable": True,
+        },
+    }
+
+    if config.redact_fields:
+        redact_fields = config.redact_fields
+
+        def drop_secrets(item: dict[str, Any]) -> dict[str, Any]:
+            # Strip secret-bearing fields (e.g. a webhook signing secret) before a row lands in a
+            # table any project member can query.
+            return {k: v for k, v in item.items() if k not in redact_fields}
+
+        endpoint_resource["data_map"] = drop_secrets
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": SAVVYCAL_BASE_URL,
+            # Auth (Bearer) is supplied via the framework auth config so its value is redacted from
+            # logs and error messages; only the non-secret accept header is set here.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "bearer", "token": api_key},
+            # A null `metadata.after` cursor means the end of the collection.
+            "paginator": JSONResponseCursorPaginator(cursor_path="metadata.after", cursor_param="after"),
+        },
+        "resource_defaults": {},
+        "resources": [endpoint_resource],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resume is not None and resume.after is not None:
+        initial_paginator_state = {"cursor": resume.after}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+        # from the next cursor (already-yielded pages persist) rather than skipping it. The saved
+        # `from_date` carries the original bound forward, never a recomputed (advanced) watermark.
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(SavvyCalResumeConfig(after=state["cursor"], from_date=saved_from_date))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -187,31 +169,18 @@ def savvycal_source(
     )
 
 
-def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Optional[str]]:
-    """Probe a single endpoint to validate the API token.
-
-    Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
-    connection problem, other HTTP status otherwise.
-    """
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-    try:
-        response = session.get(f"{SAVVYCAL_BASE_URL}{path}", timeout=15)
-    except Exception as e:
-        return 0, f"Could not connect to SavvyCal: {e}"
-
-    if response.status_code in (401, 403):
-        return response.status_code, None
-
-    if not response.ok:
-        return response.status_code, f"SavvyCal returned HTTP {response.status_code}"
-
-    return 200, None
-
-
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    status, message = check_access(api_key)
-    if status == 200:
+    """Probe `/me` to validate the personal access token, preserving per-status messages."""
+    session_factory: Callable[[], Any] = lambda: make_tracked_session(redact_values=(api_key,))
+    ok, status = validate_via_probe(
+        session_factory,
+        f"{SAVVYCAL_BASE_URL}{DEFAULT_PROBE_PATH}",
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+    )
+    if ok:
         return True, None
     if status in (401, 403):
         return False, "Invalid SavvyCal personal access token"
-    return False, message or "Could not validate SavvyCal personal access token"
+    if status is None:
+        return False, "Could not validate SavvyCal personal access token"
+    return False, f"SavvyCal returned HTTP {status}"

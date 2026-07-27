@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MarketstackSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.marketstack import (
+    MarketstackSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.marketstack import (
     MarketstackResumeConfig,
     marketstack_source,
@@ -33,6 +35,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://marketstack.com/documentation"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -72,6 +77,7 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -93,7 +99,11 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
         return schemas
 
     def validate_credentials(
-        self, config: MarketstackSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MarketstackSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_marketstack_credentials(config.access_key):
             return True, None
@@ -112,10 +122,10 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
         return marketstack_source(
             access_key=config.access_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             symbols=config.symbols,
-            should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
@@ -128,7 +138,6 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Marketstack",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Marketstack access key to pull end-of-day, intraday, splits, and dividends data plus market reference tables (tickers, exchanges, currencies, timezones) into the PostHog Data warehouse.
 
 You can find your access key in your [Marketstack dashboard](https://marketstack.com/dashboard).

@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.utils import asyncify
+from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 
 from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
@@ -21,6 +21,11 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     DEFAULT_REFRESH_INTERVAL_SECONDS,
     build_sandbox_credentials,
 )
+from products.tasks.backend.temporal.process_task.utils import (
+    get_actor_distinct_id,
+    get_task_run_credential_user,
+    is_slack_interaction_state,
+)
 
 from .get_task_processing_context import TaskProcessingContext
 
@@ -34,10 +39,14 @@ def _notify_agent_server_of_refresh(ctx: TaskProcessingContext, task: Task, refr
     try:
         task_run = TaskRun.objects.get(id=ctx.run_id)
         auth_token = None
-        created_by = task.created_by
-        if created_by and created_by.id:
-            distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-            auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+        actor_user = get_task_run_credential_user(task, ctx.state)
+        if is_slack_interaction_state(ctx.state) and actor_user is None:
+            logger.warning("sandbox_credentials_refresh_notify_missing_slack_actor", run_id=ctx.run_id)
+            return
+        if actor_user and actor_user.id:
+            auth_token = create_sandbox_connection_token(
+                task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
+            )
         authorship = (ctx.state or {}).get("pr_authorship_mode")
         send_refresh_session(
             task_run, [], auth_token=auth_token, refreshed_credentials=refreshed_kinds, authorship=authorship
@@ -83,8 +92,16 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         **ctx.to_log_context(),
     ):
         try:
-            task = Task.objects.select_related("created_by", "github_integration", "github_user_integration").get(
-                id=ctx.task_id
+            # The early connect-time read goes through retry_on_db_connection_drop: the
+            # long-lived worker pools connections via pgbouncer, so a pool recycle / failover
+            # / transient DNS blip can leave a stale pooled connection that raises
+            # OperationalError on first use. Retrying once on a fresh connection keeps a
+            # transient blip from escaping as error-tracking noise (Temporal still retries
+            # the activity if the DB is genuinely degraded).
+            task = retry_on_db_connection_drop(
+                lambda: Task.objects.select_related("created_by", "github_integration", "github_user_integration").get(
+                    id=ctx.task_id
+                )
             )
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)

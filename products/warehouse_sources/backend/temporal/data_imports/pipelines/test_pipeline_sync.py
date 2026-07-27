@@ -61,6 +61,24 @@ class TestResolveTableAndFolderNames:
         table_storage_name, _ = resolve_table_and_folder_names("BalanceTransaction", "balance_transaction")
         assert build_table_name(source, table_storage_name) == "stripe_balancetransaction"
 
+    @parameterized.expand(
+        [
+            # Repo-qualified GitHub rows: the slash must flatten (it's not a valid identifier
+            # char anywhere downstream) while the dot dunders like SQL multi-schema — yielding
+            # HogQL `github.posthog_posthog__issues`. A bare slash surviving here produces an
+            # unqueryable table name.
+            ("github_qualified", "GitHub", "posthog/posthog.issues", "github_posthog_posthog__issues"),
+            ("github_legacy_bare", "GitHub", "issues", "github_issues"),
+            ("github_dotted_repo", "GitHub", "posthog/next.js.issues", "github_posthog_next__js__issues"),
+        ]
+    )
+    def test_build_table_name_flattens_repo_qualifiers(
+        self, _name: str, source_type: str, schema_name: str, expected: str
+    ) -> None:
+        source = ExternalDataSource(source_type=source_type, prefix="")
+        table_storage_name, _ = resolve_table_and_folder_names(schema_name, None)
+        assert build_table_name(source, table_storage_name) == expected
+
 
 def _register_companion_sync(
     run_id: str,

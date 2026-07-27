@@ -490,4 +490,47 @@ describe('cohortEditLogic', () => {
             }
         )
     })
+
+    describe('locked type and populate-from controls on existing cohorts', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it('renders locked controls as a read-only value with an info tooltip, not a dead-click dropdown', async () => {
+            const cohortId = 10
+
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Static Cohort',
+                        is_static: true,
+                        // Non-empty filter values so `inferStaticCohortMode` resolves to 'criteria' —
+                        // an empty `values` array is read as the 'people' (upload/manual) mode instead.
+                        filters: mockCohort.filters,
+                        version: 1,
+                        pending_version: 1,
+                        is_calculating: false,
+                        last_calculation: '2024-01-01T00:00:00Z',
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            // The current value is always visible in plain text; the "why can't I change this"
+            // explanation lives in an info tooltip instead of being repeated inline.
+            const typeContainer = (await screen.findByText('Static')).closest('[data-attr="cohort-type"]')
+            const populateFromContainer = screen
+                .getByText('Criteria · One-time snapshot')
+                .closest('[data-attr="static-cohort-mode"]')
+            expect(typeContainer).toBeInTheDocument()
+            expect(populateFromContainer).toBeInTheDocument()
+
+            // The locked controls are read-only text, not interactive select buttons (the dead click):
+            // a LemonSelect would render the data-attr onto a <button>
+            expect(typeContainer?.tagName).not.toBe('BUTTON')
+            expect(populateFromContainer?.tagName).not.toBe('BUTTON')
+        })
+    })
 })

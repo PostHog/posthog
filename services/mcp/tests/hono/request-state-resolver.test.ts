@@ -70,7 +70,7 @@ vi.mock('@/hono/request-context', () => {
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
-import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
+import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { Env } from '@/tools/types'
 
@@ -92,13 +92,6 @@ function makeProps(overrides: Partial<RequestProperties> = {}): RequestPropertie
 function makeResolver(): RequestStateResolver {
     const catalog = {
         getFilteredTools: vi.fn(() => []),
-    }
-    return new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env)
-}
-
-function makeResolverWithTools(toolNames: string[]): RequestStateResolver {
-    const catalog = {
-        getFilteredTools: vi.fn(() => toolNames.map((name) => ({ name }))),
     }
     return new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env)
 }
@@ -305,11 +298,11 @@ describe('RequestStateResolver MCP client contexts', () => {
     it('honors a dev/test flag override even when evaluation returns nothing', async () => {
         // Evaluation stays empty (analytics client disabled, as in local dev/evals);
         // the override seam is what flips a tool flag on so it reaches the tool layer.
-        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ 'mcp-sql-schema-discovery': true })
+        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ 'dev-forced-flag': true })
         const props = makeProps({ mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' })
         const result = await makeResolver().resolve(props)
 
-        expect(result.toolFeatureFlags?.['mcp-sql-schema-discovery']).toBe(true)
+        expect(result.toolFeatureFlags?.['dev-forced-flag']).toBe(true)
     })
 
     it('captures consumer from a later request when initialize omitted the header', async () => {
@@ -332,27 +325,5 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.requestContext.mcpConsumer).toBe('posthog-code')
         expect(result.sessionContext?.mcpConsumer).toBe('posthog-code')
         expect(mockSessionStore.get('mcpConsumer')).toBe('posthog-code')
-    })
-})
-
-describe('RequestStateResolver SQL schema-discovery flag', () => {
-    beforeEach(() => {
-        mockSessionStore.clear()
-        mockTokenStore.clear()
-        vi.mocked(evaluateFeatureFlags).mockResolvedValue({})
-    })
-
-    // The flag steers discovery instructions toward SQL but is prompt-only — it must NOT
-    // remove read-data-warehouse-schema from the tool set. Guards against re-introducing
-    // tool gating here; the tool stays advertised/callable whether the flag is on or off.
-    it.each([true, false])('keeps read-data-warehouse-schema available when the flag is %s', async (flagOn) => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-sql-schema-discovery': flagOn })
-        const resolver = makeResolverWithTools(['read-data-warehouse-schema', 'execute-sql'])
-
-        const result = await resolver.resolve(makeProps())
-
-        const names = result.allTools.map((t) => t.name)
-        expect(names).toContain('read-data-warehouse-schema')
-        expect(names).toContain('execute-sql')
     })
 })

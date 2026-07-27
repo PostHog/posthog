@@ -8,6 +8,7 @@ import {
     TracingSpansAttributesRetrieveQueryParams,
     TracingSpansCountCreateBody,
     TracingSpansDurationHistogramCreateBody,
+    TracingSpansLatencyHeatmapCreateBody,
     TracingSpansQueryCreateBody,
     TracingSpansServiceNamesRetrieveQueryParams,
     TracingSpansSparklineCreateBody,
@@ -22,7 +23,10 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ApmAttributeBreakdownSchema = TracingSpansAttributeBreakdownCreateBody
 
-const apmAttributeBreakdown = (): ToolBase<typeof ApmAttributeBreakdownSchema, unknown> => ({
+const apmAttributeBreakdown = (): ToolBase<
+    typeof ApmAttributeBreakdownSchema,
+    Schemas._TracingAttributeBreakdownResponse
+> => ({
     name: 'apm-attribute-breakdown',
     schema: ApmAttributeBreakdownSchema,
     handler: async (context: Context, params: z.infer<typeof ApmAttributeBreakdownSchema>) => {
@@ -31,7 +35,7 @@ const apmAttributeBreakdown = (): ToolBase<typeof ApmAttributeBreakdownSchema, u
         if (params.query !== undefined) {
             body['query'] = params.query
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingAttributeBreakdownResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/attribute-breakdown/`,
             body,
@@ -109,7 +113,7 @@ const apmServicesList = (): ToolBase<typeof ApmServicesListSchema, unknown> => (
 
 const ApmSpansAggregateSchema = TracingSpansAggregateCreateBody
 
-const apmSpansAggregate = (): ToolBase<typeof ApmSpansAggregateSchema, unknown> => ({
+const apmSpansAggregate = (): ToolBase<typeof ApmSpansAggregateSchema, Schemas._TracingAggregationResponse> => ({
     name: 'apm-spans-aggregate',
     schema: ApmSpansAggregateSchema,
     handler: async (context: Context, params: z.infer<typeof ApmSpansAggregateSchema>) => {
@@ -118,12 +122,12 @@ const apmSpansAggregate = (): ToolBase<typeof ApmSpansAggregateSchema, unknown> 
         if (params.query !== undefined) {
             body['query'] = params.query
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingAggregationResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/aggregate/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['results', 'compare']) as typeof result
+        const filtered = pickResponseFields(result, ['results', 'compare', 'has_more', 'next_offset']) as typeof result
         return filtered
     },
 })
@@ -163,6 +167,30 @@ const apmSpansDurationHistogram = (): ToolBase<typeof ApmSpansDurationHistogramS
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/duration-histogram/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['results']) as typeof result
+        return filtered
+    },
+})
+
+const ApmSpansLatencyHeatmapSchema = TracingSpansLatencyHeatmapCreateBody
+
+const apmSpansLatencyHeatmap = (): ToolBase<
+    typeof ApmSpansLatencyHeatmapSchema,
+    Schemas._TracingLatencyHeatmapResponse
+> => ({
+    name: 'apm-spans-latency-heatmap',
+    schema: ApmSpansLatencyHeatmapSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmSpansLatencyHeatmapSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<Schemas._TracingLatencyHeatmapResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/latency-heatmap/`,
             body,
         })
         const filtered = pickResponseFields(result, ['results']) as typeof result
@@ -272,6 +300,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'apm-spans-aggregate': apmSpansAggregate,
     'apm-spans-count': apmSpansCount,
     'apm-spans-duration-histogram': apmSpansDurationHistogram,
+    'apm-spans-latency-heatmap': apmSpansLatencyHeatmap,
     'apm-spans-sparkline': apmSpansSparkline,
     'apm-spans-tree': apmSpansTree,
     'apm-trace-get': apmTraceGet,

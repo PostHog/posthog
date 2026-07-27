@@ -1318,6 +1318,48 @@ class TestCreateTaskAndTriggerForwardsContext:
 
         assert mock_create.call_args.kwargs["ai_stage"] == expected
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "model, runtime_adapter, reasoning_effort, initial_permission_mode",
+        [
+            ("gpt-5.5", "codex", "xhigh", "full-access"),
+            (None, None, None, None),
+        ],
+    )
+    async def test_forwards_model_runtime_and_reasoning_effort(
+        self, model, runtime_adapter, reasoning_effort, initial_permission_mode
+    ):
+        # These routing/permission fields must all reach create_and_run: the agent server derives the
+        # provider from the runtime, picks the effort per (runtime, model), and needs full-access so a
+        # headless Codex run doesn't stall on an MCP approval prompt. Dropping any one silently degrades
+        # a pinned run — reasoning_effort and initial_permission_mode were each unforwarded at one point.
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(
+            team_id=team.id,
+            user_id=user.id,
+            repository="posthog/posthog",
+            model=model,
+            runtime_adapter=runtime_adapter,
+            reasoning_effort=reasoning_effort,
+            initial_permission_mode=initial_permission_mode,
+        )
+
+        mock_task = MagicMock()
+        mock_task.latest_run = MagicMock()
+        with patch(
+            "products.tasks.backend.logic.services.custom_prompt_internals.Task.create_and_run",
+            return_value=mock_task,
+        ) as mock_create:
+            await create_task_and_trigger("prompt", context)
+
+        kwargs = mock_create.call_args.kwargs
+        assert (
+            kwargs["model"],
+            kwargs["runtime_adapter"],
+            kwargs["reasoning_effort"],
+            kwargs["initial_permission_mode"],
+        ) == (model, runtime_adapter, reasoning_effort, initial_permission_mode)
+
 
 class TestMultiTurnSessionStartFallback:
     """start() salvages an end-turn the agent produced but that didn't validate against the

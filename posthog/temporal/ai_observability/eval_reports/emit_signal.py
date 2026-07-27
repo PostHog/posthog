@@ -70,16 +70,17 @@ class EvalReportSignalSummary(BaseModel):
 
 SUMMARIZE_REPORT_SYSTEM_PROMPT = """You are a concise technical writer. Your job is to produce a short signal description from a PostHog LLM evaluation REPORT.
 
-Unlike a per-result signal (one judge verdict), a report is an analytical narrative over many evaluation results in a time window. It already contains a title, several titled sections, metrics, and citations to specific generations. Your output should distill that narrative into a signal that fits alongside signals from other observability tools.
+Unlike a per-result signal (one judge verdict), a report is an analytical narrative over many evaluation results in a time window. It already contains a title, several titled sections, metrics, and citations to specific traces. Your output should distill that narrative into a signal that fits alongside signals from other observability tools.
 
 You will be given:
-- Evaluation context: name, optional description, and the judge criteria prompt
+- Evaluation context: name, optional description, and evaluation criteria when applicable
 - Report period (start/end timestamps)
-- Report content: the agent-chosen title, sections (each with a title and markdown body), citations, and structured metrics (total_runs, pass_count, fail_count, na_count, pass_rate, previous_pass_rate)
+- Report content: the agent-chosen title, sections (each with a title and markdown body), citations, and structured metrics. Metrics include the evaluation output type plus current and previous outcome counts and rates.
 
 Produce:
 1. A short title (max 100 chars) capturing the report's main finding as a statement, not a question.
    Good: "Pass rate dropped 14pp on the cost-cap eval"
+   Good: "Negative sentiment concentrated in checkout questions"
    Good: "Tool-call loops concentrated in the weekend refresh batch"
    Bad: "Evaluation report for cost-cap-v2"
    Bad: "Pass rate was 72%"
@@ -87,7 +88,7 @@ Produce:
 2. A 4-8 sentence description that explains:
    - Open with what the evaluation is measuring (derived from the evaluation name, description, and judge criteria prompt). Name the evaluation explicitly — the reader may have no prior context. One sentence is enough.
    - What changed or is notable about the evaluation's behavior over the period
-   - Concrete metrics that support the finding (pass_rate, delta vs previous period if available, total_runs)
+   - Concrete metrics that support the finding (outcome rates, period-over-period changes, and total runs)
    - Any pattern the report identifies (e.g. specific failure mode, particular model, time-of-day clustering)
    - If citations are present, reference that traces are available for investigation
 
@@ -98,7 +99,7 @@ Produce:
    - 0.8-0.9 = high, should be prioritized
    - 1.0 = critical, act immediately
 
-Base significance on: magnitude of pass_rate change, absolute failure rate, breadth across generations (citation count as proxy), and how actionable the finding is from the report's prose.
+Base significance on: the magnitude of the outcome-distribution change, the prevalence of concerning outcomes in the evaluation's own semantics, breadth across cited traces, and how actionable the finding is from the report's prose. A sentiment label describes the user's message, not whether the AI response was good or bad.
 
 The output will be fed into a signal grouping and investigation system that groups related findings across observability tools. Write for an engineer who hasn't seen this evaluation before.
 
@@ -121,7 +122,7 @@ def _build_eval_report_signal_prompt(inputs: EmitEvalReportSignalInputs, content
     if inputs.evaluation_description:
         parts.append(f"\nEVALUATION DESCRIPTION: {inputs.evaluation_description}")
     if inputs.evaluation_prompt:
-        parts.append(f"\nEVALUATION PROMPT (judge criteria):\n{inputs.evaluation_prompt}")
+        parts.append(f"\nEVALUATION CRITERIA:\n{inputs.evaluation_prompt}")
     parts.append(f"\nREPORT PERIOD: {inputs.period_start} → {inputs.period_end}")
     parts.append(f"\nREPORT CONTENT (JSON):\n{json.dumps(content, default=str)}")
     return "\n".join(parts)

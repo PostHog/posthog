@@ -16,6 +16,12 @@ body.ExporterBody {
         max-height: 100vh;
     }
 
+    // A metric export is a square card, not a full-page insight — drop the viewport-height floor so the
+    // exporter wraps the card tightly instead of padding it out to 100vh.
+    &--metric {
+        min-height: 0;
+    }
+
     &--heatmap {
         padding: 0;
 

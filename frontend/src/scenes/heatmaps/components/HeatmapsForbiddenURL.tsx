@@ -12,7 +12,7 @@ import {
     validateProposedUrl,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
+import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 
 const HOST_WILDCARD_REGEX = /^https?:\/\/[^/]*\*/
 
@@ -29,7 +29,7 @@ function deriveAuthorizationCandidate(dataUrl: string): string | null {
 }
 
 export function HeatmapsForbiddenURL(): JSX.Element {
-    const { dataUrl } = useValues(heatmapLogic({ id: 'new' }))
+    const { dataUrl } = useValues(heatmapsBrowserLogic)
     const logic = authorizedUrlListLogic({
         ...defaultAuthorizedUrlProperties,
         type: AuthorizedUrlListType.TOOLBAR_URLS,

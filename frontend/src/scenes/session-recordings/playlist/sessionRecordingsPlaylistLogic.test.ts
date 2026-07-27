@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -27,6 +29,7 @@ import {
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
     getDefaultFilters,
+    preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
@@ -85,7 +88,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     ],
                 },
 
-                'api/projects/:team/property_definitions/seen_together': { $pageview: true },
+                '/api/projects/:team_id/property_definitions/seen_together': ({ request }) => {
+                    const eventNames = new URL(request.url).searchParams.getAll('event_names')
+                    return [200, Object.fromEntries(eventNames.map((name) => [name, name === '$pageview']))]
+                },
 
                 '/api/environments/:team_id/session_recordings': ({ request }) => {
                     const { searchParams } = new URL(request.url)
@@ -448,6 +454,39 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         },
                     },
                 })
+            })
+        })
+
+        describe('unusableEventsInFilter', () => {
+            // the "All events" pseudo-entity has no id and matches any event, so it must never be
+            // flagged as unusable (the group page pins it, so flagging it breaks every group page)
+            const allEventsFilter = {
+                name: 'All events',
+                type: 'events',
+                properties: [{ key: "$group_0 = 'test'", type: PropertyFilterType.HogQL }],
+            } as ActionFilter
+            const unseenEventFilter = { id: 'backend_event', name: 'backend_event', type: 'events' } as ActionFilter
+
+            it.each<[string, ActionFilter[], string[]]>([
+                ['only "All events"', [allEventsFilter], []],
+                [
+                    '"All events" plus an event without $session_id',
+                    [allEventsFilter, unseenEventFilter],
+                    ['backend_event'],
+                ],
+            ])('flags no pseudo-entities when filtering by %s', async (_, eventFilters, expected) => {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [{ type: FilterLogicalOperator.And, values: eventFilters }],
+                        },
+                    })
+                })
+                    .toDispatchActions(['loadEventsHaveSessionIdSuccess'])
+                    .toMatchValues({
+                        unusableEventsInFilter: expected,
+                    })
             })
         })
 
@@ -1411,6 +1450,51 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     })
             }
         )
+
+        describe('preferred sort', () => {
+            it.each<[string, () => void, string, string]>([
+                [
+                    'an explicitly chosen sort overrides the relevance default',
+                    () => preferredRecordingsSortStorage.set({ order: 'start_time', order_direction: 'DESC' }),
+                    DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    'DESC',
+                ],
+                [
+                    'the chosen direction is kept',
+                    () => preferredRecordingsSortStorage.set({ order: 'start_time', order_direction: 'ASC' }),
+                    DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    'ASC',
+                ],
+                [
+                    'an unparseable stored preference is ignored',
+                    () => localStorage.setItem(`${MOCK_TEAM_ID}__replay_list_preferred_sort`, 'not json'),
+                    'surfacing_score',
+                    'DESC',
+                ],
+                [
+                    'a stored order outside the valid set is ignored',
+                    () =>
+                        localStorage.setItem(
+                            `${MOCK_TEAM_ID}__replay_list_preferred_sort`,
+                            JSON.stringify({ order: 'unknown', order_direction: 'DESC' })
+                        ),
+                    'surfacing_score',
+                    'DESC',
+                ],
+            ])('%s', (_name, setup, expectedOrder, expectedDirection) => {
+                mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true })
+                setup()
+                const result = getDefaultFilters()
+                expect(result.order).toBe(expectedOrder)
+                expect(result.order_direction).toBe(expectedDirection)
+            })
+
+            it('keeps recency on person pages regardless of the stored preference', () => {
+                mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true })
+                preferredRecordingsSortStorage.set({ order: 'activity_score', order_direction: 'DESC' })
+                expect(getDefaultFilters('some-person-uuid').order).toBe(DEFAULT_RECORDING_FILTERS_ORDER_BY)
+            })
+        })
     })
 
     describe('pinnedFilters', () => {

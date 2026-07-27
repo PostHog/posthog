@@ -35,7 +35,7 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         query: null,
         sampling_rate: 1,
         provider: 'google',
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.6-flash',
         enabled: true,
         emits_signals: false,
         scanner_version: 1,
@@ -88,11 +88,11 @@ const scanners = {
 }
 
 const quota: VisionQuotaApi = {
-    monthly_quota: 10000,
-    usage_this_month: 2400,
+    credit_limit: 10000,
+    credits_used: 2400,
     remaining: 7600,
     exhausted: false,
-    projected_monthly_observations: 5200,
+    projected_monthly_credits: 5200,
     period_start: '2026-05-01T00:00:00Z',
     period_end: '2026-06-01T00:00:00Z',
 }

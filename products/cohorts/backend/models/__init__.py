@@ -1,4 +1,14 @@
 from . import dependencies as _dependencies  # noqa: F401 — import for Django signal handler registration
+from .backfill import (
+    CohortBackfillChunk,
+    CohortBackfillChunkStatus,
+    CohortBackfillKind,
+    CohortBackfillRun,
+    CohortBackfillRunCohort,
+    CohortBackfillRunStatus,
+    CohortBackfillScope,
+    CohortBackfillTrigger,
+)
 from .calculation_history import CohortCalculationHistory
 from .cohort import (
     DEFAULT_COHORT_INSERT_BATCH_SIZE,
@@ -14,6 +24,14 @@ from .cohort import (
 __all__ = [
     "DEFAULT_COHORT_INSERT_BATCH_SIZE",
     "Cohort",
+    "CohortBackfillChunk",
+    "CohortBackfillChunkStatus",
+    "CohortBackfillKind",
+    "CohortBackfillRun",
+    "CohortBackfillRunCohort",
+    "CohortBackfillRunStatus",
+    "CohortBackfillScope",
+    "CohortBackfillTrigger",
     "CohortCalculationHistory",
     "CohortKind",
     "CohortManager",

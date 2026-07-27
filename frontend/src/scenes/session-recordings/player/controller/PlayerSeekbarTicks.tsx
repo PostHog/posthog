@@ -17,6 +17,8 @@ import {
     InspectorListItem,
     InspectorListItemComment,
     InspectorListItemEvent,
+    InspectorListItemExperimentVariant,
+    InspectorListItemMetricEvent,
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
@@ -27,6 +29,14 @@ import { UserActivity } from './UserActivity'
 
 function isEventItem(x: InspectorListItem): x is InspectorListItemEvent {
     return 'data' in x && !!x.data && 'event' in x.data
+}
+
+function isExperimentVariantItem(x: InspectorListItem): x is InspectorListItemExperimentVariant {
+    return x.type === 'experiment-variant'
+}
+
+function isMetricEventItem(x: InspectorListItem): x is InspectorListItemMetricEvent {
+    return x.type === 'metric-event'
 }
 
 function isNotebookComment(x: InspectorListItem): x is InspectorListItemNotebookComment {
@@ -58,7 +68,12 @@ function PlayerSeekbarTick({
     onClick,
     primaryProperties,
 }: {
-    item: InspectorListItemComment | InspectorListItemNotebookComment | InspectorListItemEvent
+    item:
+        | InspectorListItemComment
+        | InspectorListItemNotebookComment
+        | InspectorListItemEvent
+        | InspectorListItemExperimentVariant
+        | InspectorListItemMetricEvent
     endTimeMs: number
     zIndex: number
     onClick: (e: React.MouseEvent) => void
@@ -93,7 +108,15 @@ function PlayerSeekbarTick({
                     })
                 }}
                 title={
-                    isEventItem(item) ? (
+                    isExperimentVariantItem(item) ? (
+                        <>
+                            Saw variant "{item.data.variant}" of {item.data.experimentName}
+                        </>
+                    ) : isMetricEventItem(item) ? (
+                        <>
+                            Fired a {item.data.metricName} event ({item.data.experimentName})
+                        </>
+                    ) : isEventItem(item) ? (
                         <>
                             {item.data.event === '$autocapture' ? (
                                 <>{autoCaptureEventToDescription(item.data)}</>
@@ -150,7 +173,13 @@ const MemoisedPlayerSeekbarTicks = memo(
         hoverRef,
         primaryProperties,
     }: {
-        seekbarItems: (InspectorListItemEvent | InspectorListItemComment | InspectorListItemNotebookComment)[]
+        seekbarItems: (
+            | InspectorListItemEvent
+            | InspectorListItemComment
+            | InspectorListItemNotebookComment
+            | InspectorListItemExperimentVariant
+            | InspectorListItemMetricEvent
+        )[]
         endTimeMs: number
         seekToTime: (timeInMilliseconds: number) => void
         hoverRef: MutableRefObject<HTMLDivElement | null>
@@ -197,7 +226,13 @@ export function PlayerSeekbarTicks({
     seekToTime,
     hoverRef,
 }: {
-    seekbarItems: (InspectorListItemEvent | InspectorListItemComment | InspectorListItemNotebookComment)[]
+    seekbarItems: (
+        | InspectorListItemEvent
+        | InspectorListItemComment
+        | InspectorListItemNotebookComment
+        | InspectorListItemExperimentVariant
+        | InspectorListItemMetricEvent
+    )[]
     endTimeMs: number
     seekToTime: (timeInMilliseconds: number) => void
     hoverRef: MutableRefObject<HTMLDivElement | null>

@@ -32,7 +32,7 @@ import { SessionRiskBanner } from '../../SessionRiskBanner'
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
 function Login(): JSX.Element {
-    const { precheck, clearGeneralError, resendEmailMFA } = useActions(loginLogic)
+    const { precheck, exitCodeVerification, resendCodeBasedVerification } = useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const {
         precheckResponse,
@@ -43,11 +43,13 @@ function Login(): JSX.Element {
         signupUrl,
         resendResponseLoading,
         resendResponse,
+        codeVerificationRequired,
+        isCodeVerificationSubmitting,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
     const isPasswordHidden = !!precheckResponse.sso_enforcement
-    const isEmailVerificationSent = generalError?.code === 'email_verification_sent'
+    const isCodeSent = codeVerificationRequired
     const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
     const prevEmail = usePrevious(login.email)
 
@@ -78,17 +80,15 @@ function Login(): JSX.Element {
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <PaperDeskCard footer={footer}>
                 <CardTitle
-                    title={isEmailVerificationSent ? 'Check your email' : 'Log in to PostHog'}
-                    sub={isEmailVerificationSent ? undefined : "Welcome back. Let's go ship something."}
+                    title={isCodeSent ? 'Enter your login code' : 'Log in to PostHog'}
+                    sub={isCodeSent ? undefined : "Welcome back. Let's go ship something."}
                 />
                 <SessionRiskBanner className="mb-4" />
                 {generalError && (
                     <div
                         className={twMerge(
                             'mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded',
-                            isEmailVerificationSent
-                                ? 'bg-success-highlight border-success'
-                                : 'bg-danger-highlight border-danger'
+                            isCodeSent ? 'bg-success-highlight border-success' : 'bg-danger-highlight border-danger'
                         )}
                     >
                         {generalError.detail ||
@@ -120,32 +120,59 @@ function Login(): JSX.Element {
                         <OtherRegionHint />
                     </div>
                 )}
-                {isEmailVerificationSent ? (
-                    <div className="flex flex-col items-center gap-3">
+                {isCodeSent ? (
+                    <Form
+                        logic={loginLogic}
+                        formKey="codeVerification"
+                        enableFormOnSubmit
+                        className="flex flex-col gap-4"
+                    >
+                        <LemonField name="code" label="Verification code">
+                            <LemonInput
+                                className="ph-ignore-input"
+                                autoFocus
+                                data-attr="code-verification"
+                                placeholder="123456"
+                                inputMode="numeric"
+                                autoComplete="one-time-code"
+                            />
+                        </LemonField>
                         <LemonButton
-                            size="large"
-                            type="secondary"
-                            center
+                            type="primary"
+                            status="alt"
+                            htmlType="submit"
+                            data-attr="code-verification-submit"
                             fullWidth
-                            disabled={resendResponseLoading}
-                            loading={resendResponseLoading}
-                            onClick={() => resendEmailMFA(null)}
+                            center
+                            size="large"
+                            loading={isCodeVerificationSubmitting}
                         >
-                            Resend verification email
+                            Verify and log in
                         </LemonButton>
-                        {resendResponse?.success && (
-                            <p className="flex items-center gap-1 text-success mb-0" role="status">
-                                <IconCheckCircle />
-                                Verification email sent — check your inbox.
-                            </p>
-                        )}
-                        <Link
-                            onClick={() => clearGeneralError()}
-                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
-                        >
-                            Back to login
-                        </Link>
-                    </div>
+                        <div className="flex flex-col items-center gap-3">
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                disabled={resendResponseLoading}
+                                loading={resendResponseLoading}
+                                onClick={() => resendCodeBasedVerification(null)}
+                            >
+                                Resend code
+                            </LemonButton>
+                            {resendResponse?.success && (
+                                <p className="flex items-center gap-1 text-success mb-0" role="status">
+                                    <IconCheckCircle />
+                                    Code sent — check your inbox.
+                                </p>
+                            )}
+                            <Link
+                                onClick={() => exitCodeVerification()}
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
+                            >
+                                Back to login
+                            </Link>
+                        </div>
+                    </Form>
                 ) : (
                     <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="flex flex-col gap-4">
                         <RegionField />
@@ -231,7 +258,7 @@ function Login(): JSX.Element {
                         )}
                     </Form>
                 )}
-                {!isEmailVerificationSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
+                {!isCodeSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
                     <SocialLoginButtons
                         topDivider
                         caption="Or log in with"

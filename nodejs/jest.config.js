@@ -13,7 +13,8 @@ module.exports = {
     clearMocks: true,
     coverageProvider: 'v8',
     setupFiles: ['./jest.setup-env.ts'],
-    setupFilesAfterEnv: ['./jest.setup.ts'],
+    // jest.quarantine.ts first so it wraps the describe/it/test globals before any test file declares tests.
+    setupFilesAfterEnv: ['../frontend/jest.quarantine.ts', './jest.setup.ts'],
     testMatch: ['<rootDir>/tests/**/*.test.ts', '<rootDir>/src/**/*.test.ts'],
     testTimeout: 60000,
     // The image-scrub sidecar is a standalone package with its own jest run; keep the plugin-server suite out of it.
@@ -21,8 +22,9 @@ module.exports = {
         '<rootDir>/.tmp/',
         '<rootDir>/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/',
     ],
-    // `dev/` folders hold dev-only benchmarks/scripts, never CI tests.
-    testPathIgnorePatterns: ['/node_modules/', '/dev/'],
+    // `dev/` folders hold dev-only benchmarks/scripts, never CI tests. Anchored to rootDir:
+    // an unanchored '/dev/' also matches checkout paths like ~/dev/posthog and ignores every test.
+    testPathIgnorePatterns: ['/node_modules/', '<rootDir>/(src|tests)(/.*)?/dev/'],
 
     // NOTE: This should be kept in sync with tsconfig.json
     moduleNameMapper: {

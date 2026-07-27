@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.factorial import FactorialResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.source import FactorialSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FactorialSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.factorial import (
+    FactorialSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -47,8 +49,6 @@ class TestFactorialSource:
 
         assert config.name.value == "Factorial"
         assert config.label == "Factorial"
-        # Shipping behind the unreleased flag while in alpha: hidden from users until verified live.
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/factorial"
 

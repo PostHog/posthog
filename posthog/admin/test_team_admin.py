@@ -9,11 +9,13 @@ from unittest.mock import patch
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied
+from django.forms import ModelForm
 from django.test import RequestFactory
 
 from parameterized import parameterized
 
 from posthog.admin.admins.team_admin import TeamAdmin
+from posthog.admin.inlines.team_inline import TeamInline
 from posthog.llm.gateway_internal_client import (
     AIGatewayInternalError,
     AIGatewayNotConfigured,
@@ -21,6 +23,7 @@ from posthog.llm.gateway_internal_client import (
     LedgerEntry,
     Wallet,
 )
+from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
@@ -621,3 +624,29 @@ class TestTeamAdminFormOverspendAllowance(BaseTest):
         child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
         with self.assertRaises(ValidationError):
             self._form(Decimal("5"), instance=child).clean_llm_gateway_overspend_allowance_usd()
+
+
+class TestTeamInlineForm(BaseTest):
+    def _inline_form(self, data: dict | None = None) -> ModelForm:
+        request = RequestFactory().get("/")
+        request.user = self.user
+        form_class = TeamInline(Organization, AdminSite()).get_formset(request).form
+        return form_class(data=data, instance=self.team) if data is not None else form_class()
+
+    def test_test_account_filters_is_not_required(self) -> None:
+        # Guards org-disable: the field must stay optional or an empty [] re-blocks the org save.
+        assert self._inline_form().fields["test_account_filters"].required is False
+
+    def test_blank_test_account_filters_normalizes_to_empty_list(self) -> None:
+        # Blank input cleans to None; it must normalize to [] so it never hits the NOT NULL column as None.
+        form = self._inline_form({"test_account_filters": ""})
+        form.is_valid()  # only this field's outcome matters; other inline fields are absent
+        assert "test_account_filters" not in form.errors
+        assert form.cleaned_data["test_account_filters"] == []
+
+    @parameterized.expand([("object", "{}"), ("nested_object", '{"key": "email"}'), ("string", '"oops"')])
+    def test_non_list_test_account_filters_is_rejected(self, _name: str, raw: str) -> None:
+        # required=False must not let non-list JSON through onto the field.
+        form = self._inline_form({"test_account_filters": raw})
+        form.is_valid()
+        assert "test_account_filters" in form.errors

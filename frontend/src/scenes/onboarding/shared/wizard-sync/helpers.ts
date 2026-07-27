@@ -21,6 +21,9 @@ export function syncHeadline(progress: InstallationProgress): string {
     if (progress.phase === 'error') {
         return progress.error?.title ?? 'Setup hit a snag'
     }
+    if (progress.prMerged) {
+        return 'Pull request merged'
+    }
     if (progress.prUrl) {
         return 'Pull request ready'
     }
@@ -40,11 +43,14 @@ export function activeStep(steps: InstallationStep[]): InstallationStep | null {
 // The prominent line: the active step's live detail (the wizard's current sub-task) when present,
 // otherwise the step label. This is what gives the wizard's own work top billing in the card.
 export function currentTaskLabel(progress: InstallationProgress): string | null {
-    if (progress.phase === 'completed') {
-        return progress.prUrl ? 'Pull request is ready to review' : 'Everything is wired up'
-    }
     if (progress.phase === 'error') {
         return progress.error?.detail ?? 'Something stopped the run'
+    }
+    if (progress.prMerged) {
+        return 'PR merged, congratulations!'
+    }
+    if (progress.phase === 'completed') {
+        return progress.prUrl ? 'Pull request is ready to review' : 'Everything is wired up'
     }
     const step = activeStep(progress.steps)
     if (step) {

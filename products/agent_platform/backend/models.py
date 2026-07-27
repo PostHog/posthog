@@ -28,6 +28,8 @@ from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import UUIDModel
 
+from .logic.generated import APPROVAL_REQUEST_STATES
+
 REVISION_STATE_CHOICES = [
     ("draft", "draft"),
     ("ready", "ready"),
@@ -296,16 +298,10 @@ class AgentToolApprovalRequest(ProductTeamModel, UUIDModel):
         constraints = [
             models.CheckConstraint(
                 name="agent_tool_approval_request_state_valid",
-                condition=Q(
-                    state__in=[
-                        "queued",
-                        "approving",
-                        "dispatched",
-                        "dispatched_failed",
-                        "rejected",
-                        "expired",
-                    ]
-                ),
+                # Imported from the generated artifact (source: approval-store.ts). Changing it
+                # needs a migration, deploy-ordered vs the runner: widen the CHECK before a new
+                # state, narrow after it stops being written.
+                condition=Q(state__in=APPROVAL_REQUEST_STATES),
             ),
             models.UniqueConstraint(
                 fields=["session_id", "tool_name", "args_hash"],
@@ -409,4 +405,37 @@ class AgentIdentityLinkState(ProductTeamModel, UUIDModel):
         db_table = "agent_identity_link_state"
         indexes = [
             models.Index(fields=["expires_at"], name="ails_expires_idx"),
+        ]
+
+
+class AgentTransportBinding(ProductTeamModel, UUIDModel):
+    """Durable transport→canonical-identity binding.
+
+    Records that a transport principal (a Slack/Discord/HTTP agent_user) was
+    authenticated, via the agent's authoritative provider, AS a canonical
+    identity (another agent_user keyed `identity:<provider>` / subject). The
+    ingress resolves this at admission so a session only runs once a verified
+    identity exists. One canonical identity may have many bindings (the same
+    person across transports); unlink = delete a binding.
+    """
+
+    application_id = models.UUIDField()
+    # The transport principal (agent_user.id, principal_kind = transport).
+    transport_agent_user_id = models.UUIDField()
+    # The canonical identity (agent_user.id, principal_kind = identity:<provider>).
+    canonical_agent_user_id = models.UUIDField()
+    # Authoritative provider that established the binding.
+    provider = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
+
+    class Meta:
+        db_table = "agent_transport_binding"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["application_id", "transport_agent_user_id"],
+                name="agent_transport_binding_unique_transport",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["application_id", "canonical_agent_user_id"], name="atb_canonical_idx"),
         ]

@@ -1,3 +1,4 @@
+import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -208,8 +209,11 @@ describe('tracingDataLogic', () => {
         })
 
         it('lists every span (root and child) in spans mode', () => {
-            logic = mountWithSpans(withChildSpans)
+            logic = mountWithSpans([])
+            // Set the mode first: a view-mode change re-runs the query (clearing loaded spans),
+            // so inject the fixture after the toggle.
             tracingFiltersLogic().actions.setViewMode('spans')
+            logic.actions.fetchSpansSuccess(withChildSpans)
             expect(logic.values.listRows.map((s) => s.uuid)).toEqual(['root-1', 'child-1', 'root-2'])
         })
 
@@ -269,8 +273,11 @@ describe('tracingDataLogic', () => {
             const countSpy = jest.spyOn(api.tracing, 'count').mockResolvedValue({ count: 10, traceCount: 3 })
             logic = mountWithSpans([])
             await logic.asyncActions.fetchMatchingCounts()
-            tracingFiltersLogic().actions.setServiceNames(['api'])
-            await logic.asyncActions.fetchMatchingCounts()
+            // A scope change re-runs the query itself (no URL round trip), which must re-hit
+            // the endpoint rather than reuse the memoized count for the old scope.
+            await expectLogic(logic, () => {
+                tracingFiltersLogic().actions.setServiceNames(['api'])
+            }).toDispatchActions(['fetchMatchingCountsSuccess'])
             expect(countSpy).toHaveBeenCalledTimes(2)
             countSpy.mockRestore()
         })
@@ -291,10 +298,11 @@ describe('tracingDataLogic', () => {
             const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
             logic = mountWithSpans([])
             await logic.asyncActions.fetchSparkline()
-            tracingFiltersLogic().actions.setViewMode('spans')
-            await logic.asyncActions.fetchSparkline()
             // The sparkline counts root spans in 'traces' mode and all spans in 'spans' mode, so a
-            // view-mode toggle changes its scope and must re-fetch.
+            // view-mode toggle changes its scope and the auto re-query must re-fetch it.
+            await expectLogic(logic, () => {
+                tracingFiltersLogic().actions.setViewMode('spans')
+            }).toDispatchActions(['fetchSparklineSuccess'])
             expect(sparklineSpy).toHaveBeenCalledTimes(2)
             sparklineSpy.mockRestore()
         })
@@ -303,14 +311,54 @@ describe('tracingDataLogic', () => {
             const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
             logic = mountWithSpans([])
             await logic.asyncActions.fetchSparkline()
-            tracingFiltersLogic().actions.setServiceNames(['api'])
-            await logic.asyncActions.fetchSparkline()
+            await expectLogic(logic, () => {
+                tracingFiltersLogic().actions.setServiceNames(['api'])
+            }).toDispatchActions(['fetchSparklineSuccess'])
             expect(sparklineSpy).toHaveBeenCalledTimes(2)
             sparklineSpy.mockRestore()
         })
     })
 
     describe('keyed instances', () => {
+        it('re-runs the query when its filters change, with no URL involvement', async () => {
+            // The embed-critical wiring: filter changes must re-query inside the keyed stack.
+            // Before the scene/viewer split, the re-query was a side effect of the scene's URL
+            // write, so an embedded instance (no URL sync) would never refresh.
+            const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
+            const isolatedFilters = tracingFiltersLogic({ id: 'isolated-requery' })
+            const isolatedData = tracingDataLogic({ id: 'isolated-requery' })
+            isolatedFilters.mount()
+            isolatedData.mount()
+            try {
+                await expectLogic(isolatedData, () => {
+                    isolatedFilters.actions.setDateRange({ date_from: '-24h', date_to: null })
+                }).toDispatchActions(['handleFilterChange', 'runQuery', 'fetchSpansSuccess'])
+                expect(listSpansSpy).toHaveBeenCalled()
+            } finally {
+                isolatedData.unmount()
+                isolatedFilters.unmount()
+                listSpansSpy.mockRestore()
+            }
+        })
+
+        it('runs the first query on mount when autoLoad is set', async () => {
+            // Embedded viewers have no urlToAction to kick off the first fetch — autoLoad is
+            // their only entry point. Dropping it leaves embeds permanently empty.
+            const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
+            tracingFiltersLogic({ id: 'auto-load' }).mount()
+            const autoData = tracingDataLogic({ id: 'auto-load', autoLoad: true })
+            try {
+                await expectLogic(autoData, () => {
+                    autoData.mount()
+                }).toDispatchActions(['runQuery', 'fetchSpansSuccess'])
+                expect(listSpansSpy).toHaveBeenCalled()
+            } finally {
+                autoData.unmount()
+                tracingFiltersLogic({ id: 'auto-load' }).unmount()
+                listSpansSpy.mockRestore()
+            }
+        })
+
         it('reads filters from its own instance, not the scene default', () => {
             const isolatedFilters = tracingFiltersLogic({ id: 'isolated' })
             const isolatedData = tracingDataLogic({ id: 'isolated' })

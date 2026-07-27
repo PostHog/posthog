@@ -1,9 +1,19 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import patch
+
+from django.contrib.admin.sites import AdminSite
+from django.contrib.messages import get_messages
+from django.contrib.messages.middleware import MessageMiddleware
+from django.contrib.sessions.middleware import SessionMiddleware
+from django.http import HttpResponse
+from django.test import RequestFactory
 
 from parameterized import parameterized
 
+from products.managed_migrations.backend import trial_storage
+from products.managed_migrations.backend.admin.batch_imports import BatchImportAdmin
 from products.managed_migrations.backend.models.batch_imports import BatchImport, BatchImportConfigBuilder, ContentType
 
 
@@ -25,6 +35,206 @@ class TestBatchImportModel(BaseTest):
         self.assertEqual(ContentType.AMPLITUDE.value, "amplitude")
 
         self.assertEqual(ContentType.MIXPANEL.serialize(), {"type": "mixpanel"})
+
+    def _paused_import(self, state: dict | None) -> BatchImport:
+        return BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"test": "config"},
+            secrets={"secret": "value"},
+            status=BatchImport.Status.PAUSED,
+            status_message="parse error",
+            display_status_message="Invalid JSON syntax",
+            lease_id="worker-lease",
+            leased_until=datetime.now(UTC) + timedelta(minutes=25),
+            backoff_attempt=3,
+            backoff_until=datetime.now(UTC) + timedelta(minutes=5),
+            state=state,
+        )
+
+    MIXED_PROGRESS_PARTS = [
+        {"key": "day-1", "current_offset": 1000, "total_size": 1000},
+        {"key": "day-2", "current_offset": 8999445, "total_size": None},
+        {"key": "day-3", "current_offset": 0, "total_size": None},
+    ]
+
+    @parameterized.expand(
+        [
+            (
+                "inflight_part_with_unknown_total",
+                MIXED_PROGRESS_PARTS,
+                "day-2",
+                [
+                    {"key": "day-1", "current_offset": 1000, "total_size": 1000},
+                    {"key": "day-2", "current_offset": 0, "total_size": None},
+                    {"key": "day-3", "current_offset": 0, "total_size": None},
+                ],
+            ),
+            (
+                "inflight_part_with_known_total",
+                [
+                    {"key": "day-1", "current_offset": 500, "total_size": 2000},
+                    {"key": "day-2", "current_offset": 0, "total_size": None},
+                ],
+                "day-1",
+                [
+                    {"key": "day-1", "current_offset": 0, "total_size": None},
+                    {"key": "day-2", "current_offset": 0, "total_size": None},
+                ],
+            ),
+            (
+                "first_part_inflight",
+                [
+                    {"key": "day-1", "current_offset": 42, "total_size": None},
+                    {"key": "day-2", "current_offset": 0, "total_size": None},
+                ],
+                "day-1",
+                [
+                    {"key": "day-1", "current_offset": 0, "total_size": None},
+                    {"key": "day-2", "current_offset": 0, "total_size": None},
+                ],
+            ),
+            (
+                "job_paused_before_any_read",
+                [{"key": "day-1", "current_offset": 0, "total_size": None}],
+                "day-1",
+                [{"key": "day-1", "current_offset": 0, "total_size": None}],
+            ),
+            (
+                # url_list part keys are credential-bearing URLs: the returned key (and the
+                # status message built from it) must be redacted, while state keeps the raw
+                # URL the worker resolves against.
+                "url_key_redacted_in_return_but_not_state",
+                [
+                    {
+                        "key": "https://u:p@example.com/d.jsonl?X-Amz-Signature=abc",
+                        "current_offset": 42,
+                        "total_size": None,
+                    }
+                ],
+                "https://example.com/d.jsonl",
+                [
+                    {
+                        "key": "https://u:p@example.com/d.jsonl?X-Amz-Signature=abc",
+                        "current_offset": 0,
+                        "total_size": None,
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_resume_with_inflight_part_reset_resets_first_unfinished_part(
+        self, _name, initial_parts, expected_reset_key, expected_parts
+    ):
+        batch_import = self._paused_import({"parts": initial_parts})
+
+        reset_key = batch_import.resume_with_inflight_part_reset()
+
+        self.assertEqual(reset_key, expected_reset_key)
+        batch_import.refresh_from_db()
+        assert batch_import.state is not None
+        self.assertNotIn("X-Amz-Signature", batch_import.status_message or "")
+        self.assertEqual(batch_import.state["parts"], expected_parts)
+        self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
+        self.assertIsNone(batch_import.lease_id)
+        self.assertIsNone(batch_import.leased_until)
+        self.assertEqual(batch_import.backoff_attempt, 0)
+        self.assertIsNone(batch_import.backoff_until)
+        self.assertIsNone(batch_import.display_status_message)
+
+    def test_resume_after_pause_keeps_progress_and_clears_lease(self):
+        batch_import = self._paused_import({"parts": self.MIXED_PROGRESS_PARTS})
+
+        batch_import.resume_after_pause()
+
+        batch_import.refresh_from_db()
+        assert batch_import.state is not None
+        self.assertEqual(batch_import.state["parts"], self.MIXED_PROGRESS_PARTS)
+        self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
+        self.assertIsNone(batch_import.lease_id)
+        self.assertIsNone(batch_import.leased_until)
+        self.assertEqual(batch_import.backoff_attempt, 0)
+        self.assertIsNone(batch_import.backoff_until)
+        self.assertIsNone(batch_import.display_status_message)
+
+    @parameterized.expand(
+        [
+            (method, status)
+            for method in ("resume_after_pause", "resume_with_inflight_part_reset")
+            for status in (BatchImport.Status.RUNNING, BatchImport.Status.COMPLETED, BatchImport.Status.FAILED)
+        ]
+    )
+    def test_resume_methods_reject_non_paused(self, method, status):
+        batch_import = self._paused_import({"parts": self.MIXED_PROGRESS_PARTS})
+        batch_import.status = status
+        batch_import.save(update_fields=["status"])
+
+        with self.assertRaises(ValueError):
+            getattr(batch_import, method)()
+
+        batch_import.refresh_from_db()
+        assert batch_import.state is not None
+        self.assertEqual(batch_import.status, status)
+        self.assertEqual(batch_import.state["parts"][1]["current_offset"], 8999445)
+        self.assertEqual(batch_import.lease_id, "worker-lease")
+
+    @parameterized.expand(
+        [
+            ("all_parts_done", {"parts": [{"key": "day-1", "current_offset": 1000, "total_size": 1000}]}),
+            ("empty_parts", {"parts": []}),
+            ("no_state", None),
+        ]
+    )
+    def test_resume_with_inflight_part_reset_rejects_when_no_unfinished_part(self, _name, state):
+        batch_import = self._paused_import(state)
+
+        with self.assertRaises(ValueError):
+            batch_import.resume_with_inflight_part_reset()
+
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.status, BatchImport.Status.PAUSED)
+        self.assertEqual(batch_import.lease_id, "worker-lease")
+
+    @parameterized.expand(
+        [
+            ("no_state", None, 0, 0, None),
+            ("empty_parts", {"parts": []}, 0, 0, None),
+            ("mixed", {"parts": MIXED_PROGRESS_PARTS}, 1, 3, "day-2"),
+            (
+                "all_done",
+                {"parts": [{"key": "day-1", "current_offset": 5, "total_size": 5}]},
+                1,
+                1,
+                None,
+            ),
+            (
+                "offset_overshot_total_counts_done",
+                {"parts": [{"key": "day-1", "current_offset": 9, "total_size": 5}]},
+                1,
+                1,
+                None,
+            ),
+            (
+                "known_total_incomplete_is_inflight",
+                {"parts": [{"key": "day-1", "current_offset": 3, "total_size": 5}]},
+                0,
+                1,
+                "day-1",
+            ),
+            (
+                "missing_offset_treated_as_zero",
+                {"parts": [{"key": "day-1", "total_size": 5}]},
+                0,
+                1,
+                "day-1",
+            ),
+        ]
+    )
+    def test_parts_progress_summarizes_worker_state(self, _name, state, expected_done, expected_total, inflight_key):
+        batch_import = self._paused_import(state)
+        done, total, inflight = batch_import.parts_progress()
+        self.assertEqual((done, total), (expected_done, expected_total))
+        self.assertEqual(inflight["key"] if inflight else None, inflight_key)
 
 
 class TestBatchImportConfigBuilder(BaseTest):
@@ -190,6 +400,51 @@ class TestBatchImportConfigBuilder(BaseTest):
             "generate_group_identify_events": True,
         }
         self.assertEqual(self.batch_import.import_config, expected_config)
+
+
+class TestBatchImportAdminActions(BaseTest):
+    def _request_with_messages(self):
+        request = RequestFactory().post("/")
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+        MessageMiddleware(lambda _request: HttpResponse()).process_request(request)
+        request.user = self.user
+        return request
+
+    def _make_import(self, status: BatchImport.Status) -> BatchImport:
+        return BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"test": "config"},
+            secrets={"secret": "value"},
+            status=status,
+            lease_id="worker-lease" if status == BatchImport.Status.PAUSED else None,
+            state={"parts": [{"key": "day-1", "current_offset": 42, "total_size": None}]},
+        )
+
+    @parameterized.expand([("resume",), ("resume_with_inflight_part_reset",)])
+    def test_action_processes_batch_row_by_row(self, action_name):
+        paused = self._make_import(BatchImport.Status.PAUSED)
+        running = self._make_import(BatchImport.Status.RUNNING)
+        model_admin = BatchImportAdmin(BatchImport, AdminSite())
+        request = self._request_with_messages()
+
+        action = getattr(model_admin, action_name)
+        action(request, BatchImport.objects.filter(id__in=[paused.id, running.id]))
+
+        paused.refresh_from_db()
+        running.refresh_from_db()
+        assert paused.state is not None
+        assert running.state is not None
+        self.assertEqual(paused.status, BatchImport.Status.RUNNING)
+        self.assertIsNone(paused.lease_id)
+        if action_name == "resume_with_inflight_part_reset":
+            self.assertEqual(paused.state["parts"][0]["current_offset"], 0)
+        else:
+            self.assertEqual(paused.state["parts"][0]["current_offset"], 42)
+        self.assertEqual(running.state["parts"][0]["current_offset"], 42)
+
+        levels = sorted(m.level_tag for m in get_messages(request))
+        self.assertEqual(levels, ["success", "warning"])
 
 
 class TestBatchImportAPI(APIBaseTest):
@@ -713,3 +968,222 @@ class TestBatchImportAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["attr"], "endpoint_url")
+
+
+class TestBatchImportTrialAPI(APIBaseTest):
+    S3_PAYLOAD = {
+        "source_type": "s3",
+        "content_type": "captured",
+        "s3_bucket": "test-bucket",
+        "s3_region": "us-east-1",
+        "s3_prefix": "data/",
+        "access_key": "test-key",
+        "secret_key": "test-secret",
+    }
+
+    def _create_import(self, status=BatchImport.Status.RUNNING, is_trial=False, state=None) -> BatchImport:
+        sink = {"type": "trial_s3", "record_limit": 100} if is_trial else {"type": "capture", "send_rate": 1000}
+        return BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}, "sink": sink},
+            secrets={"access_key": "k", "secret_key": "s"},
+            status=status,
+            state=state,
+        )
+
+    def test_create_trial_sets_trial_sink_and_limit(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {**self.S3_PAYLOAD, "is_trial": True, "trial_record_limit": 500},
+        )
+
+        self.assertEqual(response.status_code, 201, response.json())
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertEqual(batch_import.import_config["sink"], {"type": "trial_s3", "record_limit": 500})
+        self.assertTrue(response.json()["is_trial"])
+        self.assertEqual(response.json()["trial_record_limit"], 500)
+
+    @parameterized.expand([("zero", 0), ("above_max", 50_001)])
+    def test_trial_record_limit_out_of_bounds_is_rejected(self, _name, limit):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {**self.S3_PAYLOAD, "is_trial": True, "trial_record_limit": limit},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "trial_record_limit")
+
+    def test_trial_allowed_while_real_import_is_running(self):
+        self._create_import(is_trial=False)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {**self.S3_PAYLOAD, "is_trial": True},
+        )
+
+        self.assertEqual(response.status_code, 201, response.json())
+
+    def test_real_import_allowed_while_trial_is_running(self):
+        self._create_import(is_trial=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations", self.S3_PAYLOAD)
+
+        self.assertEqual(response.status_code, 201, response.json())
+
+    def test_second_trial_is_blocked_while_one_is_running(self):
+        existing = self._create_import(is_trial=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {**self.S3_PAYLOAD, "is_trial": True},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("trial", response.json()["error"])
+        self.assertIn(str(existing.id), response.json()["detail"])
+
+    def test_trial_records_rejects_non_trial_imports(self):
+        batch_import = self._create_import(is_trial=False)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records")
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_trial_records_returns_page_with_progress_metadata(self):
+        trial_state = {
+            "parts": [],
+            "trial": {
+                "records_emitted": 4,
+                "pages_written": 2,
+                "summary": {"source_records": 4, "dropped_records": 1},
+            },
+        }
+        batch_import = self._create_import(status=BatchImport.Status.COMPLETED, is_trial=True, state=trial_state)
+        records = [{"seq": 2, "source": {"event": "a"}, "outputs": [], "error": None}]
+
+        with patch(
+            "products.managed_migrations.backend.api.batch_imports.trial_storage.read_trial_page",
+            return_value=records,
+        ) as mock_read:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records?page=1"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "records": records,
+                "page": 1,
+                "total_pages": 2,
+                "total_records": 4,
+                "summary": {"source_records": 4, "dropped_records": 1},
+            },
+        )
+        mock_read.assert_called_once_with(self.team.id, str(batch_import.id), 1)
+
+    def test_trial_records_with_no_pages_returns_empty_state(self):
+        batch_import = self._create_import(
+            status=BatchImport.Status.COMPLETED,
+            is_trial=True,
+            state={"parts": [], "trial": {"records_emitted": 0, "pages_written": 0, "summary": {"source_records": 0}}},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "records": [],
+                "page": 0,
+                "total_pages": 0,
+                "total_records": 0,
+                "summary": {"source_records": 0},
+            },
+        )
+
+    def test_trial_records_page_out_of_range_is_404(self):
+        batch_import = self._create_import(
+            status=BatchImport.Status.COMPLETED,
+            is_trial=True,
+            state={"parts": [], "trial": {"records_emitted": 4, "pages_written": 2, "summary": {}}},
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records?page=2"
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["total_pages"], 2)
+
+    def test_trial_records_expired_results_are_410(self):
+        batch_import = self._create_import(
+            status=BatchImport.Status.COMPLETED,
+            is_trial=True,
+            state={"parts": [], "trial": {"records_emitted": 4, "pages_written": 2, "summary": {}}},
+        )
+
+        with patch(
+            "products.managed_migrations.backend.api.batch_imports.trial_storage.read_trial_page",
+            side_effect=trial_storage.TrialResultsUnavailable("gone"),
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records"
+            )
+
+        self.assertEqual(response.status_code, 410)
+
+    def test_promote_creates_real_import_with_capture_sink_and_copied_secrets(self):
+        trial = self._create_import(status=BatchImport.Status.COMPLETED, is_trial=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{trial.id}/promote")
+
+        self.assertEqual(response.status_code, 201, response.json())
+        promoted = BatchImport.objects.get(id=response.json()["id"])
+        self.assertNotEqual(promoted.id, trial.id)
+        self.assertEqual(promoted.import_config["sink"], {"type": "capture", "send_rate": 1000})
+        self.assertEqual(promoted.import_config["source"], trial.import_config["source"])
+        self.assertEqual(promoted.secrets, trial.secrets)
+        self.assertEqual(promoted.status, BatchImport.Status.RUNNING)
+        self.assertFalse(response.json()["is_trial"])
+        self.assertEqual(response.json()["promoted_from_trial_id"], str(trial.id))
+
+    def test_promote_is_single_use(self):
+        trial = self._create_import(status=BatchImport.Status.COMPLETED, is_trial=True)
+
+        first = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{trial.id}/promote")
+        self.assertEqual(first.status_code, 201, first.json())
+
+        # Once the promoted import is no longer running, the RUNNING-conflict
+        # check no longer applies — re-promotion must still be rejected.
+        BatchImport.objects.filter(id=first.json()["id"]).update(status=BatchImport.Status.COMPLETED)
+
+        second = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{trial.id}/promote")
+
+        self.assertEqual(second.status_code, 400)
+        self.assertIn("already been promoted", second.json()["error"])
+        self.assertEqual(BatchImport.objects.filter(team_id=self.team.id).exclude(id=trial.id).count(), 1)
+
+    @parameterized.expand(
+        [
+            ("not_a_trial", False, BatchImport.Status.COMPLETED),
+            ("not_completed", True, BatchImport.Status.RUNNING),
+        ]
+    )
+    def test_promote_rejects_ineligible_jobs(self, _name, is_trial, job_status):
+        batch_import = self._create_import(status=job_status, is_trial=is_trial)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/promote")
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_promote_blocked_while_real_import_is_running(self):
+        trial = self._create_import(status=BatchImport.Status.COMPLETED, is_trial=True)
+        self._create_import(is_trial=False)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{trial.id}/promote")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Cannot create a new batch import", response.json()["error"])

@@ -1,7 +1,7 @@
 import type { GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { isCloudApi, isLocalApi } from '@/lib/constants'
+import { isCloudApi, isLocalApi, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -10,8 +10,8 @@ import {
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
+import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
-import { SQL_SCHEMA_DISCOVERY_FEATURE_FLAG } from '@/tools/posthogAiTools/readDataWarehouseSchema'
 import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
 
@@ -62,6 +62,29 @@ export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MC
     return { mode: resolved, useSingleExec: resolved === 'cli' }
 }
 
+/**
+ * Which navigation switch tools to hide given the context the client explicitly
+ * pinned via request params.
+ *
+ * Pinning fixes the *default* active context — it must not disable navigation.
+ * Only an explicitly pinned organization is a hard lock: the client asked to
+ * operate inside one org, so `switch-organization` is dropped while project
+ * switching stays available. A pinned *project* excludes nothing, because the
+ * documented cross-org flow depends on it: from an active project an agent
+ * resolves an org via `organizations-get`, calls `switch-organization`, then
+ * `switch-project` to reach a project in another organization (see the
+ * `switch-project` tool description). Excluding the switch tools on a project
+ * pin — which nearly every connection sends — made that flow impossible.
+ *
+ * Note this only affects keys that can act across orgs. A project-scoped key
+ * (`scoped_teams`) never sees `switch-organization` regardless, because
+ * `getToolsForFeatures` independently strips every `organization:*` tool the
+ * backend would 403 for such a token.
+ */
+export function switchToolsToExclude(pinned: { organizationId?: string | undefined }): string[] {
+    return pinned.organizationId ? ['switch-organization'] : []
+}
+
 // ─── Resolver ───
 
 const SESSION_CONTEXT_KEYS = [
@@ -106,12 +129,9 @@ export class RequestStateResolver {
             cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
         }
 
-        const toolFlagKeys = getRequiredFeatureFlags()
-        // `mcp-sql-schema-discovery` now gates the read-data-warehouse-schema tool, so
-        // it already arrives via `getRequiredFeatureFlags()`; keep it listed (and dedupe)
-        // since the instructions layer also reads it for SQL discovery steering — neither
-        // concern should depend on the other's wiring.
-        const allFlagKeys = [...new Set([...toolFlagKeys, SQL_SCHEMA_DISCOVERY_FEATURE_FLAG])]
+        // PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery prompt
+        // section), not a tool, so the tool-definition scan can't discover it.
+        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG])]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
@@ -162,12 +182,7 @@ export class RequestStateResolver {
         const availableFeatures = await context.stateManager.getAvailableFeatures()
         const isCloud = isCloudApi()
 
-        const excludeTools: string[] = []
-        if (projectId) {
-            excludeTools.push('switch-organization', 'switch-project')
-        } else if (organizationId) {
-            excludeTools.push('switch-organization')
-        }
+        const excludeTools = switchToolsToExclude({ organizationId })
 
         const filterOptions = {
             features,
@@ -180,7 +195,13 @@ export class RequestStateResolver {
             availableFeatures,
             isCloud,
         }
-        const allTools = this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes })
+        // Staff-only tools (OAuth-hidden scopes) need the extra explicit-scope +
+        // is_staff gate on top of the catalog's plain scope filter.
+        const allTools = await filterStaffOnlyTools(
+            this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
+            _apiKey ?? { scopes: [] },
+            () => context.stateManager.getUser()
+        )
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []

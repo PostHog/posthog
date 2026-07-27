@@ -14,6 +14,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
+import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { rulesLogic } from './rulesLogic'
 import { SortableRuleItem } from './SortableRuleItem'
 import { ErrorTrackingRule, ErrorTrackingRuleType } from './types'
@@ -142,15 +143,30 @@ export function RuleList({
                             {headerActions}
                             {rules.length > 1 && (
                                 <>
-                                    <LemonButton type="secondary" size="small" onClick={startSelectingRules}>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={startSelectingRules}
+                                        disabledReason={errorTrackingEditAccessDisabledReason() ?? undefined}
+                                    >
                                         Select
                                     </LemonButton>
-                                    <LemonButton type="secondary" size="small" onClick={startReorderingRules}>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={startReorderingRules}
+                                        disabledReason={errorTrackingEditAccessDisabledReason() ?? undefined}
+                                    >
                                         Reorder
                                     </LemonButton>
                                 </>
                             )}
-                            <LemonButton type="primary" size="small" onClick={() => openModal()}>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => openModal()}
+                                disabledReason={errorTrackingEditAccessDisabledReason() ?? undefined}
+                            >
                                 Add rule
                             </LemonButton>
                         </>

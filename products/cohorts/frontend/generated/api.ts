@@ -14,10 +14,15 @@ import type {
     CohortUsedInResponseApi,
     CohortsListParams,
     CohortsPersonsRetrieveParams,
+    CohortsStaffListParams,
     PaginatedCohortListApi,
     PatchedAddPersonsToStaticCohortRequestApi,
     PatchedCohortApi,
     PatchedRemovePersonRequestApi,
+    StaffCohortLookupResponseApi,
+    StaffCohortRecalculateApi,
+    StaffCohortRecalculateResponseApi,
+    StaffStuckCohortsResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -36,6 +41,93 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getCohortsStaffListUrl = (params: CohortsStaffListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0 ? `/api/cohorts_staff/?${stringifiedParams}` : `/api/cohorts_staff/`
+}
+
+/**
+ * Staff-only, unscoped cohort calculation tooling.
+ *
+ * Replaces the prod-shell runbook for stuck cohort calculations: look up any team's cohort by
+ * id, list cohorts whose calculation is stuck, and force-recalculate by bumping
+ * pending_version and enqueueing through the same task path organic saves use.
+ *
+ * Registered on the root router so it is not team-nested; staff act on cohorts in teams they
+ * do not belong to. Cohort.objects is not fail-closed today (the model is on the scoping
+ * baseline) — if Cohort migrates to a fail-closed manager, these cross-team queries must
+ * switch to the explicit unscoped escape hatch.
+ */
+export const cohortsStaffList = async (
+    params: CohortsStaffListParams,
+    options?: RequestInit
+): Promise<StaffCohortLookupResponseApi> => {
+    return apiMutator<StaffCohortLookupResponseApi>(getCohortsStaffListUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCohortsStaffRecalculateCreateUrl = () => {
+    return `/api/cohorts_staff/recalculate/`
+}
+
+/**
+ * Staff-only, unscoped cohort calculation tooling.
+ *
+ * Replaces the prod-shell runbook for stuck cohort calculations: look up any team's cohort by
+ * id, list cohorts whose calculation is stuck, and force-recalculate by bumping
+ * pending_version and enqueueing through the same task path organic saves use.
+ *
+ * Registered on the root router so it is not team-nested; staff act on cohorts in teams they
+ * do not belong to. Cohort.objects is not fail-closed today (the model is on the scoping
+ * baseline) — if Cohort migrates to a fail-closed manager, these cross-team queries must
+ * switch to the explicit unscoped escape hatch.
+ */
+export const cohortsStaffRecalculateCreate = async (
+    staffCohortRecalculateApi: StaffCohortRecalculateApi,
+    options?: RequestInit
+): Promise<StaffCohortRecalculateResponseApi> => {
+    return apiMutator<StaffCohortRecalculateResponseApi>(getCohortsStaffRecalculateCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(staffCohortRecalculateApi),
+    })
+}
+
+export const getCohortsStaffStuckRetrieveUrl = () => {
+    return `/api/cohorts_staff/stuck/`
+}
+
+/**
+ * Staff-only, unscoped cohort calculation tooling.
+ *
+ * Replaces the prod-shell runbook for stuck cohort calculations: look up any team's cohort by
+ * id, list cohorts whose calculation is stuck, and force-recalculate by bumping
+ * pending_version and enqueueing through the same task path organic saves use.
+ *
+ * Registered on the root router so it is not team-nested; staff act on cohorts in teams they
+ * do not belong to. Cohort.objects is not fail-closed today (the model is on the scoping
+ * baseline) — if Cohort migrates to a fail-closed manager, these cross-team queries must
+ * switch to the explicit unscoped escape hatch.
+ */
+export const cohortsStaffStuckRetrieve = async (options?: RequestInit): Promise<StaffStuckCohortsResponseApi> => {
+    return apiMutator<StaffStuckCohortsResponseApi>(getCohortsStaffStuckRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getCohortsListUrl = (projectId: string, params?: CohortsListParams) => {
     const normalizedParams = new URLSearchParams()

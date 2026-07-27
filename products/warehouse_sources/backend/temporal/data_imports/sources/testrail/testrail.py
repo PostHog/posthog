@@ -508,6 +508,12 @@ def testrail_source(
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
+        # Endpoints that carry a stable `created_on` bucket by week; TestRail timestamps are UNIX
+        # epoch integers, which datetime partitioning coerces via fromtimestamp. `created_on` never
+        # moves, so partitions are not rewritten on later syncs (unlike an `updated_on` key would).
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
         # Fan-out across projects/suites/runs means rows never arrive globally time-ordered, so
         # incremental endpoints declare "desc": the watermark commits only once the whole sync
         # completes instead of checkpointing after every batch.

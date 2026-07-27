@@ -121,15 +121,15 @@ class AsyncRecordBatchReader:
         return await self.read_next_record_batch()
 
     async def read_next_record_batch(self) -> pa.RecordBatch:
-        if self._schema is None:
-            schema = await self.read_schema()
-            self._schema = schema
-        else:
-            schema = self._schema
-
+        schema = await self.get_schema()
         message = await anext(self._reader)
 
         return pa.ipc.read_record_batch(message, schema)
+
+    async def get_schema(self) -> pa.Schema:
+        if self._schema is None:
+            self._schema = await self.read_schema()
+        return self._schema
 
     async def read_schema(self) -> pa.Schema:
         """Read the schema, which should be the first message."""

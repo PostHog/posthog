@@ -75,6 +75,12 @@ tools:
     mcp-connections-update:
         operation: mcp_server_installations_update
         enabled: false
+    mcp-server-installations-share-create:
+        operation: mcp_server_installations_share_create
+        enabled: false
+    mcp-server-installations-unshare-create:
+        operation: mcp_server_installations_unshare_create
+        enabled: false
     mcp-servers-list:
         operation: mcp_servers_list
         enabled: false

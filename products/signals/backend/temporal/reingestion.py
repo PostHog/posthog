@@ -21,11 +21,11 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.signal_queries import (
     _DEDUPED_SIGNALS_SUBQUERY,
-    EMBEDDING_MODEL,
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
     WaitForClickHouseInput,

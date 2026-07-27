@@ -19,10 +19,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SmartreachSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartreach import (
+    SmartreachSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.settings import (
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     SMARTREACH_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.smartreach import (
@@ -35,6 +41,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SmartreachSource(ResumableSource[SmartreachSourceConfig, SmartreachResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://smartreach.io/api_docs"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -92,25 +102,19 @@ You can find your API key under **Settings → Integrations** in the [SmartReach
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — we deliberately do not use SmartReach's
-        # newer_than/older_than filters, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # newer_than/older_than filters, so there is no incremental cursor to advance
+        # (INCREMENTAL_FIELDS is empty, so build_endpoint_schemas marks all endpoints full-refresh).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: SmartreachSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SmartreachSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The user key is account-wide, so a single probe validates access to every schema; there is
         # no per-endpoint scope to check.
@@ -136,6 +140,8 @@ You can find your API key under **Settings → Integrations** in the [SmartReach
         return smartreach_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every SmartReach endpoint is full refresh
         )

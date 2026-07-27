@@ -18,11 +18,10 @@
  * once added to the workspace file — no product names hardcoded in the workflows.
  *
  * Output — an exclude-only filter that is true only when some changed file lives
- * OUTSIDE every excluded dir. ci-storybook.yml feeds it to the vendored
- * .github/actions/paths-filter (include-exclude matching); ci-frontend.yml still
- * feeds it to dorny/paths-filter with `predicate-quantifier: every`. Both regimes
- * are equivalent for an exclude-only filter; they would diverge if a positive
- * include were ever added here:
+ * OUTSIDE every excluded dir. ci-storybook.yml and ci-frontend.yml feed it to the
+ * vendored .github/actions/paths-filter (include-exclude matching), where every
+ * `!` pattern vetoes and a filter with no positive includes matches any
+ * non-excluded file:
  *   outside_node_product_workspaces:
  *     - '!products/agent_platform/packages/**'
  *     - '!products/agent_platform/services/**'

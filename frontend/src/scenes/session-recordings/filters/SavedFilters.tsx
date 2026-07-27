@@ -13,6 +13,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -130,11 +131,13 @@ export function SavedFilters({
     )
     const { setActiveFilterTab } = useActions(playlistFiltersLogic)
 
-    if (savedFiltersLoading && !filters.search) {
+    const hasActiveFilters = !!filters.search || (!!filters.createdBy && filters.createdBy !== 'All users')
+
+    if (savedFiltersLoading && !hasActiveFilters) {
         return <SavedFiltersLoadingState />
     }
 
-    if (savedFilters.results?.length === 0 && !filters.search) {
+    if (savedFilters.results?.length === 0 && !hasActiveFilters) {
         return <SavedFiltersEmptyState />
     }
 
@@ -219,15 +222,21 @@ export function SavedFilters({
 
     return (
         <>
-            <LemonInput
-                fullWidth
-                className="mb-2"
-                type="search"
-                placeholder="Search for saved filters"
-                onChange={(value) => setSavedPlaylistsFilters({ search: value || undefined })}
-                value={filters.search || ''}
-                stopPropagation={true}
-            />
+            <div className="flex items-center gap-2 mb-2">
+                <LemonInput
+                    fullWidth
+                    type="search"
+                    placeholder="Search for saved filters"
+                    onChange={(value) => setSavedPlaylistsFilters({ search: value || undefined })}
+                    value={filters.search || ''}
+                    stopPropagation={true}
+                />
+                <MemberSelect
+                    defaultLabel="Any user"
+                    value={filters.createdBy && filters.createdBy !== 'All users' ? filters.createdBy : null}
+                    onChange={(user) => setSavedPlaylistsFilters({ createdBy: user?.id ?? 'All users' })}
+                />
+            </div>
             <LemonTable
                 dataSource={savedFilters.results}
                 columns={columns}

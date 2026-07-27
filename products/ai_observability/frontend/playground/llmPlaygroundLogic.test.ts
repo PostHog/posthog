@@ -106,8 +106,8 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            // Reload trial models so the empty mock takes effect
-            modelPickerLogic.actions.loadTrialModels()
+            // Reload playground models so the empty mock takes effect
+            modelPickerLogic.actions.loadPlaygroundModels()
 
             const emptyRunLogic = llmPlaygroundRunLogic()
             emptyRunLogic.mount()
@@ -196,8 +196,8 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            // Reload trial models with the extended mock data
-            modelPickerLogic.actions.loadTrialModels()
+            // Reload playground models with the extended mock data
+            modelPickerLogic.actions.loadPlaygroundModels()
 
             const testRunLogic = llmPlaygroundRunLogic()
             testRunLogic.mount()
@@ -404,7 +404,7 @@ describe('llmPlaygroundLogic', () => {
             testRunLogic.unmount()
         })
 
-        it('should keep trial model selection even when BYOK models are available', async () => {
+        it('should keep playground model selection even when BYOK models are available', async () => {
             const byokModels: ModelOption[] = [
                 {
                     id: 'anthropic/claude-sonnet-4.5',
@@ -450,14 +450,14 @@ describe('llmPlaygroundLogic', () => {
         })
     })
 
-    describe('loadTrialModels auto-correction', () => {
-        it('should auto-correct invalid model after loading trial models', async () => {
+    describe('loadPlaygroundModels auto-correction', () => {
+        it('should auto-correct invalid model after loading playground models', async () => {
             const testRunLogic = llmPlaygroundRunLogic()
             testRunLogic.mount()
 
             llmPlaygroundPromptsLogic.actions.setModel('gpt-5-2025-08-07')
 
-            modelPickerLogic.actions.loadTrialModels()
+            modelPickerLogic.actions.loadPlaygroundModels()
 
             await expectLogic(testRunLogic).toFinishAllListeners()
 
@@ -479,12 +479,12 @@ describe('llmPlaygroundLogic', () => {
             testRunLogic.unmount()
         })
 
-        it('should preserve trial models when reload fails', async () => {
-            // The reload deliberately fails the loadTrialModels loader.
+        it('should preserve playground models when reload fails', async () => {
+            // The reload deliberately fails the loadPlaygroundModels loader.
             silenceKeaLoadersErrors()
             try {
                 await expectLogic(runLogic).toFinishAllListeners()
-                expect(modelPickerLogic.values.trialModels).toEqual(MOCK_MODEL_OPTIONS)
+                expect(modelPickerLogic.values.playgroundModels).toEqual(MOCK_MODEL_OPTIONS)
 
                 useMocks({
                     get: {
@@ -497,10 +497,10 @@ describe('llmPlaygroundLogic', () => {
                     },
                 })
 
-                modelPickerLogic.actions.loadTrialModels()
+                modelPickerLogic.actions.loadPlaygroundModels()
                 await expectLogic(runLogic).toFinishAllListeners()
 
-                expect(modelPickerLogic.values.trialModels).toEqual(MOCK_MODEL_OPTIONS)
+                expect(modelPickerLogic.values.playgroundModels).toEqual(MOCK_MODEL_OPTIONS)
             } finally {
                 resumeKeaLoadersErrors()
             }
@@ -665,13 +665,13 @@ describe('llmPlaygroundLogic', () => {
     })
 
     describe('effectiveModelOptions', () => {
-        it('should return trial models when no BYOK keys exist', async () => {
+        it('should return playground models when no BYOK keys exist', async () => {
             await expectLogic(runLogic).toFinishAllListeners()
 
             expect(llmPlaygroundModelLogic.values.effectiveModelOptions).toEqual(MOCK_MODEL_OPTIONS)
         })
 
-        it('should return trial models when all keys are invalid', async () => {
+        it('should return playground models when all keys are invalid', async () => {
             useMocks({
                 get: {
                     '/api/environments/:team_id/llm_analytics/evaluation_config/': {
@@ -694,7 +694,7 @@ describe('llmPlaygroundLogic', () => {
             testRunLogic.unmount()
         })
 
-        it('should return trial models when provider keys API fails', async () => {
+        it('should return playground models when provider keys API fails', async () => {
             // The provider keys loader deliberately fails here.
             silenceKeaLoadersErrors()
             try {

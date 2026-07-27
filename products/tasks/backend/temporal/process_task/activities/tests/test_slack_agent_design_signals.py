@@ -44,6 +44,10 @@ def _turn_complete() -> dict[str, Any]:
     return {"type": "notification", "notification": {"method": TURN_COMPLETE_METHOD}}
 
 
+def _session_prompt() -> dict[str, Any]:
+    return {"type": "notification", "notification": {"method": "session/prompt"}}
+
+
 class TestSlackAgentDesignSignalEmitter:
     def test_first_session_update_opens_turn_and_streams_text(self) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
@@ -82,16 +86,50 @@ class TestSlackAgentDesignSignalEmitter:
         emitter.process(_text_chunk("hi"))
         assert emitter.process(_turn_complete()) == [("turn_completed", None)]
 
-    def test_second_turn_reopens_after_completion(self) -> None:
+    def test_second_turn_reopens_after_idle_prompt(self) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
         emitter.process(_text_chunk("turn one"))
         emitter.process(_turn_complete())
+        emitter.process(_session_prompt())  # a new user message arms the next turn
 
         signals = emitter.process(_text_chunk("turn two"))
 
         assert signals == [
             ("turn_started", {"slack_thread_context": SLACK_CTX}),
             ("agent_text_delta", "turn two"),
+        ]
+
+    def test_trailing_session_update_after_completion_does_not_reopen(self) -> None:
+        # The agent emits a session/update after turn-complete (mode/command updates, final
+        # consolidations). Without an intervening user prompt it must not open a phantom turn.
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        emitter.process(_text_chunk("joke"))
+        emitter.process(_session_prompt())  # this turn's prompt, interleaved mid-turn — must not re-arm
+        emitter.process(_turn_complete())
+
+        assert emitter.process(_text_chunk("trailing")) == []
+
+    def test_prompt_during_active_turn_does_not_arm_next(self) -> None:
+        # A prompt that lands mid-turn belongs to the open turn; the following trailing update after
+        # completion still must not reopen.
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        emitter.process(_text_chunk("answer"))
+        emitter.process(_session_prompt())
+        emitter.process(_text_chunk("more answer"))
+        emitter.process(_turn_complete())
+
+        assert emitter.process(_text_chunk("trailing")) == []
+
+    def test_resumed_emitter_waits_for_prompt_before_opening(self) -> None:
+        # A resumed attempt starts disarmed: a bare session/update must not open a turn until the
+        # next user prompt arrives.
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX, awaiting_turn=False)
+
+        assert emitter.process(_text_chunk("stray")) == []
+        emitter.process(_session_prompt())
+        assert emitter.process(_text_chunk("real")) == [
+            ("turn_started", {"slack_thread_context": SLACK_CTX}),
+            ("agent_text_delta", "real"),
         ]
 
     def test_seeded_turn_active_does_not_reopen_mid_turn_resume(self) -> None:

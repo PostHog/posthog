@@ -21,6 +21,8 @@ import type {
     LogsAttributesRetrieveParams,
     LogsExportCreate201,
     LogsHasLogsRetrieve200,
+    LogsMetricRuleApi,
+    LogsMetricRulesListParams,
     LogsSamplingRuleApi,
     LogsSamplingRuleReorderApi,
     LogsSamplingRuleSimulateResponseApi,
@@ -31,9 +33,11 @@ import type {
     LogsViewsListParams,
     PaginatedLogsAlertConfigurationListApi,
     PaginatedLogsAlertEventListApi,
+    PaginatedLogsMetricRuleListApi,
     PaginatedLogsSamplingRuleListApi,
     PaginatedLogsViewListApi,
     PatchedLogsAlertConfigurationApi,
+    PatchedLogsMetricRuleApi,
     PatchedLogsSamplingRuleApi,
     PatchedLogsViewApi,
     _LogsAttributesResponseApi,
@@ -45,6 +49,8 @@ import type {
     _LogsFacetValuesResponseApi,
     _LogsGroupByRequestApi,
     _LogsGroupByResponseApi,
+    _LogsPatternsDiffRequestApi,
+    _LogsPatternsDiffResponseApi,
     _LogsPatternsRequestApi,
     _LogsPatternsResponseApi,
     _LogsQueryRequestApi,
@@ -432,6 +438,112 @@ export const logsHasLogsRetrieve = async (
     })
 }
 
+export const getLogsMetricRulesListUrl = (projectId: string, params?: LogsMetricRulesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/metric_rules/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/metric_rules/`
+}
+
+export const logsMetricRulesList = async (
+    projectId: string,
+    params?: LogsMetricRulesListParams,
+    options?: RequestInit
+): Promise<PaginatedLogsMetricRuleListApi> => {
+    return apiMutator<PaginatedLogsMetricRuleListApi>(getLogsMetricRulesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsMetricRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/metric_rules/`
+}
+
+export const logsMetricRulesCreate = async (
+    projectId: string,
+    logsMetricRuleApi: NonReadonly<LogsMetricRuleApi>,
+    options?: RequestInit
+): Promise<LogsMetricRuleApi> => {
+    return apiMutator<LogsMetricRuleApi>(getLogsMetricRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsMetricRuleApi),
+    })
+}
+
+export const getLogsMetricRulesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/metric_rules/${id}/`
+}
+
+export const logsMetricRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LogsMetricRuleApi> => {
+    return apiMutator<LogsMetricRuleApi>(getLogsMetricRulesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsMetricRulesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/metric_rules/${id}/`
+}
+
+export const logsMetricRulesUpdate = async (
+    projectId: string,
+    id: string,
+    logsMetricRuleApi: NonReadonly<LogsMetricRuleApi>,
+    options?: RequestInit
+): Promise<LogsMetricRuleApi> => {
+    return apiMutator<LogsMetricRuleApi>(getLogsMetricRulesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsMetricRuleApi),
+    })
+}
+
+export const getLogsMetricRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/metric_rules/${id}/`
+}
+
+export const logsMetricRulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedLogsMetricRuleApi?: NonReadonly<PatchedLogsMetricRuleApi>,
+    options?: RequestInit
+): Promise<LogsMetricRuleApi> => {
+    return apiMutator<LogsMetricRuleApi>(getLogsMetricRulesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLogsMetricRuleApi),
+    })
+}
+
+export const getLogsMetricRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/metric_rules/${id}/`
+}
+
+export const logsMetricRulesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLogsMetricRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getLogsPatternsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/patterns/`
 }
@@ -446,6 +558,23 @@ export const logsPatternsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsPatternsRequestApi),
+    })
+}
+
+export const getLogsPatternsDiffCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/patterns_diff/`
+}
+
+export const logsPatternsDiffCreate = async (
+    projectId: string,
+    _logsPatternsDiffRequestApi: _LogsPatternsDiffRequestApi,
+    options?: RequestInit
+): Promise<_LogsPatternsDiffResponseApi> => {
+    return apiMutator<_LogsPatternsDiffResponseApi>(getLogsPatternsDiffCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsPatternsDiffRequestApi),
     })
 }
 

@@ -21,14 +21,14 @@ describe('resolveFeatureFlagOverrides', () => {
     })
 
     it('parses the env JSON object with boolean and variant values', () => {
-        process.env.FEATURE_FLAG_OVERRIDES = JSON.stringify({ 'mcp-sql-schema-discovery': true, 'some-flag': 'variant-a' })
-        expect(resolveFeatureFlagOverrides()).toEqual({ 'mcp-sql-schema-discovery': true, 'some-flag': 'variant-a' })
+        process.env.FEATURE_FLAG_OVERRIDES = JSON.stringify({ 'dev-forced-flag': true, 'some-flag': 'variant-a' })
+        expect(resolveFeatureFlagOverrides()).toEqual({ 'dev-forced-flag': true, 'some-flag': 'variant-a' })
     })
 
     it('lets a per-request override win over the env var', () => {
-        process.env.FEATURE_FLAG_OVERRIDES = JSON.stringify({ 'mcp-sql-schema-discovery': false })
-        expect(resolveFeatureFlagOverrides(JSON.stringify({ 'mcp-sql-schema-discovery': true }))).toEqual({
-            'mcp-sql-schema-discovery': true,
+        process.env.FEATURE_FLAG_OVERRIDES = JSON.stringify({ 'dev-forced-flag': false })
+        expect(resolveFeatureFlagOverrides(JSON.stringify({ 'dev-forced-flag': true }))).toEqual({
+            'dev-forced-flag': true,
         })
     })
 
@@ -40,13 +40,13 @@ describe('resolveFeatureFlagOverrides', () => {
 
     it('is a no-op in production, even with overrides set', () => {
         process.env.NODE_ENV = 'production'
-        process.env.FEATURE_FLAG_OVERRIDES = JSON.stringify({ 'mcp-sql-schema-discovery': true })
+        process.env.FEATURE_FLAG_OVERRIDES = JSON.stringify({ 'dev-forced-flag': true })
         expect(resolveFeatureFlagOverrides(JSON.stringify({ x: true }))).toEqual({})
     })
 
     it('fails closed when NODE_ENV is unset, even with overrides set', () => {
         delete process.env.NODE_ENV
-        process.env.FEATURE_FLAG_OVERRIDES = JSON.stringify({ 'mcp-sql-schema-discovery': true })
+        process.env.FEATURE_FLAG_OVERRIDES = JSON.stringify({ 'dev-forced-flag': true })
         expect(resolveFeatureFlagOverrides(JSON.stringify({ x: true }))).toEqual({})
     })
 

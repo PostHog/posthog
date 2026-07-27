@@ -46,6 +46,7 @@ const MARKDOWN_NOTEBOOK_NODE_ID = 'markdown-notebook-v2'
 export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType, string>> = {
     [NotebookNodeType.Query]: 'Query',
     [NotebookNodeType.Python]: 'Python',
+    [NotebookNodeType.PythonV2]: 'PythonV2',
     [NotebookNodeType.DuckSQL]: 'DuckSQL',
     [NotebookNodeType.HogQLSQL]: 'HogQLSQL',
     [NotebookNodeType.SQLV2]: 'SQLV2',
@@ -688,6 +689,11 @@ function isBlockquotableRichContentNode(node: JSONContent, serialized: string): 
     const nodeType = getRichContentNodeType(node)
     if (nodeType === 'paragraph' || nodeType === 'text') {
         return true
+    }
+    // Blockquoted headings parse back (`> ## Heading`), but only as a single line — a heading
+    // whose content spilled onto extra lines splits out of the quote instead.
+    if (nodeType === 'heading') {
+        return !serialized.includes('\n')
     }
     // Blockquoted lists parse back (`> - item`), but only while every line is a list line — a
     // list that spilled block content into standalone blocks splits out of the quote with them.

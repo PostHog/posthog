@@ -1157,19 +1157,18 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
 
 export async function queryEvaluationRuns(params: {
     evaluationId?: string
-    generationEventId?: string
     traceId?: string
     forceRefresh?: boolean
 }): Promise<EvaluationRun[]> {
-    const { evaluationId, generationEventId, traceId, forceRefresh } = params
+    const { evaluationId, traceId, forceRefresh } = params
 
-    const propertyValue = evaluationId || generationEventId || traceId
+    const propertyValue = evaluationId || traceId
 
     if (!propertyValue) {
-        throw new Error('Either evaluationId, generationEventId, or traceId must be provided')
+        throw new Error('Either evaluationId or traceId must be provided')
     }
 
-    const propertyName = evaluationId ? '$ai_evaluation_id' : generationEventId ? '$ai_target_event_id' : '$ai_trace_id'
+    const propertyName = evaluationId ? '$ai_evaluation_id' : '$ai_trace_id'
 
     const query = hogql`
         SELECT
@@ -1201,4 +1200,59 @@ export async function queryEvaluationRuns(params: {
     )
 
     return (response.results || []).map(mapEvaluationRunRow)
+}
+
+export interface EvaluationRunsStats {
+    total: number
+    applicable: number
+    passed: number
+}
+
+// Counts every matching run server-side. queryEvaluationRuns caps its fetch at
+// EVALUATION_SUMMARY_MAX_RUNS, so summary stats can't be derived from that list without
+// undercounting. Counting semantics mirror the evaluations list view (evaluationMetricsLogic)
+// so both surfaces report the same totals.
+export async function queryEvaluationRunsStats(params: {
+    evaluationId?: string
+    traceId?: string
+    forceRefresh?: boolean
+}): Promise<EvaluationRunsStats> {
+    const { evaluationId, traceId, forceRefresh } = params
+
+    const propertyValue = evaluationId || traceId
+
+    if (!propertyValue) {
+        throw new Error('Either evaluationId or traceId must be provided')
+    }
+
+    const propertyName = evaluationId ? '$ai_evaluation_id' : '$ai_trace_id'
+
+    const query = hogql`
+        SELECT
+            count() as total,
+            countIf(properties.$ai_evaluation_result IS NOT NULL) as applicable,
+            countIf(properties.$ai_evaluation_result = 1) as passed
+        FROM events
+        WHERE
+            event = '$ai_evaluation'
+            AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
+    `
+
+    const response = await api.queryHogQL(
+        query,
+        { scene: 'AIObservability', productKey: 'llm_analytics' },
+        { ...(forceRefresh && { refresh: 'force_blocking' }) }
+    )
+
+    const row = response.results?.[0]
+
+    if (!row) {
+        return { total: 0, applicable: 0, passed: 0 }
+    }
+
+    return {
+        total: Number(row[0]) || 0,
+        applicable: Number(row[1]) || 0,
+        passed: Number(row[2]) || 0,
+    }
 }

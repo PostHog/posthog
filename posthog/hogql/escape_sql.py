@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from posthog.hogql.errors import QueryError, ResolutionError
 
-from posthog.models.utils import UUIDT
+from posthog.uuidt import UUIDT
 
 # Copied from clickhouse_driver.util.escape, adapted only from single quotes to backquotes.
 escape_chars_map = {
@@ -299,6 +299,11 @@ def _quote_postgres_wire_identifier(v: str, extra_reserved_keywords: set[str] | 
 def escape_clickhouse_identifier(identifier: str) -> str:
     if "%" in identifier:
         raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
+    return quote_clickhouse_identifier(identifier)
+
+
+def quote_clickhouse_identifier(identifier: str) -> str:
+    """Quote an identifier without validating whether it is safe to interpolate into SQL."""
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
         return identifier
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))

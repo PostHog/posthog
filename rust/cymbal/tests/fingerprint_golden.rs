@@ -9,7 +9,7 @@ use common_types::error_tracking::FrameId;
 use common_types::ClickHouseEvent;
 use cymbal::fingerprinting::Fingerprint;
 use cymbal::frames::Frame;
-use cymbal::types::{Exception, RawErrProps, Stacktrace};
+use cymbal::types::{Exception, RawExceptionProperties, Stacktrace};
 
 #[allow(clippy::too_many_arguments)]
 fn frame(
@@ -240,13 +240,13 @@ fn golden_chained_exceptions() {
 
 #[test]
 fn golden_static_raw_ch_exception_list() {
-    // Real capture-shaped event: `properties` is a JSON string holding RawErrProps.
+    // Real capture-shaped event: `properties` is a JSON string holding RawExceptionProperties.
     let event: ClickHouseEvent =
         serde_json::from_str(include_str!("./static/raw_ch_exception_list.json"))
             .expect("valid ClickHouseEvent fixture");
-    let props: RawErrProps =
+    let props: RawExceptionProperties =
         serde_json::from_str(event.properties.as_deref().expect("fixture has properties"))
-            .expect("valid RawErrProps");
+            .expect("valid RawExceptionProperties");
     snapshot(
         "static_raw_ch_exception_list",
         props.exception_list.iter().cloned().collect(),

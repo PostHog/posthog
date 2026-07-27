@@ -27,6 +27,9 @@ class SlackThreadTaskMapping(UUIDModel):
         related_name="slack_thread_mappings",
     )
     mentioning_slack_user_id = models.CharField(max_length=64)
+    # Reply-tag fallback for runs started before per-turn actor capture
+    # (tasks slack_relay); drop the column and its stamp in task_creation
+    # once those runs drain.
     latest_actor_slack_user_id = models.CharField(max_length=64, null=True, blank=True)
     # Slack `ts` of the most recent message we've already shown to the agent (either
     # in the original `<slack_thread_context>` block at task creation, or in a follow-up
@@ -103,6 +106,13 @@ class SlackSettings(UUIDModel):
     )
     slack_workspace_id = models.CharField(max_length=64)
     slack_user_id = models.CharField(max_length=64, null=True, blank=True)
+    # Unused: holds historical per-integration agent permission modes from the retired
+    # approval-card flow. Retained so the column needs no migration.
+    permission_modes = models.JSONField(
+        blank=True,
+        null=True,
+        help_text="Per-integration permission mode for Slack-started agent runs, keyed by integration id.",
+    )
     # Keys mirror the task-run request serializer.
     ai_preferences = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)

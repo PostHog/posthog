@@ -30,12 +30,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.s
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DevinAISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.devinai import (
+    DevinAISourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class DevinAISource(ResumableSource[DevinAISourceConfig, DevinAIResumeConfig]):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://docs.devin.ai/api-reference"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -112,6 +118,7 @@ Your organization ID is the `org-...` identifier shown in your Devin organizatio
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Devin's v3 list endpoints expose no verified server-side timestamp filter, so every table is
         # full refresh only (see settings.py). Cursor pagination still makes each sync resumable.
@@ -132,7 +139,11 @@ Your organization ID is the `org-...` identifier shown in your Devin organizatio
         return schemas
 
     def validate_credentials(
-        self, config: DevinAISourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DevinAISourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Probe the specific table when checking a schema; otherwise probe Sessions as a cheap token check.
         endpoint = schema_name if schema_name in DEVIN_AI_ENDPOINTS else "sessions"
@@ -171,6 +182,7 @@ Your organization ID is the `org-...` identifier shown in your Devin organizatio
             api_key=config.api_key,
             org_id=config.org_id,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

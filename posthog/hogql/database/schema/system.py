@@ -422,6 +422,11 @@ data_warehouse_sources: PostgresTable = PostgresTable(
         "source_type": StringDatabaseField(
             name="source_type", description="Source connector type, e.g. 'Stripe', 'Postgres', 'Hubspot'."
         ),
+        "api_version": StringDatabaseField(
+            name="api_version",
+            description="Vendor API version this source is pinned to (opaque vendor label); "
+            "NULL resolves to the source type's default version at sync time.",
+        ),
         "prefix": StringDatabaseField(
             name="prefix", description="Table-name prefix applied to all tables synced from this source."
         ),
@@ -1783,7 +1788,7 @@ tasks: PostgresTable = PostgresTable(
     # Mirror the REST API's default filter: internal tasks (signals pipeline, etc.) are not
     # exposed to end users. They are excluded entirely from HogQL.
     predicates=[parse_expr("internal != true")],
-    description="Tasks (PostHog Code / agent work items); one row per user-facing task (internal pipeline tasks are excluded).",
+    description="Tasks (PostHog Desktop / agent work items); one row per user-facing task (internal pipeline tasks are excluded).",
     fields={
         "id": StringDatabaseField(name="id", description="Task UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),

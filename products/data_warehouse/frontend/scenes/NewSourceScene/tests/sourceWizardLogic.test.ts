@@ -764,6 +764,48 @@ describe('sourceWizardLogic', () => {
                 unmount()
             }
         })
+
+        it('explains why Next is disabled on the schema step when no table is selected', () => {
+            const { logic, unmount } = mountWithSchemas([buildSchema({ table: 'Customer', should_sync: false })])
+
+            try {
+                logic.actions.setStep(3)
+                expect(logic.values.canGoNext).toBe(false)
+                expect(logic.values.nextButtonDisabledReason).toEqual('Select at least one table to sync')
+            } finally {
+                unmount()
+            }
+        })
+
+        it('explains why Next is disabled when a selected table has no sync method', () => {
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'Customer', should_sync: true, sync_type: null }),
+            ])
+
+            try {
+                logic.actions.setStep(3)
+                expect(logic.values.canGoNext).toBe(false)
+                expect(logic.values.nextButtonDisabledReason).toEqual(
+                    'Choose a sync method for each table you want to sync'
+                )
+            } finally {
+                unmount()
+            }
+        })
+
+        it('clears the disabled reason once a selected table has a sync method', () => {
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'Customer', should_sync: true, sync_type: 'full_refresh' }),
+            ])
+
+            try {
+                logic.actions.setStep(3)
+                expect(logic.values.canGoNext).toBe(true)
+                expect(logic.values.nextButtonDisabledReason).toBeNull()
+            } finally {
+                unmount()
+            }
+        })
     })
 
     // Onboarding one-click setup: autoConfigureTables opts every syncable table in so the user

@@ -103,6 +103,7 @@ function metric(value: number, previousValue: number, sparkline: number[], goodD
         previousValue,
         deltaPct: previousValue ? ((value - previousValue) / previousValue) * 100 : null,
         sparkline,
+        sparklineLabels: sparkline.map((_, i) => `2026-06-${String(10 + i).padStart(2, '0')} 00:00:00`),
         goodDirection,
     }
 }

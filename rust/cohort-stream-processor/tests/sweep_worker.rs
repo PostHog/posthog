@@ -27,7 +27,7 @@ use cohort_stream_processor::partitions::{
     MeteredReceiver, OffsetTracker, PartitionRouter, ShuffleMessage,
 };
 use cohort_stream_processor::producer::{
-    CaptureSink, CohortMembershipChange, MembershipSink, MembershipStatus,
+    CaptureSink, CohortMembershipChange, MembershipSink, MembershipStatus, ReconcileCompleteMarker,
 };
 use cohort_stream_processor::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_in_tz};
 use cohort_stream_processor::stage1::{
@@ -240,6 +240,7 @@ async fn send_event(
     tx.send(vec![ShuffleMessage::Event {
         event: Box::new(event),
         cse_offset,
+        broker_ts_ms: None,
     }])
     .await
     .unwrap();
@@ -375,6 +376,11 @@ async fn sweep_evicts_a_single_leaf_member_emits_left_and_deletes() {
         state_at(&store, lsk, alice).is_none(),
         "a fully-expired single is deleted",
     );
+    assert_eq!(
+        stage2_bit(&store, 1, alice),
+        Some(false),
+        "the sweep commit retains an explicit false membership register after deleting leaf state",
+    );
 }
 
 #[tokio::test]
@@ -504,6 +510,7 @@ async fn event_then_sweep_in_one_batch_emits_entered_before_left() {
         ShuffleMessage::Event {
             event: Box::new(event_at(alice, ts, 0)),
             cse_offset: 0,
+            broker_ts_ms: None,
         },
         ShuffleMessage::Sweep {
             due_before_ms: deadline + DAY_MS,
@@ -661,6 +668,7 @@ async fn sweep_caps_evictions_per_pass_and_drains_the_remainder_next_tick() {
         .map(|i| ShuffleMessage::Event {
             event: Box::new(event_at(person(i as u128 + 1), ts, i as i64)),
             cse_offset: i as i64,
+            broker_ts_ms: None,
         })
         .collect();
     tx.send(events).await.unwrap();
@@ -1231,6 +1239,16 @@ impl MembershipSink for FailNthSink {
         let acks = changes.iter().map(|_| Ok(())).collect();
         self.changes.lock().unwrap().extend(changes);
         acks
+    }
+
+    async fn produce_markers(
+        &self,
+        markers: Vec<ReconcileCompleteMarker>,
+    ) -> Vec<Result<(), KafkaProduceError>> {
+        markers
+            .into_iter()
+            .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
+            .collect()
     }
 }
 
@@ -1858,6 +1876,7 @@ async fn dispatch_sweeper_routes_an_end_to_end_eviction() {
             event: event_at(alice, ts, 0),
             partition: 0,
             offset: 0,
+            broker_ts_ms: None,
         }])
         .await;
 

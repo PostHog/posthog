@@ -1,9 +1,9 @@
 import type { Series, TooltipContext } from '@posthog/quill-charts'
 
-import { getReferenceStep, getStepBreakdownSeries, hasBreakdown } from 'scenes/funnels/funnelUtils'
+import { getStepBreakdownSeries, hasBreakdown } from 'scenes/funnels/funnelUtils'
 
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
-import { FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
+import { type FunnelStepWithConversionMetrics } from '~/types'
 
 import {
     buildFunnelBarHorizontalDropOff,
@@ -27,7 +27,6 @@ export {
 } from '../shared/funnelBarHorizontalShared'
 
 interface BuildOptions {
-    stepReference: FunnelStepReference
     breakdownFilter?: BreakdownFilter | null
     getColor: (series: FunnelStepWithConversionMetrics) => string
     getLabel: (series: FunnelStepWithConversionMetrics) => string
@@ -66,13 +65,15 @@ function buildBreakdownSegments(
     options: BuildOptions
 ): Series<FunnelBarHorizontalSegmentMeta>[] {
     const step = steps[stepIndex]
-    const basisCount = getReferenceStep(steps, options.stepReference, stepIndex).count
+    // Split the precomputed rate across variants by count so the stack matches the footer.
+    // Deriving the basis from the neighboring step would ignore optional steps and overflow the bar.
+    const fractionPerCount = step.count > 0 ? step.conversionRates.fromBasisStep / step.count : 0
     const breakdownCount = steps[0].nested_breakdown!.length
     const segments: Series<FunnelBarHorizontalSegmentMeta>[] = []
 
     for (let breakdownIndex = 0; breakdownIndex < breakdownCount; breakdownIndex++) {
         const variant = variantAtStep(step, breakdownIndex)
-        const fraction = variant && basisCount > 0 ? variant.count / basisCount : 0
+        const fraction = variant ? variant.count * fractionPerCount : 0
         // Color and label come from step 0's variant so the same breakdown reads consistently
         // across steps even when a later step is missing that variant.
         const representative = variantAtStep(steps[0], breakdownIndex)!

@@ -17,6 +17,7 @@ from posthog.tasks.usage_report import (
     AI_COST_MARKUP_PERCENT,
     CLOUD_REGION_TO_TEAM_ID,
     CLOUD_REGION_TO_URL,
+    POSTHOG_AI_PRODUCTS,
     build_ai_billing_region_filter,
 )
 from posthog.utils import get_instance_region
@@ -253,6 +254,9 @@ def get_ai_credits(
                     AND timestamp >= %(begin)s
                     AND timestamp < %(end)s
                     AND event = '$ai_generation'
+                    -- Only products that bill into the PostHog AI credit bucket; other billable
+                    -- products (e.g. posthog_code) have their own credit counters.
+                    AND JSONExtractString(properties, 'ai_product') IN %(ai_products)s
                     {session_filter_prewhere}
             )
             WHERE
@@ -269,13 +273,14 @@ def get_ai_credits(
         WHERE t.is_billable = 1 OR t.trace_id IS NULL
         """
 
-        params: dict[str, int | datetime | float | list[str] | str] = {
+        params: dict[str, int | datetime | float | list[str] | tuple[str, ...] | str] = {
             "team_id": team_id,
             "team_to_query": team_to_query,
             "begin": begin,
             "end": end,
             "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
             "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
+            "ai_products": tuple(POSTHOG_AI_PRODUCTS),
             **region_filter_params,
         }
 

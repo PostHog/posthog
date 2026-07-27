@@ -10,33 +10,28 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogic'
 import { isMetricThresholdCueVisible } from 'scenes/experiments/ExperimentMetricThreshold'
+import { EXPOSURE_DEFAULT_EVENT, getExposureEventAndProperty } from 'scenes/experiments/exposureContract'
 import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 import { sharedMetricDetailsModalLogic } from 'scenes/experiments/Metrics/sharedMetricDetailsModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
-import { isEventExposureConfig } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
 import type { Breakdown, EventsNode, ExperimentMetric } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
+import { MetricRetryDetails } from './MetricRetryState'
 import { MetricTitle } from './MetricTitle'
 import { getMetricTag } from './utils'
 
 const MAX_BREAKDOWNS = 3
 
 // Helper function to get the exposure event from experiment
-const getExposureEvent = (experiment: Experiment): string => {
-    const exposureConfig = experiment.exposure_criteria?.exposure_config
-    if (!exposureConfig) {
-        return '$feature_flag_called'
-    }
-    if (isEventExposureConfig(exposureConfig)) {
-        return exposureConfig.event
-    }
-    // Fall back
-    return '$feature_flag_called'
-}
+const getExposureEvent = (experiment: Experiment): string =>
+    getExposureEventAndProperty({
+        featureFlagKey: experiment.feature_flag_key,
+        exposureCriteria: experiment.exposure_criteria,
+    }).event ?? EXPOSURE_DEFAULT_EVENT
 
 const AddBreakdownMenuItem = ({
     experiment,
@@ -206,8 +201,9 @@ export const MetricHeader = ({
     const canAddBreakdown = (metric.breakdownFilter?.breakdowns || []).length < MAX_BREAKDOWNS
 
     const recalculationEnabled = useFeatureFlag('EXPERIMENTS_METRICS_RECALCULATION')
-    const { isMetricRecalculating } = useValues(experimentMetricsLogic({ experiment }))
+    const { isMetricRecalculating, metricRetries } = useValues(experimentMetricsLogic({ experiment }))
     const showRecalculatingTag = recalculationEnabled && isMetricRecalculating(metric.uuid)
+    const metricRetry = recalculationEnabled && metric.uuid ? metricRetries[metric.uuid] : undefined
 
     return (
         <div className="text-xs font-semibold flex flex-col justify-between h-full">
@@ -288,11 +284,24 @@ export const MetricHeader = ({
                     )}
                 </div>
                 <div className="flex flex-wrap items-center gap-1">
-                    {showRecalculatingTag && (
-                        <LemonTag type="highlight" size="medium" icon={<Spinner textColored />}>
-                            Recalculating
-                        </LemonTag>
-                    )}
+                    {(showRecalculatingTag || metricRetry) &&
+                        (metricRetry ? (
+                            <LemonDropdown
+                                placement="bottom-start"
+                                showArrow
+                                trigger="hover"
+                                closeOnClickInside={false}
+                                overlay={<MetricRetryDetails retry={metricRetry} className="max-w-100 p-2" />}
+                            >
+                                <LemonTag type="warning" size="medium" icon={<Spinner textColored />}>
+                                    Retry {metricRetry.attempt} of {metricRetry.max_attempts}
+                                </LemonTag>
+                            </LemonDropdown>
+                        ) : (
+                            <LemonTag type="highlight" size="medium" icon={<Spinner textColored />}>
+                                Recalculating
+                            </LemonTag>
+                        ))}
                     <LemonTag type="muted" size="small">
                         {getMetricTag(metric)}
                     </LemonTag>
