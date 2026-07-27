@@ -72,7 +72,7 @@ def remove_deleted_person_data():
 
         # Synchronous so the dictionary is dropped only after the mutation is applied everywhere.
         sync_execute(
-            f"DELETE FROM person WHERE dictHas('{qualified}', id)",
+            f"DELETE FROM person WHERE dictHas('{qualified}', tuple(id))",
             settings={"lightweight_deletes_sync": 2},
             workload=Workload.OFFLINE,
         )
