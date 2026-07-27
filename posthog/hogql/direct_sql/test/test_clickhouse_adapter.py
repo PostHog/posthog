@@ -6,12 +6,19 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
+from posthog.hogql.database.models import StringDatabaseField, TableNode
 from posthog.hogql.direct_sql.clickhouse_adapter import (
     _fetch_capped_clickhouse_rows,
     ensure_read_only_raw_clickhouse_statement,
 )
 from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
+
+from posthog.models import Team
 
 
 class TestDirectClickHouseTable(SimpleTestCase):
@@ -47,6 +54,38 @@ class TestDirectClickHouseTable(SimpleTestCase):
             table.to_printed_postgres(None)
         with self.assertRaises(QueryError):
             table.to_printed_mysql(None)
+
+    def test_clickhouse_printer_skips_team_id_guard(self):
+        # A direct external ClickHouse table has no team_id column. The ClickHouse printer must not
+        # inject the team_id guard it applies to internal tables, or resolving the missing field
+        # raises "Field team_id not found on table DirectClickHouseTable" and breaks materialization.
+        database = Database()
+        database.tables.add_child(
+            TableNode(
+                name="ext_events",
+                table=DirectClickHouseTable(
+                    name="ext_events",
+                    fields={"id": StringDatabaseField(name="id")},
+                    clickhouse_database="analytics",
+                    clickhouse_table_name="events",
+                    external_data_source_id="src-1",
+                ),
+            )
+        )
+        # In-memory team plus pinned settings so preparing/printing the AST stays off Postgres.
+        context = HogQLContext(
+            team_id=1,
+            team=Team(id=1, project_id=1),
+            enable_select_queries=True,
+            database=database,
+            restricted_properties=set(),
+            use_new_events_schema=True,
+        )
+
+        sql, _ = prepare_and_print_ast(parse_select("SELECT id FROM ext_events"), context, dialect="clickhouse")
+
+        self.assertIn("analytics.events", sql)
+        self.assertNotIn("team_id", sql)
 
 
 class TestClickHouseReadOnlyGuard(SimpleTestCase):

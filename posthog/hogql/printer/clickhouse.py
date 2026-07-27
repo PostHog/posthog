@@ -9,6 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     SavedQuery,
@@ -920,11 +921,14 @@ class ClickHousePrinter(BasePrinter):
         node_type: ast.TableOrSelectType | None,
     ):
         # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
-        # Skip warehouse tables and tables with an explicit skip.
+        # Skip warehouse tables and tables with an explicit skip. Direct SQL tables (queried
+        # directly against an external DB) have no team_id column — their isolation comes from
+        # the source scoping, not a team_id guard — so skip them too.
         if (
             not isinstance(table_type.table, DataWarehouseTable)
             and not isinstance(table_type.table, SavedQuery)
             and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
+            and not isinstance(table_type.table, DirectSQLTable)
             and node_type is not None
         ):
             return team_id_guard_for_table(node_type, self.context)
