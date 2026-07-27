@@ -48,6 +48,7 @@ def _to_dto(bet: Bet) -> contracts.BetDTO:
         feature_flag_id=bet.feature_flag_id,
         feature_flag_key=bet.feature_flag.key if bet.feature_flag_id else None,
         experiment_id=bet.experiment_id,
+        created_by_id=bet.created_by_id,
         created_at=bet.created_at,
         updated_at=bet.updated_at,
     )

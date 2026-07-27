@@ -40,6 +40,7 @@ class BetDTO:
     feature_flag_id: int | None
     feature_flag_key: str | None
     experiment_id: int | None
+    created_by_id: int | None
     created_at: datetime
     updated_at: datetime
 

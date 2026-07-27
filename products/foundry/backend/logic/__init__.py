@@ -10,6 +10,8 @@ from products.experiments.backend.facade import CreateExperimentInput, create_ex
 
 from ..facade.enums import BetEventKind, BetState, BetVerdict, ExecutionMode
 from ..models import Bet, BetEvent
+from . import gate as gate_logic
+from .nodes import upsert_node_from_event
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -142,6 +144,17 @@ def apply_event(bet: Bet, kind: BetEventKind, payload: dict[str, Any], user: Use
             _transition(bet, BetState.GATED, user)
         elif kind == BetEventKind.EXPOSURE_STARTED:
             _transition(bet, BetState.EXPOSED, user)
+
+        if kind in (
+            BetEventKind.NODE_SPAWNED,
+            BetEventKind.NODE_FINISHED,
+            BetEventKind.NODE_FAILED,
+            BetEventKind.BUDGET_EXCEEDED,
+        ):
+            upsert_node_from_event(bet, kind, payload)
+
+        if state == BetState.BUILDING and kind in (BetEventKind.RUN_FINISHED, BetEventKind.ARTIFACT_READY):
+            gate_logic.maybe_schedule_gate(bet, payload.get("pr_url"))
     return event
 
 
