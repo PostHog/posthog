@@ -8,7 +8,8 @@ from parameterized import parameterized
 from posthog.models.integration import GitHubUserAuthorization
 from posthog.models.oauth import OAuthApplication
 
-from ee.api.agentic_provisioning import GITHUB_GRANT_CACHE_PREFIX, github_grants
+from ee.api.agentic_provisioning import github_grants
+from ee.api.agentic_provisioning.constants import GITHUB_GRANT_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
 
 ACCESS_TOKEN = "gho_secret_user_token"
@@ -72,7 +73,7 @@ class TestGitHubGrants(ProvisioningTestBase):
     def _create_grant_via_api(self):
         with (
             patch(
-                "ee.api.agentic_provisioning.views.GitHubIntegration.github_user_from_code",
+                "ee.api.agentic_provisioning.views.github_grants.GitHubIntegration.github_user_from_code",
                 return_value=AUTHORIZATION,
             ),
             patch("ee.api.agentic_provisioning.github_grants.github_request", return_value=EMAILS_RESPONSE),
@@ -84,7 +85,7 @@ class TestGitHubGrants(ProvisioningTestBase):
     def test_create_grant_happy_path(self):
         with (
             patch(
-                "ee.api.agentic_provisioning.views.GitHubIntegration.github_user_from_code",
+                "ee.api.agentic_provisioning.views.github_grants.GitHubIntegration.github_user_from_code",
                 return_value=AUTHORIZATION,
             ) as mock_exchange,
             patch("ee.api.agentic_provisioning.github_grants.github_request", return_value=EMAILS_RESPONSE),
@@ -123,7 +124,7 @@ class TestGitHubGrants(ProvisioningTestBase):
 
     def test_create_grant_exchange_failure_returns_502(self):
         with patch(
-            "ee.api.agentic_provisioning.views.GitHubIntegration.github_user_from_code",
+            "ee.api.agentic_provisioning.views.github_grants.GitHubIntegration.github_user_from_code",
             return_value=None,
         ):
             response = self._post_grants({"code": "bad_code"})
@@ -132,7 +133,7 @@ class TestGitHubGrants(ProvisioningTestBase):
 
     def test_create_grant_github_request_failure_returns_502(self):
         with patch(
-            "ee.api.agentic_provisioning.views.GitHubIntegration.github_user_from_code",
+            "ee.api.agentic_provisioning.views.github_grants.GitHubIntegration.github_user_from_code",
             side_effect=requests.RequestException("boom"),
         ):
             response = self._post_grants({"code": "gh_code"})
@@ -166,7 +167,7 @@ class TestGitHubGrants(ProvisioningTestBase):
         no_verified = _github_response(200, [{"email": "a@example.com", "primary": True, "verified": False}])
         with (
             patch(
-                "ee.api.agentic_provisioning.views.GitHubIntegration.github_user_from_code",
+                "ee.api.agentic_provisioning.views.github_grants.GitHubIntegration.github_user_from_code",
                 return_value=AUTHORIZATION,
             ),
             patch("ee.api.agentic_provisioning.github_grants.github_request", return_value=no_verified),
@@ -183,7 +184,7 @@ class TestGitHubGrants(ProvisioningTestBase):
         denied = _github_response(404, {"message": "Not Found"})
         with (
             patch(
-                "ee.api.agentic_provisioning.views.GitHubIntegration.github_user_from_code",
+                "ee.api.agentic_provisioning.views.github_grants.GitHubIntegration.github_user_from_code",
                 return_value=AUTHORIZATION,
             ),
             patch("ee.api.agentic_provisioning.github_grants.github_request", return_value=denied),
@@ -216,13 +217,8 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert second.status_code == 429
         assert second["Retry-After"]
 
-    @parameterized.expand(
-        [
-            ("agentic_tree", "/api/agentic/provisioning/github/grants"),
-            ("alias_tree", "/api/provisioning/github/grants"),
-        ]
-    )
-    def test_repositories_happy_path(self, _name, base_url):
+    def test_repositories_happy_path(self):
+        base_url = "/api/agentic/provisioning/github/grants"
         grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
 
         def fake_github_request(method, url, **kwargs):
@@ -279,7 +275,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             return REPOSITORIES_RESPONSE
 
         with (
-            patch("ee.api.agentic_provisioning.views.GITHUB_GRANT_POLL_RATE_LIMIT_MAX", 1),
+            patch("ee.api.agentic_provisioning.throttling.GITHUB_GRANT_POLL_RATE_LIMIT_MAX", 1),
             patch("ee.api.agentic_provisioning.github_grants.github_request", side_effect=fake_github_request),
         ):
             first = self._get_grants(url)
