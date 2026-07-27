@@ -5,8 +5,9 @@
 // with what the renderer actually does — it misses a link carrying a title (`[x](chart:a "note")`),
 // matches inside a code span the renderer shows as literal text, and can't see that a reference sits
 // in a table cell too narrow to hold a chart. Each disagreement costs a chart: one drawn twice,
-// one drawn nowhere, one squashed to a sliver. So placement comes from the same markdown parse the
-// renderer runs, and the renderer resolves each reference by its position in the source.
+// one drawn nowhere, one squashed to a sliver. So placement comes from a markdown parse (see
+// `parseSummary` for where it still falls short of the renderer's), and the renderer resolves each
+// reference by its position in the source.
 
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfmTableFromMarkdown } from 'mdast-util-gfm-table'
@@ -68,7 +69,7 @@ export function resolveChartPlacements(
     // Only a reference sitting directly in a paragraph draws its chart there, because that is exactly
     // what the renderer can do with one: `LemonMarkdown` drops the `<p>` around a paragraph whose own
     // children are chart references, and a chart is block-level, so anywhere else it would land inside
-    // an element that can't hold it — under `<strong>`/`<em>`/`<del>` for a reference the author
+    // an element that can't hold it — under the `<strong>`/`<em>` of a reference the author
     // formatted, in a heading's line of text, or in a table cell a few dozen pixels wide. Those still
     // read as their label, and their charts fall to the end of the report rather than being dropped.
     const visit = (node: any, inParagraph: boolean): void => {
