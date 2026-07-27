@@ -23,6 +23,7 @@ import {
     IconPeople,
     IconPieChart,
     IconPiggyBank,
+    IconPlaylist,
     IconPulse,
     IconRewindPlay,
     IconRocket,
@@ -89,6 +90,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconPulse />
         case 'notebook':
             return <IconNotebook />
+        case 'playground':
+            return <IconPlaylist />
         case 'product_tour':
             return <IconSpotlight />
         case 'property_definition':

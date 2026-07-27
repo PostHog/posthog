@@ -5,13 +5,23 @@ import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
 import { appendToolCallChunk, describeError, llmPlaygroundRunLogic, mergeUsage } from './llmPlaygroundRunLogic'
 
+function setPlaygroundAccessLevel(level: AccessControlLevel): void {
+    window.POSTHOG_APP_CONTEXT = {
+        ...window.POSTHOG_APP_CONTEXT,
+        resource_access_control: { playground: level },
+    } as typeof window.POSTHOG_APP_CONTEXT
+}
+
 describe('llmPlaygroundRunLogic', () => {
     beforeEach(() => {
         initKeaTests()
+        // initKeaTests() leaves resource_access_control unset, which the playground gate reads as "no access"
+        setPlaygroundAccessLevel(AccessControlLevel.Editor)
         useMocks({
             get: {
                 '/api/llm_proxy/models/': [
@@ -85,6 +95,29 @@ describe('llmPlaygroundRunLogic', () => {
             temperature: 0.4,
             top_p: 0.9,
         })
+
+        logic.unmount()
+        streamSpy.mockRestore()
+    })
+
+    it('does not run a completion without editor access to the playground', async () => {
+        // Both message textareas submit on Cmd+Enter, bypassing the Run button's disabledReason,
+        // so the gate has to hold in the logic itself.
+        setPlaygroundAccessLevel(AccessControlLevel.Viewer)
+        const streamSpy = jest.spyOn(api, 'stream')
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(streamSpy).not.toHaveBeenCalled()
+        await expectLogic(logic).toMatchValues({ submitting: false })
 
         logic.unmount()
         streamSpy.mockRestore()

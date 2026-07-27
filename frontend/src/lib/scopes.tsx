@@ -156,6 +156,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
     { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
+    { key: 'playground', objectName: 'Playground', objectPlural: 'playground' },
     { key: 'plugin', objectName: 'Plugin', objectPlural: 'plugins' },
     {
         key: 'product_enablement',

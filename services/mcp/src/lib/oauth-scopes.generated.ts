@@ -145,6 +145,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'organization_member:write',
     'person:read',
     'person:write',
+    'playground:read',
+    'playground:write',
     'plugin:read',
     'plugin:write',
     'product_enablement:read',

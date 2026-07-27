@@ -424,7 +424,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.AIObservabilityDatasets]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityEvaluation]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityEvaluations]: AccessControlResourceType.LlmAnalytics,
-    [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityPlayground]: AccessControlResourceType.Playground,
     [Scene.AIObservabilityTag]: AccessControlResourceType.Tagger,
     [Scene.AIObservabilityTags]: AccessControlResourceType.Tagger,
     [Scene.AIObservabilityTrace]: AccessControlResourceType.LlmAnalytics,

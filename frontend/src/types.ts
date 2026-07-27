@@ -322,6 +322,7 @@ export enum AccessControlResourceType {
     Tracing = 'tracing',
     ReplayScanner = 'replay_scanner',
     Toolbar = 'toolbar',
+    Playground = 'playground',
 }
 
 interface UserBaseType {
@@ -5778,6 +5779,7 @@ export const API_SCOPE_OBJECTS = [
     'organization_integration',
     'organization_member',
     'person',
+    'playground',
     'plugin',
     'product_enablement',
     'product_tour',

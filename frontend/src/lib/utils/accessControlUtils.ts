@@ -90,6 +90,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'sharing'
     } else if (resource === AccessControlResourceType.Toolbar) {
         return 'toolbar'
+    } else if (resource === AccessControlResourceType.Playground) {
+        return 'playground'
     } else if (resource === AccessControlResourceType.Workflow) {
         return 'workflows'
     } else if (resource === AccessControlResourceType.ReplayScanner) {
