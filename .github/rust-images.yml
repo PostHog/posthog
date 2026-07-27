@@ -68,6 +68,10 @@
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
 
+- image: flags-stream-gateway
+  dockerfile: ./rust/Dockerfile
+  project: vglf58qgzw
+
 - image: cohort-event-shuffler
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw

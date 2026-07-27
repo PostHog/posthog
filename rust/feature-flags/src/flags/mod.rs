@@ -15,6 +15,7 @@ pub mod flag_payload_decryptor;
 pub mod flag_property_group;
 pub mod flag_request;
 pub mod flag_service;
+pub mod hypercache_ready;
 pub mod property_filter;
 pub mod warm_run_status;
 

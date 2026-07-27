@@ -45,6 +45,7 @@ use tracing_subscriber::EnvFilter;
 use feature_flags::flags::cache_builder::build_flags_cache;
 use feature_flags::flags::cache_invalidation::FlagsCacheInvalidation;
 use feature_flags::flags::cache_writer::{self, persist_flags_cache, PersistOutcome};
+use feature_flags::flags::hypercache_ready::HypercacheReadySignal;
 use feature_flags::server::create_redis_client;
 
 common_alloc::used!();
@@ -82,6 +83,9 @@ const PARSE_ERRORS: &str = "flags_cache_builder_parse_errors_total";
 const KAFKA_RECV_ERRORS: &str = "flags_cache_builder_kafka_recv_errors_total";
 const DLQ_PRODUCED: &str = "flags_cache_builder_dlq_produced_total";
 const COALESCED_TEAMS: &str = "flags_cache_builder_coalesced_teams";
+/// Cache-ready hint publishes, labelled `result=success|failure`. Best-effort:
+/// a failure here never fails the build (the gateway sweep repairs the gap).
+const READY_SIGNAL_PUBLISHED: &str = "flags_cache_builder_ready_signal_published_total";
 
 const E2E_LATENCY_BUCKETS: &[f64] = &[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0];
 /// Seconds buckets for the build-duration histogram. Our histograms are
@@ -147,6 +151,14 @@ struct BuilderConfig {
 
     #[envconfig(from = "KAFKA_DLQ_TOPIC", default = "flags_cache_invalidation_dlq")]
     dlq_topic: String,
+
+    /// Dark-ship gate for the realtime-flags cache-ready hint. Default off: when
+    /// on, each successful build publishes a `hypercache:ready` signal so the
+    /// streaming gateway's fast path can wake subscribers without waiting for its
+    /// sweep. Mirrors Django's `HYPERCACHE_READY_SIGNALS_ENABLED` gate (plan §3.4);
+    /// the two producer gates flip together.
+    #[envconfig(from = "CACHE_READY_HINTS_ENABLED", default = "false")]
+    cache_ready_hints_enabled: bool,
 }
 
 /// All offsets and timing for a single team's coalesced invalidations. Generic
@@ -235,7 +247,44 @@ async fn main() -> anyhow::Result<()> {
         .expect("Failed to create database pool");
     let pg_reader: PostgresReader = Arc::new(pg_pool);
 
-    let writer = Arc::new(build_writer(&infra).await);
+    // Keep a clone of the single-endpoint flags-Redis client so `main` can publish
+    // cache-ready hints: it is the same tier + primary the writer uses, so a hint
+    // can never announce data on an unreachable Redis (plan §3.4). The writer takes
+    // its own clone.
+    tracing::info!("Connecting to Redis");
+    let Some(redis_client) = create_redis_client(
+        &infra.flags_redis_url,
+        REDIS_CLIENT_TYPE,
+        CompressionConfig::default(),
+        infra.redis_response_timeout_ms,
+        infra.redis_connection_timeout_ms,
+        REDIS_CONNECT_RETRIES,
+    )
+    .await
+    else {
+        // create_redis_client logs the underlying error before returning None.
+        std::process::exit(1);
+    };
+    let redis_client: Arc<dyn common_redis::Client + Send + Sync> = redis_client;
+
+    let writer = Arc::new(
+        cache_writer::build_writer(
+            redis_client.clone(),
+            &infra.object_storage_region,
+            &infra.object_storage_bucket,
+            Some(infra.object_storage_endpoint.as_str()),
+        )
+        .await,
+    );
+
+    let build_ctx = BuildContext {
+        pg_reader,
+        writer,
+        publisher: ReadySignalPublisher::from_gate(
+            builder_cfg.cache_ready_hints_enabled,
+            redis_client,
+        ),
+    };
 
     let consumer = SingleTopicConsumer::new(kafka_cfg.clone(), consumer_cfg)
         .expect("Failed to create Kafka consumer");
@@ -253,8 +302,7 @@ async fn main() -> anyhow::Result<()> {
         let _guard = loop_handle.process_scope();
         consume_loop(
             consumer,
-            pg_reader,
-            writer,
+            build_ctx,
             dlq_producer,
             builder_cfg,
             loop_handle.clone(),
@@ -267,37 +315,73 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn build_writer(infra: &InfraConfig) -> HyperCacheWriter {
-    tracing::info!("Connecting to Redis");
-    let Some(redis_client) = create_redis_client(
-        &infra.flags_redis_url,
-        REDIS_CLIENT_TYPE,
-        CompressionConfig::default(),
-        infra.redis_response_timeout_ms,
-        infra.redis_connection_timeout_ms,
-        REDIS_CONNECT_RETRIES,
-    )
-    .await
-    else {
-        // create_redis_client logs the underlying error before returning None.
-        std::process::exit(1);
-    };
-    let redis_client: Arc<dyn common_redis::Client + Send + Sync> = redis_client;
+/// Best-effort publisher for the `hypercache:ready` cache-ready signal (the
+/// realtime-flags hint fast path). Constructed as `Some` only when the
+/// `CACHE_READY_HINTS_ENABLED` gate is on; `None` skips publishing entirely and
+/// the gateway's sweep is the sole trigger. See
+/// `feature_flags::flags::hypercache_ready` for the wire contract and the
+/// gateway's lenient consumer.
+#[derive(Clone)]
+struct ReadySignalPublisher {
+    redis: Arc<dyn common_redis::Client + Send + Sync>,
+}
 
-    cache_writer::build_writer(
-        redis_client,
-        &infra.object_storage_region,
-        &infra.object_storage_bucket,
-        Some(infra.object_storage_endpoint.as_str()),
-    )
-    .await
+impl ReadySignalPublisher {
+    /// `Some` only when the gate is on. Keeps the dark-ship decision in one place
+    /// so the call site is a plain `Option`.
+    fn from_gate(
+        enabled: bool,
+        redis: Arc<dyn common_redis::Client + Send + Sync>,
+    ) -> Option<Self> {
+        enabled.then_some(Self { redis })
+    }
+
+    /// Publish a cache-ready signal for `team_id`/`etag`. Best-effort: any failure
+    /// increments the failure counter and warns, never failing or retrying the
+    /// build (the gateway sweep repairs a missed hint within one interval, plan
+    /// §3.4). The publish lands on the primary the writer just wrote to, so the
+    /// etag is readable before the hint arrives.
+    async fn publish(&self, team_id: TeamId, etag: &str) {
+        let signal = HypercacheReadySignal::new(team_id, etag.to_string());
+        // Serializing a fixed-shape struct of owned scalars effectively cannot
+        // fail; treat it as a publish failure rather than unwrapping so a build
+        // never panics on the hint path.
+        let payload = match serde_json::to_string(&signal) {
+            Ok(payload) => payload,
+            Err(e) => {
+                metrics::counter!(READY_SIGNAL_PUBLISHED, "result" => "failure").increment(1);
+                tracing::warn!(team_id, error = %e, "Failed to serialize cache-ready signal");
+                return;
+            }
+        };
+        match self
+            .redis
+            .publish(HypercacheReadySignal::channel().to_string(), payload)
+            .await
+        {
+            Ok(()) => metrics::counter!(READY_SIGNAL_PUBLISHED, "result" => "success").increment(1),
+            Err(e) => {
+                metrics::counter!(READY_SIGNAL_PUBLISHED, "result" => "failure").increment(1);
+                tracing::warn!(team_id, error = %e, "Failed to publish cache-ready signal");
+            }
+        }
+    }
+}
+
+/// Everything a single team build needs: the DB reader that sources fresh flag
+/// state, the HyperCache writer that persists it, and the (gate-dependent)
+/// cache-ready publisher that announces it. Grouped so the loop → team → retry
+/// call chain threads one context instead of three parallel arguments.
+struct BuildContext {
+    pg_reader: PostgresReader,
+    writer: Arc<HyperCacheWriter>,
+    publisher: Option<ReadySignalPublisher>,
 }
 
 /// The consumer hot loop. Returns when `shutdown` is cancelled (graceful drain).
 async fn consume_loop(
     consumer: SingleTopicConsumer,
-    pg_reader: PostgresReader,
-    writer: Arc<HyperCacheWriter>,
+    build_ctx: BuildContext,
     dlq_producer: FutureProducer<KafkaContext>,
     cfg: BuilderConfig,
     health: Handle,
@@ -355,15 +439,7 @@ async fn consume_loop(
             // Also tick per team: a large batch of unique teams (with retry
             // backoff) could otherwise outlast the liveness deadline mid-batch.
             health.report_healthy();
-            let offsets = process_team(
-                &pg_reader,
-                &writer,
-                &dlq_producer,
-                &cfg,
-                team_id,
-                team_batch,
-            )
-            .await;
+            let offsets = process_team(&build_ctx, &dlq_producer, &cfg, team_id, team_batch).await;
             batch_offsets.extend(offsets);
         }
 
@@ -433,14 +509,13 @@ fn coalesce_batch(
 /// regardless of build/DLQ outcome — a poison message must not wedge the partition
 /// forever; the DLQ is the durable record for triage.
 async fn process_team(
-    pg_reader: &PostgresReader,
-    writer: &HyperCacheWriter,
+    build_ctx: &BuildContext,
     dlq_producer: &FutureProducer<KafkaContext>,
     cfg: &BuilderConfig,
     team_id: TeamId,
     team_batch: TeamBatch,
 ) -> Vec<Offset> {
-    match build_with_retry(pg_reader, writer, team_id, cfg).await {
+    match build_with_retry(build_ctx, team_id, cfg).await {
         Ok(()) => {
             metrics::counter!(BUILDS_TOTAL, "result" => "success").increment(1);
             let latency = (Utc::now() - team_batch.oldest_emitted_at)
@@ -508,8 +583,7 @@ impl BuildFailure {
 }
 
 async fn build_with_retry(
-    pg_reader: &PostgresReader,
-    writer: &HyperCacheWriter,
+    build_ctx: &BuildContext,
     team_id: TeamId,
     cfg: &BuilderConfig,
 ) -> Result<(), BuildFailure> {
@@ -517,7 +591,7 @@ async fn build_with_retry(
     loop {
         attempt += 1;
         let start = Instant::now();
-        match build_once(pg_reader, writer, team_id, cfg.cache_ttl_seconds).await {
+        match build_once(build_ctx, team_id, cfg.cache_ttl_seconds).await {
             Ok(outcome) => {
                 let elapsed = start.elapsed();
                 metrics::histogram!(BUILD_DURATION_SECONDS).record(elapsed.as_secs_f64());
@@ -529,6 +603,12 @@ async fn build_with_retry(
                     etag = %outcome.etag,
                     "Built flags cache"
                 );
+                // Fire the cache-ready hint once per successful persist, on the
+                // etag just written. Best-effort and gate-guarded: `None` when the
+                // gate is off, and a publish failure never fails the build.
+                if let Some(publisher) = &build_ctx.publisher {
+                    publisher.publish(team_id, &outcome.etag).await;
+                }
                 return Ok(());
             }
             Err(failure) => {
@@ -561,15 +641,14 @@ fn retry_backoff(attempt: u32) -> Duration {
 }
 
 async fn build_once(
-    pg_reader: &PostgresReader,
-    writer: &HyperCacheWriter,
+    build_ctx: &BuildContext,
     team_id: TeamId,
     ttl_seconds: u64,
 ) -> Result<PersistOutcome, BuildFailure> {
-    let cache = build_flags_cache(pg_reader.clone(), team_id)
+    let cache = build_flags_cache(build_ctx.pg_reader.clone(), team_id)
         .await
         .map_err(BuildFailure::database)?;
-    persist_flags_cache(writer, team_id, &cache, ttl_seconds)
+    persist_flags_cache(&build_ctx.writer, team_id, &cache, ttl_seconds)
         .await
         .map_err(BuildFailure::from_persist)
 }
@@ -763,12 +842,14 @@ fn spawn_metrics_server(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::Arc;
 
     use chrono::{DateTime, TimeZone, Utc};
+    use common_redis::{CustomRedisError, MockRedisClient, MockRedisValue};
 
     use super::{
-        max_per_partition, retry_backoff, truncate_for_header, BuildFailure, TeamBatch,
-        DLQ_ERROR_HEADER_MAX,
+        max_per_partition, retry_backoff, truncate_for_header, BuildFailure, HypercacheReadySignal,
+        ReadySignalPublisher, TeamBatch, DLQ_ERROR_HEADER_MAX,
     };
 
     // (partition, offset) pairs; keyed and valued by the two fields.
@@ -916,5 +997,67 @@ mod tests {
     fn single_offset_per_partition_passes_through() {
         let got = reduce(vec![(0, 7), (1, 4), (2, 9)]);
         assert_eq!(got, vec![(0, 7), (1, 4), (2, 9)]);
+    }
+
+    #[tokio::test]
+    async fn ready_signal_gate_off_publishes_nothing() {
+        // Gate off ⇒ no publisher, so the build never touches Redis for a hint.
+        let redis = Arc::new(MockRedisClient::new());
+        let publisher = ReadySignalPublisher::from_gate(false, redis.clone());
+        assert!(publisher.is_none());
+        // Mirror the call-site guard: `None` means nothing is published.
+        if let Some(publisher) = &publisher {
+            publisher.publish(7, "deadbeefdeadbeef").await;
+        }
+        assert!(
+            redis.get_calls().iter().all(|c| c.op != "publish"),
+            "gate off must not publish"
+        );
+    }
+
+    #[tokio::test]
+    async fn ready_signal_publishes_strict_struct_on_flags_json_channel() {
+        let redis = Arc::new(MockRedisClient::new());
+        let publisher =
+            ReadySignalPublisher::from_gate(true, redis.clone()).expect("gate on ⇒ Some");
+        publisher.publish(4242, "0123456789abcdef").await;
+
+        let calls = redis.get_calls();
+        let publish = calls
+            .iter()
+            .find(|c| c.op == "publish")
+            .expect("a publish call was recorded");
+        assert_eq!(publish.key, "hypercache:ready:feature_flags:flags.json");
+        let MockRedisValue::String(payload) = &publish.value else {
+            panic!("expected a String payload, got {:?}", publish.value);
+        };
+        // The payload must parse back as the strict producer struct and carry the
+        // team_id + etag the build produced.
+        let signal: HypercacheReadySignal =
+            serde_json::from_str(payload).expect("payload parses as the strict struct");
+        assert_eq!(signal.v, 1);
+        assert_eq!(signal.team_id, 4242);
+        assert_eq!(signal.etag, "0123456789abcdef");
+        assert_eq!(signal.namespace, "feature_flags");
+        assert_eq!(signal.value, "flags.json");
+    }
+
+    #[tokio::test]
+    async fn ready_signal_publish_error_is_swallowed() {
+        // A publish failure must not propagate: the build path still succeeds and
+        // the gateway sweep repairs the missed hint.
+        let mut redis = MockRedisClient::new();
+        let redis = Arc::new(redis.publish_ret(
+            HypercacheReadySignal::channel(),
+            Err(CustomRedisError::Timeout),
+        ));
+        let publisher =
+            ReadySignalPublisher::from_gate(true, redis.clone()).expect("gate on ⇒ Some");
+        // Returns `()` despite the mock error — nothing to unwind into the build.
+        publisher.publish(1, "aaaaaaaaaaaaaaaa").await;
+        assert!(
+            redis.get_calls().iter().any(|c| c.op == "publish"),
+            "the publish was still attempted"
+        );
     }
 }
