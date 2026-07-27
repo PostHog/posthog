@@ -213,7 +213,7 @@ class TestForwardPendingUserMessage(TestCase):
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
-    def test_non_retryable_failure_clears_message_from_state(self, mock_send, mock_token):
+    def test_non_retryable_failure_raises_and_preserves_state(self, mock_send, mock_token):
         run = self._make_run(
             state={
                 "pending_user_message": "fix the tests",
@@ -223,13 +223,16 @@ class TestForwardPendingUserMessage(TestCase):
         mock_send.return_value = _command_result(success=False, status_code=401, error="Unauthorized", retryable=False)
         before = _delivery_failed_sample("false")
 
-        forward_pending_user_message(str(run.id))
+        with self.assertRaises(ApplicationError) as error_context:
+            forward_pending_user_message(str(run.id))
 
+        assert error_context.exception.non_retryable is True
+        assert "Unauthorized" in str(error_context.exception)
         mock_send.assert_called_once()
         assert _delivery_failed_sample("false") == before + 1
         run.refresh_from_db()
-        assert "pending_user_message" not in run.state
-        assert "pending_user_message_id" not in run.state
+        assert run.state.get("pending_user_message") == "fix the tests"
+        assert run.state.get("pending_user_message_id")
 
     @patch(
         "products.tasks.backend.logic.services.staged_artifacts.get_task_run_artifacts_by_id",
@@ -335,13 +338,15 @@ class TestForwardPendingUserMessage(TestCase):
             retryable=False,
         )
 
-        forward_pending_user_message(str(run.id))
+        with self.assertRaises(ApplicationError) as error_context:
+            forward_pending_user_message(str(run.id))
 
+        assert error_context.exception.non_retryable is True
         mock_enqueue_relay.assert_called_once()
         assert mock_enqueue_relay.call_args.kwargs["run_id"] == str(run.id)
         assert "couldn't deliver your follow-up" in mock_enqueue_relay.call_args.kwargs["text"]
         run.refresh_from_db()
-        assert "pending_user_message" not in run.state
+        assert run.state.get("pending_user_message") == "fix the tests"
 
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")

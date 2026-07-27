@@ -56,10 +56,11 @@ def forward_pending_user_message(run_id: str) -> None:
     """Forward a pending user message stored in task run state to the sandbox agent.
 
     Called after the agent server is ready. Clears the message from state on
-    successful delivery or non-retryable failure. Keeps it in state on retryable
-    failure to preserve recoverability.
+    successful delivery. Keeps it in state and raises on any delivery failure,
+    so the workflow fails the run instead of continuing with an agent that
+    never received its prompt.
     """
-    from products.tasks.backend.logic.services.agent_command import send_user_message
+    from products.tasks.backend.logic.services.agent_command import send_user_message, user_facing_agent_error
     from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
     from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
     from products.tasks.backend.metrics import observe_followup_delivery_failed
@@ -152,8 +153,6 @@ def forward_pending_user_message(run_id: str) -> None:
             )
 
         if not result.success and not result.turn_in_flight and result.retryable:
-            from products.tasks.backend.logic.services.agent_command import user_facing_agent_error
-
             retryable_delivery_error = result.error or "Retryable pending message delivery failed"
             observe_followup_delivery_failed(task_run, retryable=True)
             logger.warning(
@@ -170,11 +169,22 @@ def forward_pending_user_message(run_id: str) -> None:
 
         pending_message_ts = state.get("pending_user_message_ts")
 
-        if state.get("interaction_origin") == "slack":
-            if result.success:
-                _enqueue_pending_reply_relay(task_run, pending_message_ts, result.data)
-            elif not result.turn_in_flight:
+        if not result.success and not result.turn_in_flight:
+            observe_followup_delivery_failed(task_run, retryable=False)
+            logger.warning(
+                "forward_pending_message_non_retryable_failure",
+                run_id=run_id,
+                error=result.error,
+            )
+            if state.get("interaction_origin") == "slack":
                 _enqueue_pending_delivery_failure_relay(task_run, pending_message_ts, result.error)
+            raise ApplicationError(
+                f"forward pending message failed: {user_facing_agent_error(result.error)}",
+                non_retryable=True,
+            )
+
+        if state.get("interaction_origin") == "slack" and result.success:
+            _enqueue_pending_reply_relay(task_run, pending_message_ts, result.data)
 
         TaskRun.update_state_atomic(
             run_id,
@@ -186,24 +196,16 @@ def forward_pending_user_message(run_id: str) -> None:
             ],
         )
 
-        if result.success or result.turn_in_flight:
-            # Attribution stamp for the sandbox usage ledger: the initial prompt is a
-            # user message, so its delivery starts the user-attributable window even
-            # when the run state carried a warm marker at provision time. A turn in
-            # flight counts: the message reached the sandbox and it is doing work.
-            from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — matches the file's deferred-import pattern
-                record_task_run_user_activity,
-            )
+        # Attribution stamp for the sandbox usage ledger: the initial prompt is a
+        # user message, so its delivery starts the user-attributable window even
+        # when the run state carried a warm marker at provision time. A turn in
+        # flight counts: the message reached the sandbox and it is doing work.
+        from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415, matches the file's deferred-import pattern
+            record_task_run_user_activity,
+        )
 
-            record_task_run_user_activity(run_id, task_run.team_id)
-            logger.info("forward_pending_message_delivered", run_id=run_id)
-        else:
-            observe_followup_delivery_failed(task_run, retryable=False)
-            logger.warning(
-                "forward_pending_message_non_retryable_failure",
-                run_id=run_id,
-                error=result.error,
-            )
+        record_task_run_user_activity(run_id, task_run.team_id)
+        logger.info("forward_pending_message_delivered", run_id=run_id)
 
 
 def _enqueue_pending_delivery_failure_relay(task_run: Any, user_message_ts: str | None, error: str | None) -> None:
