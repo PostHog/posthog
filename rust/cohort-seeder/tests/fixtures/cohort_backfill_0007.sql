@@ -1,6 +1,6 @@
--- Snapshot pinned to products/cohorts/backend/migrations/0006_cohort_backfill_completion.py
--- (the 0004 DDL plus the six columns 0006 adds). External Team/Cohort foreign keys are omitted so
--- the contract test stays schema-local.
+-- Snapshot pinned to products/cohorts/backend/migrations/0007_cohortbackfillrun_cohort_bfr_reconciling_idx.py
+-- (the 0004 DDL, the six columns 0006 adds, and the partial index 0007 adds). External Team/Cohort
+-- foreign keys are omitted so the contract test stays schema-local.
 
 CREATE TABLE cohort_backfill_runs (
     id uuid PRIMARY KEY,
@@ -32,6 +32,9 @@ CREATE TABLE cohort_backfill_runs (
 
 CREATE INDEX cohort_bfr_team_status_idx ON cohort_backfill_runs(team_id, status);
 CREATE INDEX cohort_bfr_team_created_idx ON cohort_backfill_runs(team_id, created_at DESC);
+CREATE INDEX cohort_bfr_reconciling_idx
+    ON cohort_backfill_runs(backfill_kind, reconcile_observed_at)
+    WHERE status = 'reconciling';
 CREATE UNIQUE INDEX cohort_bfr_active_cohort_uq
     ON cohort_backfill_runs(cohort_id)
     WHERE cohort_id IS NOT NULL

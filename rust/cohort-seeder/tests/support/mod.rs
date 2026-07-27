@@ -21,8 +21,8 @@ use sqlx::{Connection, PgConnection, PgPool};
 use uuid::Uuid;
 
 /// The `cohort_backfill_*` DDL (plus a schema-local `posthog_cohort` projection), pinned to Django
-/// migration 0006, applied fresh into each test schema.
-pub const DDL: &str = include_str!("../fixtures/cohort_backfill_0006.sql");
+/// migration 0007, applied fresh into each test schema.
+pub const DDL: &str = include_str!("../fixtures/cohort_backfill_0007.sql");
 /// A live cohort condition hash used by the superseded-load fixtures.
 pub const ACTIVE_HASH: &str = "active0000000000";
 /// A superseded cohort condition hash used by the superseded-load fixtures.
