@@ -64,6 +64,12 @@ EXPORT_BATCH_SIZE = 1000
 # in an endless fetch loop. At 100 elements per page this is far beyond any real brand.
 MAX_PAGES = 50_000
 
+# The fan-out survey-id list is held whole in memory, so bound both the per-id length (real
+# Qualtrics ids are ~18 chars) and the total count (far beyond any real brand) so a custom host
+# streaming endless over-long ids can't exhaust the worker.
+MAX_SURVEY_ID_LENGTH = 64
+MAX_SURVEY_COUNT = 200_000
+
 # OAuth2 client-credentials tokens last ~1h; re-mint before the deadline so no request rides
 # a token that expires mid-flight.
 TOKEN_REFRESH_MARGIN_SECONDS = 60
@@ -434,13 +440,24 @@ def _survey_ids(client: QualtricsClient) -> list[str]:
     """Collect the survey ids the fan-out endpoints iterate.
 
     Ids go straight into request paths, so anything that isn't a plain Qualtrics id
-    (`SV_...`) is dropped rather than allowed to steer the URL.
+    (`SV_...`) is dropped rather than allowed to steer the URL. The list is fully materialized —
+    resuming the fan-out addresses surveys by index — so an id-length cap and a total-count cap
+    keep a host that streams endless over-long ids from exhausting worker memory.
     """
     ids: list[str] = []
     for page in _iter_collection(client, client.url("/surveys"), resumable_source_manager=None):
-        ids.extend(
-            str(element["id"]) for element in page if element.get("id") and _SURVEY_ID_PATTERN.match(str(element["id"]))
-        )
+        for element in page:
+            raw = element.get("id")
+            if not raw:
+                continue
+            survey_id = str(raw)
+            if len(survey_id) > MAX_SURVEY_ID_LENGTH or not _SURVEY_ID_PATTERN.match(survey_id):
+                continue
+            ids.append(survey_id)
+            if len(ids) > MAX_SURVEY_COUNT:
+                raise QualtricsResponseTooLargeError(
+                    f"Qualtrics returned more than {MAX_SURVEY_COUNT} surveys; refusing to buffer them all"
+                )
     return ids
 
 
@@ -500,16 +517,23 @@ def _iter_ndjson(stream: IO[bytes], budget: _DecompressionBudget) -> Iterator[di
 _EOCD_SIGNATURE = b"PK\x05\x06"
 # The zip end-of-central-directory record is 22 bytes plus a comment of up to 65535 bytes.
 _EOCD_MAX_SCAN_BYTES = 22 + 65535
+# Fixed size of a central-directory file header; the real header is this plus name/extra/comment.
+_CENTRAL_DIR_HEADER_MIN_BYTES = 46
 
 
-def _guard_zip_member_count(buffer: IO[bytes]) -> None:
-    """Reject an archive whose central directory declares too many members.
+def _guard_zip_central_directory(buffer: IO[bytes]) -> None:
+    """Reject an archive whose central directory is large enough to materialize too many members.
 
-    The end-of-central-directory record carries the entry count cheaply, so read it before
-    handing the buffer to `zipfile` — that materializes a `ZipInfo` per member and a crafted
-    archive full of empty entries could exhaust memory before any decompressed byte is charged.
-    The ZIP64 sentinel (0xFFFF) reads well past the cap and is rejected on the same path.
+    `zipfile` reads the whole central directory and builds a `ZipInfo` per file header (each at
+    least `_CENTRAL_DIR_HEADER_MIN_BYTES`), looping until it consumes the size-of-central-directory
+    field of the trailing end-of-central-directory record — the same record it selects. Bounding
+    that byte length before construction caps the entry count at `MAX_EXPORT_ARCHIVE_MEMBERS` no
+    matter what the record's untrusted entry-count field claims, so a spoofed trailing EOCD
+    declaring one member can't smuggle a huge directory past the guard. The ZIP64 sentinel
+    (0xFFFFFFFF) reads well past the cap and is rejected here too — a real Qualtrics export stays
+    well under 4 GiB with a single member.
     """
+    max_central_directory_bytes = MAX_EXPORT_ARCHIVE_MEMBERS * _CENTRAL_DIR_HEADER_MIN_BYTES
     buffer.seek(0, 2)
     size = buffer.tell()
     scan = min(size, len(_EOCD_SIGNATURE) + _EOCD_MAX_SCAN_BYTES)
@@ -517,13 +541,13 @@ def _guard_zip_member_count(buffer: IO[bytes]) -> None:
     tail = buffer.read(scan)
     marker = tail.rfind(_EOCD_SIGNATURE)
     # A missing/short record isn't our concern — `zipfile` raises its own BadZipFile for that.
-    if marker == -1 or marker + 12 > len(tail):
+    if marker == -1 or marker + 16 > len(tail):
         return
-    total_members = int.from_bytes(tail[marker + 10 : marker + 12], "little")
-    if total_members > MAX_EXPORT_ARCHIVE_MEMBERS:
+    central_directory_bytes = int.from_bytes(tail[marker + 12 : marker + 16], "little")
+    if central_directory_bytes > max_central_directory_bytes:
         raise QualtricsResponseTooLargeError(
-            f"Qualtrics export archive declared {total_members} members, exceeding the "
-            f"{MAX_EXPORT_ARCHIVE_MEMBERS}-member limit"
+            f"Qualtrics export archive central directory is {central_directory_bytes} bytes, "
+            f"exceeding the {max_central_directory_bytes}-byte limit"
         )
 
 
@@ -564,7 +588,7 @@ def _iter_export_file(response: requests.Response) -> Iterator[dict[str, Any]]:
             yield from _iter_ndjson(buffer, budget)
             return
 
-        _guard_zip_member_count(buffer)
+        _guard_zip_central_directory(buffer)
         buffer.seek(0)
         with zipfile.ZipFile(buffer) as archive:
             for info in archive.infolist():

@@ -105,6 +105,20 @@ def _multi_member_zip_bytes(members: dict[str, str]) -> bytes:
     return buffer.getvalue()
 
 
+def _zip_with_spoofed_low_member_count(members: dict[str, str]) -> bytes:
+    """Append a second EOCD that lies about the member count while keeping the real directory size.
+
+    zipfile selects the trailing EOCD and reads the central directory by its byte length, so a
+    guard that trusts the entry-count field would wave this through.
+    """
+    raw = _multi_member_zip_bytes(members)
+    marker = raw.rfind(b"PK\x05\x06")
+    spoofed = bytearray(raw[marker:])
+    spoofed[8:10] = (1).to_bytes(2, "little")  # entries on this disk
+    spoofed[10:12] = (1).to_bytes(2, "little")  # total entries
+    return raw + bytes(spoofed)
+
+
 def _run_get_rows(
     endpoint: str,
     session: mock.MagicMock,
@@ -311,6 +325,26 @@ class TestSurveyFanout:
         assert batches == [[{"QuestionID": "QID1", "surveyId": "SV_ok"}]]
         assert session.get.call_args_list[1].args[0] == f"{BASE}/survey-definitions/SV_ok/questions"
 
+    def test_over_length_survey_ids_are_dropped(self) -> None:
+        session = _session(
+            get_responses=[
+                _response(json_data=_collection([{"id": "SV_toolong"}, {"id": "SV_ok"}])),
+                _response(json_data=_collection([{"QuestionID": "QID1"}])),
+            ]
+        )
+
+        with mock.patch.object(qualtrics_module, "MAX_SURVEY_ID_LENGTH", 5):
+            batches = _run_get_rows("survey_questions", session, FakeResumeManager())
+
+        assert batches == [[{"QuestionID": "QID1", "surveyId": "SV_ok"}]]
+
+    def test_too_many_surveys_is_refused(self) -> None:
+        session = _session(get_responses=[_response(json_data=_collection([{"id": "SV_1"}, {"id": "SV_2"}]))])
+
+        with mock.patch.object(qualtrics_module, "MAX_SURVEY_COUNT", 1):
+            with pytest.raises(QualtricsResponseTooLargeError):
+                _run_get_rows("survey_questions", session, FakeResumeManager())
+
     def test_path_fanout_stamps_the_parent_survey_id(self) -> None:
         session = _session(
             get_responses=[
@@ -472,9 +506,17 @@ class TestResponseExport:
                 list(_iter_export_file(_response(body=body)))
 
     def test_archive_with_too_many_members_is_refused(self) -> None:
-        # The member count is rejected from the central directory before zipfile builds a
-        # ZipInfo per entry, so a crafted many-membered archive can't exhaust memory first.
+        # The central-directory byte length is rejected before zipfile builds a ZipInfo per
+        # entry, so a crafted many-membered archive can't exhaust memory first.
         body = _multi_member_zip_bytes({f"m_{i}.ndjson": self.NDJSON for i in range(3)})
+        with mock.patch.object(qualtrics_module, "MAX_EXPORT_ARCHIVE_MEMBERS", 2):
+            with pytest.raises(QualtricsResponseTooLargeError):
+                list(_iter_export_file(_response(body=body)))
+
+    def test_archive_with_spoofed_low_member_count_is_refused(self) -> None:
+        # A trailing EOCD claiming one member can't hide a large central directory: the guard
+        # bounds the directory's byte length, which is what zipfile actually reads.
+        body = _zip_with_spoofed_low_member_count({f"m_{i}.ndjson": self.NDJSON for i in range(3)})
         with mock.patch.object(qualtrics_module, "MAX_EXPORT_ARCHIVE_MEMBERS", 2):
             with pytest.raises(QualtricsResponseTooLargeError):
                 list(_iter_export_file(_response(body=body)))
