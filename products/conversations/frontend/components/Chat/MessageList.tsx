@@ -28,6 +28,9 @@ export interface MessageListProps {
     /** Whether AI reply feedback controls are enabled */
     showAiReplyFeedback?: boolean
     onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
+    /** Rendered after the last message, inside the scroll area. Opt-in, so a customer-facing view
+     * never receives team-only content. */
+    trailing?: JSX.Element | null
 }
 
 export function MessageList({
@@ -47,6 +50,7 @@ export function MessageList({
     feedbackByMessageId = {},
     showAiReplyFeedback = false,
     onSubmitAiReplyFeedback,
+    trailing,
 }: MessageListProps): JSX.Element {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -146,6 +150,7 @@ export function MessageList({
                             />
                         )
                     })}
+                    {trailing}
                     <div ref={messagesEndRef} />
                 </>
             )}

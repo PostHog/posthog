@@ -2,19 +2,19 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { LinkedReportsPanel } from './LinkedReportsPanel'
+import { ThreadReports } from './ThreadReports'
 
-// The panel a support teammate reads on a ticket to see which reports came out of it.
+// The thread entry a support teammate reads on a ticket to see which reports came out of it.
 // A ticket's fix is the headline, so the PR states get their own stories.
 
-const meta: Meta<typeof LinkedReportsPanel> = {
-    title: 'Scenes-App/Support/LinkedReportsPanel',
-    component: LinkedReportsPanel,
+const meta: Meta<typeof ThreadReports> = {
+    title: 'Scenes-App/Support/ThreadReports',
+    component: ThreadReports,
     parameters: { layout: 'padded', viewMode: 'story', mockDate: '2026-07-25' },
 }
 export default meta
 
-type Story = StoryObj<typeof LinkedReportsPanel>
+type Story = StoryObj<typeof ThreadReports>
 
 function makeReport(overrides: Partial<SignalReportApi>): SignalReportApi {
     return {
@@ -29,30 +29,30 @@ function makeReport(overrides: Partial<SignalReportApi>): SignalReportApi {
     } as SignalReportApi
 }
 
-function Panel({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="max-w-sm">{children}</div>
+function Thread({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="max-w-2xl">{children}</div>
 }
 
 export const FixProposed: Story = {
     render: () => (
-        <Panel>
-            <LinkedReportsPanel linkedReports={[makeReport({})]} />
-        </Panel>
+        <Thread>
+            <ThreadReports linkedReports={[makeReport({})]} />
+        </Thread>
     ),
 }
 
 export const FixMerged: Story = {
     render: () => (
-        <Panel>
-            <LinkedReportsPanel linkedReports={[makeReport({ implementation_pr_merged: true })]} />
-        </Panel>
+        <Thread>
+            <ThreadReports linkedReports={[makeReport({ implementation_pr_merged: true })]} />
+        </Thread>
     ),
 }
 
 export const SeveralReportsAcrossStates: Story = {
     render: () => (
-        <Panel>
-            <LinkedReportsPanel
+        <Thread>
+            <ThreadReports
                 linkedReports={[
                     makeReport({}),
                     makeReport({
@@ -71,22 +71,6 @@ export const SeveralReportsAcrossStates: Story = {
                     }),
                 ]}
             />
-        </Panel>
-    ),
-}
-
-export const NoReportsYet: Story = {
-    render: () => (
-        <Panel>
-            <LinkedReportsPanel linkedReports={[]} />
-        </Panel>
-    ),
-}
-
-export const Loading: Story = {
-    render: () => (
-        <Panel>
-            <LinkedReportsPanel linkedReports={[]} linkedReportsLoading />
-        </Panel>
+        </Thread>
     ),
 }

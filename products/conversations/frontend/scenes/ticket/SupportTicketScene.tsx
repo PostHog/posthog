@@ -31,13 +31,13 @@ import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
-import { LinkedReportsPanel } from './LinkedReportsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
 import { RelatedGroupsPanel } from './RelatedGroupsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
+import { ThreadReports } from './ThreadReports'
 import { TicketActivityPanel } from './TicketActivityPanel'
 
 // The list's filters / saved view ride along in the ticket page's query string
@@ -85,7 +85,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         previousTickets,
         previousTicketsLoading,
         linkedReports,
-        linkedReportsLoading,
         exceptionsQuery,
         chatPanelWidth,
         hasUnsavedChanges,
@@ -211,6 +210,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 >
                     {/* Main conversation area */}
                     <ChatView
+                        threadTrailing={<ThreadReports linkedReports={linkedReports} />}
                         messages={chatMessages}
                         messagesLoading={messagesLoading}
                         messageSending={messageSending}
@@ -504,11 +504,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             onDismissGap={dismissKnowledgeGap}
                         />
                     )}
-
-                    {/* What Self-driving already found for this ticket. Outside the widget-only group
-                        below: those panels need a browser session, but a researched report can come
-                        from a ticket on any channel. */}
-                    <LinkedReportsPanel linkedReports={linkedReports} linkedReportsLoading={linkedReportsLoading} />
 
                     {ticket?.channel_source === 'widget' && (
                         <>

@@ -42,6 +42,8 @@ export interface ChatViewProps {
     onPrivateChange?: (isPrivate: boolean) => void
     /** Extra actions rendered next to the send button in MessageInput */
     extraActions?: React.ReactNode
+    /** Rendered at the end of the thread, inside the scroll area (e.g. team-only agent findings) */
+    threadTrailing?: JSX.Element | null
     /** Blocks sending customer-facing messages (private notes stay available) */
     replyDisabledReason?: string | JSX.Element
     /** Whether draft mode is on: tints the composer green and confirms the recipient before sending */
@@ -78,6 +80,7 @@ export function ChatView({
     draftContent,
     onDraftChange,
     isPrivate,
+    threadTrailing,
     onPrivateChange,
     extraActions,
     replyDisabledReason,
@@ -112,6 +115,7 @@ export function ChatView({
                 feedbackByMessageId={feedbackByMessageId}
                 showAiReplyFeedback={showAiReplyFeedback}
                 onSubmitAiReplyFeedback={onSubmitAiReplyFeedback}
+                trailing={threadTrailing}
             />
             <div className="border-t pt-3">
                 <MessageInput
