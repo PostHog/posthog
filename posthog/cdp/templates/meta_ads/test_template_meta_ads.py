@@ -22,6 +22,7 @@ class TestMetaAdsFbcDefault(SimpleTestCase):
             ("full_fbc_cookie", {"fbclid": "fb.1.1752830400000.IwAR123"}, r"fb\.1\.1752830400000\.IwAR123"),
             # values Meta would reject (subcode 2804001) are skipped rather than sent
             ("url_encoded_junk", {"fbclid": "IwAR%3D123 456"}, r""),
+            ("prefixed_but_malformed", {"fbclid": "fb.junk"}, r""),
             ("missing_fbclid", {}, r""),
         ]
     )
