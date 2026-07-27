@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
-from django.db.models import CharField, Exists, OuterRef, Q, QuerySet, Sum
+from django.db.models import CharField, Exists, F, OrderBy, OuterRef, Q, QuerySet, Sum
 from django.db.models.functions import Cast
 from django.http import Http404
 from django.utils import timezone
@@ -584,7 +584,22 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         if order_by not in allowed_orderings:
             order_by = "-updated_at"
 
-        return queryset.order_by(order_by)
+        field_name = order_by.lstrip("-")
+        primary: OrderBy | str
+        if field_name in ("sla_due_at", "snoozed_until"):
+            # A ticket with no SLA (or no snooze) sorts to the bottom either direction — an
+            # absent deadline isn't more urgent than a real one, and it keeps the large NULL
+            # block off the first pages so the SLA-sorted rows are what the user actually sees.
+            descending = order_by.startswith("-")
+            primary = F(field_name).desc(nulls_last=True) if descending else F(field_name).asc(nulls_last=True)
+        else:
+            primary = order_by
+
+        # ticket_number is unique per team (the queryset is already team-scoped), so it breaks
+        # ties deterministically. Without it, rows equal on the primary key — every no-SLA
+        # ticket shares NULL sla_due_at — have no stable order across the separate LIMIT/OFFSET
+        # page queries, so pages overlap or drop rows and the sort looks lost past page 1.
+        return queryset.order_by(primary, "-ticket_number")
 
     def safely_get_object(self, queryset):
         """
