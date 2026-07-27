@@ -242,6 +242,14 @@ class TestSigning:
                 DynamoDBClient(access_key_id="AKIA", secret_access_key="s", region="evil.com")
         make_session.assert_not_called()
 
+    def test_responses_are_excluded_from_http_sample_capture(self) -> None:
+        # DynamoDB items carry arbitrary customer fields the name-based scrubber can't catch,
+        # so the session must never stream response bodies into shared HTTP samples.
+        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=FakeSession([])) as make_session:
+            DynamoDBClient(access_key_id="AKIA", secret_access_key="s", region="us-east-1")
+
+        assert make_session.call_args.kwargs["capture"] is False
+
 
 class TestErrorClassification:
     @pytest.mark.parametrize(

@@ -163,7 +163,10 @@ class DynamoDBClient:
         self._credentials = Credentials(access_key_id, secret_access_key, session_token or None)
         self._signer = SigV4Auth(self._credentials, SIGV4_SERVICE_NAME, self.region)
         self._session = make_tracked_session(
-            redact_values=tuple(value for value in (secret_access_key, session_token) if value)
+            redact_values=tuple(value for value in (secret_access_key, session_token) if value),
+            # DynamoDB items carry arbitrary customer fields (PII, secrets under generic attribute
+            # names) the name-based scrubber can't catch, so keep responses out of HTTP samples.
+            capture=False,
         )
 
     def _signed_headers(self, operation: str, body: str) -> dict[str, str]:
