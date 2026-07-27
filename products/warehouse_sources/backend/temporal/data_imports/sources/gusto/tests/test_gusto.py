@@ -303,6 +303,8 @@ class TestGustoClient:
         kwargs = make_session.call_args.kwargs
         assert kwargs["headers"]["X-Gusto-API-Version"] == GUSTO_API_VERSION
         assert set(kwargs["redact_values"]) == {"secret", "refresh"}
+        # Payroll PII must never reach HTTP sample capture.
+        assert kwargs["capture"] is False
 
     def test_mints_a_token_before_the_first_request(self) -> None:
         session = _FakeSession({"/v1/me": [_FakeResponse(200, {"roles": {}})]})

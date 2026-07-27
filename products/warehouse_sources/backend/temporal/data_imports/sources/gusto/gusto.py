@@ -76,6 +76,9 @@ class GustoClient:
         self._session = make_tracked_session(
             headers={"Accept": "application/json", "X-Gusto-API-Version": api_version},
             redact_values=(client_secret, refresh_token),
+            # Gusto responses carry HR/payroll PII (names, emails, DOBs, addresses, pay rates) that
+            # the name-based scrubber can't reliably strip, so keep bodies out of HTTP sample capture.
+            capture=False,
         )
 
     @property
