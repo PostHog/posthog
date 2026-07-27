@@ -27,7 +27,7 @@ export const DEFAULT_METRICS_FILTERS: MetricsFilters = {
 }
 
 // SQL metrics are created from the SQL editor's "Save as metric", not this modal.
-export type NewMetricDefinitionType = 'none' | 'markdown' | 'insight'
+export type NewMetricDefinitionType = 'markdown' | 'insight'
 
 export interface NewMetricForm {
     name: string
@@ -44,7 +44,7 @@ export const EMPTY_NEW_METRIC_FORM: NewMetricForm = {
     display_name: '',
     description: '',
     unit: '',
-    definitionType: 'none',
+    definitionType: 'markdown',
     markdown: '',
     sourceInsightShortId: '',
 }
@@ -60,11 +60,8 @@ function projectId(): string {
     return String(ApiConfig.getCurrentTeamId())
 }
 
-function buildDefinition(form: NewMetricForm): Record<string, unknown> | null {
-    if (form.definitionType === 'markdown') {
-        return { kind: MARKDOWN_DEFINITION_KIND, markdown: form.markdown }
-    }
-    return null
+function buildMarkdownDefinition(markdown: string): Record<string, unknown> {
+    return { kind: MARKDOWN_DEFINITION_KIND, markdown }
 }
 
 function apiErrorDetail(error: unknown): string | null {
@@ -288,7 +285,7 @@ export const metricsLogic = kea<metricsLogicType>([
                     unit: form.unit || undefined,
                     ...(form.definitionType === 'insight'
                         ? { source_insight_short_id: form.sourceInsightShortId }
-                        : { definition: buildDefinition(form) }),
+                        : { definition: buildMarkdownDefinition(form.markdown) }),
                     created_source: 'user',
                 })
                 actions.loadMetricsSuccess([created, ...values.allMetrics])

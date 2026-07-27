@@ -13,7 +13,6 @@ import { validateMetricName } from '../common'
 import { metricsLogic, NewMetricDefinitionType } from '../metricsLogic'
 
 const DEFINITION_TYPE_OPTIONS: { value: NewMetricDefinitionType; label: string }[] = [
-    { value: 'none', label: 'No definition' },
     { value: 'markdown', label: 'Markdown' },
     { value: 'insight', label: 'Insight' },
 ]
@@ -30,7 +29,9 @@ export function NewMetricModal(): JSX.Element {
           ? 'Add a description'
           : newMetricForm.definitionType === 'insight' && !newMetricForm.sourceInsightShortId
             ? 'Choose an insight'
-            : undefined
+            : newMetricForm.definitionType === 'markdown' && !newMetricForm.markdown.trim()
+              ? 'Add the markdown definition'
+              : undefined
 
     return (
         <LemonModal isOpen={newMetricModalOpen} onClose={closeNewMetricModal} width={640} title="New metric">
