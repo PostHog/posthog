@@ -328,7 +328,8 @@ class TestListProfilesFanOut:
 
     def test_config_is_opt_in_fan_out_with_composite_pk(self) -> None:
         config = KLAVIYO_ENDPOINTS["list_profiles"]
-        assert config.fan_out_over_lists is True
+        assert config.fan_out is not None
+        assert config.fan_out.membership_rows is True
         assert config.should_sync_default is False
         assert config.primary_keys == ["list_id", "profile_id"]
 
@@ -350,7 +351,9 @@ class TestListProfilesFanOut:
             return {"data": [], "links": {"next": None}}
 
         monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-        list(klaviyo._iter_list_ids(MagicMock(), {}, MagicMock()))
+        fan_out = KLAVIYO_ENDPOINTS["list_profiles"].fan_out
+        assert fan_out is not None
+        list(klaviyo._iter_fan_out_parents(MagicMock(), {}, MagicMock(), fan_out))
 
         assert fetched_urls == ["https://a.klaviyo.com/api/lists?page[size]=10"]
 
@@ -495,8 +498,387 @@ class TestListProfilesFanOut:
             self._collect(_FakeResumableManager(), monkeypatch, pages)
 
 
+def _collect_rows(endpoint: str, monkeypatch: Any, pages: dict[str, Any], **kwargs: Any) -> list[dict]:
+    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None) -> dict:
+        result = pages[url]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+
+    rows: list[dict] = []
+    for table in get_rows(
+        api_key="pk_test",
+        endpoint=endpoint,
+        logger=MagicMock(),
+        resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+        **kwargs,
+    ):
+        rows.extend(table.to_pylist())
+    return rows
+
+
+class TestGeneralizedFanOut:
+    def test_segment_membership_uses_the_segment_parent_and_id_column(self, monkeypatch: Any) -> None:
+        # The fan-out was originally hardcoded to /lists and a list_id column; a regression there
+        # would silently emit list_id rows (or 400 on the wrong parent page size) for segments.
+        pages = {
+            "https://a.klaviyo.com/api/segments?page[size]=10": {
+                "data": [{"id": "S1"}],
+                "links": {"next": None},
+            },
+            (
+                "https://a.klaviyo.com/api/segments/S1/profiles"
+                "?page[size]=100&sort=-joined_group_at&fields[profile]=joined_group_at"
+            ): {
+                "data": [
+                    {"type": "profile", "id": "P1", "attributes": {"joined_group_at": "2026-01-08T00:00:00+00:00"}}
+                ],
+                "links": {"next": None},
+            },
+        }
+        rows = _collect_rows("segment_profiles", monkeypatch, pages)
+        assert rows == [{"segment_id": "S1", "profile_id": "P1", "joined_group_at": "2026-01-08T00:00:00+00:00"}]
+
+    def test_flow_actions_yield_the_flattened_resource_tagged_with_its_flow(self, monkeypatch: Any) -> None:
+        # Non-membership fan-out rows must keep the resource's own fields and gain the parent id;
+        # dropping flow_id makes the table impossible to join back to flows.
+        pages = {
+            "https://a.klaviyo.com/api/flows?page[size]=50": {
+                "data": [{"id": "F1"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/flows/F1/flow-actions?page[size]=50&sort=-updated": {
+                "data": [
+                    {
+                        "type": "flow-action",
+                        "id": "A1",
+                        "attributes": {
+                            "created": "2026-01-01T00:00:00+00:00",
+                            "updated": "2026-02-01T00:00:00+00:00",
+                        },
+                    }
+                ],
+                "links": {"next": None},
+            },
+        }
+        rows = _collect_rows("flow_actions", monkeypatch, pages)
+        assert rows == [
+            {
+                "type": "flow-action",
+                "id": "A1",
+                "created": "2026-01-01T00:00:00+00:00",
+                "updated": "2026-02-01T00:00:00+00:00",
+                "flow_id": "F1",
+            }
+        ]
+
+    def test_flow_messages_walk_flows_then_actions_and_carry_both_ancestors(self, monkeypatch: Any) -> None:
+        # Two-level fan-out: the intermediate path must be formatted with the grandparent id, and
+        # each row must carry both ancestors or the flow -> action -> message chain can't be rebuilt.
+        pages = {
+            "https://a.klaviyo.com/api/flows?page[size]=50": {
+                "data": [{"id": "F1"}, {"id": "F2"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/flows/F1/flow-actions?page[size]=50": {
+                "data": [{"id": "A1"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/flows/F2/flow-actions?page[size]=50": {
+                "data": [{"id": "A2"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/flow-actions/A1/flow-messages?page[size]=50&sort=-updated": {
+                "data": [{"type": "flow-message", "id": "M1", "attributes": {"channel": "email"}}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/flow-actions/A2/flow-messages?page[size]=50&sort=-updated": {
+                "data": [{"type": "flow-message", "id": "M2", "attributes": {"channel": "sms"}}],
+                "links": {"next": None},
+            },
+        }
+        rows = _collect_rows("flow_messages", monkeypatch, pages)
+        assert rows == [
+            {"type": "flow-message", "id": "M1", "channel": "email", "flow_action_id": "A1", "flow_id": "F1"},
+            {"type": "flow-message", "id": "M2", "channel": "sms", "flow_action_id": "A2", "flow_id": "F2"},
+        ]
+
+    def test_deleted_flow_is_skipped_while_enumerating_two_level_parents(self, monkeypatch: Any) -> None:
+        # A flow deleted between enumeration and the action fetch must not fail the whole sync.
+        pages = {
+            "https://a.klaviyo.com/api/flows?page[size]=50": {
+                "data": [{"id": "GONE"}, {"id": "F2"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/flows/GONE/flow-actions?page[size]=50": requests.HTTPError(
+                response=_response_with_status(404)
+            ),
+            "https://a.klaviyo.com/api/flows/F2/flow-actions?page[size]=50": {
+                "data": [{"id": "A2"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/flow-actions/A2/flow-messages?page[size]=50&sort=-updated": {
+                "data": [{"type": "flow-message", "id": "M2", "attributes": {"channel": "sms"}}],
+                "links": {"next": None},
+            },
+        }
+        rows = _collect_rows("flow_messages", monkeypatch, pages)
+        assert rows == [{"type": "flow-message", "id": "M2", "channel": "sms", "flow_action_id": "A2", "flow_id": "F2"}]
+
+    @parameterized.expand(
+        [
+            ("list_profiles", ["list_id", "profile_id"]),
+            ("segment_profiles", ["segment_id", "profile_id"]),
+        ]
+    )
+    def test_membership_tables_key_on_parent_and_profile(self, endpoint: str, expected_keys: list[str]) -> None:
+        # A membership key that isn't unique table-wide seeds duplicates that every later merge
+        # multi-matches, which is how these fan-outs OOM.
+        assert KLAVIYO_ENDPOINTS[endpoint].primary_keys == expected_keys
+
+
+class TestValuesReports:
+    @staticmethod
+    def _pages(report_path: str, results: list[dict], next_url: str | None = None) -> dict[str, Any]:
+        return {
+            "https://a.klaviyo.com/api/metrics": {
+                "data": [
+                    {"id": "M_OTHER", "attributes": {"name": "Viewed Product"}},
+                    {"id": "M_ORDER", "attributes": {"name": "Placed Order"}},
+                ],
+                "links": {"next": None},
+            },
+            f"https://a.klaviyo.com/api{report_path}": {
+                "data": {"type": "campaign-values-report", "attributes": {"results": results}},
+                "links": {"next": next_url},
+            },
+        }
+
+    def test_groupings_and_statistics_flatten_into_one_row(self, monkeypatch: Any) -> None:
+        # The report nests groupings and statistics under separate objects; keeping that nesting
+        # would make the table unqueryable and break the declared primary key.
+        pages = self._pages(
+            "/campaign-values-reports",
+            [
+                {
+                    "groupings": {"campaign_id": "C1", "campaign_message_id": "CM1", "send_channel": "email"},
+                    "statistics": {"opens": 123, "open_rate": 0.8253},
+                }
+            ],
+        )
+        rows = _collect_rows("campaign_values_reports", monkeypatch, pages)
+        assert rows == [
+            {
+                "campaign_id": "C1",
+                "campaign_message_id": "CM1",
+                "send_channel": "email",
+                "opens": 123,
+                "open_rate": 0.8253,
+                "timeframe_key": "last_365_days",
+                "conversion_metric_id": "M_ORDER",
+            }
+        ]
+
+    def test_report_body_carries_the_required_query(self, monkeypatch: Any) -> None:
+        # Klaviyo 400s a values report that is missing statistics, timeframe, or conversion metric.
+        captured: dict[str, Any] = {}
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            if json_body is not None:
+                captured["body"] = json_body
+                captured["content_type"] = headers.get("Content-Type")
+                return {"data": {"attributes": {"results": []}}, "links": {}}
+            return {"data": [{"id": "M_ORDER", "attributes": {"name": "Placed Order"}}], "links": {}}
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        list(
+            get_rows(
+                api_key="pk_test",
+                endpoint="flow_values_reports",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+        )
+
+        attributes = captured["body"]["data"]["attributes"]
+        assert captured["body"]["data"]["type"] == "flow-values-report"
+        assert captured["content_type"] == "application/vnd.api+json"
+        assert attributes["timeframe"] == {"key": "last_365_days"}
+        assert attributes["conversion_metric_id"] == "M_ORDER"
+        assert attributes["group_by"] == ["flow_id", "flow_message_id", "send_channel"]
+        assert "opens" in attributes["statistics"]
+
+    def test_configured_conversion_metric_skips_the_lookup(self, monkeypatch: Any) -> None:
+        # A user-set metric must win, and must not cost an extra /metrics walk on every sync.
+        fetched_urls: list[str] = []
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            fetched_urls.append(url)
+            return {"data": {"attributes": {"results": []}}, "links": {}}
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        list(
+            get_rows(
+                api_key="pk_test",
+                endpoint="campaign_values_reports",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                conversion_metric_id="CHOSEN",
+            )
+        )
+
+        assert fetched_urls == ["https://a.klaviyo.com/api/campaign-values-reports"]
+
+    def test_falls_back_to_the_first_metric_when_placed_order_is_absent(self, monkeypatch: Any) -> None:
+        # Accounts without ecommerce have no Placed Order metric; the report still needs one.
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            if json_body is not None:
+                return {
+                    "data": {
+                        "attributes": {"results": [{"groupings": {"campaign_id": "C1"}, "statistics": {"opens": 1}}]}
+                    },
+                    "links": {},
+                }
+            return {"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        rows = [
+            row
+            for table in get_rows(
+                api_key="pk_test",
+                endpoint="campaign_values_reports",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+            for row in table.to_pylist()
+        ]
+
+        assert rows[0]["conversion_metric_id"] == "M_FIRST"
+
+    def test_account_with_no_metrics_yields_nothing_instead_of_posting_an_invalid_report(
+        self, monkeypatch: Any
+    ) -> None:
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            assert json_body is None, "must not post a report without a conversion metric"
+            return {"data": [], "links": {}}
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        assert (
+            list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint="campaign_values_reports",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+            == []
+        )
+
+
+class TestEndpointRequestParams:
+    @parameterized.expand(
+        [
+            # Klaviyo caps page[size] per endpoint and 400s anything larger, which fails the table.
+            ("segments", 10),
+            ("templates", 10),
+            ("web_feeds", 20),
+            ("tag_groups", 25),
+            ("tags", 50),
+            ("flow_actions", 50),
+            ("flow_messages", 50),
+            ("forms", 100),
+            ("reviews", 100),
+            ("images", 100),
+            ("catalog_items", 100),
+            ("catalog_variants", 100),
+            ("catalog_categories", 100),
+            ("coupons", 100),
+            ("coupon_codes", 100),
+            ("push_tokens", 100),
+            ("data_sources", 100),
+            ("segment_profiles", 100),
+        ]
+    )
+    def test_page_size_stays_within_the_endpoint_cap(self, endpoint: str, expected: int) -> None:
+        params = _build_initial_params(
+            KLAVIYO_ENDPOINTS[endpoint],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+        assert params["page[size]"] == expected
+
+    @parameterized.expand([("custom_metrics",), ("object_types",), ("webhooks",), ("accounts",)])
+    def test_unsized_endpoints_send_no_page_size(self, endpoint: str) -> None:
+        # These endpoints document no page[size] param; sending one is rejected.
+        params = _build_initial_params(
+            KLAVIYO_ENDPOINTS[endpoint],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+        assert "page[size]" not in params
+
+    def test_reviews_use_the_inclusive_operator_klaviyo_documents(self) -> None:
+        # Klaviyo only accepts greater-or-equal on the review `created` filter; greater-than 400s.
+        params = _build_initial_params(
+            KLAVIYO_ENDPOINTS["reviews"],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="created",
+        )
+        assert params["filter"] == "greater-or-equal(created,2026-03-04T02:58:14.000Z)"
+
+
+class TestNewSchemas:
+    @parameterized.expand(
+        [
+            ("segments", True),
+            ("segment_profiles", False),
+            ("flow_actions", True),
+            ("flow_messages", False),
+            ("campaign_values_reports", True),
+            ("templates", True),
+        ]
+    )
+    def test_expensive_fan_outs_are_opt_in(self, endpoint: str, expected_default: bool) -> None:
+        # A default-on fan-out silently multiplies API cost for accounts that opted into auto-sync.
+        schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
+        assert schemas[endpoint].should_sync_default is expected_default
+
+    @parameterized.expand([("segment_profiles",), ("flow_actions",), ("flow_messages",)])
+    def test_lookback_endpoints_are_merge_only(self, endpoint: str) -> None:
+        # Append mode would materialize the intentional lookback re-pulls as duplicate rows.
+        schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
+        assert schemas[endpoint].supports_append is False
+
+    def test_every_endpoint_is_exposed_as_a_schema(self) -> None:
+        schemas = {s.name for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
+        assert schemas == set(KLAVIYO_ENDPOINTS)
+
+
 class TestSourceResponseSortMode:
-    @parameterized.expand([("list_profiles", "desc"), ("events", "asc")])
+    @parameterized.expand(
+        [
+            ("list_profiles", "desc"),
+            ("segment_profiles", "desc"),
+            ("flow_actions", "desc"),
+            ("flow_messages", "desc"),
+            ("events", "asc"),
+            ("segments", "asc"),
+        ]
+    )
     def test_source_response_sort_mode(self, endpoint: str, expected: str) -> None:
         # "desc" defers watermark persistence to successful job end; reverting the fan-out to "asc"
         # per-batch persistence lets a crashed run advance the watermark past lists it never fetched.
