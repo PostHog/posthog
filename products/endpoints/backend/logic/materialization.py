@@ -229,10 +229,12 @@ class EndpointMaterializationService:
                     },
                 )
 
-            # NOTE: schedule_materialization only triggers an immediate run when it CREATES the
-            # Temporal schedule; re-enabling an existing materialization just (re)syncs the schedule.
+            # NOTE: on v1, schedule_materialization only triggers an immediate run when it CREATES
+            # the Temporal schedule; re-enabling an existing materialization just (re)syncs it.
+            # trigger_immediate_run gives v2 the same first-run-on-enable behavior (deferred to
+            # on_commit, so it sees the version link above).
             try:
-                saved_query.schedule_materialization()
+                saved_query.schedule_materialization(trigger_immediate_run=True)
             except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
                 # The chosen data freshness can't be honored (e.g. finer than an upstream import
                 # delivers) — a request problem, not a server one.

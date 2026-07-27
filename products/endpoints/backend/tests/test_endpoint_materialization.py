@@ -1780,7 +1780,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         observed: dict = {}
 
-        def simulate_immediate_temporal_run(self_saved_query):
+        def simulate_immediate_temporal_run(self_saved_query, **kwargs):
             # schedule_materialization() triggers an immediate run on a separate worker
             # process, which sees only committed DB state. Capture whether the version is
             # already linked, then run the real activity code that throws when it isn't.
@@ -1819,7 +1819,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         observed: dict = {}
 
-        def capture_node_state(self_saved_query):
+        def capture_node_state(self_saved_query, **kwargs):
             observed["node_exists"] = Node.objects.filter(saved_query_id=self_saved_query.id).exists()
 
         with mock.patch.object(
