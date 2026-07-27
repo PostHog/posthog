@@ -15,6 +15,7 @@ import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { InternalPerson, Team, ValueMatcher } from '~/types'
 
 import { buildPersonMergeEventMessage } from './person-merge-event'
+import type { MergeFoldPlan } from './person-merge-fold'
 import { MergeMode } from './person-merge-types'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
@@ -62,7 +63,9 @@ export class PersonContext {
             enabled: false,
             partitionCount: 64,
             isTeamEnabled: () => false,
-        }
+        },
+        /** Fold plan shared by this event's consecutive $identify run; see person-merge-fold.ts. */
+        public readonly mergeFoldPlan?: MergeFoldPlan
     ) {
         this.eventProperties = event.properties!
     }

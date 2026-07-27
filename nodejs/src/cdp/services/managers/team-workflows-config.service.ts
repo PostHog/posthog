@@ -1,12 +1,17 @@
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 
+// Mirrors EmailTrackingConsentMode in products/workflows/backend/models/team_workflows_config.py
+export type EmailTrackingConsentMode = 'off' | 'opt_out' | 'opt_in'
+
 export type TeamWorkflowsConfig = {
     capture_workflows_engagement_events: boolean
+    email_tracking_consent_mode: EmailTrackingConsentMode
 }
 
 const DEFAULT_CONFIG: TeamWorkflowsConfig = {
     capture_workflows_engagement_events: false,
+    email_tracking_consent_mode: 'off',
 }
 
 /**
@@ -35,10 +40,19 @@ export class TeamWorkflowsConfigService {
         return config.capture_workflows_engagement_events
     }
 
+    public async getEmailTrackingConsentMode(teamId: number): Promise<EmailTrackingConsentMode> {
+        const config = await this.get(teamId)
+        return config.email_tracking_consent_mode
+    }
+
     private async fetchConfigs(teamIds: string[]): Promise<Record<string, TeamWorkflowsConfig>> {
-        const result = await this.postgres.query<{ team_id: number; capture_workflows_engagement_events: boolean }>(
+        const result = await this.postgres.query<{
+            team_id: number
+            capture_workflows_engagement_events: boolean
+            email_tracking_consent_mode: EmailTrackingConsentMode
+        }>(
             PostgresUse.COMMON_READ,
-            `SELECT team_id, capture_workflows_engagement_events
+            `SELECT team_id, capture_workflows_engagement_events, email_tracking_consent_mode
              FROM workflows_teamworkflowsconfig
              WHERE team_id = ANY($1)`,
             [teamIds.map(Number)],
@@ -52,6 +66,7 @@ export class TeamWorkflowsConfigService {
         for (const row of result.rows) {
             configs[String(row.team_id)] = {
                 capture_workflows_engagement_events: row.capture_workflows_engagement_events,
+                email_tracking_consent_mode: row.email_tracking_consent_mode ?? 'off',
             }
         }
         return configs

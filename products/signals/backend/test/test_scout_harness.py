@@ -309,6 +309,10 @@ class TestPromptBuilder(BaseTest):
         # reference must survive in the signal tail.
         assert "Notes left for you" in prompt
         assert "scout-notes-list" in prompt
+        # The fleet-seams section is shared across both channels, but each tail is assembled by
+        # its own code path, so assert it on both to catch a drop from either list.
+        assert "Working alongside the rest of the fleet" in prompt
+        assert "scout_fleet" in prompt
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
         assert "2026-05-01T12:34:56+00:00" in prompt
@@ -398,6 +402,9 @@ class TestPromptBuilder(BaseTest):
         # Steering notes are prior context on the report channel too.
         assert "Notes left for you" in prompt
         assert "scout-notes-list" in prompt
+        # Fleet seams too — the report tail is built by `_report_tail_sections`, a separate list
+        # from the signal tail, so it can lose the shared section independently.
+        assert "Working alongside the rest of the fleet" in prompt
         # The two highest-leverage nudges the report channel adds: search the inbox
         # and edit before authoring a duplicate, and set suggested reviewers (what
         # actually routes a report).

@@ -55,7 +55,8 @@ export function collectSqlV2Refs(doc: JSONContent | null | undefined, selfNodeId
         }
     }
     for (const node of collectPythonKernelNodes(doc)) {
-        if (node.nodeId && node.nodeId !== selfNodeId && !(node.returnVariable in refs)) {
+        // An unnamed python cell binds nothing in the kernel, so there is no frame to reference.
+        if (node.nodeId && node.nodeId !== selfNodeId && node.returnVariable && !(node.returnVariable in refs)) {
             refs[node.returnVariable] = { node_id: node.nodeId, kind: 'local' }
         }
     }
@@ -83,10 +84,6 @@ export type NotebookNodeSQLV2DirectRows = {
     types: [string, string][]
     rows: (string | number | null)[][]
 }
-
-// Which execution lane the node's current run took: 'direct' runs on ClickHouse with no
-// sandbox (no Stop affordance, client-side paging); 'kernel' runs in the sandbox.
-export type SqlV2RunLane = 'direct' | 'kernel'
 
 export interface RunQueryOptions {
     nodeType?: 'hogql' | 'python'
@@ -117,7 +114,6 @@ export interface notebookNodeSQLV2LogicValues {
     staleNodeIds: Record<string, true> // notebookNodeStalenessLogic
     activeOperation: NotebookOperation | null // notebookOperationsLogic
     isBusy: boolean // notebookOperationsLogic
-    activeRunLane: SqlV2RunLane | null
     directRows: NotebookNodeSQLV2DirectRows | null
     isInterrupting: boolean
     isRunning: boolean
@@ -188,9 +184,6 @@ export interface notebookNodeSQLV2LogicActions {
         code: string
         opts: RunQueryOptions
         refs: Record<string, SqlV2RunRef>
-    }
-    setActiveRunLane: (activeRunLane: SqlV2RunLane) => {
-        activeRunLane: SqlV2RunLane
     }
     setDirectRows: (directRows: NotebookNodeSQLV2DirectRows | null) => {
         directRows: NotebookNodeSQLV2DirectRows | null
@@ -287,7 +280,6 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         setPageLoading: (pageLoading: boolean) => ({ pageLoading }),
         resetPaging: true,
         setDirectRows: (directRows: NotebookNodeSQLV2DirectRows | null) => ({ directRows }),
-        setActiveRunLane: (activeRunLane: SqlV2RunLane) => ({ activeRunLane }),
         setPendingKernelStart: (pendingKernelStart: boolean) => ({ pendingKernelStart }),
     }),
     reducers({
@@ -357,12 +349,6 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
             {
                 setDirectRows: (_, { directRows }) => directRows,
                 runQuery: () => null,
-            },
-        ],
-        activeRunLane: [
-            null as SqlV2RunLane | null,
-            {
-                setActiveRunLane: (_, { activeRunLane }) => activeRunLane,
             },
         ],
         // A kernel-lane run was submitted while no kernel was known to be up: the backend is
@@ -486,12 +472,11 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 }
                 // Which lane will this run take? Mirrors the backend's routing: python always
                 // needs the kernel; SQL needs it only when it reads a local (python-made) frame.
-                // The backend stays authoritative — this only drives the Stop affordance and
-                // the kernel panel, never dispatch.
+                // The backend stays authoritative — this only drives the kernel panel, never
+                // dispatch.
                 const isKernelLane =
                     opts.nodeType === 'python' ||
                     extractDuckSqlTables(code).some((name) => refs[name]?.kind === 'local')
-                actions.setActiveRunLane(isKernelLane ? 'kernel' : 'direct')
                 if (isKernelLane) {
                     // The backend provisions the sandbox itself when none is running; open the
                     // kernel panel so the user can watch it come up instead of guessing.

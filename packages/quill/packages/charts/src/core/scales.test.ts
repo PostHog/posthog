@@ -689,6 +689,17 @@ describe('hog-charts scales', () => {
             expect(autoFormatYTick(value, domainMax)).toBe(expected)
         })
 
+        it.each([
+            { domainMax: 0.012, value: 0.012, expected: '0.012' },
+            { domainMax: 0.012, value: 0.002, expected: '0.002' },
+            { domainMax: 0.0005, value: 0.0001, expected: '0.0001' },
+        ])(
+            'scales precision to the domain so small ticks stay distinct: $value over 0–$domainMax → $expected',
+            ({ domainMax, value, expected }) => {
+                expect(autoFormatYTick(value, domainMax)).toBe(expected)
+            }
+        )
+
         it('formats zero correctly when domainMax is large', () => {
             expect(autoFormatYTick(0, 100)).toBe('0')
         })

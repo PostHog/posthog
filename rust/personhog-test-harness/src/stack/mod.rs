@@ -264,14 +264,18 @@ impl Stack {
         Ok(stack)
     }
 
-    /// Spawn one more leader. The pod registers with an explicit host:port
-    /// name, which the router's resolver dials as-is.
+    /// Spawn one more leader. The pod derives its advertise address from
+    /// its concrete bind and registers it for the router to dial.
     pub fn spawn_leader(&mut self) -> Result<String> {
         let index = self.next_leader_index;
         self.next_leader_index += 1;
 
         let grpc_port = LEADER_GRPC_BASE_PORT + index as u16;
-        let pod_name = format!("127.0.0.1:{grpc_port}");
+        // A real pod name: the leader derives its advertise address from
+        // its concrete bind, registers it, and the router dials what the
+        // routing table carries — the same path a deployment takes.
+        let pod_name = format!("personhog-leader-{index}");
+        let grpc_address = format!("127.0.0.1:{grpc_port}");
         // Heartbeats must land well inside the lease window or a healthy
         // pod's lease expires between renewals.
         let heartbeat_secs = (self.config.leader_lease_ttl / 3).max(1);
@@ -279,7 +283,7 @@ impl Stack {
             &format!("leader-{index}"),
             &self.config.bin_dir.join("personhog-leader"),
             &[
-                ("GRPC_ADDRESS", pod_name.clone()),
+                ("GRPC_ADDRESS", grpc_address),
                 ("POD_NAME", pod_name.clone()),
                 ("LEASE_TTL", self.config.leader_lease_ttl.to_string()),
                 ("HEARTBEAT_INTERVAL_SECS", heartbeat_secs.to_string()),
