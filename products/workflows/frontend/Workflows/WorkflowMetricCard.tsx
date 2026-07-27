@@ -122,6 +122,9 @@ export function WorkflowMetricCard({
             data={data.length > 0 ? data : undefined}
             series={sparklineSeries}
             labels={timeSeries?.labels}
+            // The headline is a whole-period total, so don't caption it with a single bucket's date.
+            // The hover tooltip carries the per-point date instead.
+            subtitle=""
             theme={theme}
             color={total === 0 ? colorIfZero : color}
             change={change}
