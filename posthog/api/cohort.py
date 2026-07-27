@@ -1007,18 +1007,24 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             return str_to_bool(self.initial_data["is_static"])
         return bool(getattr(self.instance, "is_static", False))
 
-    def _effective_filters_after_update(self, attrs: dict) -> dict | None:
-        # PATCH may send legacy groups without filters, derive the post-update properties for validation
-        instance = cast(Cohort, self.instance)
-        filters = attrs.get("filters", instance.filters)
+    def _effective_filters_after_update(self, attrs: dict, team: Optional[Team] = None) -> dict | None:
+        # Derive the properties that survive the save, mirroring Cohort.properties precedence:
+        # filters win over the legacy groups field, so clearing filters re-activates preserved
+        # groups. Pass team on the create path, where there's no instance to read it from.
+        instance = cast(Optional[Cohort], self.instance)
+        filters = attrs.get("filters", instance.filters if instance else None)
         if filters:
             return filters
 
-        groups = attrs.get("groups", instance.groups)
+        groups = attrs.get("groups", instance.groups if instance else None)
         if not groups:
             return None
 
-        cohort = Cohort(team=instance.team, filters=None, groups=deepcopy(groups))
+        effective_team = team or (instance.team if instance else None)
+        if effective_team is None:
+            return None
+
+        cohort = Cohort(team=effective_team, filters=None, groups=deepcopy(groups))
         return {"properties": cohort.properties.to_dict()}
 
     def validate_filters(self, raw: dict):
@@ -1075,18 +1081,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if team is None or user is None or not getattr(user, "is_authenticated", False):
             return
 
-        # Validate the effective post-save definition, mirroring Cohort.properties precedence
-        # (filters win over groups): clearing filters re-activates preserved legacy groups, so
-        # what survives the save is what must be checked - not just the fields in the payload.
-        instance = cast(Optional[Cohort], self.instance)
-        filters = attrs["filters"] if "filters" in attrs else (instance.filters if instance else None)
-        properties: Optional[dict] = None
-        if filters:
-            properties = filters.get("properties")
-        else:
-            groups = attrs["groups"] if "groups" in attrs else (instance.groups if instance else None)
-            if groups:
-                properties = Cohort(team=team, filters=None, groups=deepcopy(groups)).properties.to_dict()
+        # Check what survives the save, not just the fields in the payload.
+        effective = self._effective_filters_after_update(attrs, team=team)
+        properties = effective.get("properties") if effective else None
 
         try:
             if properties:
