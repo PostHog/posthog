@@ -162,11 +162,28 @@ export const domainConnectLogic = kea<domainConnectLogicType>([
         // Handle return from Domain Connect redirect
         const searchParams = new URLSearchParams(window.location.search)
         if (searchParams.get('domain_connect') === props.context) {
-            lemonToast.success('DNS records have been submitted. It may take a few minutes for changes to propagate.')
+            // On failure the DNS provider redirects back with OAuth-style error params. Surface the
+            // provider's message instead of a blanket success so the user knows to fall back to the
+            // manual DNS records shown on the page rather than assuming they're done.
+            const error = searchParams.get('error')
+            if (error) {
+                const description = searchParams.get('error_description')
+                lemonToast.error(
+                    description
+                        ? `Automatic DNS setup failed: ${description}. You can still add the DNS records manually.`
+                        : 'Automatic DNS setup failed. You can still add the DNS records manually.'
+                )
+            } else {
+                lemonToast.success(
+                    'DNS records have been submitted. It may take a few minutes for changes to propagate.'
+                )
+            }
 
-            // Remove key to avoid showing the banner again if the user returns to the page before DNS changes have propagated. The user can always trigger the banner again by adding ?domain_connect=email or ?domain_connect=proxy to the URL.
+            // Remove keys to avoid showing the toast again if the user returns to the page before DNS changes have propagated. The user can always trigger the banner again by adding ?domain_connect=email or ?domain_connect=proxy to the URL.
             const url = new URL(window.location.href)
             url.searchParams.delete('domain_connect')
+            url.searchParams.delete('error')
+            url.searchParams.delete('error_description')
             router.actions.replace(url.pathname + url.search)
         }
     }),

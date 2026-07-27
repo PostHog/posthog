@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -6,6 +6,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -264,6 +265,52 @@ describe('projectNoticeLogic', () => {
             const logic = await mountWithDetectedProxy(false)
 
             expect(logic.values.projectNoticeVariant).toEqual('missing_reverse_proxy')
+
+            logic.unmount()
+        })
+    })
+
+    describe('reverse proxy nudge role gating', () => {
+        let getItemSpy: jest.SpyInstance
+        let getDateSpy: jest.SpyInstance
+        let originalAppContext: AppContext | undefined
+
+        beforeEach(() => {
+            // initKeaTests with an org override mutates the shared window app context, so snapshot it
+            // and restore afterwards — otherwise the member user leaks into later describe blocks.
+            originalAppContext = window.POSTHOG_APP_CONTEXT
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
+                },
+                post: {
+                    '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
+                },
+            })
+            // Boot as an org member (not admin) — managed proxy setup is admin-only.
+            initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                membership_level: OrganizationMembershipLevel.Member,
+            })
+            preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
+            getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
+            getDateSpy = jest.spyOn(Date.prototype, 'getDate').mockReturnValue(3)
+        })
+
+        afterEach(() => {
+            getItemSpy.mockRestore()
+            getDateSpy.mockRestore()
+            window.POSTHOG_APP_CONTEXT = originalAppContext
+        })
+
+        it('does not nudge non-admins toward the admin-only proxy setup', async () => {
+            const logic = projectNoticeLogic()
+            logic.mount()
+            await expectLogic(reverseProxyCheckerLogic).toDispatchActions(['loadHasReverseProxySuccess'])
+            reverseProxyCheckerLogic.actions.loadHasReverseProxySuccess(false)
+            logic.actions.loadRecordsSuccess([])
+
+            expect(logic.values.projectNoticeVariant).not.toEqual('missing_reverse_proxy')
 
             logic.unmount()
         })

@@ -8,6 +8,7 @@ import api, { ApiError } from 'lib/api'
 import { getProductPushDisplay } from 'lib/components/NavPanelAdvertisement/navPanelProductPushDisplay'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -442,6 +443,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     // Only show the reverse proxy nudge on Cloud (or dev) — self-hosted users
                     // control their own infrastructure and don't need managed proxies.
                     isCloudOrDev &&
+                    // Only nudge org admins — setting up a managed proxy is admin-only, so pointing
+                    // members at a settings page they can't act on is a dead end.
+                    (organization.membership_level ?? OrganizationMembershipLevel.Member) >=
+                        OrganizationMembershipLevel.Admin &&
                     shouldFetchProxyRecords(user, organization?.id ?? null) &&
                     proxyRecords !== null &&
                     proxyRecords.length === 0 &&
