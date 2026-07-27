@@ -1,10 +1,24 @@
-import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -26,6 +40,13 @@ import type {
 } from '../../types'
 
 export const SUPPORT_TICKETS_PAGE_SIZE = 20
+
+// Mirrors the backend's minimum for text search: shorter queries can't use the
+// trigram indexes and are ignored server-side, so don't send them at all.
+export const MIN_TEXT_SEARCH_LENGTH = 3
+
+// Ticket-number searches ("42", "#42") are exact lookups and work at any length.
+const TICKET_NUMBER_SEARCH_REGEX = /^#?\d+$/
 
 // Must mirror the filter reducers' defaults below. The date range is deliberately
 // omitted: it's a persisted user preference, so clearing a view restores the
@@ -201,6 +222,7 @@ export interface supportTicketsSceneLogicValues {
     orderBy: string
     priorityFilter: TicketPriority[]
     searchQuery: string
+    searchQueryTooShort: boolean
     selectedTicketIds: string[]
     selectedTickets: Ticket[]
     slaFilter: TicketSlaState | 'all'
@@ -325,6 +347,10 @@ export interface supportTicketsSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         aiEnabled: (currentTeam: TeamType | null | import('~/types').TeamPublicType) => boolean
+        searchQueryTooShort: (
+            searchQuery: string,
+            featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+        ) => boolean
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
         assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
@@ -568,6 +594,20 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             () => [teamLogic.selectors.currentTeam],
             (currentTeam: TeamType | null): boolean => !!currentTeam?.conversations_settings?.ai_suggestions_enabled,
         ],
+        searchQueryTooShort: [
+            (s) => [s.searchQuery, featureFlagLogic.selectors.featureFlags],
+            (searchQuery: string, featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean => {
+                if (!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SEARCH_V2]) {
+                    return false
+                }
+                const trimmed = searchQuery.trim()
+                return (
+                    trimmed.length > 0 &&
+                    trimmed.length < MIN_TEXT_SEARCH_LENGTH &&
+                    !TICKET_NUMBER_SEARCH_REGEX.test(trimmed)
+                )
+            },
+        ],
         orderBy: [
             (s) => [s.sorting],
             (sorting: Sorting | null): string => {
@@ -705,7 +745,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.tagsExcludeFilter.length > 0) {
                 params.tags_exclude = JSON.stringify(values.tagsExcludeFilter)
             }
-            if (values.searchQuery) {
+            if (values.searchQuery && !values.searchQueryTooShort) {
                 params.search = values.searchQuery
             }
             if (values.dateFrom) {
@@ -720,9 +760,15 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
 
             try {
                 const response = await api.conversationsTickets.list(params)
+                // Drop responses that were superseded while in flight, so a slow reply
+                // to an older query can't overwrite newer results.
+                breakpoint()
                 actions.setTickets(response.results || [])
                 actions.setTotalCount(response.count ?? response.results?.length ?? 0)
-            } catch {
+            } catch (error: any) {
+                if (isBreakpoint(error)) {
+                    throw error
+                }
                 lemonToast.error('Failed to load tickets')
                 actions.setTicketsLoading(false)
             }
@@ -752,6 +798,11 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.loadTickets()
         },
         setSearchQuery: () => {
+            if (values.searchQueryTooShort) {
+                // Keep showing the current results while the user is still typing a
+                // searchable query; the input shows a hint instead.
+                return
+            }
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },

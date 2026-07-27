@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from collections.abc import Sequence
 from datetime import timedelta
@@ -54,6 +55,8 @@ from products.conversations.backend.events import (
     capture_ticket_priority_changed,
     capture_ticket_status_changed,
 )
+from products.conversations.backend.feature_flags import is_search_v2_enabled
+from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECONDS
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
@@ -214,6 +217,15 @@ class TicketMessagePagination(pagination.LimitOffsetPagination):
 
 MAX_TAG_FILTER_VALUES = 50
 
+# Trigram indexes back the text search; they need a complete trigram, so shorter
+# queries would degrade to full table scans and are ignored instead.
+MIN_TEXT_SEARCH_LENGTH = 3
+
+# Bounds the IN list built from comment matches. Searches whose comments match more
+# tickets than this omit the overflow (comment branch only) — a search that broad is
+# unusable without narrowing anyway.
+COMMENT_SEARCH_MATCH_CAP = 1000
+
 
 class TicketPersonSerializer(serializers.Serializer):
     """Minimal person serializer for embedding in ticket responses."""
@@ -368,6 +380,40 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
     permission_classes = [IsAuthenticated, APIScopePermission]
     pagination_class = TicketPagination
 
+    # Which search branch safely_get_queryset applied, for the latency histogram.
+    _search_path: str | None = None
+
+    def _filter_by_text_search(self, queryset: QuerySet, search: str) -> QuerySet:
+        # Two-step comment match: materialize matching ticket ids first so posthog_comment
+        # is scanned once per request (through its trigram index), and the ticket-side OR
+        # stays a plain disjunction of index-eligible predicates. A correlated EXISTS here
+        # would force a per-ticket probe instead.
+        comment_item_ids = (
+            Comment.objects.filter(
+                team_id=self.team_id,
+                scope="conversations_ticket",
+                deleted=False,
+                content__icontains=search,
+            )
+            .values_list("item_id", flat=True)
+            .distinct()[:COMMENT_SEARCH_MATCH_CAP]
+        )
+        comment_ticket_ids: list[uuid.UUID] = []
+        for item_id in comment_item_ids:
+            try:
+                comment_ticket_ids.append(uuid.UUID(item_id))
+            except (ValueError, TypeError):
+                continue
+
+        text_match = (
+            Q(anonymous_traits__name__icontains=search)
+            | Q(anonymous_traits__email__icontains=search)
+            | Q(email_subject__icontains=search)
+        )
+        if comment_ticket_ids:
+            text_match |= Q(id__in=comment_ticket_ids)
+        return queryset.filter(text_match)
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
         queryset = queryset.filter(team_id=self.team_id)
@@ -477,15 +523,18 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             # that int() then rejects, which would 500 the request.
             ticket_number_search = search[1:] if search.startswith("#") else search
             if ticket_number_search.isascii() and ticket_number_search.isdigit():
+                self._search_path = "ticket_number"
                 queryset = queryset.filter(ticket_number=int(ticket_number_search))
+            elif is_search_v2_enabled(self.team):
+                # Sub-trigram queries are silently ignored, like the length cap above.
+                if len(search) >= MIN_TEXT_SEARCH_LENGTH:
+                    self._search_path = "v2"
+                    queryset = self._filter_by_text_search(queryset, search)
             else:
-                # EXISTS subquery: matches any comment in the ticket's conversation.
-                # Uses the (team_id, scope, item_id) composite index on Comment to
-                # narrow to per-ticket comments; EXISTS short-circuits on first match.
-                # If this becomes slow at scale (10k+ candidate tickets with broad
-                # filters), consider adding a GIN trigram index on Comment.content:
-                #   GinIndex(name="comment_content_trigram", fields=["content"],
-                #            opclasses=["gin_trgm_ops"])
+                # Legacy path, kept while product-support-search-v2 rolls out.
+                # The correlated EXISTS inside an OR forces a per-ticket probe of
+                # posthog_comment and can't use any index on the searched columns.
+                self._search_path = "legacy"
                 comment_match = Comment.objects.filter(
                     team_id=OuterRef("team_id"),
                     scope="conversations_ticket",
@@ -753,8 +802,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Free-text search. A numeric value matches a ticket number exactly; otherwise matches "
-                    "against the customer's name or email (case-insensitive, partial match)."
+                    "Free-text search. A numeric value (optionally prefixed with `#`) matches a ticket number "
+                    "exactly; otherwise matches against the customer's name or email, the email subject, or "
+                    "message content (case-insensitive, partial match). Text queries shorter than 3 characters "
+                    "are ignored."
                 ),
             ),
             OpenApiParameter(
@@ -805,18 +856,27 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
     )
     def list(self, request, *args, **kwargs):
         """List tickets with person data attached."""
-        queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
+        # _search_path starts as the class default (None) on each request's fresh
+        # viewset instance; filter_queryset sets it when a search filter is applied.
+        start = time.perf_counter()
+        try:
+            queryset = self.filter_queryset(self.get_queryset())
+            page = self.paginate_queryset(queryset)
 
-        if page is not None:
-            self._attach_persons_to_tickets(page)
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            if page is not None:
+                self._attach_persons_to_tickets(page)
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
 
-        tickets = list(queryset)
-        self._attach_persons_to_tickets(tickets)
-        serializer = self.get_serializer(tickets, many=True)
-        return Response(serializer.data)
+            tickets = list(queryset)
+            self._attach_persons_to_tickets(tickets)
+            serializer = self.get_serializer(tickets, many=True)
+            return Response(serializer.data)
+        finally:
+            if self._search_path is not None:
+                TICKET_SEARCH_DURATION_SECONDS.labels(search_path=self._search_path).observe(
+                    time.perf_counter() - start
+                )
 
     def retrieve(self, request, *args, **kwargs):
         """Get single ticket and mark as read by team."""
