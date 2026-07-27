@@ -222,7 +222,9 @@ export function Chart<Meta = unknown>({
         yAxisHidden,
     })
 
-    const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
+    const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx, surfaceGeneration } = useChartCanvas({
+        margins,
+    })
 
     const coloredSeries = useColoredSeries<Meta>(series, theme)
 
@@ -374,6 +376,7 @@ export function Chart<Meta = unknown>({
         drawStatic: drawStaticWithTicks,
         drawHover: composedDrawHover,
         hoverAnimationMs,
+        surfaceGeneration,
     })
 
     const ariaLabel = useMemo(() => {

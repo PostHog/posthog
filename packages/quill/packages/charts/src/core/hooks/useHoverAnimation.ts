@@ -28,6 +28,8 @@ interface UseHoverAnimationOptions {
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     /** Duration (ms) of the hover-overlay fade-in. `0` snaps instantly. */
     hoverAnimationMs: number
+    /** Changes when the overlay bitmap was discarded behind our back (a restored 2D context). */
+    surfaceGeneration?: number
 }
 
 /**
@@ -47,6 +49,7 @@ export function useHoverAnimation({
     dragRect = null,
     drawHover,
     hoverAnimationMs,
+    surfaceGeneration = 0,
 }: UseHoverAnimationOptions): void {
     // Cancel the prior RAF on effect re-run — relying on cleanup ordering alone leaves a
     // window where a stale RAF can paint after the new setup runs.
@@ -137,5 +140,5 @@ export function useHoverAnimation({
         // series/labels/theme/drawHover/dragRect are read via refs — dragRect is also in the dep
         // array below so the overlay repaints the selection as the drag rectangle changes.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [overlayCtx, dimensions, scales, hoverIndex, hoverPosition, hoverAnimationMs, dragRect])
+    }, [overlayCtx, dimensions, scales, hoverIndex, hoverPosition, hoverAnimationMs, dragRect, surfaceGeneration])
 }

@@ -30,6 +30,9 @@ interface UseChartDrawOptions {
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     /** Duration (ms) of the hover-overlay fade-in/out. `0` disables. */
     hoverAnimationMs?: number
+    /** Changes when the backing bitmaps were discarded behind our back (a restored 2D context),
+     *  so both layers repaint even though nothing about the data or geometry moved. */
+    surfaceGeneration?: number
 }
 
 export function useChartDraw({
@@ -46,6 +49,7 @@ export function useChartDraw({
     drawStatic,
     drawHover,
     hoverAnimationMs = 0,
+    surfaceGeneration = 0,
 }: UseChartDrawOptions): void {
     // Cancel the prior RAF on effect re-run — relying on cleanup ordering alone leaves a
     // window where a stale RAF can paint after the new setup runs.
@@ -90,7 +94,7 @@ export function useChartDraw({
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ctx, dimensions, scales, series, labels, theme, drawStatic])
+    }, [ctx, dimensions, scales, series, labels, theme, drawStatic, surfaceGeneration])
 
     useHoverAnimation({
         overlayCtx,
@@ -104,5 +108,6 @@ export function useChartDraw({
         dragRect,
         drawHover,
         hoverAnimationMs,
+        surfaceGeneration,
     })
 }

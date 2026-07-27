@@ -69,7 +69,7 @@ export function RadialChart<Meta = unknown>({
     dataAttr,
     children,
 }: RadialChartProps<Meta>): React.ReactElement {
-    const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({
+    const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx, surfaceGeneration } = useChartCanvas({
         margins: RADIAL_MARGINS,
     })
 
@@ -128,6 +128,7 @@ export function RadialChart<Meta = unknown>({
         drawStatic,
         drawHover,
         hoverAnimationMs,
+        surfaceGeneration,
     })
 
     const ariaLabel = useMemo(() => `Pie chart with ${countVisibleSeries(coloredSeries)} slices`, [coloredSeries])
