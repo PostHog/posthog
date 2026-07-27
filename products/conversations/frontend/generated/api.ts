@@ -34,6 +34,7 @@ import type {
     PatchedTicketApi,
     PatchedTicketViewApi,
     QuickActionApi,
+    QuickActionRunRequestApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
     TicketApi,
@@ -405,6 +406,27 @@ export const conversationsQuickActionsDestroy = async (
     return apiMutator<void>(getConversationsQuickActionsDestroyUrl(projectId, shortId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getConversationsQuickActionsRunCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/quick_actions/${shortId}/run/`
+}
+
+/**
+ * Run a workflow quick action against a ticket, synthesizing the ticket's event context.
+ */
+export const conversationsQuickActionsRunCreate = async (
+    projectId: string,
+    shortId: string,
+    quickActionRunRequestApi: QuickActionRunRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsQuickActionsRunCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(quickActionRunRequestApi),
     })
 }
 

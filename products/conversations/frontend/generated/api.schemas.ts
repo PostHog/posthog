@@ -690,6 +690,11 @@ export interface QuickActionApi {
     rich_content?: unknown
     /** Ticket changes (status, priority, tags, assignee) applied when the quick action is used. */
     actions?: QuickActionActionsApi
+    /**
+     * Optional: id of a workflow to run against the ticket when the quick action is used.
+     * @nullable
+     */
+    workflow_id?: string | null
     /** "team" shares with everyone on the team; "personal" keeps it private to you.
      *
      * * `team` - Team
@@ -730,6 +735,11 @@ export interface PatchedQuickActionApi {
     rich_content?: unknown
     /** Ticket changes (status, priority, tags, assignee) applied when the quick action is used. */
     actions?: QuickActionActionsApi
+    /**
+     * Optional: id of a workflow to run against the ticket when the quick action is used.
+     * @nullable
+     */
+    workflow_id?: string | null
     /** "team" shares with everyone on the team; "personal" keeps it private to you.
      *
      * * `team` - Team
@@ -737,6 +747,11 @@ export interface PatchedQuickActionApi {
     visibility?: QuickActionVisibilityEnumApi
     readonly created_at?: string
     readonly created_by?: UserBasicApi
+}
+
+export interface QuickActionRunRequestApi {
+    /** Ticket to run the workflow against. */
+    ticket_id: string
 }
 
 /**

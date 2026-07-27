@@ -111,6 +111,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setAssignee,
         setTags,
         applyTicketActions,
+        runWorkflowQuickAction,
         setSnoozedUntil,
         sendMessage,
         updateTicket,
@@ -240,6 +241,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         enableQuickActions
                         templateVariables={templateVariables}
                         onApplyTicketActions={applyTicketActions}
+                        onRunWorkflow={runWorkflowQuickAction}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} className="z-20" />

@@ -7,7 +7,7 @@ import { LemonButton, LemonCheckbox, LemonSwitch, Tooltip } from '@posthog/lemon
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
-import type { QuickActionActionsApi } from '../../generated/api.schemas'
+import type { QuickActionActionsApi, QuickActionApi } from '../../generated/api.schemas'
 import type { TicketChannel, TicketStatus } from '../../types'
 import { channelIcon, getReplyPlaceholder, hasReplyChannelBranding } from '../Channels/ChannelsTag'
 import { SupportEditor, serializeToMarkdown } from '../Editor'
@@ -57,6 +57,8 @@ export interface MessageInputProps {
     templateVariables?: TemplateVariableValues
     /** Applies a response quick action's ticket actions (status/assignee/tags/priority) */
     onApplyTicketActions?: (actions: QuickActionActionsApi) => void
+    /** Runs a workflow quick action against the ticket */
+    onRunWorkflow?: (quickAction: QuickActionApi) => void
 }
 
 export function MessageInput({
@@ -81,6 +83,7 @@ export function MessageInput({
     enableQuickActions,
     templateVariables,
     onApplyTicketActions,
+    onRunWorkflow,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
@@ -199,6 +202,7 @@ export function MessageInput({
                 enableQuickActions={enableQuickActions}
                 templateVariables={templateVariables}
                 onApplyTicketActions={onApplyTicketActions}
+                onRunWorkflow={onRunWorkflow}
                 className={
                     isPrivate
                         ? 'bg-warning-highlight border-warning'

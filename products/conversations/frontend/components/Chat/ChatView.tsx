@@ -2,7 +2,7 @@ import { JSONContent } from '@tiptap/core'
 
 import { LemonCard } from '@posthog/lemon-ui'
 
-import type { QuickActionActionsApi } from '../../generated/api.schemas'
+import type { QuickActionActionsApi, QuickActionApi } from '../../generated/api.schemas'
 import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketChannel, TicketStatus } from '../../types'
 import { TemplateVariableValues } from '../Editor/templateVariables'
 import { MessageInput } from './MessageInput'
@@ -66,6 +66,8 @@ export interface ChatViewProps {
     templateVariables?: TemplateVariableValues
     /** Applies a response quick action's ticket actions (status/assignee/tags/priority) */
     onApplyTicketActions?: (actions: QuickActionActionsApi) => void
+    /** Runs a workflow quick action against the ticket */
+    onRunWorkflow?: (quickAction: QuickActionApi) => void
 }
 
 export function ChatView({
@@ -101,6 +103,7 @@ export function ChatView({
     enableQuickActions,
     templateVariables,
     onApplyTicketActions,
+    onRunWorkflow,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
     const listMaxHeight = maxHeight ?? '600px'
@@ -144,6 +147,7 @@ export function ChatView({
                     enableQuickActions={enableQuickActions}
                     templateVariables={templateVariables}
                     onApplyTicketActions={onApplyTicketActions}
+                    onRunWorkflow={onRunWorkflow}
                 />
             </div>
         </LemonCard>

@@ -45,7 +45,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import type { QuickActionActionsApi } from '../../generated/api.schemas'
+import type { QuickActionActionsApi, QuickActionApi } from '../../generated/api.schemas'
 import { applyQuickAction } from '../QuickActions/applyQuickAction'
 import { QuickActionPicker, QuickActionsKeepAlive } from '../QuickActions/QuickActionPicker'
 import { QuickActionsExtension } from '../QuickActions/QuickActionsExtension'
@@ -155,6 +155,8 @@ export type SupportEditorProps = {
     templateVariables?: TemplateVariableValues
     /** Applies a response quick action's ticket actions (status/assignee/tags/priority). */
     onApplyTicketActions?: (actions: QuickActionActionsApi) => void
+    /** Runs a workflow quick action against the ticket. */
+    onRunWorkflow?: (quickAction: QuickActionApi) => void
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -403,6 +405,7 @@ export function SupportEditor({
     enableQuickActions = false,
     templateVariables,
     onApplyTicketActions,
+    onRunWorkflow,
 }: SupportEditorProps): JSX.Element {
     const [isDragging, setIsDragging] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
@@ -417,6 +420,8 @@ export function SupportEditor({
     templateVariablesRef.current = templateVariables ?? {}
     const onApplyTicketActionsRef = useRef<((actions: QuickActionActionsApi) => void) | undefined>(undefined)
     onApplyTicketActionsRef.current = onApplyTicketActions
+    const onRunWorkflowRef = useRef<((quickAction: QuickActionApi) => void) | undefined>(undefined)
+    onRunWorkflowRef.current = onRunWorkflow
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { emojiUsed } = useActions(emojiUsageLogic)
 
@@ -442,6 +447,7 @@ export function SupportEditor({
                 enabled: enableQuickActions,
                 getVariables: () => templateVariablesRef.current,
                 onApplyActions: (actions) => onApplyTicketActionsRef.current?.(actions),
+                onRunWorkflow: (quickAction) => onRunWorkflowRef.current?.(quickAction),
             }),
         ],
         disabled,
@@ -713,6 +719,7 @@ export function SupportEditor({
                                                 applyQuickAction(ttEditor, quickAction, {
                                                     variables: templateVariablesRef.current,
                                                     onApplyActions: onApplyTicketActionsRef.current,
+                                                    onRunWorkflow: onRunWorkflowRef.current,
                                                 })
                                             }
                                             setQuickActionPickerOpen(false)

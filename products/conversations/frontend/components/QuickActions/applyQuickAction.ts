@@ -82,20 +82,28 @@ export function quickActionHasReply(quickAction: QuickActionApi): boolean {
     return !!quickAction.content
 }
 
+export interface ApplyOptions extends ApplyQuickActionOptions {
+    /** Runs the quick action's workflow, if it has one. */
+    onRunWorkflow?: (quickAction: QuickActionApi) => void
+}
+
 /**
- * Apply a chosen quick action: insert its reply (if any) and apply its ticket actions. A quick
- * action with only ticket actions (no reply) still applies them and clears the "/query" text.
+ * Apply a chosen quick action: insert its reply (if any) and apply ticket actions, then run its
+ * workflow (if any). Any combination is valid — a quick action can reply, run a workflow, or both.
  */
-export function applyQuickAction(editor: Editor, quickAction: QuickActionApi, options: ApplyQuickActionOptions): void {
+export function applyQuickAction(editor: Editor, quickAction: QuickActionApi, options: ApplyOptions): void {
     if (quickActionHasReply(quickAction)) {
         applyQuickActionToEditor(editor, quickAction, options)
     } else {
-        // Nothing to insert: still apply ticket actions and clear the "/query" text.
+        // Nothing to insert (workflow-only): still apply ticket actions and clear the "/query" text.
         if (options.range) {
             editor.chain().focus().deleteRange(options.range).run()
         }
         if (quickAction.actions && Object.keys(quickAction.actions).length > 0) {
             options.onApplyActions?.(quickAction.actions)
         }
+    }
+    if (quickAction.workflow_id) {
+        options.onRunWorkflow?.(quickAction)
     }
 }

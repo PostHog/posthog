@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
@@ -8,6 +8,8 @@ import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { userLogic } from 'scenes/userLogic'
+
+import { workflowsLogic } from 'products/workflows/frontend/Workflows/workflowsLogic'
 
 import { SupportEditor, serializeToMarkdown } from '../../components/Editor'
 import { TEMPLATE_VARIABLES } from '../../components/Editor/templateVariables'
@@ -33,6 +35,9 @@ function summary(quickAction: QuickActionApi): string {
     if (quickAction.actions?.tags?.length) {
         parts.push(`${quickAction.actions.tags.length} tag${quickAction.actions.tags.length === 1 ? '' : 's'}`)
     }
+    if (quickAction.workflow_id) {
+        parts.push('runs a workflow')
+    }
     return parts.length ? parts.join(', ') : '—'
 }
 
@@ -48,6 +53,7 @@ export function QuickActionsSection(): JSX.Element {
         statusAction,
         priorityAction,
         tagsAction,
+        workflowId,
         saving,
     } = useValues(quickActionsLogic)
     const {
@@ -60,11 +66,27 @@ export function QuickActionsSection(): JSX.Element {
         setStatusAction,
         setPriorityAction,
         setTagsAction,
+        setWorkflowId,
         saveQuickAction,
         deleteQuickAction,
     } = useActions(quickActionsLogic)
 
     const { user } = useValues(userLogic)
+    const { workflows, workflowsLoading } = useValues(workflowsLogic)
+    const { loadWorkflows } = useActions(workflowsLogic)
+
+    // workflowsLogic doesn't load on mount, so kick the fetch to populate the workflow picker.
+    useEffect(() => {
+        loadWorkflows()
+    }, [loadWorkflows])
+
+    const workflowOptions = workflows
+        .filter((w) => w.status === 'active' || w.id === workflowId)
+        .map((w) => ({
+            value: w.id,
+            label:
+                w.status === 'active' ? w.name || 'Untitled workflow' : `${w.name || 'Untitled workflow'} (inactive)`,
+        }))
 
     const editorRef = useRef<RichContentEditorType | null>(null)
     const editingQuickAction = quickActions.find((q) => q.short_id === editingShortId) ?? null
@@ -78,7 +100,7 @@ export function QuickActionsSection(): JSX.Element {
     const handleSave = (): void => {
         const richContent = editorRef.current?.getJSON() ?? null
         // A blank editor still yields a structurally non-empty doc; store an empty reply instead so
-        // an actions-only quick action doesn't carry a junk rich_content.
+        // a workflow-only quick action doesn't carry a junk rich_content.
         const hasReply = !!richContent && hasVisibleText(richContent)
         saveQuickAction({
             content: hasReply ? serializeToMarkdown(richContent) : '',
@@ -103,8 +125,8 @@ export function QuickActionsSection(): JSX.Element {
         <div className="flex flex-col gap-3">
             <p>
                 Save things you do often, then trigger them in a conversation by typing <code>/</code> in the message
-                box or using the quick action button. A quick action can insert a saved reply and set the ticket's
-                status, priority, or tags.
+                box or using the quick action button. A quick action can insert a saved reply, set the ticket's status,
+                priority, or tags, and run one of your workflows — any combination.
             </p>
             <div>
                 <LemonButton type="primary" icon={<IconPlus />} onClick={openCreateModal}>
@@ -272,6 +294,19 @@ export function QuickActionsSection(): JSX.Element {
                         info="Optional — replaces the ticket's tags when the quick action is used."
                     >
                         <TicketTags tags={tagsAction} onChange={setTagsAction} className="p-0" />
+                    </LemonField.Pure>
+                    <LemonField.Pure
+                        label="Run a workflow"
+                        info="Optional — runs an active workflow against the ticket when the quick action is used. Create and activate workflows in the workflow builder."
+                    >
+                        <LemonSelect
+                            value={workflowId}
+                            onChange={setWorkflowId}
+                            loading={workflowsLoading}
+                            allowClear
+                            placeholder="Don't run a workflow"
+                            options={workflowOptions}
+                        />
                     </LemonField.Pure>
                 </div>
             </LemonModal>

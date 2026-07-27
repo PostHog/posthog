@@ -2,7 +2,7 @@ import { useMountedLogic, useValues } from 'kea'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 import { IconShortcut } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { createFuse } from 'lib/utils/fuseSearch'
 import { isKeyOf } from 'lib/utils/guards'
@@ -123,6 +123,7 @@ export const QuickActionPicker = forwardRef<QuickActionPickerRef, QuickActionPic
                         active={index === selectedIndex}
                         onClick={() => execute(quickAction)}
                         tooltip={quickAction.description || undefined}
+                        sideIcon={quickAction.workflow_id ? <LemonTag type="completion">Workflow</LemonTag> : undefined}
                     >
                         <div className="flex flex-col items-start">
                             <span>{quickAction.name}</span>
