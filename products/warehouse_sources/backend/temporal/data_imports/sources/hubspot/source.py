@@ -172,6 +172,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
                     supports_incremental=supports_incremental,
                     supports_append=supports_incremental,
                     incremental_fields=endpoint_config.incremental_fields,
+                    should_sync_default=endpoint_config.should_sync_default,
                 )
             )
 
