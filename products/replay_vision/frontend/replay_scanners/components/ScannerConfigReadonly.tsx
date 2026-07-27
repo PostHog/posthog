@@ -210,8 +210,8 @@ function VersionChangeSummary({
                     : `Nothing recorded for v${version} differs from v${comparedWith}`}
             </div>
             {changes.changes.map((change) => (
-                <div key={change.field} className="flex flex-wrap items-baseline gap-x-2 text-sm">
-                    <span className="text-muted text-xs">{change.label}</span>
+                <div key={change.field} className="flex flex-wrap items-baseline gap-x-2 text-xs">
+                    <span className="text-muted">{change.label}</span>
                     {change.kind === 'value' ? (
                         <span>
                             <span className="text-muted line-through">{change.before}</span>
@@ -252,9 +252,8 @@ function VersionFields({ config, changed }: { config: VersionConfig; changed: Se
         {
             field: 'prompt',
             label: 'Prompt',
-            // Same treatment as the Behavior card's prompt, so the two readouts match.
             value: (
-                <div className="whitespace-pre-wrap bg-surface-secondary border rounded p-2">
+                <div className="whitespace-pre-wrap">
                     {String(config.scannerConfig.prompt ?? '') || <span className="text-muted">—</span>}
                 </div>
             ),
@@ -311,10 +310,10 @@ function VersionFields({ config, changed }: { config: VersionConfig; changed: Se
         },
     ]
     return (
-        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+        <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-1.5 text-xs">
             {rows.map((row) => (
                 <Fragment key={row.field}>
-                    <span className="text-muted text-xs pt-0.5">{row.label}</span>
+                    <span className="text-muted">{row.label}</span>
                     {/* Emphasis suits a short value, not a whole prompt; the change summary flags that one. */}
                     <span className={changed.has(row.field) && row.field !== 'prompt' ? 'font-medium' : undefined}>
                         {row.value}
