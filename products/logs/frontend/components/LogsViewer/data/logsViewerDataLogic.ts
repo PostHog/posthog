@@ -144,6 +144,7 @@ export interface logsViewerDataLogicValues {
     sparklineBreakdownBy: LogsSparklineBreakdownBy // logsViewerConfigLogic
     filterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
+    personId: string | undefined // logsViewerFiltersLogic
     queryFilterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined

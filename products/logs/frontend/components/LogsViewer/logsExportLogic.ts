@@ -51,6 +51,7 @@ export interface logsExportLogicValues {
     orderBy: LogsOrderBy // logsViewerConfigLogic
     maxExportableLogs: number // logsViewerDataLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
+    personId: string | undefined // logsViewerFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
         date_to: string | null | undefined
