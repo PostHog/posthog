@@ -5,24 +5,33 @@ import { expectLogic } from 'kea-test-utils'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
-import api from '~/lib/api'
 import { ApiError } from '~/lib/api-error'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { EventsQuery, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { LLMPrompt, LLMPromptResolveResponse, PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { llmPromptsNameLabelsDestroy, llmPromptsNameLabelsUpdate } from '../generated/api'
+import {
+    llmPromptsNameLabelsDestroy,
+    llmPromptsNameLabelsUpdate,
+    llmPromptsNamePartialUpdate,
+    llmPromptsResolveNameRetrieve,
+} from '../generated/api'
+import type { LLMPromptApi, LLMPromptResolveResponseApi } from '../generated/api.schemas'
 import { PromptAnalyticsScope, PromptMode, llmPromptLogic } from './llmPromptLogic'
 import { validatePromptLabelName } from './utils'
 
 jest.mock('../generated/api', () => ({
     llmPromptsNameLabelsUpdate: jest.fn(),
     llmPromptsNameLabelsDestroy: jest.fn(),
+    llmPromptsNamePartialUpdate: jest.fn(),
+    llmPromptsResolveNameRetrieve: jest.fn(),
 }))
 
 const mockLabelsUpdate = llmPromptsNameLabelsUpdate as jest.MockedFunction<typeof llmPromptsNameLabelsUpdate>
 const mockLabelsDestroy = llmPromptsNameLabelsDestroy as jest.MockedFunction<typeof llmPromptsNameLabelsDestroy>
+const mockPartialUpdate = llmPromptsNamePartialUpdate as jest.MockedFunction<typeof llmPromptsNamePartialUpdate>
+const mockResolve = llmPromptsResolveNameRetrieve as jest.MockedFunction<typeof llmPromptsResolveNameRetrieve>
 
 const mockPrompt = {
     id: 'prompt-version-2',
@@ -74,12 +83,12 @@ describe('llmPromptLogic', () => {
 
     function mountWithLabels(): ReturnType<typeof llmPromptLogic.build> {
         const { versions, has_more, ...promptFields } = mockPrompt
-        jest.spyOn(api.llmPrompts, 'resolveByName').mockResolvedValue({
+        mockResolve.mockResolvedValue({
             prompt: promptFields,
             versions,
             has_more,
             labels: [productionLabelV1],
-        } as unknown as LLMPromptResolveResponse)
+        } as unknown as LLMPromptResolveResponseApi)
         return llmPromptLogic({ promptName: 'my-test-prompt' })
     }
 
@@ -302,10 +311,18 @@ describe('llmPromptLogic', () => {
             version_count: 3,
         }
 
-        jest.spyOn(api.llmPrompts, 'resolveByName')
-            .mockResolvedValueOnce({ prompt: promptFields, versions, has_more } as unknown as LLMPromptResolveResponse)
-            .mockResolvedValue({ prompt: conflictingLatest, versions, has_more } as unknown as LLMPromptResolveResponse)
-        jest.spyOn(api.llmPrompts, 'update').mockRejectedValue(
+        mockResolve
+            .mockResolvedValueOnce({
+                prompt: promptFields,
+                versions,
+                has_more,
+            } as unknown as LLMPromptResolveResponseApi)
+            .mockResolvedValue({
+                prompt: conflictingLatest,
+                versions,
+                has_more,
+            } as unknown as LLMPromptResolveResponseApi)
+        mockPartialUpdate.mockRejectedValue(
             new ApiError('conflict', 409, undefined, { detail: 'The prompt changed since you opened it.' })
         )
 
@@ -329,11 +346,11 @@ describe('llmPromptLogic', () => {
 
     it('guards cancel behind a confirmation only when the form is dirty', async () => {
         const { versions, has_more, ...promptFields } = mockPrompt
-        jest.spyOn(api.llmPrompts, 'resolveByName').mockResolvedValue({
+        mockResolve.mockResolvedValue({
             prompt: promptFields,
             versions,
             has_more,
-        } as unknown as LLMPromptResolveResponse)
+        } as unknown as LLMPromptResolveResponseApi)
         const dialogSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
 
         const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
@@ -362,11 +379,11 @@ describe('llmPromptLogic', () => {
 
     it('reflects edit mode in the url', async () => {
         const { versions, has_more, ...promptFields } = mockPrompt
-        jest.spyOn(api.llmPrompts, 'resolveByName').mockResolvedValue({
+        mockResolve.mockResolvedValue({
             prompt: promptFields,
             versions,
             has_more,
-        } as unknown as LLMPromptResolveResponse)
+        } as unknown as LLMPromptResolveResponseApi)
 
         const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
         logic.mount()
@@ -383,17 +400,17 @@ describe('llmPromptLogic', () => {
 
     it('routes publish through the review step for existing prompts', async () => {
         const { versions, has_more, ...promptFields } = mockPrompt
-        jest.spyOn(api.llmPrompts, 'resolveByName').mockResolvedValue({
+        mockResolve.mockResolvedValue({
             prompt: promptFields,
             versions,
             has_more,
-        } as unknown as LLMPromptResolveResponse)
-        const updateSpy = jest.spyOn(api.llmPrompts, 'update').mockResolvedValue({
+        } as unknown as LLMPromptResolveResponseApi)
+        const updateSpy = mockPartialUpdate.mockResolvedValue({
             ...promptFields,
             id: 'prompt-version-3',
             version: 3,
             latest_version: 3,
-        } as unknown as LLMPrompt)
+        } as unknown as LLMPromptApi)
 
         const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
         logic.mount()
@@ -417,7 +434,7 @@ describe('llmPromptLogic', () => {
         logic.actions.submitPromptForm()
         await expectLogic(logic).toDispatchActions(['submitPromptFormSuccess'])
         expect(updateSpy).toHaveBeenCalledTimes(1)
-        expect(updateSpy).toHaveBeenCalledWith('my-test-prompt', {
+        expect(updateSpy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'my-test-prompt', {
             prompt: 'My edited prompt.',
             base_version: 2,
             version_description: 'Tightened the refusal criteria',

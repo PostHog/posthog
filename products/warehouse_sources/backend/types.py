@@ -1301,6 +1301,8 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.MYSQL: "mysql",
     ExternalDataSourceType.SNOWFLAKE: "snowflake",
     ExternalDataSourceType.REDSHIFT: "redshift",
+    ExternalDataSourceType.CLICKHOUSE: "clickhouse",
+    ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
 }
 
 
