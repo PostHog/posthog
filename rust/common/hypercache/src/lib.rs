@@ -764,6 +764,49 @@ impl HyperCacheReader {
         }
     }
 
+    /// Batched generalization of [`get_etag`]: read every companion ETag in one
+    /// Redis round trip. Used by the flags-stream-gateway sweep to poll all
+    /// subscribed topics at once. Output length and order match `keys`.
+    ///
+    /// Each etag key is built exactly as `get_etag` builds it, so the two can
+    /// never disagree on layout. Per entry the mapping mirrors `get_etag`: an
+    /// absent key or an empty ETag becomes `None`, otherwise `Some(etag)`.
+    /// Empty input returns `Ok(vec![])` without touching Redis.
+    ///
+    /// Issues one MGET for all `keys`; chunking large key sets is the caller's
+    /// responsibility.
+    pub async fn get_etags_batch(
+        &self,
+        keys: &[KeyType],
+    ) -> Result<Vec<Option<String>>, HyperCacheError> {
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+        let etag_keys: Vec<String> = keys
+            .iter()
+            .map(|key| {
+                format!(
+                    "{}{}",
+                    self.config.get_redis_cache_key(key),
+                    ETAG_KEY_SUFFIX
+                )
+            })
+            .collect();
+        let read = self
+            .redis_client
+            .mget_with_format(etag_keys, common_redis::RedisValueFormat::Pickle);
+        match timeout(self.config.redis_timeout, read).await {
+            Ok(Ok(values)) => Ok(values
+                .into_iter()
+                .map(|v| v.filter(|s| !s.is_empty()))
+                .collect()),
+            Ok(Err(e)) => Err(HyperCacheError::Redis(e)),
+            Err(_) => Err(HyperCacheError::Timeout(
+                "etags batch redis timeout".to_string(),
+            )),
+        }
+    }
+
     // ── Internal helpers ──
 
     /// Pickle-decode the Redis value and detect the `__missing__` sentinel.
@@ -1944,5 +1987,72 @@ mod tests {
         let result = reader.get_etag(&KeyType::int(42)).await;
 
         assert!(matches!(result, Err(HyperCacheError::Redis(_))));
+    }
+
+    fn etag_key_for(id: TeamId) -> String {
+        format!(
+            "{}{}",
+            create_test_config().get_redis_cache_key(&KeyType::int(id)),
+            ETAG_KEY_SUFFIX
+        )
+    }
+
+    /// A present ETag, an absent key, and an empty-string ETag must map to
+    /// `Some`, `None`, `None` respectively, in input order — the empty-string
+    /// collapse mirrors `get_etag`, and order/length parity is what lets the
+    /// sweep line results back up with its topic list.
+    #[tokio::test]
+    async fn test_get_etags_batch_mixed_preserves_order_and_length() {
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis.mget_with_format_ret(&etag_key_for(1), Some("aaaaaaaaaaaaaaaa".to_string()));
+        mock_redis.mget_with_format_ret(&etag_key_for(2), None);
+        mock_redis.mget_with_format_ret(&etag_key_for(3), Some(String::new()));
+
+        let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
+        let etags = reader
+            .get_etags_batch(&[KeyType::int(1), KeyType::int(2), KeyType::int(3)])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            etags,
+            vec![Some("aaaaaaaaaaaaaaaa".to_string()), None, None]
+        );
+    }
+
+    /// `get_etag` (single, via `get`) and `get_etags_batch` (via
+    /// `mget_with_format`) must build the same Redis key. Configuring both mock
+    /// maps under the one key and asserting both methods return it proves the
+    /// layouts can't silently drift apart.
+    #[tokio::test]
+    async fn test_get_etags_batch_key_layout_matches_get_etag() {
+        let etag_key = etag_key_for(42);
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis.get_ret(&etag_key, Ok("deadbeefdeadbeef".to_string()));
+        mock_redis.mget_with_format_ret(&etag_key, Some("deadbeefdeadbeef".to_string()));
+
+        let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
+        let single = reader.get_etag(&KeyType::int(42)).await.unwrap();
+        let batch = reader.get_etags_batch(&[KeyType::int(42)]).await.unwrap();
+
+        assert_eq!(single.as_deref(), Some("deadbeefdeadbeef"));
+        assert_eq!(batch, vec![Some("deadbeefdeadbeef".to_string())]);
+    }
+
+    /// Empty input must short-circuit before any Redis round trip.
+    #[tokio::test]
+    async fn test_get_etags_batch_empty_input_skips_redis() {
+        let mock_redis = MockRedisClient::new();
+        let inspector = mock_redis.clone();
+        let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
+
+        let etags = reader.get_etags_batch(&[]).await.unwrap();
+
+        assert!(etags.is_empty());
+        assert_eq!(
+            inspector.get_calls().len(),
+            0,
+            "empty input must not touch Redis"
+        );
     }
 }

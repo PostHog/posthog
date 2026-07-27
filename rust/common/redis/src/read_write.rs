@@ -452,6 +452,25 @@ impl Client for ReadWriteClient {
         }
     }
 
+    async fn mget_with_format(
+        &self,
+        keys: Vec<String>,
+        format: RedisValueFormat,
+    ) -> Result<Vec<Option<String>>, CustomRedisError> {
+        match self.reader.mget_with_format(keys.clone(), format).await {
+            Ok(value) => Ok(value),
+            Err(err) if !err.is_unrecoverable_error() => {
+                warn!(
+                    "Replica mget_with_format failed for {} keys, falling back to primary: {}",
+                    keys.len(),
+                    err
+                );
+                self.writer.mget_with_format(keys, format).await
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError> {
         match self.reader.scard_multiple(keys.clone()).await {
             Ok(value) => Ok(value),
@@ -496,6 +515,12 @@ impl Client for ReadWriteClient {
         commands: Vec<PipelineCommand>,
     ) -> Result<Vec<Result<PipelineResult, CustomRedisError>>, CustomRedisError> {
         self.writer.execute_pipeline(commands).await
+    }
+
+    /// Route PUBLISH to the writer (primary) with no reader fallback: a message
+    /// published on a replica only reaches subscribers connected to that replica.
+    async fn publish(&self, channel: String, message: String) -> Result<(), CustomRedisError> {
+        self.writer.publish(channel, message).await
     }
 }
 
@@ -853,6 +878,72 @@ mod tests {
 
         let result = client.mget(vec!["key1".to_string()]).await;
         assert!(matches!(result, Err(CustomRedisError::ParseError(_))));
+    }
+
+    #[tokio::test]
+    async fn test_mget_with_format_uses_reader() {
+        let client = create_test_client(
+            |reader| {
+                reader.mget_with_format_ret("key1", Some("value1".to_string()));
+                reader.mget_with_format_ret("key2", None);
+            },
+            |_writer| {},
+        );
+
+        let result = client
+            .mget_with_format(
+                vec!["key1".to_string(), "key2".to_string()],
+                RedisValueFormat::Pickle,
+            )
+            .await;
+        assert_eq!(result.unwrap(), vec![Some("value1".to_string()), None]);
+    }
+
+    #[tokio::test]
+    async fn test_mget_with_format_fallback_on_transient_error() {
+        let client = create_test_client(
+            |reader| {
+                reader.mget_with_format_error(CustomRedisError::Timeout);
+            },
+            |writer| {
+                writer.mget_with_format_ret("key1", Some("fallback1".to_string()));
+            },
+        );
+
+        let result = client
+            .mget_with_format(vec!["key1".to_string()], RedisValueFormat::Pickle)
+            .await;
+        assert_eq!(result.unwrap(), vec![Some("fallback1".to_string())]);
+    }
+
+    #[tokio::test]
+    async fn test_publish_uses_writer_never_reader() {
+        // Clone mocks before wrapping so calls can be inspected afterwards
+        // (MockRedisClient shares its call log across clones).
+        let reader_mock = MockRedisClient::new();
+        let reader_inspector = reader_mock.clone();
+        let writer_mock = MockRedisClient::new();
+        let writer_inspector = writer_mock.clone();
+
+        let reader: Arc<dyn Client + Send + Sync> = Arc::new(reader_mock);
+        let writer: Arc<dyn Client + Send + Sync> = Arc::new(writer_mock);
+        let client = ReadWriteClient::new(reader, writer);
+
+        client
+            .publish("chan".to_string(), "msg".to_string())
+            .await
+            .unwrap();
+
+        let writer_calls = writer_inspector.get_calls();
+        assert_eq!(writer_calls.len(), 1);
+        assert_eq!(writer_calls[0].op, "publish");
+        assert_eq!(writer_calls[0].key, "chan");
+
+        assert_eq!(
+            reader_inspector.get_calls().len(),
+            0,
+            "publish must never reach the reader — a replica PUBLISH only reaches that replica's subscribers"
+        );
     }
 
     // Pipeline routing tests - verify all pipeline commands go to writer (primary)

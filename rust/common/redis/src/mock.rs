@@ -24,6 +24,9 @@ pub struct MockRedisClient {
     expire_ret: HashMap<String, Result<bool, CustomRedisError>>,
     mget_ret: HashMap<String, Option<Vec<u8>>>,
     mget_error: Option<CustomRedisError>,
+    mget_with_format_ret: HashMap<String, Option<String>>,
+    mget_with_format_error: Option<CustomRedisError>,
+    publish_ret: HashMap<String, Result<(), CustomRedisError>>,
     pipeline_error: Option<CustomRedisError>,
     pipeline_block: Option<Duration>,
     pipeline_errors_by_call: HashMap<usize, CustomRedisError>,
@@ -50,6 +53,9 @@ impl Default for MockRedisClient {
             expire_ret: HashMap::new(),
             mget_ret: HashMap::new(),
             mget_error: None,
+            mget_with_format_ret: HashMap::new(),
+            mget_with_format_error: None,
+            publish_ret: HashMap::new(),
             pipeline_error: None,
             pipeline_block: None,
             pipeline_errors_by_call: HashMap::new(),
@@ -176,6 +182,21 @@ impl MockRedisClient {
 
     pub fn mget_error(&mut self, err: CustomRedisError) -> Self {
         self.mget_error = Some(err);
+        self.clone()
+    }
+
+    pub fn mget_with_format_ret(&mut self, key: &str, ret: Option<String>) -> Self {
+        self.mget_with_format_ret.insert(key.to_owned(), ret);
+        self.clone()
+    }
+
+    pub fn mget_with_format_error(&mut self, err: CustomRedisError) -> Self {
+        self.mget_with_format_error = Some(err);
+        self.clone()
+    }
+
+    pub fn publish_ret(&mut self, channel: &str, ret: Result<(), CustomRedisError>) -> Self {
+        self.publish_ret.insert(channel.to_owned(), ret);
         self.clone()
     }
 
@@ -539,6 +560,28 @@ impl Client for MockRedisClient {
         Ok(results)
     }
 
+    async fn mget_with_format(
+        &self,
+        keys: Vec<String>,
+        format: RedisValueFormat,
+    ) -> Result<Vec<Option<String>>, CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "mget_with_format".to_string(),
+            key: format!("keys={}", keys.len()),
+            value: MockRedisValue::StringWithFormat(String::new(), format),
+        });
+
+        if let Some(err) = &self.mget_with_format_error {
+            return Err(err.clone());
+        }
+
+        let results: Vec<Option<String>> = keys
+            .iter()
+            .map(|k| self.mget_with_format_ret.get(k).and_then(|v| v.clone()))
+            .collect();
+        Ok(results)
+    }
+
     async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError> {
         self.lock_calls().push(MockRedisCall {
             op: "scard_multiple".to_string(),
@@ -628,6 +671,16 @@ impl Client for MockRedisClient {
             .map(|cmd| self.execute_pipeline_command(cmd))
             .collect();
         Ok(results)
+    }
+
+    async fn publish(&self, channel: String, message: String) -> Result<(), CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "publish".to_string(),
+            key: channel.clone(),
+            value: MockRedisValue::String(message),
+        });
+
+        self.publish_ret.get(&channel).cloned().unwrap_or(Ok(()))
     }
 }
 

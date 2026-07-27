@@ -180,6 +180,27 @@ impl RedisClient {
         }
     }
 
+    /// Decompress and decode raw Redis bytes into a `String` per `format`.
+    ///
+    /// Shared by `get_with_format` (single key) and `mget_with_format` (batch)
+    /// so the decompress + per-format deserialize logic lives in one place.
+    /// Callers handle key absence before calling this.
+    fn decode_value(
+        raw_bytes: Vec<u8>,
+        format: RedisValueFormat,
+    ) -> Result<String, CustomRedisError> {
+        let decompressed = Self::try_decompress(raw_bytes);
+        match format {
+            RedisValueFormat::Pickle => {
+                Ok(serde_pickle::from_slice(&decompressed, Default::default())?)
+            }
+            RedisValueFormat::Utf8 => Ok(String::from_utf8(decompressed)?),
+            RedisValueFormat::RawBytes => {
+                Err(CustomRedisError::ParseError(ERR_RAWBYTES_GET.to_string()))
+            }
+        }
+    }
+
     /// Compress data if it exceeds the configured threshold
     ///
     /// Mimics Django's ZstdCompressor.compress() behavior:
@@ -287,24 +308,7 @@ impl Client for RedisClient {
             return Err(CustomRedisError::NotFound);
         }
 
-        // Always attempt decompression - handles both compressed and uncompressed data gracefully
-        // This ensures clients can read data regardless of compression settings used when writing
-        let decompressed = Self::try_decompress(raw_bytes);
-
-        match format {
-            RedisValueFormat::Pickle => {
-                let string_response: String =
-                    serde_pickle::from_slice(&decompressed, Default::default())?;
-                Ok(string_response)
-            }
-            RedisValueFormat::Utf8 => {
-                let string_response = String::from_utf8(decompressed)?;
-                Ok(string_response)
-            }
-            RedisValueFormat::RawBytes => {
-                Err(CustomRedisError::ParseError(ERR_RAWBYTES_GET.to_string()))
-            }
-        }
+        Self::decode_value(raw_bytes, format)
     }
 
     async fn get_raw_bytes(&self, k: String) -> Result<Vec<u8>, CustomRedisError> {
@@ -475,6 +479,25 @@ impl Client for RedisClient {
         Ok(results)
     }
 
+    async fn mget_with_format(
+        &self,
+        keys: Vec<String>,
+        format: RedisValueFormat,
+    ) -> Result<Vec<Option<String>>, CustomRedisError> {
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut conn = self.connection.clone();
+        let raw: Vec<Option<Vec<u8>>> = conn.mget(&keys).await?;
+        raw.into_iter()
+            .map(|entry| match entry {
+                // Empty bytes mirror `get_with_format`'s empty-is-absent framing.
+                Some(bytes) if !bytes.is_empty() => Self::decode_value(bytes, format).map(Some),
+                _ => Ok(None),
+            })
+            .collect()
+    }
+
     async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError> {
         if keys.is_empty() {
             return Ok(vec![]);
@@ -626,6 +649,15 @@ impl Client for RedisClient {
 
         Ok(results)
     }
+
+    async fn publish(&self, channel: String, message: String) -> Result<(), CustomRedisError> {
+        // Raw string passthrough — no serialize_and_compress / format framing,
+        // since the payload is JSON consumed by non-Rust subscribers. The
+        // returned subscriber count is discarded (fire-and-forget).
+        let mut conn = self.connection.clone();
+        conn.publish::<_, _, ()>(channel, message).await?;
+        Ok(())
+    }
 }
 
 impl RedisClient {
@@ -641,17 +673,7 @@ impl RedisClient {
                 if bytes.is_empty() {
                     return Err(CustomRedisError::NotFound);
                 }
-                let decompressed = Self::try_decompress(bytes);
-                let string = match format {
-                    RedisValueFormat::Pickle => {
-                        serde_pickle::from_slice(&decompressed, Default::default())?
-                    }
-                    RedisValueFormat::Utf8 => String::from_utf8(decompressed)?,
-                    RedisValueFormat::RawBytes => {
-                        return Err(CustomRedisError::ParseError(ERR_RAWBYTES_GET.to_string()))
-                    }
-                };
-                Ok(PipelineResult::String(string))
+                Ok(PipelineResult::String(Self::decode_value(bytes, *format)?))
             }
             PipelineCommand::GetRawBytes { .. } => {
                 let bytes: Vec<u8> = redis::from_redis_value(&raw)?;
@@ -1082,6 +1104,34 @@ mod tests {
             assert_eq!(config.level, 3);
         }
     }
+
+    mod decode_value {
+        use super::*;
+
+        #[test]
+        fn test_decode_pickle() {
+            let bytes = serde_pickle::to_vec(&"hello", Default::default()).unwrap();
+            let decoded = RedisClient::decode_value(bytes, RedisValueFormat::Pickle).unwrap();
+            assert_eq!(decoded, "hello");
+        }
+
+        #[test]
+        fn test_decode_zstd_compressed_pickle() {
+            let value = "x".repeat(1000); // above the compression threshold
+            let pickled = serde_pickle::to_vec(&value, Default::default()).unwrap();
+            let compressed = zstd::encode_all(&pickled[..], 0).unwrap();
+            let decoded = RedisClient::decode_value(compressed, RedisValueFormat::Pickle).unwrap();
+            assert_eq!(decoded, value);
+        }
+
+        #[test]
+        fn test_decode_garbage_is_parse_error() {
+            // Not zstd magic (so decompression is a no-op) and not valid pickle.
+            let garbage = vec![0xff, 0xff, 0xff, 0xff];
+            let result = RedisClient::decode_value(garbage, RedisValueFormat::Pickle);
+            assert!(matches!(result, Err(CustomRedisError::ParseError(_))));
+        }
+    }
 }
 
 /// Integration tests using a real Redis instance via testcontainers.
@@ -1436,5 +1486,60 @@ mod integration_tests {
             "Expected large_value, got {:?}",
             results[3]
         );
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_mget_with_format_pickle_mixed_present_absent() {
+        let (client, _container) = create_test_client().await;
+
+        client
+            .set_with_format(
+                "mgf_key1".to_string(),
+                "value1".to_string(),
+                RedisValueFormat::Pickle,
+            )
+            .await
+            .unwrap();
+        client
+            .set_with_format(
+                "mgf_key3".to_string(),
+                "value3".to_string(),
+                RedisValueFormat::Pickle,
+            )
+            .await
+            .unwrap();
+
+        let results = client
+            .mget_with_format(
+                vec![
+                    "mgf_key1".to_string(),
+                    "mgf_absent".to_string(),
+                    "mgf_key3".to_string(),
+                ],
+                RedisValueFormat::Pickle,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            results,
+            vec![Some("value1".to_string()), None, Some("value3".to_string()),]
+        );
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_publish_succeeds_with_no_subscribers() {
+        let (client, _container) = create_test_client().await;
+
+        // PUBLISH with no subscribers reaches zero recipients but must not error.
+        client
+            .publish(
+                "test_channel".to_string(),
+                r#"{"hello":"world"}"#.to_string(),
+            )
+            .await
+            .unwrap();
     }
 }

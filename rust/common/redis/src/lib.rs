@@ -263,6 +263,15 @@ pub trait Client: Send + Sync {
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;
     async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError>;
+    /// Like `mget`, but decompresses and format-decodes each present value the
+    /// same way `get_with_format` does (unlike `mget`, which returns raw bytes).
+    /// Absent keys map to `None`; a present value that fails to decode fails the
+    /// whole call with `ParseError`, since corrupt framing is exceptional.
+    async fn mget_with_format(
+        &self,
+        keys: Vec<String>,
+        format: RedisValueFormat,
+    ) -> Result<Vec<Option<String>>, CustomRedisError>;
     async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError>;
     async fn batch_sadd_expire(
         &self,
@@ -290,6 +299,11 @@ pub trait Client: Send + Sync {
         &self,
         commands: Vec<PipelineCommand>,
     ) -> Result<Vec<Result<PipelineResult, CustomRedisError>>, CustomRedisError>;
+
+    /// Publish `message` to `channel` as a raw string, with no serialization,
+    /// compression, or format framing — the payload is consumed as-is by
+    /// non-Rust subscribers. Fire-and-forget: the subscriber count is discarded.
+    async fn publish(&self, channel: String, message: String) -> Result<(), CustomRedisError>;
 }
 
 /// Extension trait providing the `.pipeline()` builder method.
