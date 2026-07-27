@@ -98,7 +98,7 @@ from products.feature_flags.backend.models.evaluation_context import (
 )
 from products.logs.backend.models import TeamLogsConfig
 from products.signals.backend.models import SignalSourceConfig
-from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
 
@@ -613,10 +613,21 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "alongside the existing workflow metrics."
         ),
     )
+    email_tracking_consent_mode = serializers.ChoiceField(
+        choices=EmailTrackingConsentMode.choices,
+        required=False,
+        help_text=(
+            "Recipient-consent enforcement for open/click tracking on marketing workflow emails. "
+            "'off': no enforcement, tracking follows each email step's own setting. "
+            "'opt_out': track by default but not recipients who have opted out. "
+            "'opt_in': only track recipients who have explicitly opted in. "
+            "Transactional emails are exempt from consent enforcement."
+        ),
+    )
 
     class Meta:
         model = TeamWorkflowsConfig
-        fields = ["capture_workflows_engagement_events"]
+        fields = ["capture_workflows_engagement_events", "email_tracking_consent_mode"]
 
 
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
