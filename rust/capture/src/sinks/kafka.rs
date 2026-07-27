@@ -19,6 +19,7 @@
 //! + topics) rather than deep copies of limiter state.
 use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
+use crate::serialization::{Format, Serializer};
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 #[cfg(test)]
 pub(crate) use crate::sinks::registry::test_topics;
@@ -474,8 +475,8 @@ mod route_tests {
 
 /// Generic Kafka sink that can use any producer implementation.
 ///
-/// Holds only the producer handle, the topic config, and the replay envelope
-/// compression setting. No limiter state — overflow and replay-overflow routing
+/// Holds only the producer handle, the topic config, and the per-destination
+/// payload serializers. No limiter state — overflow and replay-overflow routing
 /// decisions are stamped upstream in the pipeline onto
 /// `ProcessedEventMetadata::overflow_reason` and read here.
 /// Both Arc fields are cheap to clone (two atomic ref-count increments),
@@ -484,7 +485,12 @@ mod route_tests {
 pub struct KafkaSinkBase<P: KafkaProducer> {
     producer: Arc<P>,
     topics: Arc<OutputRegistry>,
-    replay_envelope_compression: EnvelopeCompression,
+    /// Payload encoding for replay (`SnapshotMain`) events: json × the
+    /// configured envelope (lz4 when `kafka_replay_envelope_compression` says
+    /// so).
+    replay_serializer: Serializer,
+    /// Payload encoding for every other destination: plain json.
+    default_serializer: Serializer,
 }
 
 impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
@@ -492,7 +498,8 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
         Self {
             producer: Arc::clone(&self.producer),
             topics: Arc::clone(&self.topics),
-            replay_envelope_compression: self.replay_envelope_compression,
+            replay_serializer: self.replay_serializer,
+            default_serializer: self.default_serializer,
         }
     }
 }
@@ -633,7 +640,11 @@ impl KafkaSink {
         Ok(KafkaSinkBase {
             producer: Arc::new(rd_producer),
             topics,
-            replay_envelope_compression: config.kafka_replay_envelope_compression,
+            replay_serializer: Serializer::new(
+                Format::Json,
+                config.kafka_replay_envelope_compression.into(),
+            ),
+            default_serializer: Serializer::json(),
         })
     }
 }
@@ -646,7 +657,8 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         Self {
             producer: Arc::new(producer),
             topics: Arc::new(topics),
-            replay_envelope_compression: EnvelopeCompression::None,
+            replay_serializer: Serializer::json(),
+            default_serializer: Serializer::json(),
         }
     }
 
@@ -659,7 +671,18 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         Self {
             producer: Arc::new(producer),
             topics: Arc::new(topics),
-            replay_envelope_compression,
+            replay_serializer: Serializer::new(Format::Json, replay_envelope_compression.into()),
+            default_serializer: Serializer::json(),
+        }
+    }
+
+    /// The payload encoding for an event's destination. Replay has its own
+    /// (envelope-compressed) contract with its consumers; everything else is
+    /// plain json. Becomes per-output configuration once outputs exist.
+    fn serializer_for(&self, data_type: DataType) -> Serializer {
+        match data_type {
+            DataType::SnapshotMain => self.replay_serializer,
+            _ => self.default_serializer,
         }
     }
 
@@ -680,34 +703,9 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     fn prepare_record(&self, event: ProcessedEvent) -> Result<ProduceRecord, CaptureError> {
         let (event, metadata) = (event.event, event.metadata);
 
-        let json = serde_json::to_string(&event).map_err(|e| {
-            error!("failed to serialize event: {e:#}");
-            CaptureError::NonRetryableSinkError
-        })?;
+        let serializer = self.serializer_for(metadata.data_type);
+        let payload = serializer.serialize(&event)?;
 
-        // Apply envelope-level compression for session replay when configured.
-        // Block format is used with a 4-byte LE uncompressed-size prefix so
-        // consumers can decompress without needing to inspect magic bytes —
-        // the `content-encoding` Kafka header signals that decompression is
-        // required. This allows compressed and uncompressed messages to coexist
-        // during rollout and rollback.
-        let payload = match (metadata.data_type, self.replay_envelope_compression) {
-            (DataType::SnapshotMain, EnvelopeCompression::Lz4) => {
-                let json_bytes = json.as_bytes();
-                let compressed = lz4::block::compress(json_bytes, None, false).map_err(|e| {
-                    error!("failed to LZ4-compress payload: {e:#}");
-                    CaptureError::NonRetryableSinkError
-                })?;
-                let uncompressed_len = json_bytes.len() as u32;
-                let mut payload = Vec::with_capacity(4 + compressed.len());
-                payload.extend_from_slice(&uncompressed_len.to_le_bytes());
-                payload.extend_from_slice(&compressed);
-                payload
-            }
-            _ => json.into_bytes(),
-        };
-
-        let data_type = metadata.data_type;
         let event_key = event.key();
 
         // Use the event's to_headers() method for consistent header serialization
@@ -774,10 +772,10 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             ),
         };
 
-        if matches!(self.replay_envelope_compression, EnvelopeCompression::Lz4)
-            && matches!(data_type, DataType::SnapshotMain)
-        {
-            headers.set_content_encoding("lz4".to_string());
+        // The serializer's content headers signal the encoding on the wire, so
+        // old and new encodings coexist on one destination during a rollout.
+        if let Some(encoding) = serializer.content_encoding() {
+            headers.set_content_encoding(encoding.to_string());
         }
 
         Ok(ProduceRecord {
@@ -810,7 +808,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
 
 /// Batches below this size take the serial fast path in `send_batch`: spawning
 /// N `JoinSet` tasks to run `prepare_record` in parallel is net-negative when
-/// each task does only a `serde_json::to_string` and a header build — the
+/// each task does only payload serialization and a header build — the
 /// scheduler overhead dominates the CPU savings. Scatter-gather kicks in at
 /// or above this threshold where parallel prep wins back its spawn cost.
 pub(crate) const SCATTER_GATHER_MIN_BATCH: usize = 8;
@@ -882,7 +880,7 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         // Phase 1: parallel prep across tokio workers. Each task returns its
         // input index so we can reassemble results in the original event order
         // before the serial enqueue phase. This is where the CPU win lives:
-        // serde_json::to_string + header build run concurrently on up to N
+        // payload serialization + header build run concurrently on up to N
         // worker threads, rather than sequentially on a single task.
         let prep_start = Instant::now();
         let mut prep_set: JoinSet<(usize, Result<ProduceRecord, CaptureError>)> = JoinSet::new();

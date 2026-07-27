@@ -320,7 +320,7 @@ No `--no-verify` — pre-commit hooks must pass.
 | 1 · Routing golden oracle | done | `test(capture): consolidate routing golden oracle with headers and counters` |
 | 2 · Pure `route()` | done | `refactor(capture): extract pure route() from prepare_record` |
 | 3 · `OutputRegistry` + completeness | done | `refactor(capture): output registry with startup completeness check` |
-| 4 · Serialization layer | pending | `refactor(capture): serialization layer — format and envelope behind one seam` |
+| 4 · Serialization layer | done | `refactor(capture): serialization layer — format and envelope behind one seam` |
 | 5 · `Pipeline` + `Lane`; lane resolution | pending | `refactor(capture): pipeline and lane address; lane resolution at pipeline end` |
 | 6 · Sinks → backend mechanism | pending | `refactor(capture): narrow sinks to backend mechanism over prepared payloads` |
 | 7 · Outputs layer; analytics migrates | pending | `feat(capture): outputs layer with (pipeline, lane) table; analytics on outputs` |
