@@ -897,6 +897,8 @@ export interface TeamType extends TeamBasicType {
 
 export interface WorkflowsConfig {
     capture_workflows_engagement_events: boolean
+    // Optional so cached team objects from before this field shipped still typecheck.
+    email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
 }
 
 export interface ProductIntentType {
