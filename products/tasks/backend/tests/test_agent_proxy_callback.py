@@ -140,7 +140,7 @@ class TestAgentProxyCallback(TestCase):
 
     def test_awaiting_input_dispatches_for_interactive_run(self) -> None:
         run = self.task.create_run(mode="interactive")
-        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_awaiting_input") as notify:
+        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify:
             response = self._post(
                 self._body(kind="awaiting_input", agent_active=False),
                 token=self._token(run),
@@ -151,7 +151,7 @@ class TestAgentProxyCallback(TestCase):
         notify.assert_called_once()
 
     def test_awaiting_input_skipped_for_background_run(self) -> None:
-        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_awaiting_input") as notify:
+        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify:
             response = self._post(self._body(kind="awaiting_input", agent_active=False), token=self._token())
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["dispatched"])
