@@ -342,6 +342,16 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
+    // Set by the subscription matcher when a person merge repointed this job's distinct_id and re-keyed
+    // personId onto the survivor. Tells the worker to resolve the person by personId, not the distinct_id
+    // (whose ~1min PersonsManager cache entry still points at the pre-merge person) — otherwise a
+    // merge-woken step reads stale person props (e.g. an email step gets no recipient and drops the send).
+    personIdRepointed?: boolean
+    // High-water mark of the repoint version last applied to this job's personId. Repoints aren't
+    // Kafka-keyed, so a delayed lower-version move can arrive in a later batch than a higher one already
+    // applied; the matcher rejects any repoint whose version isn't strictly greater, so an out-of-order
+    // older move can't rewind the wait onto an obsolete person.
+    personIdRepointVersion?: number
     actionStepCount: number
     currentAction?: {
         id: string
@@ -358,6 +368,10 @@ export type HogFlowInvocationContext = {
         eventMatchedEventUuid?: string
         // Paired with the UUID to build the event link in the logs view; never displayed.
         eventMatchedEventTimestamp?: string
+        // Set by the subscription matcher when it re-keys a parked wait onto a merge survivor and wakes
+        // it (scheduled=now). The wait handler consumes it to attribute the re-check outcome
+        // (advanced vs re-parked) to the re-key, so the wasted-re-park churn is observable.
+        rekeyWake?: boolean
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
         // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will

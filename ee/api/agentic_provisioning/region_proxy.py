@@ -48,8 +48,6 @@ PROXY_HEADER_ALLOWLIST = frozenset(
     {
         "content-type",
         "accept",
-        "stripe-signature",
-        "api-version",
         "authorization",
         "user-agent",
     }
@@ -185,8 +183,7 @@ def region_proxy(strategy: str):
             # Cache the raw body before any `request.data` access downstream.
             # Without this, DRF parses the stream when a strategy check reads
             # request.data, then _proxy_to_region raises RawPostDataException
-            # when it tries to forward request.body. Previously this was a
-            # side effect of verify_stripe_signature running here.
+            # when it tries to forward request.body.
             _ = request.body
 
             current = _current_region()

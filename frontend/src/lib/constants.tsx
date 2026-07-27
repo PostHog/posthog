@@ -176,6 +176,7 @@ export const FEATURE_FLAGS = {
     // UX flags, used to control the UX of the app
     CMD_K_NAV_EXPERIMENT: 'cmd-k-nav-experiment', // owner: @rafaeelaudibert #team-platform-ux multivariate=control,search-bar,footer-hint,tools-row,footer-callout - surfaces the Cmd+K command menu more prominently in the left nav: search-bar = full-width search field below the nav header, footer-hint = extra Search row in the nav footer, tools-row = Search row after the Tools item in the Project section, footer-callout = dismissible callout card in the nav ad slot for users a few days after signup
     CREATE_BUTTON_NAV_EXPERIMENT: 'create-button-nav-experiment', // owner: #team-platform-ux multivariate=control,test — adds a Create dropdown to the top of the Browse tab in the left nav
+    FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT: 'feature-flag-disable-and-archive-experiment', // owner: #team-feature-flags multivariate=control,test, makes "Disable and archive" the primary CTA in the disable-flag confirmation dialog, control keeps the plain disable confirmation
     INSIGHT_NOTIFICATION_ENTRYPOINT: 'insight-notification-entrypoint', // owner: #team-product-analytics multivariate=control,notifications,get-updates,monitor — tests notification-entry-point copy against the prominent Subscribe button
     NEW_INSIGHT_MENU_EXPERIMENT: 'new-insight-menu-experiment', // owner: @thmsobrmlr #team-product-analytics multivariate=control,chips,grouped — experiment on the saved insights "New" menu: control = text list, chips = visual card grid with sub-insight chips, grouped = two-column card grid grouped by question
     STARRED_REORDER: 'starred-reorder', // owner: #team-platform-ux, drag-and-drop reorder of starred shortcuts in the side panel
@@ -279,7 +280,6 @@ export const FEATURE_FLAGS = {
     DASHBOARD_AUTO_PREVIEW_LIMIT: 'dashboard-auto-preview-limit', // owner: @pauldambra #team-product-analytics
     DASHBOARD_INLINE_TILE_INSERTION: 'dashboard-inline-tile-insertion', // owner: @MattPua #team-analytics-platform
     DASHBOARD_LAYOUT_DISCARD_PROMPT: 'dashboard-layout-discard-prompt', // owner: @cory.s #team-analytics-platform
-    DASHBOARD_POSTHOG_AI_BUTTON_LABEL: 'dashboard-posthog-ai-button-label', // owner: @pauldambra #team-product-analytics multivariate=control,control_b,test
     DASHBOARD_SUBSCRIBE_NUDGE: 'dashboard-subscribe-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges repeat dashboard viewers with no subscription toward setting one up
     DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT: 'dashboard-template-chooser-experiment', // owner: @mattp #team-analytics-platform multivariate=control,simple,new
     DASHBOARD_WIDGETS: 'dashboard-widgets', // owner: @mattp #team-analytics-platform
@@ -340,11 +340,13 @@ export const FEATURE_FLAGS = {
     INSIGHT_SUBSCRIBE_PROMINENT_BUTTON: 'insight-subscribe-prominent-button', // owner: @mattp #team-analytics-platform multivariate=control,test
     INTER_PROJECT_TRANSFERS: 'inter-project-transfers', // owner: @reecejones #team-platform-features
     JS_SNIPPET_VERSIONING: 'js-snippet-versioning', // owner: #team-client-libraries
+    LEGACY_OAUTH_RECONNECT_WARNING: 'legacy-oauth-reconnect-warning', // owner: @jabahamondes #team-web-analytics — kill-switch for the retiring-OAuth-app reconnect banner
     LINKS: 'links', // owner: @marconlp #team-link (team doesn't exist for now, maybe will come back in the future)
     LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
     LIVE_EVENTS_RICH_FILTERS: 'live-events-rich-filters', // owner: @jordanm-posthog #team-web-analytics
     LLM_ANALYTICS_CLUSTERING_ADMIN: 'llm-analytics-clustering-admin', // owner: #team-ai-observability
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-ai-observability #team-posthog-ai
+    LLM_ANALYTICS_EVAL_SETTLING_STRATEGY: 'llm-analytics-eval-settling-strategy', // owner: #team-ai-observability
     LLM_ANALYTICS_EVALUATIONS_START_WITH_AI: 'llm-analytics-evaluations-start-with-ai', // owner: #team-ai-observability
     LLM_ANALYTICS_OFFLINE_EVALS: 'llm-analytics-offline-evals', // owner: #team-ai-observability
     LLM_ANALYTICS_TAGS: 'llm-analytics-tags', // owner: #team-ai-observability
