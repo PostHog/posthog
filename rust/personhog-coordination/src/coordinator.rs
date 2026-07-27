@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use etcd_client::{EventType, WatchStream};
+use metrics::{counter, gauge, histogram};
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
@@ -134,6 +135,8 @@ impl Coordinator {
         }
 
         tracing::info!(name = %self.config.name, "acquired leadership");
+        gauge!("personhog_coordination_is_coordinator").set(1.0);
+        counter!("personhog_coordination_elections_won_total").increment(1);
 
         // A failed keepalive means the lease is gone (or about to be) and
         // another candidate can win the election: abdicate rather than
@@ -167,6 +170,8 @@ impl Coordinator {
         // Revoke so the next candidate's campaign wins immediately instead
         // of waiting out the lease TTL.
         drop(self.store.revoke_lease(lease_id).await);
+
+        reset_coordinator_gauges();
 
         result.map(|()| true)
     }
@@ -414,7 +419,11 @@ impl Coordinator {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 _ = tick.tick() => {
-                    for handoff in store.list_handoffs().await? {
+                    let handoffs = store.list_handoffs().await?;
+                    let pods = store.list_pods().await?;
+                    let routers = store.list_routers().await?;
+                    record_cluster_gauges(&handoffs, &pods, routers.len());
+                    for handoff in handoffs {
                         Self::handle_handoff_update_static(&store, &handoff).await?;
                         Self::check_phase_advance(&store, handoff.partition).await?;
                     }
@@ -461,6 +470,7 @@ impl Coordinator {
                         .cas_handoff_phase(partition, HandoffPhase::Freezing, target)
                         .await?;
                     if advanced {
+                        record_phase_advance(&handoff, target);
                         tracing::info!(
                             partition,
                             freeze_acks = freeze_acks.len(),
@@ -482,6 +492,7 @@ impl Coordinator {
                         .cas_handoff_phase(partition, HandoffPhase::Draining, HandoffPhase::Warming)
                         .await?;
                     if advanced {
+                        record_phase_advance(&handoff, HandoffPhase::Warming);
                         tracing::info!(
                             partition,
                             old_owner = ?handoff.old_owner,
@@ -499,7 +510,9 @@ impl Coordinator {
                         "new owner warmed, completing handoff"
                     );
                     match store.complete_handoff(partition).await {
-                        Ok(true) => {}
+                        Ok(true) => {
+                            record_phase_advance(&handoff, HandoffPhase::Complete);
+                        }
                         Ok(false) => {
                             tracing::warn!(partition, "handoff modified concurrently, skipping");
                         }
@@ -689,6 +702,11 @@ impl Coordinator {
             return Ok(());
         }
 
+        counter!("personhog_coordination_handoffs_created_total", "kind" => "move")
+            .increment(moves as u64);
+        counter!("personhog_coordination_handoffs_created_total", "kind" => "fresh")
+            .increment((plan.handoffs.len() - moves) as u64);
+
         // Nudge advancement for handoffs whose preconditions are already
         // satisfied at creation time (no old_owner, dead old_owner, vacuous
         // router quorum). Without this, such handoffs would stall waiting
@@ -747,10 +765,13 @@ impl Coordinator {
                 phase = ?current.phase,
                 "cleaning up handoff targeting a dead new owner"
             );
-            if !store
+            if store
                 .delete_handoff_and_acks_if_unchanged(current.partition, mod_revision)
                 .await?
             {
+                counter!("personhog_coordination_handoffs_cancelled_total", "reason" => "dead_new_owner")
+                    .increment(1);
+            } else {
                 tracing::info!(
                     partition = current.partition,
                     "handoff changed concurrently, skipping cleanup"
@@ -795,6 +816,71 @@ impl Coordinator {
         }
         Ok(())
     }
+}
+
+// ── Metrics ─────────────────────────────────────────────────────
+
+fn phase_label(phase: HandoffPhase) -> &'static str {
+    match phase {
+        HandoffPhase::Freezing => "freezing",
+        HandoffPhase::Draining => "draining",
+        HandoffPhase::Warming => "warming",
+        HandoffPhase::Complete => "complete",
+    }
+}
+
+/// Record a successful phase advance: a transition counter plus a
+/// histogram of seconds elapsed since the handoff was created.
+/// `started_at` carries one-second resolution, so these timings exist to
+/// spot stalls (a handoff minutes into Freezing), not to micro-profile;
+/// the pod side's warm and drain histograms carry the precise
+/// per-operation cost.
+fn record_phase_advance(handoff: &HandoffState, to: HandoffPhase) {
+    counter!(
+        "personhog_coordination_handoff_transitions_total",
+        "from" => phase_label(handoff.phase),
+        "to" => phase_label(to),
+    )
+    .increment(1);
+    let elapsed = util::now_seconds().saturating_sub(handoff.started_at);
+    histogram!(
+        "personhog_coordination_handoff_phase_reached_seconds",
+        "phase" => phase_label(to),
+    )
+    .record(elapsed as f64);
+}
+
+/// Refresh the coordinator's view-of-the-cluster gauges. Driven from the
+/// reconcile tick, so only the elected coordinator exports live values;
+/// `reset_coordinator_gauges` zeroes them when leadership ends.
+fn record_cluster_gauges(handoffs: &[HandoffState], pods: &[RegisteredPod], routers: usize) {
+    for phase in [
+        HandoffPhase::Freezing,
+        HandoffPhase::Draining,
+        HandoffPhase::Warming,
+        HandoffPhase::Complete,
+    ] {
+        let count = handoffs.iter().filter(|h| h.phase == phase).count();
+        gauge!("personhog_coordination_handoffs_in_flight", "phase" => phase_label(phase))
+            .set(count as f64);
+    }
+    for (status, label) in [
+        (PodStatus::Ready, "ready"),
+        (PodStatus::Draining, "draining"),
+    ] {
+        let count = pods.iter().filter(|p| p.status == status).count();
+        gauge!("personhog_coordination_pods_registered", "status" => label).set(count as f64);
+    }
+    gauge!("personhog_coordination_routers_registered").set(routers as f64);
+}
+
+/// Zero every gauge this instance exports as coordinator. Called when
+/// leadership ends, so a former coordinator's scrape endpoint doesn't
+/// keep reporting the last-known cluster state alongside the new
+/// coordinator's live values.
+fn reset_coordinator_gauges() {
+    gauge!("personhog_coordination_is_coordinator").set(0.0);
+    record_cluster_gauges(&[], &[], 0);
 }
 
 // ── Pure functions ──────────────────────────────────────────────
