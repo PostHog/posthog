@@ -27,6 +27,7 @@ import {
     createSkipCookielessRateLimitToOverflowStep,
     createValidateAiEventTokensStep,
     createValidateHistoricalMigrationStep,
+    parseMessageTopHogMetrics,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
@@ -218,7 +219,7 @@ export function createJoinedIngestionPipeline<
             // handled by the matching only-cookieless step in post-team, which keys on
             // the hashed distinct_id assigned by the cookieless step.
             .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
-            .parseMessage()
+            .parseMessage({ wrap: (step) => topHogWrapper(step, parseMessageTopHogMetrics()) })
             .resolveTeam()
             .pipe(createValidateHistoricalMigrationStep())
             .pipe(createValidateAiEventTokensStep())

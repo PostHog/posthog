@@ -31,6 +31,7 @@ import {
     createValidateEventPropertiesStep,
     createValidateEventSchemaStep,
     createValidateHistoricalMigrationStep,
+    parseMessageTopHogMetrics,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
@@ -157,7 +158,7 @@ export function createAiIngestionPipeline<
             // Rate-limit non-cookieless events to overflow before parsing the body.
             // Cookieless events pass through and are handled post-cookieless below.
             .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
-            .parseMessage()
+            .parseMessage({ wrap: (step) => topHog(step, parseMessageTopHogMetrics()) })
             .resolveTeam()
             .pipe(createValidateHistoricalMigrationStep())
             .pipe(createValidateAiEventTokensStep())

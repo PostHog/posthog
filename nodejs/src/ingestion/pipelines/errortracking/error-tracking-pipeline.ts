@@ -24,6 +24,7 @@ import {
     createOnlyCookielessRateLimitToOverflowStep,
     createOverflowLaneTTLRefreshStep,
     createSkipCookielessRateLimitToOverflowStep,
+    parseMessageTopHogMetrics,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
@@ -160,7 +161,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         // handled post-cookieless by createOnlyCookielessRateLimitToOverflowStep, which
         // keys on the hashed distinct_id assigned by the cookieless step.
         .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
-        .parseMessage()
+        .parseMessage({ wrap: (step) => topHogWrapper(step, parseMessageTopHogMetrics()) })
         .resolveTeam({
             wrap: (step) =>
                 topHogWrapper(step, [
