@@ -23,6 +23,7 @@ import {
     IconPeople,
     IconPieChart,
     IconPiggyBank,
+    IconPlaylist,
     IconPulse,
     IconRewindPlay,
     IconRocket,
@@ -77,6 +78,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconLlmAnalytics />
         case 'llm_skill':
             return <IconLlmPromptManagement />
+        case 'llm_playground':
+            return <IconPlaylist />
         case 'ai_observability_clusters':
             return <IconScatter />
         case 'live_debugger':
