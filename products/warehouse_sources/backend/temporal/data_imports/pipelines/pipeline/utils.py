@@ -182,6 +182,10 @@ def get_default_value_for_pyarrow_type(arrow_type: pa.DataType) -> Any:
         raise ValueError(f"Unsupported PyArrow type: {arrow_type}")
 
 
+def _time_to_seconds(value: datetime.time) -> float:
+    return value.hour * 3600 + value.minute * 60 + value.second + value.microsecond / 1_000_000
+
+
 def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Schema | None) -> pa.Table:
     # First pass: normalize types that Delta write path does not handle well.
     for column_name in incoming_table.column_names:
@@ -201,6 +205,21 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
             duration_values = cast(list[datetime.timedelta | None], incoming_column.to_pylist())
             seconds_column = pa.array(
                 [value.total_seconds() if value is not None else None for value in duration_values]
+            )
+            incoming_table = incoming_table.set_column(
+                incoming_table.schema.get_field_index(column_name), column_name, seconds_column
+            )
+            incoming_column = incoming_table.column(column_name)
+        # Convert time-of-day to numeric seconds. SQL sources map a TIME column to time64, but a
+        # batch whose TIME values arrive as Python timedelta infers as duration and lands as float
+        # seconds above — so the same column oscillates between time64 and double across batches
+        # (a batch with values vs an all-null batch), and time64 has no cast to double. Collapsing
+        # time to seconds here keeps the stored Delta type stable across both shapes.
+        elif pa.types.is_time(incoming_column.type):
+            time_values = cast(list[datetime.time | None], incoming_column.to_pylist())
+            seconds_column = pa.array(
+                [_time_to_seconds(value) if value is not None else None for value in time_values],
+                type=pa.float64(),
             )
             incoming_table = incoming_table.set_column(
                 incoming_table.schema.get_field_index(column_name), column_name, seconds_column
@@ -305,8 +324,8 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                     # was truncated converting to int64"), non-numeric text arriving for a numeric
                     # column ("Failed to parse string: '80-150' as a scalar of type int32"), a
                     # value that overflows the stored decimal precision, or a cast pyarrow has no
-                    # kernel for at all (e.g. `time64` → `double`, raised as ArrowNotImplementedError
-                    # rather than ArrowInvalid). delta-rs cannot change a column's type in place, so
+                    # kernel for at all (raised as ArrowNotImplementedError rather than
+                    # ArrowInvalid). delta-rs cannot change a column's type in place, so
                     # retrying is futile — surface an actionable error telling the user to reset and
                     # fully re-sync. Lossless widening (e.g. a whole-valued float into an integer
                     # column) still casts fine and never reaches here.
