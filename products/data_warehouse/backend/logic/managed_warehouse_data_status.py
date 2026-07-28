@@ -5,11 +5,10 @@ from typing import Literal, TypedDict
 
 from django.utils import timezone
 
-from posthog.ducklake.cp_teams import CPTeam
-from posthog.ducklake.models import DuckgresSinkSchemaState
-
 from products.data_warehouse.backend.logic.backfill_status import historical_backfill_months
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
+from products.managed_warehouse.backend.facade.cp_teams import CPTeam
+from products.managed_warehouse.backend.facade.models import DuckgresSinkSchemaState
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 ReadinessState = Literal[
@@ -365,7 +364,7 @@ def _roll_up_state(states: list[ReadinessState]) -> ReadinessState:
 def get_managed_warehouse_data_status(team_id: int) -> ManagedWarehouseDataStatus:
     # Deferred: team_state pulls ducklake.common (and its duckdb dependency) in — keep
     # that off the API import path.
-    from posthog.ducklake import team_state  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.team_state import team_state  # noqa: PLC0415
 
     # Degrades to None (reported not_configured) when the control plane can't answer:
     # a status read must never 500.

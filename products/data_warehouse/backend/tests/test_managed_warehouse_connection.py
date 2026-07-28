@@ -7,8 +7,6 @@ from posthog.hogql.direct_connection import get_direct_connection_source
 from posthog.hogql.errors import QueryError
 from posthog.hogql.query import HogQLQueryExecutor
 
-from posthog.ducklake import cp_teams
-from posthog.ducklake.models import DuckgresServer
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
@@ -21,6 +19,8 @@ from products.data_warehouse.backend.managed_warehouse_connection import (
 )
 from products.data_warehouse.backend.presentation.views import managed_warehouse
 from products.data_warehouse.backend.tasks import reconcile_all_managed_warehouse_tables_task
+from products.managed_warehouse.backend.facade.cp_teams import cp_teams
+from products.managed_warehouse.backend.facade.models import DuckgresServer
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -102,7 +102,7 @@ def _clear_memberships() -> None:
 def _cp_memberships():
     _clear_memberships()
     with patch(
-        "posthog.ducklake.cp_teams._fetch_org_rows",
+        "products.managed_warehouse.backend.cp_teams._fetch_org_rows",
         side_effect=lambda org_id: list(_MEMBERSHIPS.get(str(org_id), [])),
     ):
         yield
@@ -502,7 +502,7 @@ class TestReconcileManagedWarehouseTables:
         ]
 
         with (
-            patch("posthog.ducklake.cp_teams._fetch_all_rows", return_value=all_rows),
+            patch("products.managed_warehouse.backend.cp_teams._fetch_all_rows", return_value=all_rows),
             patch(
                 "products.data_warehouse.backend.tasks.tasks.schedule_managed_warehouse_tables_reconcile"
             ) as schedule,
@@ -513,7 +513,7 @@ class TestReconcileManagedWarehouseTables:
 
     def test_periodic_sweep_skips_run_when_control_plane_unreachable(self) -> None:
         with (
-            patch("posthog.ducklake.cp_teams._fetch_all_rows", return_value=None),
+            patch("products.managed_warehouse.backend.cp_teams._fetch_all_rows", return_value=None),
             patch(
                 "products.data_warehouse.backend.tasks.tasks.schedule_managed_warehouse_tables_reconcile"
             ) as schedule,

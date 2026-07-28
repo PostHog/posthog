@@ -9,8 +9,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import psycopg
 from asgiref.sync import async_to_sync
 
-from posthog.models import DuckgresSinkSchemaState, Organization, Team
+from posthog.models import Organization, Team
 
+from products.managed_warehouse.backend.facade.models import DuckgresSinkSchemaState
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     OwnershipLostError,
     PermanentBatchApplyError,

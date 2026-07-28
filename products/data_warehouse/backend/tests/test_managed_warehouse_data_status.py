@@ -7,8 +7,6 @@ from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
-from posthog.ducklake.cp_teams import CPTeam
-from posthog.ducklake.models import DuckgresSinkSchemaState
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.logic.managed_warehouse_data_status import (
@@ -21,6 +19,8 @@ from products.data_warehouse.backend.logic.managed_warehouse_data_status import 
     source_table_readiness,
 )
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
+from products.managed_warehouse.backend.facade.cp_teams import CPTeam
+from products.managed_warehouse.backend.facade.models import DuckgresSinkSchemaState
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 Granularity = ManagedWarehouseBackfillPartition.Granularity

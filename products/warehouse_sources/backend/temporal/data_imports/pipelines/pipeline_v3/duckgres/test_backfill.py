@@ -11,8 +11,9 @@ from django.utils import timezone
 
 import psycopg
 
-from posthog.models import DuckgresSinkSchemaState, Organization, Team
+from posthog.models import Organization, Team
 
+from products.managed_warehouse.backend.facade.models import DuckgresSinkSchemaState
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable

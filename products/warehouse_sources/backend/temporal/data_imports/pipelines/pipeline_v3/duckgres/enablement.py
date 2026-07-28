@@ -19,9 +19,10 @@ from dataclasses import dataclass
 import structlog
 import posthoganalytics
 
-from posthog.ducklake import cp_teams
-from posthog.ducklake.common import _get_org_id_for_team, is_dev_mode
 from posthog.exceptions_capture import capture_exception
+
+from products.managed_warehouse.backend.facade.api import get_org_id_for_team, is_dev_mode
+from products.managed_warehouse.backend.facade.cp_teams import cp_teams
 
 logger = structlog.get_logger(__name__)
 
@@ -35,7 +36,7 @@ def is_duckgres_sink_team_member(team_id: int) -> bool:
     or pins its schema names is intentionally not part of this check. Raises when the
     control plane can't answer — the caller decides how to degrade.
     """
-    organization_id = _get_org_id_for_team(team_id)
+    organization_id = get_org_id_for_team(team_id)
     teams = cp_teams.list_org_teams(organization_id)
     if teams is None:
         raise RuntimeError(f"duckgres control plane unreachable resolving sink membership for team {team_id}")
@@ -73,8 +74,9 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
     if is_dev_mode():
         return None
 
-    from posthog.ducklake.models import DuckgresServer
     from posthog.models.team.team import Team
+
+    from products.managed_warehouse.backend.facade.models import DuckgresServer
 
     rows = cp_teams.list_member_teams()
     if rows is None:

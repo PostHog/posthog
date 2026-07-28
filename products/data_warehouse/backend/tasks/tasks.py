@@ -102,7 +102,8 @@ def schedule_soft_delete_managed_warehouse_sources(*, organization_id: str | UUI
 def reconcile_all_managed_warehouse_tables_task() -> None:
     # Deferred: ducklake pulls duckdb in via common, and that must not load while Celery
     # imports task modules — keep it off this module's import path.
-    from posthog.ducklake import cp_teams, team_state  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.cp_teams import cp_teams  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.team_state import team_state  # noqa: PLC0415
 
     rows = cp_teams.list_enabled_backfills()
     if rows is None:
@@ -169,18 +170,17 @@ def sync_team_earliest_event_date(team_id: int) -> None:
     """
     # Deferred: ducklake pulls duckdb in via common, and posthog.models must not load
     # while Celery imports task modules — keep both off this module's import path.
-    from posthog.ducklake import cp_teams  # noqa: PLC0415
-    from posthog.ducklake.common import (  # noqa: PLC0415
-        NO_HISTORY_SENTINEL,
-        _get_org_id_for_team,
-        resolve_team_earliest_event_date,
-    )
-
     from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
         push_team_earliest_event_date,
     )
+    from products.managed_warehouse.backend.facade.api import (  # noqa: PLC0415
+        NO_HISTORY_SENTINEL,
+        get_org_id_for_team,
+        resolve_team_earliest_event_date,
+    )
+    from products.managed_warehouse.backend.facade.cp_teams import cp_teams  # noqa: PLC0415
 
-    organization_id = _get_org_id_for_team(team_id)
+    organization_id = get_org_id_for_team(team_id)
     row = cp_teams.get_team(organization_id, team_id)
     if row is None:
         logger.info("No duckling team row for team; skipping earliest event date sync", team_id=team_id)

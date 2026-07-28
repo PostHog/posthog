@@ -12,7 +12,7 @@ left in place for the record &mdash; delete them separately if needed.</p>
     {% csrf_token %}
     <div style="margin-top: 20px;">
         <input type="submit" class="default" value="Yes, deprovision" style="padding: 10px 20px; background: #ba2121;" />
-        <a href="{% url 'admin:posthog_duckgresserver_change' server.pk %}" style="margin-left: 10px;">Cancel</a>
+        <a href="{% url 'admin:managed_warehouse_duckgresserver_change' server.pk %}" style="margin-left: 10px;">Cancel</a>
     </div>
 </form>
 {% endblock %}

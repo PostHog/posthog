@@ -34,7 +34,7 @@ class TestResolveDucklingTarget:
         cp_bucket: str | None = None,
     ):
         with (
-            patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1"),
+            patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1"),
             patch("posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization", return_value=server),
             patch(
                 "products.data_warehouse.backend.presentation.views.managed_warehouse.cp_bucket_for",

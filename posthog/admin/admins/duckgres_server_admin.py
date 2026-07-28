@@ -8,7 +8,9 @@ from django.urls import path, reverse
 
 import structlog
 
-from posthog.models import DuckgresServer, Organization, Team, User
+from posthog.models import Organization, Team, User
+
+from products.managed_warehouse.backend.facade.models import DuckgresServer
 
 logger = structlog.get_logger(__name__)
 
@@ -105,17 +107,17 @@ class DuckgresServerAdmin(admin.ModelAdmin):
             path(
                 "provision/",
                 self.admin_site.admin_view(self.provision_view),
-                name="posthog_duckgresserver_provision",
+                name="managed_warehouse_duckgresserver_provision",
             ),
             path(
                 "<path:object_id>/enable-backfill/",
                 self.admin_site.admin_view(self.enable_backfill_view),
-                name="posthog_duckgresserver_enable_backfill",
+                name="managed_warehouse_duckgresserver_enable_backfill",
             ),
             path(
                 "<path:object_id>/deprovision/",
                 self.admin_site.admin_view(self.deprovision_view),
-                name="posthog_duckgresserver_deprovision",
+                name="managed_warehouse_duckgresserver_deprovision",
             ),
         ]
         return custom_urls + super().get_urls()
@@ -152,7 +154,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
 
         team = self._resolve_team(request, organization_id, team_id)
         if team is None:
-            return redirect(reverse("admin:posthog_duckgresserver_provision"))
+            return redirect(reverse("admin:managed_warehouse_duckgresserver_provision"))
 
         from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
@@ -187,7 +189,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
                 },
             )
         self._report(request, resp, f"Provisioned managed warehouse for org {team.organization_id}")
-        return redirect(reverse("admin:posthog_duckgresserver_provision"))
+        return redirect(reverse("admin:managed_warehouse_duckgresserver_provision"))
 
     def enable_backfill_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
         """Onboard another team onto an already-provisioned org's warehouse with its own schema."""
@@ -214,15 +216,15 @@ class DuckgresServerAdmin(admin.ModelAdmin):
 
         team = self._resolve_team(request, str(server.organization_id), team_id)
         if team is None:
-            return redirect(reverse("admin:posthog_duckgresserver_enable_backfill", args=[object_id]))
+            return redirect(reverse("admin:managed_warehouse_duckgresserver_enable_backfill", args=[object_id]))
 
         from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
         resp = managed_warehouse.onboard_team(server.organization_id, team.id, schema_name, require_enabled=False)
         self._report(request, resp, f"Onboarded team {team.id} onto the managed warehouse")
         if 200 <= resp.status_code < 300:
-            return redirect(reverse("admin:posthog_duckgresserver_change", args=[object_id]))
-        return redirect(reverse("admin:posthog_duckgresserver_enable_backfill", args=[object_id]))
+            return redirect(reverse("admin:managed_warehouse_duckgresserver_change", args=[object_id]))
+        return redirect(reverse("admin:managed_warehouse_duckgresserver_enable_backfill", args=[object_id]))
 
     def deprovision_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
         """Tear down an org's managed warehouse via the control-plane /deprovision call."""
@@ -249,8 +251,8 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         resp = managed_warehouse.deprovision(server.organization_id, require_enabled=False)
         self._report(request, resp, f"Deprovisioned managed warehouse for org {server.organization_id}")
         if 200 <= resp.status_code < 300:
-            return redirect(reverse("admin:posthog_duckgresserver_changelist"))
-        return redirect(reverse("admin:posthog_duckgresserver_change", args=[object_id]))
+            return redirect(reverse("admin:managed_warehouse_duckgresserver_changelist"))
+        return redirect(reverse("admin:managed_warehouse_duckgresserver_change", args=[object_id]))
 
     def _get_server_or_404(self, object_id: str) -> DuckgresServer:
         try:

@@ -41,8 +41,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         replan_schema = options.get("replan_backfill")
         if replan_schema:
-            from posthog.models import DuckgresSinkSchemaState
-
+            from products.managed_warehouse.backend.facade.models import DuckgresSinkSchemaState
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (
                 replan_backfill,
             )

@@ -9,11 +9,11 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework.response import Response
 
-from posthog.ducklake import cp_teams
-from posthog.ducklake.models import DuckgresServer
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.presentation.views import managed_warehouse
+from products.managed_warehouse.backend.facade.cp_teams import cp_teams
+from products.managed_warehouse.backend.facade.models import DuckgresServer
 
 
 @pytest.fixture(autouse=True)
@@ -1014,7 +1014,7 @@ def test_block_team_deletion_blocks_when_delete_fails_and_membership_possible(
     mock_delete.return_value = Response({"error": "unreachable"}, status=502)
     rows = [{"org_id": str(org.id), "team_id": team.id, "schema_name": "mine"}] if cp_rows_kind else None
 
-    with patch("posthog.ducklake.cp_teams._fetch_org_rows", return_value=rows):
+    with patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=rows):
         reason = managed_warehouse.block_team_deletion(team.id, org.id)
 
     assert reason is not None
@@ -1029,7 +1029,7 @@ def test_block_team_deletion_lets_unonboarded_team_through_on_control_plane_erro
     org, team, _ = _provisioned_org()
     mock_delete.return_value = Response({"error": "unreachable"}, status=502)
 
-    with patch("posthog.ducklake.cp_teams._fetch_org_rows", return_value=[]):
+    with patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=[]):
         assert managed_warehouse.block_team_deletion(team.id, org.id) is None
 
 

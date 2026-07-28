@@ -6,11 +6,10 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
 
-from posthog.ducklake.client import DuckLakeQueryResult
-
 from products.endpoints.backend.logic import ducklake_shadow
 from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
+from products.managed_warehouse.backend.facade.contracts import DuckLakeQueryResult
 
 pytestmark = [pytest.mark.django_db]
 

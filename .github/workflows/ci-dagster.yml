@@ -118,6 +118,7 @@ jobs:
                         - 'posthog/event_usage.py'
                         - 'posthog/products.py'
                         - 'posthog/cloud_utils.py'
+                        - 'products/managed_warehouse/backend/**'
                         - 'posthog/ducklake/**'
                         - 'common/hogvm/**'
                         # Test infrastructure used by dagster tests

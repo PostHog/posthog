@@ -1,10 +1,10 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.ducklake import cp_teams
-from posthog.ducklake.models import DuckgresServer
 from posthog.models import Organization, Team
 
+from products.managed_warehouse.backend.facade.cp_teams import cp_teams
+from products.managed_warehouse.backend.facade.models import DuckgresServer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres import enablement
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
     duckgres_sink_team_ids,
@@ -30,7 +30,7 @@ def _cp_row(team: Team, *, backfill_enabled: bool = True) -> dict:
 
 
 def _patch_all_rows(rows):
-    return patch("posthog.ducklake.cp_teams._fetch_all_rows", return_value=rows)
+    return patch("products.managed_warehouse.backend.cp_teams._fetch_all_rows", return_value=rows)
 
 
 @pytest.mark.django_db
@@ -157,11 +157,11 @@ def test_is_duckgres_sink_team_member_reads_the_control_plane() -> None:
     member = Team.objects.create(organization=org)
     non_member = Team.objects.create(organization=org)
 
-    with patch("posthog.ducklake.cp_teams._fetch_org_rows", return_value=[_cp_row(member)]):
+    with patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=[_cp_row(member)]):
         assert is_duckgres_sink_team_member(member.id) is True
         assert is_duckgres_sink_team_member(non_member.id) is False
 
     cp_teams.clear_cache()
-    with patch("posthog.ducklake.cp_teams._fetch_org_rows", return_value=None):
+    with patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=None):
         with pytest.raises(RuntimeError):
             is_duckgres_sink_team_member(member.id)

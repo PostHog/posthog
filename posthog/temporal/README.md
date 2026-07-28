@@ -14,8 +14,8 @@ Temporal provides us with abstractions that handle the distributed execution whi
 
 That being said, if you do decide to develop an application or feature with Temporal, this README will guide you through how we develop with Temporal, common pitfalls, and useful additional abstractions we have developed over time.
 
-> DuckLake copy workflow configuration lives in `posthog/ducklake/README.md`.
-> DuckLake copy workflow configuration lives in `posthog/ducklake/TEMPORAL.md`.
+> DuckLake copy workflow configuration lives in `products/managed_warehouse/backend/README.md`.
+> DuckLake copy workflow configuration lives in `products/managed_warehouse/backend/TEMPORAL.md`.
 
 ## Temporal concepts
 

@@ -5,10 +5,10 @@
     {{ block.super }}
     {% if original.pk %}
         <li>
-            <a href="{% url 'admin:posthog_duckgresserver_enable_backfill' original.pk %}">Enable backfill for a team</a>
+            <a href="{% url 'admin:managed_warehouse_duckgresserver_enable_backfill' original.pk %}">Enable backfill for a team</a>
         </li>
         <li>
-            <a href="{% url 'admin:posthog_duckgresserver_deprovision' original.pk %}" class="deletelink">Deprovision warehouse</a>
+            <a href="{% url 'admin:managed_warehouse_duckgresserver_deprovision' original.pk %}" class="deletelink">Deprovision warehouse</a>
         </li>
     {% endif %}
 {% endblock %}

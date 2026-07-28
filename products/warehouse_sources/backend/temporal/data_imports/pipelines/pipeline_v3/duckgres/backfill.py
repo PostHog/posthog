@@ -52,8 +52,8 @@ import structlog
 from prometheus_client import Gauge
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import DuckgresSinkSchemaState
 
+from products.managed_warehouse.backend.facade.models import DuckgresSinkSchemaState
 from products.warehouse_sources.backend.models import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_queue import (
     BACKFILL_JOB_ID,

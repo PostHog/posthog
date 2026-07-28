@@ -73,15 +73,6 @@ from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
-from posthog.ducklake import team_state
-from posthog.ducklake.client import make_duckgres_conninfo
-from posthog.ducklake.common import (
-    DUCKGRES_BUCKET_REGION,
-    NO_HISTORY_SENTINEL,
-    _get_org_id_for_team,
-    get_duckgres_server_for_organization,
-    resolve_team_earliest_event_date,
-)
 
 from products.data_warehouse.backend.facade.backfill_status import (
     BackfillOutcome,
@@ -92,6 +83,15 @@ from products.data_warehouse.backend.facade.backfill_status import (
     stale_running_partitions,
 )
 from products.data_warehouse.backend.facade.models import ManagedWarehouseBackfillPartition
+from products.managed_warehouse.backend.facade.api import (
+    DUCKGRES_BUCKET_REGION,
+    NO_HISTORY_SENTINEL,
+    get_duckgres_server_for_organization,
+    get_org_id_for_team,
+    resolve_team_earliest_event_date,
+)
+from products.managed_warehouse.backend.facade.client import make_duckgres_conninfo
+from products.managed_warehouse.backend.facade.team_state import team_state
 
 logger = structlog.get_logger(__name__)
 
@@ -247,7 +247,7 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     """
     from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
-    org_id = _get_org_id_for_team(team_id)
+    org_id = get_org_id_for_team(team_id)
     events_table, persons_table = _resolve_table_names(team_id)
 
     # Control plane first — authoritative, and rejects an org_id-mismatched status body.

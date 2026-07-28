@@ -44,7 +44,7 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 
 if TYPE_CHECKING:
-    from posthog.ducklake.models import DuckgresServer
+    from products.managed_warehouse.backend.facade.models import DuckgresServer
 
 logger = structlog.get_logger(__name__)
 
@@ -161,7 +161,12 @@ def _membership_table_suffix(*, team_id: int, organization_id: str | UUID) -> st
     team has no backfill-enabled row or sits on the legacy shared tables — neither can be
     exposed as a per-project query connection.
     """
-    from posthog.ducklake import cp_teams, team_state  # noqa: PLC0415 — keeps duckdb off this module's import path
+    from products.managed_warehouse.backend.facade.cp_teams import (
+        cp_teams,  # noqa: PLC0415 — keeps duckdb off this module's import path
+    )
+    from products.managed_warehouse.backend.facade.team_state import (
+        team_state,  # noqa: PLC0415 — keeps duckdb off this module's import path
+    )
 
     teams = cp_teams.list_org_teams(str(organization_id))
     if teams is None:
@@ -177,7 +182,7 @@ def _membership_table_suffix(*, team_id: int, organization_id: str | UUID) -> st
 
 def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str | UUID) -> ExternalDataSource:
     """Create or refresh the team's restricted live-query source from its membership."""
-    from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
 
     table_suffix = _membership_table_suffix(team_id=team_id, organization_id=organization_id)
 
@@ -246,7 +251,7 @@ def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str
 
 def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | UUID) -> None:
     """Discover and register only this team's managed-warehouse tables."""
-    from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
 
     try:
         ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
@@ -347,7 +352,7 @@ def _managed_sources_for_org(organization_id: str | UUID) -> QuerySet[ExternalDa
 
 def update_managed_warehouse_root_password(*, organization_id: str | UUID, password: str) -> None:
     """Refresh the internal root writer without changing project reader credentials."""
-    from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
 
     with transaction.atomic():
         server = DuckgresServer.objects.select_for_update().get(organization_id=organization_id)
@@ -361,7 +366,7 @@ def soft_delete_managed_warehouse_sources(*, organization_id: str | UUID) -> Non
     Per-team state needs no disabling here: deprovisioning removes the org's team rows
     from the duckgres control plane, which is the read source for membership.
     """
-    from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
 
     now = timezone.now()
     with transaction.atomic():

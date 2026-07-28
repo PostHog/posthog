@@ -395,7 +395,7 @@ def _strip_bucket_fields(body: dict) -> None:
 def _validate_schema_name(name: str | None) -> str | None:
     """Return an error message if `name` isn't a valid duckgres schema name, else None."""
     # Keep ducklake.common (and its duckdb dependency) off the API import path.
-    from posthog.ducklake.common import validate_schema_name  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import validate_schema_name  # noqa: PLC0415
 
     return validate_schema_name(name)
 
@@ -403,7 +403,7 @@ def _validate_schema_name(name: str | None) -> str | None:
 def team_backfill_state(team_id: int) -> dict:
     """Return the calling team's duckling backfill state for the warehouse-status response."""
     # Keep ducklake.common (and its duckdb dependency) off the API import path.
-    from posthog.ducklake.common import get_team_backfill_state  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import get_team_backfill_state  # noqa: PLC0415
 
     return get_team_backfill_state(team_id)
 
@@ -454,7 +454,10 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
     the row can be reconciled later from the warehouse status.
     """
     # Keep ducklake.common (and its duckdb dependency) off the API import path.
-    from posthog.ducklake.common import default_bucket_region, upsert_duckgres_server_for_org  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import (  # noqa: PLC0415
+        default_bucket_region,
+        upsert_duckgres_server_for_org,
+    )
 
     # The control plane is the single owner of the bucket name — it provisions
     # the bucket, pins the name on the Duckling CR's spec.dataStore.bucketName,
@@ -493,7 +496,7 @@ def list_teams(organization_id: UUID | str, require_enabled: bool = True) -> Res
 def list_all_teams() -> Response:
     """List every duckgres team row across orgs (global internal endpoint).
 
-    Backend-only: feeds the cp-mode sensor enumeration in posthog.ducklake.cp_teams,
+    Backend-only: feeds the cp-mode sensor enumeration in products.managed_warehouse.backend.cp_teams,
     which is why the feature-flag gate is bypassed.
     """
     return _request("GET", "", "teams", require_enabled=False)
@@ -686,7 +689,7 @@ def onboard_team(
 def _org_has_warehouse(organization_id: UUID | str) -> bool:
     """Whether the org has a provisioned managed warehouse (its connection row exists)."""
     # Keep ducklake.models off the core API import path.
-    from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
 
     return DuckgresServer.objects.filter(organization_id=organization_id).exists()
 
@@ -770,8 +773,8 @@ def block_team_deletion(team_id: int, organization_id: UUID | str) -> str | None
     # Keep ducklake.models off the core API import path.
     # Keep ducklake.team_state (and via it ducklake.common's duckdb dependency) off the
     # API import path.
-    from posthog.ducklake import team_state  # noqa: PLC0415
-    from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.team_state import team_state  # noqa: PLC0415
 
     if not DuckgresServer.objects.filter(organization_id=organization_id).exists():
         return None
@@ -844,7 +847,7 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
     with no pointer left for any later cleanup.
     """
     # Keep ducklake.models off the core import path.
-    from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
 
     org_id = str(organization_id)
     if not DuckgresServer.objects.filter(organization_id=organization_id).exists():
@@ -1004,11 +1007,11 @@ def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> No
         # nothing authoritative to copy.
         return
     # Keep ducklake.common (and its duckdb dependency) off the API import path.
-    from posthog.ducklake.common import default_bucket_region  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import default_bucket_region  # noqa: PLC0415
 
     bucket_region = body.get("bucket_region") or default_bucket_region()
     try:
-        from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
+        from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
 
         # exclude rows where BOTH already match, so a correct bucket with a stale
         # region (or vice versa) is still repaired.

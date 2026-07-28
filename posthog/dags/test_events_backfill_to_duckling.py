@@ -60,9 +60,9 @@ from posthog.dags.events_backfill_to_duckling import (
     register_persons_files_with_duckling,
     table_exists,
 )
-from posthog.ducklake.common import EARLIEST_BACKFILL_DATE, NO_HISTORY_SENTINEL
 
 from products.data_warehouse.backend.facade.backfill_status import BackfillOutcome, get_months_in_range
+from products.managed_warehouse.backend.facade.api import EARLIEST_BACKFILL_DATE, NO_HISTORY_SENTINEL
 
 
 @pytest.fixture(autouse=True)
@@ -92,7 +92,7 @@ class TestDucklingBackfillAlertRouting:
 class TestResolveDucklingTarget:
     @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
     @patch("posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization", return_value=None)
-    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
+    @patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1")
     def test_resolves_bucket_from_control_plane(
         self, mock_org: MagicMock, _mock_server: MagicMock, _mock_tables: MagicMock
     ):
@@ -113,7 +113,7 @@ class TestResolveDucklingTarget:
         mock_cp.assert_called_once_with("org-1")
 
     @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
-    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
+    @patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1")
     def test_control_plane_wins_over_stale_stored_server_bucket(self, _mock_org: MagicMock, _mock_tables: MagicMock):
         # A row provisioned before the naming fix carries a stale bucket; the CP value
         # must win so the backfill never exports to a bucket that doesn't exist.
@@ -133,7 +133,7 @@ class TestResolveDucklingTarget:
         assert target.bucket == "posthog-duckling-org-1-mw-prod-us"
 
     @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
-    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
+    @patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1")
     def test_falls_back_to_stored_server_when_control_plane_unavailable(
         self, _mock_org: MagicMock, _mock_tables: MagicMock
     ):
@@ -155,7 +155,7 @@ class TestResolveDucklingTarget:
 
     @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
     @patch("posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization", return_value=None)
-    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
+    @patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1")
     def test_raises_when_nothing_can_name_the_bucket(
         self, _mock_org: MagicMock, _mock_server: MagicMock, _mock_tables: MagicMock
     ):
@@ -172,14 +172,14 @@ class TestResolveTableNames:
 
     def test_passes_through_resolved_names(self):
         with patch(
-            "posthog.ducklake.team_state.resolve_events_persons_tables",
+            "products.managed_warehouse.backend.team_state.resolve_events_persons_tables",
             return_value=("events_alpha", "persons_alpha"),
         ):
             assert _resolve_table_names(1) == ("events_alpha", "persons_alpha")
 
     def test_unsafe_resolved_name_is_rejected(self):
         with patch(
-            "posthog.ducklake.team_state.resolve_events_persons_tables",
+            "products.managed_warehouse.backend.team_state.resolve_events_persons_tables",
             return_value=("events_a-b; DROP", "persons"),
         ):
             with pytest.raises(ValueError):
@@ -660,8 +660,8 @@ class TestFullBackfillSensorEarliestDate:
             ("post-2015 unchanged", datetime(2020, 6, 15), "2020-06"),
         ]
     )
-    @patch("posthog.ducklake.common.get_earliest_event_date_for_team")
-    @patch("posthog.ducklake.team_state.list_enabled_backfill_rows")
+    @patch("products.managed_warehouse.backend.common.get_earliest_event_date_for_team")
+    @patch("products.managed_warehouse.backend.team_state.list_enabled_backfill_rows")
     @patch("posthog.dags.events_backfill_to_duckling.timezone")
     @patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", new=MagicMock(return_value=[]))
     def test_earliest_date_clamped(
@@ -697,8 +697,8 @@ class TestFullBackfillSensorEarliestDate:
         # Earliest date is cached on the row so later ticks never re-query ClickHouse.
         assert backfill.earliest_event_date == max(earliest_dt, datetime(2015, 1, 1)).date()
 
-    @patch("posthog.ducklake.common.get_earliest_event_date_for_team")
-    @patch("posthog.ducklake.team_state.list_enabled_backfill_rows")
+    @patch("products.managed_warehouse.backend.common.get_earliest_event_date_for_team")
+    @patch("products.managed_warehouse.backend.team_state.list_enabled_backfill_rows")
     @patch("posthog.dags.events_backfill_to_duckling.timezone")
     @patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", new=MagicMock(return_value=[]))
     def test_no_events_returns_empty(self, mock_tz, mock_list_rows, mock_get_earliest):
@@ -738,11 +738,11 @@ class TestFullBackfillSensorEarliestDate:
 
         with (
             patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
-            patch("posthog.ducklake.team_state.list_enabled_backfill_rows") as mock_list_rows,
+            patch("products.managed_warehouse.backend.team_state.list_enabled_backfill_rows") as mock_list_rows,
             patch("posthog.dags.events_backfill_to_duckling.ManagedWarehouseBackfillPartition") as mock_projection,
             patch("posthog.dags.events_backfill_to_duckling.record_backfill_outcome"),
             patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", return_value=[]),
-            patch("posthog.ducklake.common.get_earliest_event_date_for_team") as mock_ge,
+            patch("products.managed_warehouse.backend.common.get_earliest_event_date_for_team") as mock_ge,
         ):
             mock_tz.now.return_value = now
             mock_list_rows.return_value = backfills
@@ -858,9 +858,9 @@ class TestFullBackfillSensorEarliestDate:
 
         with (
             patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
-            patch("posthog.ducklake.team_state.list_enabled_backfill_rows") as mock_list_rows,
+            patch("products.managed_warehouse.backend.team_state.list_enabled_backfill_rows") as mock_list_rows,
             patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", return_value=[]),
-            patch("posthog.ducklake.common.get_earliest_event_date_for_team"),
+            patch("products.managed_warehouse.backend.common.get_earliest_event_date_for_team"),
         ):
             mock_tz.now.return_value = datetime(2020, 2, 10, 12, 0, 0)
             mock_list_rows.return_value = [self._bf(1, earliest=date(2020, 1, 1))]
@@ -924,17 +924,20 @@ class TestFullBackfillSensorCpEnumeration:
     def _run_cp_sensor(self, cp_rows, *, now, get_earliest=None):
         from dagster import DagsterInstance, build_sensor_context
 
-        from posthog.ducklake import cp_teams
+        from products.managed_warehouse.backend.facade.cp_teams import cp_teams
 
         cp_teams.clear_cache()
         try:
             with (
-                patch("posthog.ducklake.cp_teams._fetch_all_rows", return_value=cp_rows),
+                patch("products.managed_warehouse.backend.cp_teams._fetch_all_rows", return_value=cp_rows),
                 patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
                 patch("posthog.dags.events_backfill_to_duckling.ManagedWarehouseBackfillPartition") as mock_projection,
                 patch("posthog.dags.events_backfill_to_duckling.record_backfill_outcome"),
                 patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", return_value=[]),
-                patch("posthog.ducklake.common.get_earliest_event_date_for_team", return_value=get_earliest),
+                patch(
+                    "products.managed_warehouse.backend.common.get_earliest_event_date_for_team",
+                    return_value=get_earliest,
+                ),
                 patch(
                     "products.data_warehouse.backend.presentation.views.managed_warehouse.push_team_earliest_event_date"
                 ) as mock_push,
@@ -1016,7 +1019,7 @@ class TestDailyBackfillSensor:
 
         with (
             patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
-            patch("posthog.ducklake.team_state.list_enabled_backfill_rows") as mock_list_rows,
+            patch("products.managed_warehouse.backend.team_state.list_enabled_backfill_rows") as mock_list_rows,
         ):
             mock_tz.now.return_value = now
             mock_list_rows.return_value = backfills

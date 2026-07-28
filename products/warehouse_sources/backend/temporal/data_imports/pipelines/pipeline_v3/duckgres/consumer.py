@@ -14,9 +14,9 @@ from asgiref.sync import sync_to_async
 from prometheus_client import Gauge
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import DuckgresSinkSchemaState
 from posthog.sync import database_sync_to_async_pool
 
+from products.managed_warehouse.backend.facade.models import DuckgresSinkSchemaState
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     MAX_ATTEMPTS,
     POLL_INTERVAL_SECONDS,
