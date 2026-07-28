@@ -68,7 +68,7 @@ class Command(BaseCommand):
 
         # Build the distinct-id query, joining to the person table only when filtering on
         # person attributes (identified / demo).
-        conditions = ["pdi.team_id = %s"]
+        conditions = ["pdi.team_id = %s", "pdi.is_deleted = false"]
         if identified_only:
             conditions.append("p.is_identified = true")
             self.stdout.write("Filtering for identified persons only")
@@ -77,7 +77,7 @@ class Command(BaseCommand):
             self.stdout.write("Filtering for demo persons only")
 
         person_join = (
-            f"JOIN {settings.PERSON_TABLE_NAME} p ON p.team_id = pdi.team_id AND p.id = pdi.person_id"
+            f"JOIN {settings.PERSON_TABLE_NAME} p ON p.team_id = pdi.team_id AND p.id = pdi.person_id AND p.is_deleted = false"
             if (identified_only or demo_only)
             else ""
         )
