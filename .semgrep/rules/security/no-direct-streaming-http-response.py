@@ -2,6 +2,7 @@
 # ruff: noqa: F841, E501 — assignments exist solely to give semgrep something to match
 
 from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 
 from posthog.api.streaming import sse_streaming_response, streaming_response
 
@@ -50,5 +51,5 @@ def ok_sse_streaming_response():
 
 
 # ok: no-direct-streaming-http-response
-def ok_return_annotation() -> StreamingHttpResponse:
+def ok_return_annotation() -> HttpResponseBase:
     return sse_streaming_response(stream())

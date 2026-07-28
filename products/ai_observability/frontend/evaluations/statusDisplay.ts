@@ -2,8 +2,6 @@ import { EvaluationStatusReason } from './types'
 
 const REASON_LABELS: Record<EvaluationStatusReason, string> = {
     provider_key_required: 'No provider API key configured',
-    trial_limit_reached: 'Trial evaluation limit reached',
-    model_not_allowed: 'Model not available on the trial plan',
     provider_key_deleted: 'Provider API key was deleted',
     no_default_model: 'No default model available for the selected provider',
     provider_key_invalid: 'Provider API key is invalid',
@@ -30,11 +28,8 @@ export function statusReasonLabel(reason: EvaluationStatusReason | null | undefi
 }
 
 export function statusReasonRecoveryLabel(reason: EvaluationStatusReason | null | undefined): string {
-    if (reason === 'provider_key_required' || reason === 'trial_limit_reached') {
+    if (reason === 'provider_key_required') {
         return 'Add a provider API key in settings, then re-enable the evaluation to resume running.'
-    }
-    if (reason === 'model_not_allowed') {
-        return 'Choose a supported model or add a provider API key in settings, then re-enable the evaluation to resume running.'
     }
     if (reason === 'no_default_model' || reason === 'model_not_found') {
         return 'Choose an available model, then re-enable the evaluation to resume running.'

@@ -10,7 +10,7 @@ import { elapsedSecondsFrom } from 'lib/utils/datetime'
 import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
 import { activeCloudRunLogic, CloudRunHandle } from './activeCloudRunLogic'
 import { finishedLocalRunLogic } from './finishedLocalRunLogic'
-import { formatElapsed, syncHeadline, toneTextClass } from './helpers'
+import { elapsedLabel, isRunStale, isStreamLost, syncHeadline, toneTextClass } from './helpers'
 import {
     InstallationProgress,
     installationProgressLogic,
@@ -45,10 +45,12 @@ function useNow(frozen: boolean = false): number {
 function WizardSyncLauncher({
     progress,
     elapsedSeconds,
+    stale = false,
     onRestore,
 }: {
     progress: InstallationProgress
     elapsedSeconds: number
+    stale?: boolean
     onRestore: () => void
 }): JSX.Element {
     return (
@@ -70,7 +72,7 @@ function WizardSyncLauncher({
         >
             <StatusGlyph progress={progress} />
             <span className="text-sm font-medium">PostHog setup</span>
-            <span className="text-xs text-muted tabular-nums">{formatElapsed(elapsedSeconds)}</span>
+            <span className="text-xs text-muted tabular-nums">{elapsedLabel(elapsedSeconds, stale)}</span>
         </button>
     )
 }
@@ -84,6 +86,9 @@ function WizardSyncDialog({
     isOpen,
     onClose,
     onClear,
+    onCancel,
+    cancelling = false,
+    stale = false,
     onDashboardClick,
 }: {
     progress: InstallationProgress
@@ -93,6 +98,10 @@ function WizardSyncDialog({
     isOpen: boolean
     onClose: () => void
     onClear?: () => void
+    onCancel?: () => void
+    cancelling?: boolean
+    /** The run has gone quiet for long enough that it can be dismissed without orphaning live work. */
+    stale?: boolean
     onDashboardClick?: () => void
 }): JSX.Element {
     const isTerminal = progress.phase === 'completed' || progress.phase === 'error'
@@ -102,7 +111,7 @@ function WizardSyncDialog({
                 <div className="flex items-center justify-between text-xs">
                     <span className={cn('font-medium', toneTextClass(progress))}>{syncHeadline(progress)}</span>
                     <span className="text-muted tabular-nums">
-                        {mode === 'cloud' ? 'Cloud run' : 'On your machine'} · {formatElapsed(elapsedSeconds)}
+                        {mode === 'cloud' ? 'Cloud run' : 'On your machine'} · {elapsedLabel(elapsedSeconds, stale)}
                     </span>
                 </div>
                 <InstallationProgressContent
@@ -111,9 +120,26 @@ function WizardSyncDialog({
                     dashboard={dashboard}
                     onDashboardClick={onDashboardClick}
                 />
-                {isTerminal && onClear && (
+                {/* A stale run gets the same exit as a terminal one: nothing is reporting on it, so
+                    leaving Cancel as the only control would strand the user behind a request that
+                    cannot bring it back. Cancel stays available below for as long as the run is not
+                    terminal, since the backend may still be holding a sandbox for it. */}
+                {(isTerminal || stale) && onClear && (
                     <LemonButton type="secondary" onClick={onClear} className="self-end">
                         Dismiss this run
+                    </LemonButton>
+                )}
+                {!isTerminal && onCancel && (
+                    <LemonButton
+                        type="secondary"
+                        status="danger"
+                        onClick={onCancel}
+                        loading={cancelling}
+                        disabledReason={cancelling ? 'Cancelling the run' : undefined}
+                        className="self-end"
+                        data-attr="wizard-sync-cancel-run"
+                    >
+                        Cancel run
                     </LemonButton>
                 )}
             </div>
@@ -127,18 +153,31 @@ function WizardSyncSurface({
     progress,
     startedAt,
     endedAt,
+    lastActivityAt = null,
+    streamLost = false,
     mode,
     runKey,
     onClear,
+    onCancel,
+    cancelling = false,
 }: {
     progress: InstallationProgress
     startedAt: string | undefined
     /** When the run finished — freezes the elapsed timer so a finished run that stays on screen
      * until dismissed shows its duration, not a clock that keeps counting. */
     endedAt?: string
+    /** When the run's stream last delivered anything (cloud runs only), for the staleness check. */
+    lastActivityAt?: number | null
+    /** Nothing is currently carrying this run's updates (cloud runs only): the stream failed or
+     * closed, or the logic has already given up on it. Silence only counts as staleness while this
+     * holds. See `isStreamLost` for why a stream still connecting does not qualify. */
+    streamLost?: boolean
     mode: WizardSyncMode
     runKey: string
     onClear?: () => void
+    /** Cancels the run server-side (cloud runs only) — shown in the dialog while the run is live. */
+    onCancel?: () => void
+    cancelling?: boolean
 }): JSX.Element {
     const { dismissedKey, dialogOpen } = useValues(wizardSyncUiLogic)
     const { dismiss, restore, openDialog, closeDialog } = useActions(wizardSyncUiLogic)
@@ -157,6 +196,9 @@ function WizardSyncSurface({
     const elapsedSeconds = startedAt ? elapsedSecondsFrom(startedAt, Number.isNaN(endMs) ? now : endMs) : 0
     const minimized = dismissedKey === runKey
     const isTerminal = progress.phase === 'completed' || progress.phase === 'error'
+    // Only cloud runs can zombie like this: their handle is persisted browser state that outlives the
+    // run, where a local run is gated by the session detector's own liveness poll.
+    const stale = mode === 'cloud' && !isTerminal && isRunStale(startedAt, lastActivityAt, streamLost, now)
     const dashboard = progress.phase === 'completed' ? detectedDashboard : null
     const eventProps = { runKey, mode, phase: progress.phase }
 
@@ -195,6 +237,7 @@ function WizardSyncSurface({
         reportWizardSyncMinimized(eventProps)
         dismiss(runKey)
     }
+    const dismissible = isTerminal || prOpened || stale
 
     return (
         <>
@@ -203,6 +246,7 @@ function WizardSyncSurface({
                     <WizardSyncLauncher
                         progress={progress}
                         elapsedSeconds={elapsedSeconds}
+                        stale={stale}
                         onRestore={() => {
                             reportWizardSyncRestored(eventProps)
                             restore()
@@ -213,17 +257,19 @@ function WizardSyncSurface({
                         progress={progress}
                         elapsedSeconds={elapsedSeconds}
                         mode={mode}
+                        stale={stale}
                         dashboard={dashboard}
                         onDashboardClick={handleDashboardClick}
                         onExpand={() => {
                             reportWizardSyncExpanded(eventProps)
                             openDialog()
                         }}
-                        // Mid-run, the X only minimizes — hiding a live run for good would orphan
-                        // it. Once the run is terminal or the PR exists, the user's part is done,
-                        // so the X becomes the real dismissal (the run never leaves on its own).
-                        onDismiss={(isTerminal || prOpened) && handleClear ? handleClear : handleMinimize}
-                        dismissTooltip={(isTerminal || prOpened) && handleClear ? 'Dismiss' : 'Minimize'}
+                        // Mid-run the X only minimizes, since hiding a live run for good would
+                        // orphan it. Once the run is terminal, the PR exists, or the run has gone
+                        // quiet long enough to count as stale, the X becomes the real dismissal
+                        // (the run never leaves on its own).
+                        onDismiss={dismissible && handleClear ? handleClear : handleMinimize}
+                        dismissTooltip={dismissible && handleClear ? 'Dismiss' : 'Minimize'}
                     />
                 )}
             </div>
@@ -231,11 +277,14 @@ function WizardSyncSurface({
                 progress={progress}
                 elapsedSeconds={elapsedSeconds}
                 mode={mode}
+                stale={stale}
                 dashboard={dashboard}
                 onDashboardClick={handleDashboardClick}
                 isOpen={dialogOpen}
                 onClose={closeDialog}
                 onClear={handleClear}
+                onCancel={onCancel}
+                cancelling={cancelling}
             />
         </>
     )
@@ -243,19 +292,24 @@ function WizardSyncSurface({
 
 // A cloud run: the Installation layer streams the pipeline; elapsed comes from the handle's kickoff stamp.
 function WizardSyncCloudFab({ handle }: { handle: CloudRunHandle }): JSX.Element {
-    const { installationProgress, taskRunState } = useValues(
+    const { installationProgress, taskRunState, lastActivityAt, taskConnectionStatus, isStalled } = useValues(
         installationProgressLogic({ mode: 'cloud', runId: handle.runId, taskId: handle.taskId })
     )
-    const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
+    const { cancellingRun } = useValues(activeCloudRunLogic)
+    const { clearActiveCloudRun, cancelActiveCloudRun } = useActions(activeCloudRunLogic)
     const isTerminal = installationProgress.phase === 'completed' || installationProgress.phase === 'error'
     return (
         <WizardSyncSurface
             progress={installationProgress}
             startedAt={handle.startedAt}
             endedAt={isTerminal ? (taskRunState?.completed_at ?? taskRunState?.updated_at) : undefined}
+            lastActivityAt={lastActivityAt}
+            streamLost={isStreamLost(taskConnectionStatus, isStalled)}
             mode="cloud"
             runKey={handle.runId}
             onClear={clearActiveCloudRun}
+            onCancel={cancelActiveCloudRun}
+            cancelling={cancellingRun}
         />
     )
 }

@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 from posthog.schema import (
     AggregationType,
@@ -246,18 +246,33 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             global_event_filters.append(is_relevant_event)
 
         if self.group_type_index is not None:
-            global_event_filters.append(
-                ast.Not(
-                    expr=ast.Call(
-                        name="has",
-                        args=[
-                            ast.Array(exprs=[ast.Constant(value="")]),
-                            ast.Field(chain=["events", f"$group_{self.group_type_index}"]),
-                        ],
-                    ),
-                ),
-            )
+            global_event_filters.append(self._group_actor_filter())
         return global_event_filters
+
+    def arm_event_filters(self, entity: RetentionEntity, query_kind: Literal["start", "return"]) -> list[ast.Expr]:
+        """Filters for one events-table arm of a two-scan retention query, scoped to that arm's entity only."""
+        filters = self.events_where_clause(
+            self.is_first_occurrence_matching_filters, self.is_first_ever_occurrence, entities=[entity]
+        )
+        if query_kind == "return" and (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):
+            # First-time modes need the start arm unbounded to find the first-ever start event.
+            # The return arm's timestamp aggregates are all window-conditioned, so bounding it
+            # drops no rows any aggregate depends on.
+            filters.append(self.events_timestamp_filter())
+        if self.group_type_index is not None:
+            filters.append(self._group_actor_filter())
+        return filters
+
+    def _group_actor_filter(self) -> ast.Expr:
+        return ast.Not(
+            expr=ast.Call(
+                name="has",
+                args=[
+                    ast.Array(exprs=[ast.Constant(value="")]),
+                    ast.Field(chain=["events", f"$group_{self.group_type_index}"]),
+                ],
+            ),
+        )
 
     def convert_single_breakdown_to_multiple_breakdowns(self):
         assert self.query.breakdownFilter is not None
@@ -359,10 +374,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             return action.get_step_events()
         return [entity.id] if isinstance(entity.id, str) else [None]
 
-    def events_where_clause(self, is_first_occurrence_matching_filters: bool, is_first_ever_occurrence: bool = False):
-        """
-        Event filters to apply to both start and return events
-        """
+    def events_where_clause(
+        self,
+        is_first_occurrence_matching_filters: bool,
+        is_first_ever_occurrence: bool = False,
+        entities: list[RetentionEntity] | None = None,
+    ):
+        """Event filters for both start and return events, or just `entities` for a per-arm scan."""
         events_where = []
 
         if self.query.properties is not None and self.query.properties != []:
@@ -381,10 +399,12 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             events_where.append(self.events_timestamp_filter())
 
         # Pre-filter by event name
-        events = self.get_events_for_entity(self.start_event) + self.get_events_for_entity(self.return_event)
+        if entities is None:
+            entities = [self.start_event, self.return_event]
+        events = [event for entity in entities for event in self.get_events_for_entity(entity)]
         unique_events = set(events)
-        # Don't pre-filter if any of them is "All events"
-        if None not in unique_events:
+        # Don't pre-filter if any of them is "All events" or the entity has no events at all
+        if unique_events and None not in unique_events:
             events_where.append(
                 ast.CompareOperation(
                     left=ast.Field(chain=["event"]),

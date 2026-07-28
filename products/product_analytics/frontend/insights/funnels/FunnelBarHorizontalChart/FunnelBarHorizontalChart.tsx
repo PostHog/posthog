@@ -11,7 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { type ChartParams, FunnelStepReference, type FunnelStepWithConversionMetrics, StepOrderValue } from '~/types'
+import { type ChartParams, type FunnelStepWithConversionMetrics, StepOrderValue } from '~/types'
 
 import { FunnelBarHorizontalTooltip } from './FunnelBarHorizontalTooltip'
 import {
@@ -63,7 +63,6 @@ export function FunnelBarHorizontalChart({
     const { aggregationLabel } = useValues(groupsModel)
 
     const steps = visibleStepsWithConversionMetrics
-    const stepReference = funnelsFilter?.funnelStepReference || FunnelStepReference.total
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
     const interactive = showPersonsModal && !inCardView
     const isUnordered = funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED
@@ -72,14 +71,13 @@ export function FunnelBarHorizontalChart({
 
     const buildOptions = useMemo(
         () => ({
-            stepReference,
             breakdownFilter,
             getColor: getFunnelsColor,
             getLabel: (variant: FunnelStepWithConversionMetrics) =>
                 String(variant.breakdown_value ?? variant.name ?? ''),
             fillerColor,
         }),
-        [stepReference, breakdownFilter, getFunnelsColor, fillerColor]
+        [breakdownFilter, getFunnelsColor, fillerColor]
     )
 
     const stepsData = useMemo(

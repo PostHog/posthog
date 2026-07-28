@@ -111,6 +111,9 @@ services:
         environment:
             - DEBUG=1
             - PLUGIN_SERVER_IDLE=1
+            - FEATURE_FLAGS_SERVICE_URL=http://feature-flags:3001
+            - CLICKHOUSE_LOGS_CLUSTER_HOST=clickhouse
+            - CLICKHOUSE_LOGS_CLUSTER_SECURE=false
 
     web:
         extends:
@@ -127,6 +130,9 @@ services:
             - OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000
             - POSTHOG_SKIP_MIGRATION_CHECKS=true
             - JS_URL=http://localhost:8000
+            - FEATURE_FLAGS_SERVICE_URL=http://feature-flags:3001
+            - CLICKHOUSE_LOGS_CLUSTER_HOST=clickhouse
+            - CLICKHOUSE_LOGS_CLUSTER_SECURE=false
         depends_on:
             - db
             - redis7
@@ -240,6 +246,10 @@ services:
         build: .
         volumes:
             - .:/app/posthog
+        environment:
+            - FEATURE_FLAGS_SERVICE_URL=http://feature-flags:3001
+            - CLICKHOUSE_LOGS_CLUSTER_HOST=clickhouse
+            - CLICKHOUSE_LOGS_CLUSTER_SECURE=false
         depends_on:
             - db
             - redis7

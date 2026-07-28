@@ -3,37 +3,30 @@ import { router } from 'kea-router'
 
 import { Link } from '@posthog/lemon-ui'
 
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { AlertState, InsightThresholdType } from '~/queries/schema/schema-general'
+import { InsightThresholdType } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
+import { AlertStateIndicator } from '../components/AlertDefinition'
+import { buildAlertSummary } from '../components/alertSummary'
+import { AlertSummaryBanner } from '../components/AlertSummaryBanner'
 import { InsightAlertsLogicProps, alertsUnsupportedReason, insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { AlertType } from '../types'
 
-export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
-    switch (alert.state) {
-        case AlertState.FIRING:
-            return <LemonTag type="danger">FIRING</LemonTag>
-        case AlertState.ERRORED:
-            return <LemonTag type="danger">ERRORED</LemonTag>
-        case AlertState.SNOOZED:
-            return <LemonTag type="muted">SNOOZED</LemonTag>
-        case AlertState.NOT_FIRING:
-            return <LemonTag type="success">NOT FIRING</LemonTag>
-    }
-}
-
 interface AlertListItemProps {
     alert: AlertType
+    destinationCount?: number
+    destinationsLoading?: boolean
     onClick: () => void
+    redesigned: boolean
 }
 
 function AlertSummary({ alert }: { alert: AlertType }): JSX.Element | null {
@@ -75,7 +68,34 @@ function AlertSummary({ alert }: { alert: AlertType }): JSX.Element | null {
     )
 }
 
-export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Element {
+export function AlertListItem({
+    alert,
+    destinationCount = 0,
+    destinationsLoading = false,
+    onClick,
+    redesigned,
+}: AlertListItemProps): JSX.Element {
+    if (redesigned) {
+        const summary = buildAlertSummary(alert, alert.subscribed_users?.length ?? 0, destinationCount)
+        if (destinationsLoading) {
+            summary.notifies = 'Loading…'
+        }
+        return (
+            <LemonButton onClick={onClick} data-attr="alert-list-item" fullWidth>
+                <AlertSummaryBanner
+                    summary={summary}
+                    header={
+                        <div className="flex items-center justify-between gap-3">
+                            <span className="min-w-0 truncate">{alert.name}</span>
+                            <AlertStateIndicator alert={alert} />
+                        </div>
+                    }
+                    footer={<UserActivityIndicator prefix="Created" at={alert.created_at} by={alert.created_by} />}
+                />
+            </LemonButton>
+        )
+    }
+
     return (
         <LemonButton type="secondary" onClick={onClick} data-attr="alert-list-item" fullWidth>
             <div className="flex justify-between flex-auto items-center p-2">
@@ -98,17 +118,36 @@ interface ManageAlertsModalProps extends InsightAlertsLogicProps {
     /** The insight's query, so the unsupported-reason copy can be specific (e.g. time-to-convert funnels). */
     insightQuery?: Record<string, any> | null
     onClose?: () => void
+    onCreateAlert?: () => void
+    onEditAlert?: (alertId: AlertType['id']) => void
 }
 
 export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const { push } = useActions(router)
     const logic = insightAlertsLogic(props)
 
-    const { alerts, alertsLoading } = useValues(logic)
-    const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
-    const funnelAlertsEnabled = useFeatureFlag('FUNNEL_INSIGHT_ALERTS')
+    const { alerts, alertsLoading, alertDestinationCounts, alertDestinationCountsLoading } = useValues(logic)
+    const redesigned = useFeatureFlag('ALERTS_REDESIGNED_EDIT_MODAL')
 
     const showDeferredListSpinner = props.deferInitialAlertsLoad && props.isOpen && alertsLoading
+    const openAlert = (alertId: AlertType['id']): void => {
+        if (props.onEditAlert) {
+            props.onClose?.()
+            props.onEditAlert(alertId)
+            return
+        }
+
+        push(urls.insightAlert(props.insightShortId, alertId))
+    }
+    const createAlert = (): void => {
+        if (props.onCreateAlert) {
+            props.onClose?.()
+            props.onCreateAlert()
+            return
+        }
+
+        push(urls.insightAlert(props.insightShortId, 'new'))
+    }
 
     return (
         <LemonModal onClose={props.onClose} isOpen={props.isOpen} width={600} simple title="">
@@ -117,8 +156,8 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
             </LemonModal.Header>
             <LemonModal.Content>
                 <div className="mb-4">
-                    With alerts, PostHog will monitor your insight and notify you when certain conditions are met. We do
-                    not evaluate alerts in real-time, but rather on a schedule (hourly, daily...).
+                    With alerts, PostHog monitors your insight at a recurring interval and notifies you when conditions
+                    are met.
                     <br />
                     <Link to={urls.alerts()} target="_blank">
                         View all your alerts here
@@ -139,7 +178,10 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                             <AlertListItem
                                 key={alert.id}
                                 alert={alert}
-                                onClick={() => push(urls.insightAlert(props.insightShortId, alert.id))}
+                                destinationCount={alertDestinationCounts[alert.id] ?? 0}
+                                destinationsLoading={alertDestinationCountsLoading}
+                                onClick={() => openAlert(alert.id)}
+                                redesigned={redesigned}
                             />
                         ))}
                     </div>
@@ -153,19 +195,17 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
             </LemonModal.Content>
 
             <LemonModal.Footer>
+                <LemonButton type="secondary" onClick={props.onClose}>
+                    Close
+                </LemonButton>
                 <LemonButton
                     type="primary"
-                    onClick={() => push(urls.insightAlert(props.insightShortId, 'new'))}
+                    onClick={createAlert}
                     disabledReason={
-                        !props.canCreateAlertForInsight
-                            ? alertsUnsupportedReason({ hogqlAlertsEnabled, funnelAlertsEnabled }, props.insightQuery)
-                            : undefined
+                        !props.canCreateAlertForInsight ? alertsUnsupportedReason({}, props.insightQuery) : undefined
                     }
                 >
                     New alert
-                </LemonButton>
-                <LemonButton type="secondary" onClick={props.onClose}>
-                    Close
                 </LemonButton>
             </LemonModal.Footer>
         </LemonModal>

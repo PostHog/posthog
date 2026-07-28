@@ -106,6 +106,31 @@ class TestResolveScoutModel:
         )
         assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="codex")
 
+    def test_object_form_carries_reasoning_effort(self) -> None:
+        # The effort pin must survive resolution — a dropped effort silently runs the trial arm at a
+        # different effort than the baseline arm, skewing the comparison.
+        resolved = _resolve_full(
+            payload=_scouts(
+                {_SKILL: {GLM_MODEL: {"fraction": 1, "runtime_adapter": "codex", "reasoning_effort": "high"}}}
+            )
+        )
+        assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="codex", reasoning_effort="high")
+
+    @parameterized.expand(
+        [
+            # A bad effort must not reach the run state — like a bad runtime, it'd fail the run
+            # downstream. Drop it (effort unset) and keep the model + runtime.
+            ("typo", "hgih"),
+            ("non_string", 5),
+            ("list", ["high"]),
+        ]
+    )
+    def test_bad_reasoning_effort_is_dropped_not_fatal(self, _name: str, bad_effort: object) -> None:
+        resolved = _resolve_full(
+            payload=_scouts({_SKILL: {GLM_MODEL: {"fraction": 1, "reasoning_effort": bad_effort}}})
+        )
+        assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="codex", reasoning_effort=None)
+
     def test_object_form_drops_malformed_fraction(self) -> None:
         # A pinned runtime can't rescue a malformed fraction — the entry is dropped, agent default kept.
         resolved = _resolve_full(

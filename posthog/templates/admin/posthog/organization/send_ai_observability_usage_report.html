@@ -1,0 +1,26 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block content %}
+<div id="content-main">
+    <form method="post">
+        <p>The date is the day the report would have run; it reports AI observability usage for the <b>previous</b> day.
+            <br/>If the dashboards are missing a day X, enter the day after (X+1). The report covering day X is generated and stamped on X+1.</p>
+        <p><b>Warning: there is no idempotency yet.</b> Submitting for a date that already emitted reports (fully or partially) creates duplicate events that double-count in every downstream insight, with no way to clean them up.
+            <br/>Check the daily <code>llm analytics usage</code> event volume in the internal usage-tracking project for that date before submitting.</p>
+        <p>US and EU each report their own organizations. To backfill both, run this in each region's admin separately.</p>
+        {% csrf_token %}
+        <fieldset class="module aligned">
+            {% for field in form %}
+                <div class="form-row">
+                    {{ field.errors }}
+                    {{ field.label_tag }} {{ field }}
+                </div>
+            {% endfor %}
+        </fieldset>
+        <div class="submit-row">
+            <input type="submit" value="Send AI observability usage report" class="default" name="_send_report">
+        </div>
+    </form>
+</div>
+{% endblock %}

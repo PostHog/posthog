@@ -25,7 +25,7 @@ queries for anything more):
 - The `$ai_*` numeric properties sit in a **typed property group**, so guard them
   numerically — filter `properties.$ai_latency > 0` (a `!= ''` guard triggers a float-cast
   error) and aggregate them directly: `quantile(0.9)(properties.$ai_latency)`, no `toFloat`.
-- HogQL has `toFloatOrDefault` / `toIntOrDefault`, **not** `toFloatOrNull`.
+- Parse the numeric properties with a fallback via `toFloatOrDefault` / `toIntOrDefault`.
 - `$ai_tools_called` is a **comma-joined string**, not a JSON array —
   `arrayJoin(splitByChar(',', properties.$ai_tools_called))` to tally tool usage.
 - Not every team emits `$ai_embedding` (the dogfood project doesn't); including it in cost

@@ -179,11 +179,13 @@ export interface RoleLookupResponseApi {
  * * `pinterest-ads` - Pinterest Ads
  * * `postgresql` - Postgresql
  * * `reddit-ads` - Reddit Ads
+ * * `resend` - Resend
  * * `s3-compatible` - S3 Compatible
  * * `salesforce` - Salesforce
  * * `slack` - Slack
  * * `slack-posthog-code` - Slack Posthog Code
  * * `snapchat` - Snapchat
+ * * `snowflake` - Snowflake
  * * `stripe` - Stripe
  * * `tiktok-ads` - Tiktok Ads
  * * `twilio` - Twilio
@@ -222,11 +224,13 @@ export const IntegrationKindEnumApi = {
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     RedditAds: 'reddit-ads',
+    Resend: 'resend',
     S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Snapchat: 'snapchat',
+    Snowflake: 'snowflake',
     Stripe: 'stripe',
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',
@@ -417,7 +421,7 @@ export interface GitHubOAuthAuthorizeResponseApi {
 }
 
 export interface GitHubPrepareCallbackRequestApi {
-    /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code). */
+    /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Desktop). */
     next?: string
     /** GitHub installation ID being managed; binds the seeded update state so a callback can't swap in a different installation. */
     installation_id?: string
@@ -456,11 +460,13 @@ export interface IntegrationAccessRequestApi {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -544,11 +550,13 @@ export type IntegrationsListParams = {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -598,11 +606,13 @@ export const IntegrationsListKind = {
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     RedditAds: 'reddit-ads',
+    Resend: 'resend',
     S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Snapchat: 'snapchat',
+    Snowflake: 'snowflake',
     Stripe: 'stripe',
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',

@@ -7,7 +7,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ShortioSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shortio import (
+    ShortioSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.source import ShortioSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -112,28 +114,24 @@ class TestShortioSource:
 
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Short.io API key"),
-            ("forbidden", 403, False, "Invalid Short.io API key"),
-            ("server_error", 500, False, "Short.io returned HTTP 500"),
-            ("connection_error", 0, False, "Could not connect to Short.io: boom"),
+            ("ok", True, 200, True, None),
+            ("unauthorized", False, 401, False, "Invalid Short.io API key"),
+            ("forbidden", False, 403, False, "Invalid Short.io API key"),
+            ("server_error", False, 500, False, "Short.io returned HTTP 500"),
+            ("connection_error", False, None, False, "Could not connect to Short.io. Please try again."),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.shortio.shortio.check_access")
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.shortio.shortio.validate_via_probe")
     def test_validate_credentials(
         self,
         _name: str,
-        status: int,
+        probe_ok: bool,
+        probe_status: int | None,
         expected_valid: bool,
         expected_message: str | None,
-        mock_check: mock.MagicMock,
+        mock_probe: mock.MagicMock,
     ) -> None:
-        message = (
-            "Short.io returned HTTP 500"
-            if status == 500
-            else ("Could not connect to Short.io: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
+        mock_probe.return_value = (probe_ok, probe_status)
         is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
         assert is_valid is expected_valid
         assert returned == expected_message

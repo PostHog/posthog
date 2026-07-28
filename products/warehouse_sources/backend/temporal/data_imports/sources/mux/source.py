@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MuxSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mux import MuxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.mux import (
     DEFAULT_VALIDATION_PATH,
     MuxResumeConfig,
@@ -37,6 +37,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MuxSource(ResumableSource[MuxSourceConfig, MuxResumeConfig]):
+    api_docs_url = "https://www.mux.com/docs/api-reference"
+    # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
+    # render in the public docs without credentials.
+    lists_tables_without_credentials = True
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MUX
@@ -48,12 +53,13 @@ class MuxSource(ResumableSource[MuxSourceConfig, MuxResumeConfig]):
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Mux",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Mux Access Token ID and Secret Key to pull your Mux Video data into the PostHog Data warehouse.
+            caption="""Enter your Mux Access Token ID and Secret Key to pull your Mux Video and Mux Data into the PostHog Data warehouse.
 
 Create an access token under [Settings → Access Tokens](https://dashboard.mux.com/settings/access-tokens) in your Mux dashboard. Tokens are scoped to a single Mux environment.
 
 Grant the following read permissions:
 - **Mux Video** (read) — required for assets, live streams, uploads, playback restrictions and transcription vocabularies
+- **Mux Data** (read) — required for video views, errors and aggregate metrics (watch time, plays, viewer experience)
 - **Mux System** (read) — required for signing keys
 """,
             iconPath="/static/services/mux.png",
@@ -79,7 +85,6 @@ Grant the following read permissions:
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -95,7 +100,7 @@ Grant the following read permissions:
             # a token missing the required read scope surfaces as a 403 at sync time. Neither can be
             # fixed by retrying. Match the stable status text and base host, not the per-request path.
             "401 Client Error: Unauthorized for url: https://api.mux.com": "Your Mux access token is invalid or has been revoked. Create a new access token in your Mux dashboard, then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.mux.com": "Your Mux access token is missing the read permissions needed to sync this data. Grant Mux Video and Mux System read access, then reconnect.",
+            "403 Client Error: Forbidden for url: https://api.mux.com": "Your Mux access token is missing the read permissions needed to sync this data. Grant Mux Video, Mux Data and Mux System read access, then reconnect.",
         }
 
     def get_schemas(
@@ -105,16 +110,19 @@ Grant the following read permissions:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Mux exposes no server-side timestamp filter on its list endpoints, so every stream is
-        # full refresh only — no incremental/append support.
+        # Only video views expose a server-side timestamp filter (`view_end`), so it can sync
+        # incrementally; every other endpoint is full refresh. Append is never offered — the
+        # incremental overlap re-fetches boundary rows, which only a merge (not append) can dedupe.
         def _build_schema(endpoint: str) -> SourceSchema:
+            endpoint_config = MUX_ENDPOINTS[endpoint]
             return SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=endpoint_config.supports_incremental,
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=MUX_ENDPOINTS[endpoint].should_sync_default,
+                should_sync_default=endpoint_config.should_sync_default,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
@@ -124,7 +132,7 @@ Grant the following read permissions:
         return schemas
 
     def validate_credentials(
-        self, config: MuxSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: MuxSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         path = MUX_ENDPOINTS[schema_name].path if schema_name in MUX_ENDPOINTS else DEFAULT_VALIDATION_PATH
         status = get_validation_status(config.access_token_id, config.secret_key, path)
@@ -156,6 +164,9 @@ Grant the following read permissions:
             access_token_id=config.access_token_id,
             secret_key=config.secret_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

@@ -86,15 +86,18 @@ function TrendsInfo({ dataset, resultCustomizationBy }: TrendsInfoProps): JSX.El
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { breakdownFilter } = useValues(insightVizDataLogic)
 
+    // Formula series carry no entity (`action` is null), so fall back to the series label.
+    const seriesName = dataset.action ? (
+        <EntityFilterInfo filter={dataset.action} allowWrap={true} showSingleName={true} />
+    ) : (
+        dataset.label
+    )
+
     return (
         <>
             {dataset.breakdown_value ? (
                 <p className="mb-2">
-                    You are customizing the appearance of series{' '}
-                    <b>
-                        <EntityFilterInfo filter={dataset.action} allowWrap={true} showSingleName={true} />
-                    </b>{' '}
-                    for the breakdown{' '}
+                    You are customizing the appearance of series <b>{seriesName}</b> for the breakdown{' '}
                     <b>
                         {formatBreakdownLabel(
                             dataset.breakdown_value,
@@ -107,11 +110,7 @@ function TrendsInfo({ dataset, resultCustomizationBy }: TrendsInfoProps): JSX.El
                 </p>
             ) : (
                 <p className="mb-2">
-                    You are customizing the appearance of series{' '}
-                    <b>
-                        <EntityFilterInfo filter={dataset.action} allowWrap={true} showSingleName={true} />
-                    </b>
-                    .
+                    You are customizing the appearance of series <b>{seriesName}</b>.
                 </p>
             )}
 

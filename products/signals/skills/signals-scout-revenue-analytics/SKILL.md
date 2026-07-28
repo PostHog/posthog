@@ -29,7 +29,7 @@ Because it's derived, your job is mostly **upstream watchdog**: when Stripe sync
 
 Revenue numbers have a high panic radius — false positives erode trust faster here than in any other domain. When in doubt, write a scratchpad memory rather than a report.
 
-You author reports directly via the report channel (`signals-scout-emit-report` / `signals-scout-edit-report`): you've done the research, so you own each finding 1:1 end-to-end as an inbox report rather than firing a weak signal for a pipeline to cluster. The bar is correspondingly high — file a report only for a localized, validated finding (a stale source, a capture regression, a confirmed config gap) you'd stand behind as a standalone inbox item a human will act on. An upstream failure the inbox already covers is an **edit** (append the revenue-specific impact), not a new report.
+You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`): you've done the research, so you own each finding 1:1 end-to-end as an inbox report rather than firing a weak signal for a pipeline to cluster. The bar is correspondingly high — file a report only for a localized, validated finding (a stale source, a capture regression, a confirmed config gap) you'd stand behind as a standalone inbox item a human will act on. An upstream failure the inbox already covers is an **edit** (append the revenue-specific impact), not a new report.
 
 ## Quick close-out: is revenue analytics even active?
 
@@ -48,9 +48,9 @@ Cycle between these moves; skip what's not useful.
 
 Three cheap reads cold-start a run:
 
-- `signals-scout-scratchpad-search` (`text=revenue` or `text=stripe`) — durable team steering. Entries with `pattern:`, `noise:`, `addressed:`, or `dedupe:` key prefixes, plus the team's known revenue event name, Stripe source label, currency mix, and goals.
-- `signals-scout-runs-list` (last 7d) — what prior revenue runs found and ruled out.
-- `signals-scout-project-profile-get` — `external_data_sources` (Stripe status), `top_events` (configured revenue event reach), `popular_insights` / `recent_dashboards` (revenue chart load-bearingness), `product_intents` (stuck onboarding).
+- `scout-scratchpad-search` (`text=revenue` or `text=stripe`) — durable team steering. Entries with `pattern:`, `noise:`, `addressed:`, or `dedupe:` key prefixes, plus the team's known revenue event name, Stripe source label, currency mix, and goals.
+- `scout-runs-list` (last 7d) — what prior revenue runs found and ruled out.
+- `scout-project-profile-get` — `external_data_sources` (Stripe status), `top_events` (configured revenue event reach), `popular_insights` / `recent_dashboards` (revenue chart load-bearingness), `product_intents` (stuck onboarding).
 
 ### Profile shape — what's loud today?
 
@@ -147,16 +147,16 @@ By run #5 the scratchpad knows the team's revenue config, currency mix, which da
 
 Before you author, check whether this source / metric already has a report — the `report:revenue_analytics:<entity>` scratchpad pointer is the reliable path: it holds the `report_id`, so `inbox-reports-retrieve` it directly. With no pointer, fall back to an `inbox-reports-list` search (`ordering=-updated_at`) on the source label / metric / dashboard id. Then, for each candidate:
 
-- **Edit** the existing report via `signals-scout-edit-report` when the inbox already covers the source or metric. A revenue issue is rarely brand-new — a Stripe source still failing, a revenue event still depressed: `append_note` with the fresh status and the revenue-specific impact (which metrics are wrong, by how much), or rewrite the title/summary on a report you authored. This is the default when a match exists **and it's still live**; don't mint a near-duplicate. **Check the matched report's status first:** `edit-report` can't change status, so appending to a `resolved` / `suppressed` / `failed` report buries a real relapse — when the prior report is no longer live, author a fresh report and repoint `report:revenue_analytics:<entity>` at the new id. If a warehouse-source failure report already exists (filed by the data-warehouse scout or the pipeline), `append_note` the revenue angle onto it rather than authoring a parallel report for the same upstream failure.
-- **Author** a fresh report via `signals-scout-emit-report` when nothing live in the inbox covers it. A **strong finding** here: confidence ≥ 0.85, with concrete dashboard ids, source labels, view names, and quantified impact in the `evidence` (which finance metric is wrong, by how much, who reads it). A revenue finding is almost always an investigation, not a one-line code fix — the recovery action for a failing source lives in the warehouse, not a code PR — so set `actionability=requires_human_input` and leave `priority` / `repository` unset. **Set `suggested_reviewers`** — resolve the owning person with `signals-scout-members-list` (each member carries a resolved `github_login`; cache it under a `reviewer:revenue_analytics:<area>` key), or pass a `{user_uuid}` when your evidence already names the owner. It's how the report reaches a human; left empty it's assigned to nobody and likely missed. After authoring, write a `report:revenue_analytics:<entity>` scratchpad entry with the `report_id` so the next run edits it instead of duplicating.
-- **Remember** via `signals-scout-scratchpad-remember` if it's below the bar but worth carrying forward, or to record what you ruled out and why.
+- **Edit** the existing report via `scout-edit-report` when the inbox already covers the source or metric. A revenue issue is rarely brand-new — a Stripe source still failing, a revenue event still depressed: `append_note` with the fresh status and the revenue-specific impact (which metrics are wrong, by how much), or rewrite the title/summary on a report you authored. This is the default when a match exists **and it's still live**; don't mint a near-duplicate. **Check the matched report's status first:** `edit-report` can't change status, so appending to a `resolved` / `suppressed` / `failed` report buries a real relapse — when the prior report is no longer live, author a fresh report and repoint `report:revenue_analytics:<entity>` at the new id. If a warehouse-source failure report already exists (filed by the data-warehouse scout or the pipeline), `append_note` the revenue angle onto it rather than authoring a parallel report for the same upstream failure.
+- **Author** a fresh report via `scout-emit-report` when nothing live in the inbox covers it. A **strong finding** here: confidence ≥ 0.85, with concrete dashboard ids, source labels, view names, and quantified impact in the `evidence` (which finance metric is wrong, by how much, who reads it). A revenue finding is almost always an investigation, not a one-line code fix — the recovery action for a failing source lives in the warehouse, not a code PR — so set `actionability=requires_human_input` and leave `priority` / `repository` unset. **Set `suggested_reviewers`** — resolve the owning person with `scout-members-list` (each member carries a resolved `github_login`; cache it under a `reviewer:revenue_analytics:<area>` key), or pass a `{user_uuid}` when your evidence already names the owner. It's how the report reaches a human; left empty it's assigned to nobody and likely missed. After authoring, write a `report:revenue_analytics:<entity>` scratchpad entry with the `report_id` so the next run edits it instead of duplicating.
+- **Remember** via `scout-scratchpad-remember` if it's below the bar but worth carrying forward, or to record what you ruled out and why.
 - **Skip** with a one-line note if a scratchpad entry with a `noise:` / `addressed:` / `dedupe:` key prefix, or an existing inbox report, already covers it.
 
 The harness prompt carries the full report-channel contract (field schema, safety × actionability status mapping, reviewer routing, the non-idempotency caveat, and the edit rules) — this section only adds the revenue-specific framing. Given revenue's high panic radius, keep the authoring bar high: fewer, better, well-routed reports.
 
 ### Close out
 
-**Summarize the run** — one paragraph: looked at what, authored or edited which reports, remembered what, ruled out what. The harness writes that summary to the run row as searchable prose; future runs read it via `signals-scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry — the run summary already serves that role.
+**Summarize the run** — one paragraph: looked at what, authored or edited which reports, remembered what, ruled out what. The harness writes that summary to the run row as searchable prose; future runs read it via `scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry — the run summary already serves that role.
 
 ## Disqualifiers (skip these)
 
@@ -183,11 +183,11 @@ Direct calls (read-only):
 
 Harness-level:
 
-- `signals-scout-project-profile-get` / `signals-scout-scratchpad-search` / `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
+- `scout-project-profile-get` / `scout-scratchpad-search` / `scout-runs-list` / `scout-runs-retrieve` — orientation + dedupe.
 - `inbox-reports-list` / `inbox-reports-retrieve` — find an existing report before authoring.
-- `signals-scout-emit-report` / `signals-scout-edit-report` — author a report / edit an existing one (the report-channel contract is in the harness prompt).
-- `signals-scout-members-list` — this project's members with their resolved `github_login`, for `suggested_reviewers` routing.
-- `signals-scout-scratchpad-remember` — durable memory across runs.
+- `scout-emit-report` / `scout-edit-report` — author a report / edit an existing one (the report-channel contract is in the harness prompt).
+- `scout-members-list` — this project's members with their resolved `github_login`, for `suggested_reviewers` routing.
+- `scout-scratchpad-remember` — durable memory across runs.
 
 For deeper investigation, the sandbox image bakes `posthog:auditing-warehouse-source-health` (catches Stripe-source failures upstream of revenue analytics) and `posthog:diagnosing-failed-warehouse-syncs` (recovery actions for a failing sync).
 

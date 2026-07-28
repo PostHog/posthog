@@ -151,6 +151,69 @@ describe('createProcessGroupsStep', () => {
         expect(mockGroupStore.upsertGroup).not.toHaveBeenCalled()
     })
 
+    it.each([
+        { desc: 'string', groupSet: 'some-random-token', receivedType: 'string' },
+        { desc: 'number', groupSet: 42, receivedType: 'number' },
+        { desc: 'boolean', groupSet: true, receivedType: 'boolean' },
+        { desc: 'array', groupSet: ['a', 'b'], receivedType: 'array' },
+    ])(
+        'drops the event with an invalid_group_set warning when $group_set is a $desc',
+        async ({ groupSet, receivedType }) => {
+            mockGroupTypeManager.fetchGroupTypeIndex.mockResolvedValue(0)
+
+            const step = createStep()
+            const result = await step(
+                createInput({
+                    preparedEvent: createTestPreIngestionEvent({
+                        event: '$groupidentify',
+                        properties: {
+                            $group_type: 'organization',
+                            $group_key: 'org::5',
+                            $group_set: groupSet,
+                        },
+                    }),
+                })
+            )
+
+            expect(result.type).toBe(PipelineResultType.DROP)
+            expect(mockGroupStore.upsertGroup).not.toHaveBeenCalled()
+            expect(result.warnings).toEqual([
+                expect.objectContaining({
+                    type: 'invalid_group_set',
+                    details: expect.objectContaining({
+                        eventUuid: 'test-uuid',
+                        distinctId: 'test-distinct-id',
+                        groupType: 'organization',
+                        groupKey: 'org::5',
+                        receivedType,
+                    }),
+                }),
+            ])
+        }
+    )
+
+    it('upserts with empty properties when $group_set is null', async () => {
+        mockGroupTypeManager.fetchGroupTypeIndex.mockResolvedValue(0)
+
+        const step = createStep()
+        const result = await step(
+            createInput({
+                preparedEvent: createTestPreIngestionEvent({
+                    event: '$groupidentify',
+                    properties: {
+                        $group_type: 'organization',
+                        $group_key: 'org::5',
+                        $group_set: null,
+                    },
+                }),
+            })
+        )
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        expect(result.warnings).toEqual([])
+        expect(mockGroupStore.upsertGroup).toHaveBeenCalledWith(1, 1, 0, 'org::5', {}, expect.any(DateTime))
+    })
+
     it('does not call upsertGroup when group type index is null', async () => {
         mockGroupTypeManager.fetchGroupTypeIndex.mockResolvedValue(null)
 

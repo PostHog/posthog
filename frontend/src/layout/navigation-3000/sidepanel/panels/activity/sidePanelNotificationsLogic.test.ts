@@ -195,6 +195,58 @@ describe('sidePanelNotificationsLogic.toggleGroupRead', () => {
     })
 })
 
+describe('sidePanelNotificationsLogic.archive', () => {
+    let logic: ReturnType<typeof sidePanelNotificationsLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                // refreshInAppUnreadCount reconciles against the server after each archive.
+                '/api/environments/:tid/notifications/unread_count/': () => [200, { count: 1 }],
+            },
+            post: {
+                '/api/projects/:tid/notifications/:id/archive/': () => [200, { status: 'ok' }],
+                '/api/projects/:tid/notifications/archive_bulk/': () => [200, { updated: 2 }],
+                '/api/projects/:tid/notifications/archive_all/': () => [200, { updated: 2 }],
+            },
+        })
+        initKeaTests()
+        logic = sidePanelNotificationsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => logic.unmount())
+
+    it('removes an archived notification and decrements unread count', async () => {
+        const a = makeNotification({ id: 'a', read: false })
+        const b = makeNotification({ id: 'b', resource_id: 'other' })
+        logic.actions.setInAppNotifications([a, b], false)
+        logic.actions.setInAppUnreadCount(2)
+        await logic.actions.archiveNotification('a')
+        expect(logic.values.inAppNotifications.map((n: InAppNotification) => n.id)).toEqual(['b'])
+        expect(logic.values.inAppUnreadCount).toBe(1)
+    })
+
+    it('archiveAll removes every notification', async () => {
+        const a = makeNotification({ id: 'a', resource_id: 'a' })
+        const b = makeNotification({ id: 'b', resource_id: 'b' })
+        logic.actions.setInAppNotifications([a, b], false)
+        await logic.actions.archiveAll()
+        expect(logic.values.inAppNotifications).toEqual([])
+    })
+
+    it('archiveAll resyncs the unread count from the server (server value wins)', async () => {
+        // Optimistic decrement alone would land at 9, but the server is the source of truth.
+        const a = makeNotification({ id: 'a', read: false })
+        logic.actions.setInAppNotifications([a], false)
+        logic.actions.setInAppUnreadCount(10)
+        await expectLogic(logic, () => {
+            logic.actions.archiveAll()
+        }).toDispatchActions(['archiveAll', 'refreshInAppUnreadCount', 'setInAppUnreadCount'])
+        expect(logic.values.inAppUnreadCount).toBe(1)
+    })
+})
+
 describe('sidePanelNotificationsLogic.mainListOffset', () => {
     let logic: ReturnType<typeof sidePanelNotificationsLogic.build>
 

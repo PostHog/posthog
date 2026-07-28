@@ -433,6 +433,74 @@ describe('experimentLogic', () => {
             )
         })
     })
+    describe('duplicateSharedMetricAsInlineMetric', () => {
+        const sharedMetricId = 555
+        const breakdown = { property: '$browser', type: 'event' } as Breakdown
+        const sharedSavedMetric = {
+            id: 1,
+            experiment: experiment.id as number,
+            saved_metric: sharedMetricId,
+            name: 'Shared conversion metric',
+            query: {
+                uuid: 'shared-metric-uuid',
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.MEAN,
+                source: { kind: NodeKind.EventsNode, event: '$pageview' },
+            },
+            metadata: { type: 'primary', breakdowns: [breakdown] },
+            created_at: '2024-01-01T00:00:00Z',
+        } as unknown as ExperimentSavedMetric
+
+        it('appends an inline copy of the shared metric without the shared link', async () => {
+            logic.actions.setExperiment({
+                ...experiment,
+                metrics: [],
+                metrics_secondary: [],
+                saved_metrics: [sharedSavedMetric],
+            } as unknown as Experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateSharedMetricAsInlineMetric({
+                    sharedMetricId,
+                    isSecondary: false,
+                    newUuid: 'new-inline-uuid',
+                })
+            })
+
+            expect(logic.values.experiment.metrics).toEqual([
+                {
+                    uuid: 'new-inline-uuid',
+                    kind: NodeKind.ExperimentMetric,
+                    metric_type: ExperimentMetricType.MEAN,
+                    source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                    name: 'Shared conversion metric (copy)',
+                    breakdownFilter: { breakdowns: [breakdown] },
+                },
+            ])
+            // The original shared metric link is left untouched
+            expect(logic.values.experiment.saved_metrics).toEqual([sharedSavedMetric])
+        })
+
+        it('is a no-op when the shared metric is not linked as the requested type', async () => {
+            logic.actions.setExperiment({
+                ...experiment,
+                metrics: [],
+                metrics_secondary: [],
+                saved_metrics: [sharedSavedMetric],
+            } as unknown as Experiment)
+
+            await expectLogic(logic, () => {
+                // The shared metric is a primary link, so duplicating it as secondary finds nothing
+                logic.actions.duplicateSharedMetricAsInlineMetric({
+                    sharedMetricId,
+                    isSecondary: true,
+                    newUuid: 'new-inline-uuid',
+                })
+            })
+
+            expect(logic.values.experiment.metrics_secondary).toEqual([])
+        })
+    })
     describe('saveMetricsReorder', () => {
         const primaryMetric = {
             kind: 'ExperimentMetric',

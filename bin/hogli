@@ -8,13 +8,20 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_CMD="python"
 
 if [ -z "${VIRTUAL_ENV:-}" ]; then
-    for venv in "$REPO_ROOT/.flox/cache/venv" "$REPO_ROOT/.venv" "$REPO_ROOT/env"; do
-        if [ -d "$venv" ]; then
-            source "$venv/bin/activate"
-            PYTHON_CMD="$venv/bin/python"
-            break
-        fi
-    done
+    # Only local venvs are considered here. Standalone hogli must never adopt
+    # the main clone's venv: commands like `uv sync --active` would rewrite it
+    # against this worktree. Hooks that need borrowing export VIRTUAL_ENV via
+    # bin/helpers/worktree-borrow.sh before hogli runs.
+    FOUND_VENV=""
+    if [ -f "$REPO_ROOT/bin/helpers/worktree-borrow.sh" ]; then
+        source "$REPO_ROOT/bin/helpers/worktree-borrow.sh"
+        FOUND_VENV="$(posthog_find_venv "$REPO_ROOT")"
+    fi
+
+    if [ -n "$FOUND_VENV" ]; then
+        source "$FOUND_VENV/bin/activate"
+        PYTHON_CMD="$FOUND_VENV/bin/python"
+    fi
 else
     PYTHON_CMD="$VIRTUAL_ENV/bin/python"
 fi

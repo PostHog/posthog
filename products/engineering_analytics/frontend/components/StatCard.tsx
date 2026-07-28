@@ -3,6 +3,78 @@ import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { MetricCard } from '@posthog/quill-charts'
 
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+
+export type StatTone = 'default' | 'danger' | 'warning' | 'success'
+
+/** A compact right-now count: number over a small label, colored only when it's a pressure. Optionally
+ *  doubles as a filter toggle (onClick + active) — the compact sibling of StatCard, shared by the hub
+ *  hero and the PR list strip so both read the same. */
+export function HeroStat({
+    label,
+    value,
+    tone = 'default',
+    align = 'end',
+    loading = false,
+    onClick,
+    active = false,
+    filterHint,
+}: {
+    label: string
+    value: number | null | undefined
+    tone?: StatTone
+    /** 'end' in the hub hero's right cluster; 'start' in the PR list's left strip. */
+    align?: 'start' | 'end'
+    loading?: boolean
+    onClick?: () => void
+    active?: boolean
+    /** What clicking filters the list to — surfaces in the tooltip. */
+    filterHint?: string
+}): JSX.Element {
+    const pressing = value != null && value > 0
+    const color =
+        pressing && tone === 'danger'
+            ? 'text-danger'
+            : pressing && tone === 'warning'
+              ? 'text-warning-dark'
+              : pressing && tone === 'success'
+                ? 'text-success'
+                : 'text-primary'
+    const alignCls = align === 'end' ? 'items-end' : 'items-start'
+    const body = (
+        <>
+            {loading ? (
+                <LemonSkeleton className="h-5 w-10" />
+            ) : (
+                <span className={cn('text-xl font-semibold leading-none tabular-nums', color)}>
+                    {value == null ? '—' : humanFriendlyNumber(value)}
+                </span>
+            )}
+            <span className={cn('mt-1 text-[11px] whitespace-nowrap', active ? 'text-accent' : 'text-tertiary')}>
+                {label}
+            </span>
+        </>
+    )
+    if (!onClick) {
+        return <div className={cn('flex flex-col', alignCls)}>{body}</div>
+    }
+    return (
+        <Tooltip title={active ? 'Showing this view' : filterHint} placement="bottom">
+            <button
+                type="button"
+                onClick={onClick}
+                aria-pressed={active}
+                className={cn(
+                    'flex cursor-pointer flex-col rounded px-2.5 py-1.5 transition-colors',
+                    alignCls,
+                    active ? 'bg-accent-highlight-secondary' : 'hover:bg-surface-secondary'
+                )}
+            >
+                {body}
+            </button>
+        </Tooltip>
+    )
+}
 
 /** A headline stat that doubles as a filter toggle for the table below it. */
 export function StatCard({
