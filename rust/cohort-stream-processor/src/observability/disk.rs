@@ -99,12 +99,6 @@ impl SharedDiskUtilization {
     }
 }
 
-impl Default for SharedDiskUtilization {
-    fn default() -> Self {
-        Self::new(Duration::from_secs(600))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,7 +145,7 @@ mod tests {
 
     #[test]
     fn shared_snapshot_publishes_and_clears() {
-        let shared = SharedDiskUtilization::default();
+        let shared = SharedDiskUtilization::new(Duration::MAX);
         assert_eq!(shared.latest(), None, "fail-open before any sample");
 
         let sample = DiskUtilization {

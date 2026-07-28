@@ -727,7 +727,7 @@ async fn spawn_instance(
         PROBE_NEVER,
         // Both pacing triggers disabled: these tests pin fence and holdover behavior.
         SeedPacingConfig::default(),
-        Arc::new(SharedDiskUtilization::default()),
+        Arc::new(SharedDiskUtilization::new(Duration::MAX)),
     );
     tasks.push(tokio::spawn(seed_follower.process()));
 
