@@ -9,6 +9,11 @@ import structlog
 from celery import shared_task
 from prometheus_client import Gauge
 
+from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.api.capture import capture_internal
 from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
@@ -104,6 +109,71 @@ def update_team_service_flags_cache(team_id: int) -> None:
     HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
         namespace="feature_flags", cache_name="flags", operation="update", result="success" if success else "failure"
     ).inc()
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+    max_retries=3,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+)
+@skip_team_scope_audit
+def migrate_feature_enrollment_on_key_change(team_id: int, old_key: str, new_key: str) -> None:
+    """
+    Copy `$feature_enrollment/<old_key>` person properties to the new key after a flag
+    key rename, so existing early access opt-ins (and explicit opt-outs) keep applying —
+    evaluation derives the enrollment property name from the flag's current key.
+    Persons who already have a value under the new key are left untouched, and the old
+    property is kept so renaming back stays lossless. Safe to retry: re-sending a $set
+    a person already received is a no-op.
+    """
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.exception("Team does not exist for enrollment migration", team_id=team_id)
+        return
+
+    # Property access (rather than JSONExtractString) lets the HogQL printer use
+    # materialized person-property columns when available.
+    response = execute_hogql_query(
+        """
+        SELECT
+            argMax(pdi.distinct_id, created_at) AS distinct_id,
+            properties[{old_prop}] AS enrollment_value
+        FROM persons
+        WHERE properties[{old_prop}] IN ('true', 'false')
+        AND properties[{new_prop}] IS NULL
+        GROUP BY id, enrollment_value
+        LIMIT {limit}
+        """,
+        placeholders={
+            "old_prop": ast.Constant(value=f"$feature_enrollment/{old_key}"),
+            "new_prop": ast.Constant(value=f"$feature_enrollment/{new_key}"),
+            "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
+        },
+        team=team,
+        limit_context=LimitContext.QUERY_ASYNC,
+    )
+
+    if len(response.results) >= MAX_SELECT_RETURNED_ROWS:
+        logger.warning(
+            "Feature enrollment migration hit the row cap; not all enrollments migrated",
+            team_id=team_id,
+            old_key=old_key,
+            new_key=new_key,
+        )
+
+    new_prop = f"$feature_enrollment/{new_key}"
+    for distinct_id, enrollment_value in response.results:
+        capture_internal(
+            token=team.api_token,
+            event_name="$set",
+            event_source="feature_flag_enrollment_key_migration",
+            distinct_id=distinct_id,
+            properties={"$set": {new_prop: enrollment_value == "true"}},
+            process_person_profile=True,
+        ).raise_for_status()
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
