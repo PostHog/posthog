@@ -54,22 +54,25 @@ phases and replaying them once the handoff completes:
   still being collected). Subsequent writes for that partition are
   parked on a `oneshot` instead of being forwarded.
 
-- **Drain** (on `Complete`, or back to a still-registered owner on
-  cancellation): the router replays each parked request to the method
-  it arrived on via the raw forward path, bypassing the stash hook so
-  each replayed request actually reaches the leader. New requests that
-  arrive during drain land on the same queue and are picked up by the
-  next loop iteration — drain only evicts the partition from the stash
-  table when it observes the queue empty under the lock, preserving
-  FIFO ordering across the cutover. Drains run off the coordination
-  watch loop in per-partition lanes: a drain's duration is data-plane
-  work and must never gate freeze acks or routing updates for other
-  partitions. A newer drain for the same partition supersedes the one
-  in flight — the old drain yields at a batch boundary, leaving
-  unprocessed queue contents parked for its successor. On a
-  cancellation whose current owner is no longer registered, no drain
-  runs at all: the stash stays intact until the successor handoff
-  completes toward a live owner.
+- **Drain** (on `Complete` — including the reaffirm-Complete a
+  cancellation resolves to): the router replays each parked request to
+  the method it arrived on via the raw forward path, bypassing the
+  stash hook so each replayed request actually reaches the leader. New
+  requests that arrive during drain land on the same queue and are
+  picked up by the next loop iteration — drain only evicts the
+  partition from the stash table when it observes the queue empty
+  under the lock, preserving FIFO ordering across the cutover. Drains
+  run off the coordination watch loop in per-partition lanes: a
+  drain's duration is data-plane work and must never gate freeze acks
+  or routing updates for other partitions. A drain toward a different
+  target supersedes the one in flight — the old drain yields at a
+  batch boundary, leaving unprocessed queue contents parked for its
+  successor — while a request toward the same target is absorbed by
+  the running drain. Handoff deletion events trigger nothing:
+  cancellation is a record replacement, so a deletion only ever means
+  post-Complete cleanup. The periodic reconcile pass re-derives stash,
+  table, and drain state from a fresh snapshot, draining any stash
+  whose partition has no handoff to the assignment owner.
 
 Two policies layer on the raw mechanism:
 
