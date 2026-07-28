@@ -2878,6 +2878,9 @@ importers:
       '@posthog/lemon-ui':
         specifier: '*'
         version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
       '@tiptap/core':
         specifier: 3.20.6
         version: 3.20.6(@tiptap/pm@3.20.6)
@@ -20516,6 +20519,10 @@ packages:
     peerDependencies:
       typescript: 6.0.3
 
+  react-docgen@8.0.2:
+    resolution: {integrity: sha512-+NRMYs2DyTP4/tqWz371Oo50JqmWltR1h2gcdgUMAWZJIAvrd0/SqlCfx7tpzpl/s36rzw6qH2MjoNrxtRNYhA==}
+    engines: {node: ^20.9.0 || >=22}
+
   react-docgen@8.0.3:
     resolution: {integrity: sha512-aEZ9qP+/M+58x2qgfSFEWH1BxLyHe5+qkLNJOZQb5iGS017jpbRnoKhNRrXPeA6RfBrZO5wZrT9DMC1UqE1f1w==}
     engines: {node: ^20.9.0 || >=22}
@@ -22536,8 +22543,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.457.0:
-    resolution: {integrity: sha512-4GPU1YED5+X9ynAQw/cWnOez5pCcamkB++PQjfHIEQwqmsagOYkbxKPWqu1s4lcg6iJ1lZte33EeLqiTFV4u8g==}
+  unlayer-types@1.449.0:
+    resolution: {integrity: sha512-36kWwjzwSgz++3RuL6p6uXRaV36G/V+sM9jRz2e3Gu5634vf95z7kdj8vld2UW/NBRZb/NLkjXf8MPSacU6oQw==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -31755,7 +31762,7 @@ snapshots:
       '@storybook/global': 5.0.0
       '@storybook/react-dom-shim': 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))
       react: 18.3.1
-      react-docgen: 8.0.3
+      react-docgen: 8.0.2
       react-docgen-typescript: 2.2.2(typescript@6.0.3)
       react-dom: 18.3.1(react@18.3.1)
       storybook: 10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -31771,7 +31778,7 @@ snapshots:
       '@storybook/global': 5.0.0
       '@storybook/react-dom-shim': 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@9.3.4)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))
       react: 18.3.1
-      react-docgen: 8.0.3
+      react-docgen: 8.0.2
       react-docgen-typescript: 2.2.2(typescript@6.0.3)
       react-dom: 18.3.1(react@18.3.1)
       storybook: 10.4.6(@testing-library/dom@9.3.4)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -43327,6 +43334,21 @@ snapshots:
     dependencies:
       typescript: 6.0.3
 
+  react-docgen@8.0.2:
+    dependencies:
+      '@babel/core': 7.29.0
+      '@babel/traverse': 7.29.0
+      '@babel/types': 7.29.0
+      '@types/babel__core': 7.20.5
+      '@types/babel__traverse': 7.28.0
+      '@types/doctrine': 0.0.9
+      '@types/resolve': 1.20.6
+      doctrine: 3.0.0
+      resolve: 1.22.8
+      strip-indent: 4.0.0
+    transitivePeerDependencies:
+      - supports-color
+
   react-docgen@8.0.3:
     dependencies:
       '@babel/core': 7.29.0
@@ -43358,7 +43380,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.457.0
+      unlayer-types: 1.449.0
 
   react-grid-layout@2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -45686,7 +45708,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.457.0: {}
+  unlayer-types@1.449.0: {}
 
   unpipe@1.0.0: {}
 

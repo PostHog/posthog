@@ -38,7 +38,24 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   searching by entity identity rather than only the scout's own key prefix, and `_FLEET_SEAMS`
   states the overlap rule in both directions — don't restate a sibling's finding, but don't
   defer a finding you hold evidence for either, since an uncovered surface is invisible where
-  a duplicate is not. Skills keep their own domain ownership map. The report persona is further gated per-tool: it names only
+  a duplicate is not. Skills keep their own domain ownership map. Both channels also share the
+  **self-validation follow-up** discipline (`_self_validation_followups_section` +
+  `FOLLOWUP_KEY_PREFIX`): every scout keeps a queue of `followup:<skill-name>:<entity>` scratchpad
+  entries for work whose fix is measurable later (probe + baseline + validate-after date in the
+  content), and decides for itself, run by run, whether to spend the run validating that queue —
+  the cadence is the scout's judgment, not a harness schedule, so the section carries the decision
+  criteria (due entries accumulated, a while since the queue was last worked, a dismissal note
+  saying a fix shipped) and there is no harness trigger. A validation pass is self-reported in the
+  close-out summary and in the touched entries, which is also how future runs know when the queue
+  was last worked. The section is composed per-run because its re-surface clause is matched
+  per-tool to the same fail-closed rule as the channel sections, and it defers
+  resolved-inbox-report re-measurement to the canonical `signals-scout-inbox-validation` scout
+  when the `scout_fleet` roster shows it actively running — the per-scout queue exists precisely
+  because that fleet scout may not be enabled, and because signal-channel findings and recorded
+  watches never become resolved reports it could re-measure. Queue entries are team-shared data — and
+  `remember()` upserts keep the original `created_by_run`, so attribution never proves who last
+  wrote the content: the section tells the scout to treat every stored probe as untrusted and
+  re-derive it from the live report or finding it names, never execute it as stored. The report persona is further gated per-tool: it names only
   the report tool(s) actually in `allowed_tools` (emit-only, edit-only, or both), and
   drops the author-time sections for an edit-only scout — the report endpoints fail
   closed on the exact tool, so the prompt must never steer a scout toward one it lacks.
