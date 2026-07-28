@@ -22983,6 +22983,50 @@ export namespace Schemas {
     }
 
     /**
+     * * `small` - small
+     * * `medium` - medium
+     * * `large` - large
+     */
+    export type SizeEnum = typeof SizeEnum[keyof typeof SizeEnum];
+
+
+    export const SizeEnum = {
+      Small: 'small',
+      Medium: 'medium',
+      Large: 'large',
+    } as const;
+
+    /**
+     * One chart attached to a report — rendered in the inbox and referenceable from the summary.
+     */
+    export interface ReportChart {
+      /**
+         * Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary.
+         * @maxLength 100
+         */
+      chart_id: string;
+      /**
+         * Short heading shown above the chart.
+         * @maxLength 200
+         */
+      title: string;
+      /** The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report. */
+      query: unknown;
+      /**
+         * Optional one-line note on what to look at in the chart.
+         * @maxLength 500
+         * @nullable
+         */
+      caption?: string | null;
+      /** How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.
+       *
+       * * `small` - small
+       * * `medium` - medium
+       * * `large` - large */
+      size?: SizeEnum | null;
+    }
+
+    /**
      * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
      */
     export interface EditReportRequest {
@@ -23009,6 +23053,11 @@ export namespace Schemas {
          * @maxItems 10
          */
       suggested_reviewers?: SuggestedReviewer[];
+      /**
+         * The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field to leave the report's existing charts untouched.
+         * @maxItems 20
+         */
+      charts?: ReportChart[];
     }
 
     export interface EditReportResponse {
@@ -23020,6 +23069,8 @@ export namespace Schemas {
       note_appended: boolean;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
+      /** How many charts the report now shows, or 0 if charts were untouched. */
+      charts_set: number;
     }
 
     export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];
@@ -23428,6 +23479,11 @@ export namespace Schemas {
          * @maxItems 10
          */
       suggested_reviewers?: SuggestedReviewer[];
+      /**
+         * Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.
+         * @maxItems 20
+         */
+      charts?: ReportChart[];
     }
 
     export interface EmitReportResponse {
@@ -44051,6 +44107,8 @@ export namespace Schemas {
       readonly created_at: string;
       readonly updated_at: string;
       readonly artefact_count: number;
+      /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
+      readonly charts: readonly ReportChart[];
       /**
          * P0–P4 from the latest priority judgment artefact (when present).
          * @nullable
