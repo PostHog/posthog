@@ -1307,7 +1307,12 @@ impl StashHandler for StashOrderProbe {
         Ok(())
     }
 
-    async fn drain_stash(&self, _partition: u32, _target: &str) -> Result<()> {
+    async fn drain_stash(
+        &self,
+        _partition: u32,
+        _target: &str,
+        _cancel: CancellationToken,
+    ) -> Result<()> {
         Ok(())
     }
 }
@@ -1473,6 +1478,131 @@ async fn cancellation_with_dead_owner_leaves_stash_intact_until_successor() {
         ],
         "stash must not drain toward the dead owner"
     );
+
+    cancel.cancel();
+}
+
+/// Records drain starts like `MockCutoverHandler`, then parks forever —
+/// ignoring even its cancellation token. The worst-case drain.
+struct BlockedDrainHandler {
+    events: Arc<Mutex<Vec<CutoverEvent>>>,
+}
+
+#[async_trait]
+impl StashHandler for BlockedDrainHandler {
+    async fn begin_stash(&self, partition: u32, new_owner: &str) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashBegan {
+            partition,
+            new_owner: new_owner.to_string(),
+        });
+        Ok(())
+    }
+
+    async fn drain_stash(
+        &self,
+        partition: u32,
+        target: &str,
+        _cancel: CancellationToken,
+    ) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashDrained {
+            partition,
+            target: target.to_string(),
+        });
+        std::future::pending::<Result<()>>().await
+    }
+}
+
+/// A drain's duration is data-plane work — queue depth, arrival rate,
+/// target health — so even a drain that never finishes must not stall
+/// the watch loop: freeze acks are on the critical path of every handoff
+/// in the cluster, and a router that stops acking wedges them all.
+#[tokio::test]
+async fn a_blocked_drain_does_not_stall_freeze_acks_for_other_partitions() {
+    let store = test_store("blocked-drain").await;
+
+    // Partition 0's owner is live and registered, so the cancellation
+    // below drains back to it — and parks forever in this handler.
+    let lease = store.grant_lease(60).await.expect("lease");
+    store
+        .register_pod(
+            &RegisteredPod {
+                pod_name: "pod-old".to_string(),
+                generation: String::new(),
+                status: PodStatus::Ready,
+                registered_at: 0,
+                last_heartbeat: 0,
+                controller: None,
+                advertise_address: None,
+            },
+            lease,
+        )
+        .await
+        .expect("register pod-old");
+    assert!(store
+        .create_assignments_and_handoffs(
+            &[PartitionAssignment {
+                partition: 0,
+                owner: "pod-old".to_string(),
+                status: AssignmentStatus::Active,
+                advertise_address: None,
+            }],
+            &[],
+            &[],
+        )
+        .await
+        .expect("write assignment"));
+    put_handoff(&store, 0, Some("pod-old"), "pod-new", HandoffPhase::Freezing).await;
+
+    let router = RoutingTable::new(
+        Arc::clone(&store),
+        RoutingTableConfig {
+            router_name: "bd-router".to_string(),
+            ..RoutingTableConfig::default()
+        },
+    );
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = BlockedDrainHandler {
+        events: Arc::clone(&events),
+    };
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
+
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move { !events.lock().await.is_empty() }
+    })
+    .await;
+
+    // Cancel the handoff and wait until the drain-back has started (and
+    // parked).
+    store.delete_handoff(0).await.expect("cancel handoff");
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events.lock().await.contains(&CutoverEvent::StashDrained {
+                partition: 0,
+                target: "pod-old".to_string(),
+            })
+        }
+    })
+    .await;
+
+    // A Freezing handoff for another partition must still get this
+    // router's freeze ack.
+    put_handoff(&store, 1, None, "pod-new", HandoffPhase::Freezing).await;
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&store);
+        async move {
+            store
+                .list_freeze_acks(1)
+                .await
+                .expect("list acks")
+                .iter()
+                .any(|ack| ack.router_name == "bd-router")
+        }
+    })
+    .await;
 
     cancel.cancel();
 }

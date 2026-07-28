@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use futures::future::join_all;
 use personhog_coordination::error::Result as CoordResult;
 use personhog_coordination::routing_table::StashHandler;
+use tokio_util::sync::CancellationToken;
 use tonic::Code;
 
 use crate::backend::{LeaderBackend, StashedRequest};
@@ -46,6 +47,11 @@ use crate::grpc_http::{grpc_error_response, grpc_status_code, is_grpc_error_resp
 ///    the same key forward sequentially within a per-key sub-task.
 ///    This shrinks drain wall-clock duration without breaking
 ///    ordering guarantees.
+///
+/// 3. **Cooperative cancellation.** A superseded drain stops at the next
+///    batch or chunk boundary: unprocessed queue contents stay parked
+///    for the successor drain, while requests already taken off the
+///    queue get a definitive `UNAVAILABLE` so their clients retry.
 ///
 /// We also clear the cached gRPC client for the new owner so the first
 /// post-handoff request opens a fresh connection to the new leader pod.
@@ -185,6 +191,7 @@ async fn forward_batch_by_key(
     max_stash_wait: Duration,
     concurrency: usize,
     partition: u32,
+    cancel: &CancellationToken,
     batch: Vec<StashedRequest>,
 ) {
     type Key = (i64, i64);
@@ -195,6 +202,18 @@ async fn forward_batch_by_key(
 
     let mut groups_iter = groups.into_values();
     loop {
+        // A superseded drain stops at the next chunk wave — but requests
+        // already taken off the queue must never be dropped silently:
+        // every remaining one gets a definitive UNAVAILABLE so its
+        // client retries through whichever path is now live.
+        if cancel.is_cancelled() {
+            for group in groups_iter {
+                for req in group {
+                    fail_superseded(req);
+                }
+            }
+            return;
+        }
         let chunk: Vec<Vec<StashedRequest>> = (&mut groups_iter).take(concurrency).collect();
         if chunk.is_empty() {
             break;
@@ -209,6 +228,20 @@ async fn forward_batch_by_key(
         });
         join_all(futures).await;
     }
+}
+
+/// Reply `UNAVAILABLE` to a stashed request abandoned by a superseded
+/// drain — the same definitive retry contract as the deadline path.
+fn fail_superseded(req: StashedRequest) {
+    let response = grpc_error_response(Code::Unavailable, "stash drain superseded; retry");
+    if req.reply.send(response).is_err() {
+        metrics::counter!("personhog_router_stash_dropped_total").increment(1);
+    }
+    metrics::counter!(
+        "personhog_router_stash_drained_total",
+        "outcome" => "superseded"
+    )
+    .increment(1);
 }
 
 #[async_trait]
@@ -226,7 +259,12 @@ impl StashHandler for RouterStashHandler {
         Ok(())
     }
 
-    async fn drain_stash(&self, partition: u32, new_owner: &str) -> CoordResult<()> {
+    async fn drain_stash(
+        &self,
+        partition: u32,
+        new_owner: &str,
+        cancel: CancellationToken,
+    ) -> CoordResult<()> {
         let drain_start = Instant::now();
         tracing::info!(partition, new_owner, "draining stash to new owner");
 
@@ -248,9 +286,10 @@ impl StashHandler for RouterStashHandler {
         // arriving during drain land on the same queue and are
         // delivered as a subsequent batch, preserving order.
         stash_table
-            .drain(partition, |batch| {
+            .drain(partition, &cancel, |batch| {
                 let leader = Arc::clone(&leader_backend);
                 let counter = Arc::clone(&counter);
+                let cancel = cancel.clone();
                 async move {
                     let batch_size = batch.len() as u64;
                     forward_batch_by_key(
@@ -258,6 +297,7 @@ impl StashHandler for RouterStashHandler {
                         max_stash_wait,
                         drain_concurrency,
                         partition,
+                        &cancel,
                         batch,
                     )
                     .await;
