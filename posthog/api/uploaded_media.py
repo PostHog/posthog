@@ -242,7 +242,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 uploaded_media.delete()
                 raise ValidationError(
                     code="invalid_file",
-                    detail="Uploaded media must be a valid image or PDF",
+                    detail="Uploaded media must be a valid image, PDF, or text file",
                 )
 
             headers = self.get_success_headers(uploaded_media.get_absolute_url())
@@ -260,7 +260,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 headers=headers,
             )
         except KeyError:
-            raise ValidationError(code="no-image-provided", detail="An image file must be provided")
+            raise ValidationError(code="no-image-provided", detail="A file must be provided")
         except ObjectStorageUnavailable:
             raise ValidationError(
                 code="object_storage_required",

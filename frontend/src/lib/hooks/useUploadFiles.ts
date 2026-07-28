@@ -74,22 +74,34 @@ function canReduceThisBlobType(file: File): boolean {
 // Callers default to images only; pass a wider list (e.g. 'application/pdf') to opt in.
 const IMAGE_ONLY_CONTENT_TYPES = ['image/*']
 
-// Browsers often report an empty type for text files (.md especially) since the OS
-// has no registered MIME. The upload endpoint keys on content type, so fall back to
-// the extension for these known-safe text types before validating and uploading.
+// Browsers report an empty or inconsistent type for these files depending on the OS
+// (.md especially, but also .pdf/.csv on some platforms). The upload endpoint keys on
+// content type, so map the extension to a known type as a fallback.
 const EXTENSION_CONTENT_TYPES: Record<string, string> = {
     md: 'text/markdown',
     markdown: 'text/markdown',
     txt: 'text/plain',
     csv: 'text/csv',
+    pdf: 'application/pdf',
 }
 
-function resolveContentType(file: File): string {
-    if (file.type) {
-        return file.type
-    }
+function extensionContentType(file: File): string {
     const extension = file.name.split('.').pop()?.toLowerCase() ?? ''
     return EXTENSION_CONTENT_TYPES[extension] ?? ''
+}
+
+// Resolve against the allowlist: trust the browser's type when it's allowed, otherwise
+// fall back to the extension. This covers both an empty type and a "wrong" type the OS
+// reports for a file the picker accepted (e.g. .csv as application/vnd.ms-excel).
+function resolveContentType(file: File, allowedContentTypes: string[]): string {
+    if (file.type && isContentTypeAllowed(file.type, allowedContentTypes)) {
+        return file.type
+    }
+    const fromExtension = extensionContentType(file)
+    if (fromExtension && isContentTypeAllowed(fromExtension, allowedContentTypes)) {
+        return fromExtension
+    }
+    return file.type
 }
 
 function isContentTypeAllowed(fileType: string, allowedContentTypes: string[]): boolean {
@@ -102,7 +114,7 @@ export async function uploadFile(
     file: File,
     allowedContentTypes: string[] = IMAGE_ONLY_CONTENT_TYPES
 ): Promise<MediaUploadResponse> {
-    const contentType = resolveContentType(file)
+    const contentType = resolveContentType(file, allowedContentTypes)
     if (!isContentTypeAllowed(contentType, allowedContentTypes)) {
         throw new Error('File type is not supported')
     }
@@ -150,9 +162,14 @@ export function useUploadFiles({
                 setUploading(true)
                 const file: File = filesToUpload[0]
                 const media = await uploadFile(file, allowedContentTypes)
-                onUpload?.(media.image_location, media.name, media.id, resolveContentType(file))
+                onUpload?.(
+                    media.image_location,
+                    media.name,
+                    media.id,
+                    resolveContentType(file, allowedContentTypes ?? IMAGE_ONLY_CONTENT_TYPES)
+                )
             } catch (error) {
-                const errorDetail = (error as any).detail || 'unknown error'
+                const errorDetail = (error as any).detail || (error as any).message || 'unknown error'
                 onError(errorDetail)
             } finally {
                 uploadInProgressRef.current = false

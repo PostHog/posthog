@@ -84,19 +84,6 @@ class TestMediaAPI(APIBaseTest):
                 )
                 self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.json())
 
-    def test_rejects_non_image_file_type(self) -> None:
-        fake_file = SimpleUploadedFile(name="test_image.jpg", content=b"a fake image", content_type="text/csv")
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/uploaded_media",
-            {"image": fake_file},
-            format="multipart",
-        )
-        self.assertEqual(
-            response.status_code,
-            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            response.json(),
-        )
-
     def test_rejects_file_manually_crafted_to_start_with_image_magic_bytes(self) -> None:
         with open(get_path_to("file-masquerading-as-a.gif"), "rb") as image:
             response = self.client.post(
