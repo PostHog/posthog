@@ -60,7 +60,9 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         user = cast(User, self.request.user)
-        serializer.save(updated_by_id=user.id)
+        alert = cast(BillingAlertConfiguration, serializer.instance)
+        execution_team = self._execution_team() if alert.team_id is None else alert.team
+        serializer.save(team=execution_team, updated_by_id=user.id)
         report_user_action(user, "billing alert updated", request=self.request)
 
     def perform_destroy(self, instance: BillingAlertConfiguration) -> None:
@@ -87,7 +89,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=None,
         responses={200: BillingAlertCheckNowResponseSerializer},
         description=(
-            "Evaluate this billing alert immediately against real billing usage or spend data. "
+            "Evaluate this billing alert immediately against real billing spend data. "
             "Manual checks can send notifications when the evaluation records a dispatchable event."
         ),
     )
@@ -136,10 +138,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         hog_function_ids = serializer.validated_data["hog_function_ids"]
 
-        try:
-            billing_alerts_api.delete_destination(alert, hog_function_ids)
-        except billing_alerts_api.BillingAlertDestinationOwnershipError:
-            raise ValidationError("One or more HogFunctions do not belong to this alert.")
+        billing_alerts_api.delete_destination(alert, hog_function_ids)
 
         report_user_action(
             request.user,

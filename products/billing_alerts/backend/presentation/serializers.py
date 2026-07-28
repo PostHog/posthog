@@ -11,9 +11,6 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
-from posthog.api.shared import UserBasicSerializer
-from posthog.models.user import User
-
 from products.billing_alerts.backend.facade import api as billing_alerts_api
 from products.billing_alerts.backend.facade.api import BillingAlertConfiguration, BillingAlertEvent
 
@@ -29,12 +26,36 @@ def _any_field_changed(
     return any(field in validated_data and validated_data[field] != getattr(instance, field) for field in fields)
 
 
+def _is_microsoft_teams_webhook(webhook_url: str) -> bool:
+    parsed = urlparse(webhook_url)
+    hostname = parsed.hostname or ""
+    path = parsed.path
+    if hostname.endswith(".logic.azure.com"):
+        return parsed.port in (None, 443) and path.startswith("/workflows/") and "/triggers/manual/paths/invoke" in path
+    if hostname.endswith(".webhook.office.com"):
+        return path.startswith("/webhookb2/") and "/IncomingWebhook/" in path
+    if hostname.endswith((".powerautomate.com", ".flow.microsoft.com")):
+        return bool(path.strip("/"))
+    if hostname.endswith(".environment.api.powerplatform.com"):
+        return path.startswith("/powerautomate/automations/direct/") and "/workflows/" in path
+    return False
+
+
 class BillingAlertEventSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this billing alert event.")
     kind = serializers.ChoiceField(
         choices=BillingAlertEvent.Kind.choices,
         read_only=True,
         help_text="Event kind for a check, state transition, or delivery-worthy alert event.",
+    )
+    source = serializers.ChoiceField(
+        choices=BillingAlertEvent.Source.choices,
+        read_only=True,
+        help_text="Whether this evaluation was scheduled or manually requested.",
+    )
+    attempt_number = serializers.IntegerField(
+        read_only=True,
+        help_text="Attempt number for this billing date and configuration revision.",
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When this event was recorded.")
     evaluation_date = serializers.DateField(
@@ -81,6 +102,8 @@ class BillingAlertEventSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "kind",
+            "source",
+            "attempt_number",
             "created_at",
             "evaluation_date",
             "period_start",
@@ -113,6 +136,7 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
     execution_team_id = serializers.IntegerField(
         source="team_id",
         read_only=True,
+        allow_null=True,
         help_text="Team used as the execution context for internal notification destinations.",
     )
     created_by_id = serializers.IntegerField(
@@ -123,19 +147,15 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="User ID that last updated this alert.",
     )
-    created_by = serializers.SerializerMethodField(help_text="User that created this alert, or null if unavailable.")
-    updated_by = serializers.SerializerMethodField(
-        help_text="User that last updated this alert, or null if unavailable."
-    )
     name = serializers.CharField(max_length=160, help_text="Display name for this billing alert.")
     description = serializers.CharField(required=False, allow_blank=True, help_text="Optional internal description.")
     enabled = serializers.BooleanField(required=False, help_text="Whether scheduled checks should evaluate this alert.")
     metric = serializers.ChoiceField(
         choices=BillingAlertConfiguration.Metric.choices,
-        required=False,
-        help_text="Billing metric to evaluate: spend or usage.",
+        read_only=True,
+        help_text="Billing metric evaluated by this alert. The first version supports spend only.",
     )
-    currency = serializers.CharField(max_length=3, required=False, help_text="Currency for spend alerts.")
+    currency = serializers.CharField(read_only=True, help_text="Server-controlled currency for spend values.")
     threshold_type = serializers.ChoiceField(
         choices=BillingAlertConfiguration.ThresholdType.choices,
         required=False,
@@ -164,16 +184,17 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
     baseline_window_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
     evaluation_delay_hours = serializers.IntegerField(required=False, min_value=0, max_value=72)
     state = serializers.ChoiceField(choices=BillingAlertConfiguration.State.choices, read_only=True)
-    check_interval_hours = serializers.IntegerField(required=False, min_value=1, max_value=24)
+    check_interval_hours = serializers.ChoiceField(
+        choices=[1, 2, 3, 4, 6, 8, 12, 24],
+        required=False,
+        help_text="Supported interval in hours between scheduled evaluations.",
+    )
     cooldown_hours = serializers.IntegerField(required=False, min_value=0, max_value=24 * 30)
     snooze_until = serializers.DateTimeField(required=False, allow_null=True)
     next_check_at = serializers.DateTimeField(read_only=True, allow_null=True)
     last_checked_at = serializers.DateTimeField(read_only=True, allow_null=True)
     last_notified_at = serializers.DateTimeField(read_only=True, allow_null=True)
     consecutive_failures = serializers.IntegerField(read_only=True)
-    destination_types = serializers.SerializerMethodField(
-        help_text="Notification destination types configured for this alert.",
-    )
     destinations = serializers.SerializerMethodField(
         help_text="Notification destination groups configured for this alert, including their shared HogFunctions.",
     )
@@ -188,8 +209,6 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "execution_team_id",
             "created_by_id",
             "updated_by_id",
-            "created_by",
-            "updated_by",
             "name",
             "description",
             "enabled",
@@ -209,15 +228,10 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_checked_at",
             "last_notified_at",
             "consecutive_failures",
-            "destination_types",
             "destinations",
             "created_at",
             "updated_at",
         ]
-
-    @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=["slack", "webhook", "teams"])))
-    def get_destination_types(self, obj: BillingAlertConfiguration) -> list[str]:
-        return [destination["type"] for destination in self.get_destinations(obj)]
 
     @extend_schema_field(BillingAlertDestinationSummarySerializer(many=True))
     def get_destinations(self, obj: BillingAlertConfiguration) -> list[dict[str, Any]]:
@@ -245,38 +259,6 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             except TypeError:
                 pass
         return [obj]
-
-    @extend_schema_field(UserBasicSerializer(allow_null=True))
-    def get_created_by(self, obj: BillingAlertConfiguration) -> dict[str, Any] | None:
-        return self._serialize_user(obj.created_by_id)
-
-    @extend_schema_field(UserBasicSerializer(allow_null=True))
-    def get_updated_by(self, obj: BillingAlertConfiguration) -> dict[str, Any] | None:
-        return self._serialize_user(obj.updated_by_id)
-
-    def _serialize_user(self, user_id: int | None) -> dict[str, Any] | None:
-        if user_id is None:
-            return None
-
-        cache: dict[int, dict[str, Any] | None] = self.context.setdefault("_billing_alert_user_cache", {})
-        if user_id not in cache:
-            user = (
-                User.objects.filter(id=user_id)
-                .only(
-                    "id",
-                    "uuid",
-                    "distinct_id",
-                    "first_name",
-                    "last_name",
-                    "email",
-                    "is_email_verified",
-                    "role_at_organization",
-                    "hedgehog_config",
-                )
-                .first()
-            )
-            cache[user_id] = dict(UserBasicSerializer(user, context=self.context).data) if user else None
-        return cache[user_id]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         current = self.instance
@@ -306,6 +288,8 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
                 raise ValidationError({"threshold_value": "Must be greater than or equal to 0."})
         if minimum_value < 0:
             raise ValidationError({"minimum_value": "Must be greater than or equal to 0."})
+        if attrs.get("enabled") is False and attrs.get("snooze_until") is not None:
+            raise ValidationError({"snooze_until": "A disabled alert cannot also be snoozed."})
         return attrs
 
     def create(self, validated_data: dict[str, Any]) -> BillingAlertConfiguration:
@@ -320,9 +304,7 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         validated_data: dict[str, Any],
     ) -> BillingAlertConfiguration:
         snooze_until = validated_data.get("snooze_until", _NOT_PROVIDED)
-        threshold_fields = {
-            "metric",
-            "currency",
+        evaluation_fields = {
             "threshold_type",
             "threshold_percentage",
             "threshold_value",
@@ -331,8 +313,13 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "evaluation_delay_hours",
         }
         with transaction.atomic():
-            locked = BillingAlertConfiguration.objects.select_for_update().get(pk=instance.pk)
-            threshold_changed = _any_field_changed(locked, validated_data, threshold_fields)
+            locked = BillingAlertConfiguration.objects.select_for_update().get(
+                pk=instance.pk,
+                organization_id=instance.organization_id,
+            )
+            evaluation_changed = _any_field_changed(locked, validated_data, evaluation_fields)
+            cadence_changed = _any_field_changed(locked, validated_data, {"check_interval_hours"})
+            configuration_changed = bool(validated_data)
             enabled_change: bool | None = None
             if "enabled" in validated_data and validated_data["enabled"] != locked.enabled:
                 enabled_change = validated_data["enabled"]
@@ -342,10 +329,16 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
                 enabled_change=enabled_change,
                 snooze_until_provided=snooze_until is not _NOT_PROVIDED,
                 snooze_until=snooze_until if snooze_until is not _NOT_PROVIDED else None,
-                threshold_changed=threshold_changed,
+                threshold_changed=evaluation_changed,
             )
 
-            return super().update(locked, validated_data)
+            updated = super().update(locked, validated_data)
+            billing_alerts_api.reschedule_billing_alert_configuration(
+                updated,
+                configuration_changed=configuration_changed,
+                cadence_changed=cadence_changed,
+            )
+            return updated
 
 
 class BillingAlertCreateDestinationSerializer(serializers.Serializer):
@@ -385,6 +378,8 @@ class BillingAlertCreateDestinationSerializer(serializers.Serializer):
             parsed_url = urlparse(webhook_url)
             if parsed_url.scheme != "https" or not parsed_url.netloc:
                 raise ValidationError({"webhook_url": "Webhook URLs must be valid HTTPS URLs."})
+            if destination_type == "teams" and not _is_microsoft_teams_webhook(webhook_url):
+                raise ValidationError({"webhook_url": "Enter a supported Microsoft Teams webhook URL."})
         return attrs
 
 

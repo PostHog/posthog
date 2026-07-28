@@ -78,6 +78,8 @@ def validate_billing_response(response: dict[str, Any]) -> None:
 
 
 def expected_evaluation_date(alert: BillingAlertConfiguration, now: datetime | None = None) -> date:
+    if alert.pending_evaluation_date is not None:
+        return alert.pending_evaluation_date
     now = now or timezone.now()
     delayed_now = now.astimezone(UTC) - timedelta(hours=alert.evaluation_delay_hours)
     return delayed_now.date() - timedelta(days=1)
@@ -117,10 +119,7 @@ def fetch_billing_data(
     manager = manager or BillingManager(get_cached_instance_license())
     params = billing_params(alert, organization, now)
     start = perf_counter()
-    if alert.metric == BillingAlertConfiguration.Metric.SPEND:
-        response = manager.get_spend_data(organization, params)
-    else:
-        response = manager.get_usage_data(organization, params)
+    response = manager.get_spend_data(organization, params)
     return response, int((perf_counter() - start) * 1000)
 
 

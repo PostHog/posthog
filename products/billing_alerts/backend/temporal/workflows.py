@@ -4,6 +4,7 @@ import json
 import asyncio
 import hashlib
 import datetime as dt
+from collections import defaultdict
 
 import temporalio.common
 import temporalio.workflow
@@ -14,16 +15,11 @@ from posthog.temporal.common.base import PostHogWorkflow
 from products.billing_alerts.backend.temporal.activities import (
     discover_due_billing_alerts_activity,
     evaluate_billing_alert_batch_activity,
-    notify_billing_alert_events_activity,
 )
-from products.billing_alerts.backend.temporal.retry_policy import (
-    BILLING_ALERT_EVALUATE_RETRY_POLICY,
-    BILLING_ALERT_NOTIFY_RETRY_POLICY,
-)
+from products.billing_alerts.backend.temporal.retry_policy import BILLING_ALERT_EVALUATE_RETRY_POLICY
 from products.billing_alerts.backend.temporal.types import (
     BillingAlertBatchWorkflowInputs,
     EvaluateBillingAlertBatchActivityInputs,
-    NotifyBillingAlertEventsActivityInputs,
 )
 
 BILLING_ALERT_BATCH_SIZE = 50
@@ -56,18 +52,21 @@ class ScheduleDueBillingAlertChecksWorkflow(PostHogWorkflow):
                 maximum_attempts=3,
             ),
         )
-        alert_ids = [alert.alert_id for alert in alerts]
+        alert_ids_by_query_key: dict[str, list[str]] = defaultdict(list)
+        for alert in alerts:
+            alert_ids_by_query_key[alert.query_key].append(alert.alert_id)
         tasks = []
-        for batch in _chunks(alert_ids, BILLING_ALERT_BATCH_SIZE):
-            tasks.append(
-                temporalio.workflow.execute_child_workflow(
-                    CheckBillingAlertBatchWorkflow.run,
-                    BillingAlertBatchWorkflowInputs(alert_ids=batch),
-                    id=_batch_workflow_id(batch),
-                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                    execution_timeout=BILLING_ALERT_BATCH_EXECUTION_TIMEOUT,
+        for alert_ids in alert_ids_by_query_key.values():
+            for batch in _chunks(alert_ids, BILLING_ALERT_BATCH_SIZE):
+                tasks.append(
+                    temporalio.workflow.execute_child_workflow(
+                        CheckBillingAlertBatchWorkflow.run,
+                        BillingAlertBatchWorkflowInputs(alert_ids=batch),
+                        id=_batch_workflow_id(batch),
+                        parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                        execution_timeout=BILLING_ALERT_BATCH_EXECUTION_TIMEOUT,
+                    )
                 )
-            )
 
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -92,16 +91,9 @@ class CheckBillingAlertBatchWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: BillingAlertBatchWorkflowInputs) -> None:
-        event_ids = await temporalio.workflow.execute_activity(
+        await temporalio.workflow.execute_activity(
             evaluate_billing_alert_batch_activity,
             EvaluateBillingAlertBatchActivityInputs(alert_ids=inputs.alert_ids),
             start_to_close_timeout=dt.timedelta(minutes=15),
             retry_policy=BILLING_ALERT_EVALUATE_RETRY_POLICY,
         )
-        if event_ids:
-            await temporalio.workflow.execute_activity(
-                notify_billing_alert_events_activity,
-                NotifyBillingAlertEventsActivityInputs(event_ids=event_ids),
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=BILLING_ALERT_NOTIFY_RETRY_POLICY,
-            )

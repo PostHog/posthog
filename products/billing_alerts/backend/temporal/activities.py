@@ -18,19 +18,18 @@ from products.billing_alerts.backend.logic.evaluator import fetch_billing_data
 from products.billing_alerts.backend.logic.notifications import (
     PendingBillingAlertDispatch,
     commit_pending_billing_alert_dispatch,
-    dispatch_billing_alert_event,
     flush_pending_billing_alert_dispatches,
     prepare_billing_alert_dispatch,
 )
-from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
-from products.billing_alerts.backend.temporal.types import (
-    BillingAlertInfo,
-    EvaluateBillingAlertBatchActivityInputs,
-    NotifyBillingAlertEventsActivityInputs,
+from products.billing_alerts.backend.logic.state_machine import (
+    BillingAlertAlreadyEvaluated,
+    BillingAlertEvaluationInProgress,
 )
+from products.billing_alerts.backend.models import BillingAlertConfiguration
+from products.billing_alerts.backend.temporal.types import BillingAlertInfo, EvaluateBillingAlertBatchActivityInputs
 
-BILLING_ALERT_BATCH_SIZE = 50
 MAX_DUE_BILLING_ALERTS_PER_TICK = 500
+MAX_ACTIVITY_ATTEMPTS = 3
 logger = structlog.get_logger(__name__)
 
 
@@ -47,7 +46,6 @@ def due_billing_alerts_q(now: datetime) -> QuerySet[BillingAlertConfiguration]:
 def _group_key(alert: BillingAlertConfiguration) -> tuple[Any, ...]:
     return (
         str(alert.organization_id),
-        alert.metric,
         alert.baseline_window_days,
         alert.evaluation_delay_hours,
     )
@@ -83,13 +81,20 @@ def _record_group_failure(
                     failure_reason=reason,
                 )
             )
+        except (BillingAlertAlreadyEvaluated, BillingAlertEvaluationInProgress):
+            continue
         except Exception as dispatch_error:
             capture_exception(dispatch_error, {"alert_id": str(alert.id), "feature": "billing_alerts"})
             logger.exception("Billing alert failure event preparation failed", alert_id=str(alert.id))
+            raise
     return pending_dispatches
 
 
-def _evaluate_billing_alerts(inputs: EvaluateBillingAlertBatchActivityInputs) -> list[str]:
+def _evaluate_billing_alerts(
+    inputs: EvaluateBillingAlertBatchActivityInputs,
+    *,
+    activity_attempt: int = MAX_ACTIVITY_ATTEMPTS,
+) -> None:
     now = datetime.now(UTC)
     alerts = list(due_billing_alerts_q(now).filter(id__in=inputs.alert_ids).order_by("organization_id", "metric", "id"))
     grouped: dict[tuple[Any, ...], list[BillingAlertConfiguration]] = defaultdict(list)
@@ -116,6 +121,8 @@ def _evaluate_billing_alerts(inputs: EvaluateBillingAlertBatchActivityInputs) ->
         try:
             billing_response, query_duration_ms = fetch_billing_data(first_alert, organization, now=now)
         except Exception as e:
+            if activity_attempt < MAX_ACTIVITY_ATTEMPTS:
+                raise
             pending_dispatches.extend(
                 _record_group_failure(
                     alert_group,
@@ -137,22 +144,16 @@ def _evaluate_billing_alerts(inputs: EvaluateBillingAlertBatchActivityInputs) ->
                         query_duration_ms=query_duration_ms,
                     )
                 )
+            except (BillingAlertAlreadyEvaluated, BillingAlertEvaluationInProgress):
+                continue
             except Exception as dispatch_error:
                 capture_exception(dispatch_error, {"alert_id": str(alert.id), "feature": "billing_alerts"})
                 logger.exception("Billing alert evaluation preparation failed", alert_id=str(alert.id))
+                raise
 
     flush_pending_billing_alert_dispatches(pending_dispatches)
     for dispatch in pending_dispatches:
-        try:
-            commit_pending_billing_alert_dispatch(dispatch)
-        except Exception as dispatch_error:
-            alert_id = str(dispatch.check.alert.id)
-            capture_exception(dispatch_error, {"alert_id": alert_id, "feature": "billing_alerts"})
-            logger.exception("Billing alert outcome persistence failed", alert_id=alert_id)
-
-    # New checks dispatch before persistence. Returning no IDs keeps the existing
-    # Temporal activity contract safe for in-flight old histories.
-    return []
+        commit_pending_billing_alert_dispatch(dispatch)
 
 
 @temporalio.activity.defn
@@ -163,28 +164,26 @@ async def discover_due_billing_alerts_activity() -> list[BillingAlertInfo]:
         alerts = (
             due_billing_alerts_q(now)
             .order_by(F("next_check_at").asc(nulls_first=True))
-            .values_list("id", flat=True)[:MAX_DUE_BILLING_ALERTS_PER_TICK]
+            .values_list("id", "organization_id", "baseline_window_days", "evaluation_delay_hours")[
+                :MAX_DUE_BILLING_ALERTS_PER_TICK
+            ]
         )
-        return [BillingAlertInfo(alert_id=str(alert_id)) for alert_id in alerts]
+        return [
+            BillingAlertInfo(
+                alert_id=str(alert_id),
+                query_key=f"{organization_id}:{baseline_window_days}:{evaluation_delay_hours}",
+            )
+            for alert_id, organization_id, baseline_window_days, evaluation_delay_hours in alerts
+        ]
 
     async with Heartbeater():
         return await get_due_alerts()
 
 
 @temporalio.activity.defn
-async def evaluate_billing_alert_batch_activity(inputs: EvaluateBillingAlertBatchActivityInputs) -> list[str]:
+async def evaluate_billing_alert_batch_activity(inputs: EvaluateBillingAlertBatchActivityInputs) -> None:
     async with Heartbeater():
-        return await database_sync_to_async(_evaluate_billing_alerts, thread_sensitive=False)(inputs)
-
-
-@temporalio.activity.defn
-async def notify_billing_alert_events_activity(inputs: NotifyBillingAlertEventsActivityInputs) -> int:
-    @database_sync_to_async(thread_sensitive=False)
-    def notify_events() -> int:
-        dispatched = 0
-        for event in BillingAlertEvent.objects.filter(id__in=inputs.event_ids).select_related("alert"):
-            dispatched += dispatch_billing_alert_event(event)
-        return dispatched
-
-    async with Heartbeater():
-        return await notify_events()
+        await database_sync_to_async(_evaluate_billing_alerts, thread_sensitive=False)(
+            inputs,
+            activity_attempt=temporalio.activity.info().attempt,
+        )
