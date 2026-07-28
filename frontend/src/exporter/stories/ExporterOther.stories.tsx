@@ -9,7 +9,7 @@ import __lifecycle from '../../mocks/fixtures/api/projects/team_id/insights/life
 import __retention from '../../mocks/fixtures/api/projects/team_id/insights/retention.json'
 import __stickiness from '../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
 import __trendsBarBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
-import __trendsLine from '../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
+import __trendsTable from '../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
 import __userPaths from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
 import { Exporter } from '../Exporter'
 
@@ -98,8 +98,8 @@ export const SQLInsightNoResults: Story = {
 export const AdhocQueryExport: Story = {
     args: {
         type: ExportType.Image,
-        query: (__trendsLine as any).query,
-        query_results: { results: (__trendsLine as any).result },
+        query: (__trendsTable as any).query,
+        query_results: { results: (__trendsTable as any).result },
     },
 }
 
