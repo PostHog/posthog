@@ -14,6 +14,7 @@ from asgiref.sync import async_to_sync
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.models import Team, User
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
@@ -23,7 +24,9 @@ from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
 
-RENDER_TIMEOUT = timedelta(minutes=10)
+# Caps the whole workflow including retries; callers block on this, so it must stay
+# well under the web tier's request timeout.
+RENDER_TIMEOUT = timedelta(seconds=90)
 
 
 def render_png_export(
@@ -40,8 +43,14 @@ def render_png_export(
     """
     if (export_context is None) == (insight_id is None):
         raise ValueError("Provide exactly one of export_context or insight_id")
-    if insight_id is not None and not Insight.objects.filter(id=insight_id, team_id=team.id, deleted=False).exists():
-        raise ValueError("Insight not found")
+    if insight_id is not None:
+        insight = Insight.objects.filter(id=insight_id, team_id=team.id, deleted=False).first()
+        # Object-level access matters here: created_by may not be allowed to view the insight.
+        if insight is None or (
+            created_by is not None
+            and not UserAccessControl(user=created_by, team=team).check_access_level_for_object(insight, "viewer")
+        ):
+            raise ValueError("Insight not found")
 
     asset = ExportedAsset.objects.create(
         team=team,
@@ -49,7 +58,6 @@ def render_png_export(
         export_format=ExportedAsset.ExportFormat.PNG,
         export_context=export_context,
         insight_id=insight_id,
-        expires_after=ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG),
     )
 
     async def _run() -> None:
