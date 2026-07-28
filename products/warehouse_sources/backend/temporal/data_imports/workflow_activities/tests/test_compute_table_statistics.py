@@ -6,6 +6,8 @@ from decimal import Decimal
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import pyarrow as pa
@@ -211,8 +213,9 @@ class TestComputeTableStatisticsSync:
         ):
             compute_table_statistics_sync(team.id, schema.id)
 
-        with self.assertNumQueries(0):
+        with CaptureQueriesContext(connection) as ctx:
             captured["job"].folder_path()
+        assert len(ctx.captured_queries) == 0
 
     def test_runs_without_ai_data_processing_consent(self) -> None:
         # Statistics never leave our infra, so — unlike enrichment — they must NOT be gated on AI consent.
