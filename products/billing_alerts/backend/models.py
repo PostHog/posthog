@@ -26,7 +26,12 @@ class BillingAlertConfiguration(UUIDModel):
         SNOOZED = "snoozed", "Snoozed"
         BROKEN = "broken", "Broken"
 
-    organization_id = models.UUIDField(db_index=True)
+    organization = models.ForeignKey(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+    )
     # Team deletion is handled by the billing-alert re-home flow so an organization-scoped alert is preserved.
     team = models.ForeignKey(
         "posthog.Team",
@@ -76,9 +81,9 @@ class BillingAlertConfiguration(UUIDModel):
     class Meta:
         db_table = "billing_alerts_configuration"
         indexes = [
-            models.Index(fields=["organization_id", "-created_at"], name="billing_alert_org_created_idx"),
+            models.Index(fields=["organization", "-created_at"], name="billing_alert_org_created_idx"),
             models.Index(fields=["enabled", "next_check_at"], name="billing_alert_scheduler_idx"),
-            models.Index(fields=["organization_id", "enabled", "state"], name="billing_alert_org_state_idx"),
+            models.Index(fields=["organization", "enabled", "state"], name="billing_alert_org_state_idx"),
         ]
         constraints = [
             models.CheckConstraint(
