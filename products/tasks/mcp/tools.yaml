@@ -193,6 +193,9 @@ tools:
     task-activity-list:
         operation: task_activity_list
         enabled: false
+    task-activity-mark-all-read-create:
+        operation: task_activity_mark_all_read_create
+        enabled: false
     task-activity-mark-read-create:
         operation: task_activity_mark_read_create
         enabled: false

@@ -78734,6 +78734,10 @@ export namespace Schemas {
      * @maximum 500
      */
     limit?: number;
+    /**
+     * Return only activity the requester has not read.
+     */
+    unread_only?: boolean;
     };
 
     export type TaskAutomationsListParams = {
