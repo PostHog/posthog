@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("posthog", "1238_ducklakebackfill_earliest_event_date"),
+        ("posthog", "1256_userproductlist_default_reason"),
     ]
 
     operations = [
@@ -34,7 +34,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         db_column="execution_team_id",
                         db_constraint=False,
-                        on_delete=django.db.models.deletion.CASCADE,
+                        on_delete=django.db.models.deletion.DO_NOTHING,
                         related_name="+",
                         to="posthog.team",
                     ),
@@ -175,7 +175,7 @@ class Migration(migrations.Migration):
                     "team",
                     models.ForeignKey(
                         db_constraint=False,
-                        on_delete=django.db.models.deletion.CASCADE,
+                        on_delete=django.db.models.deletion.DO_NOTHING,
                         related_name="+",
                         to="posthog.team",
                     ),
