@@ -1,4 +1,5 @@
 import pathlib
+import dataclasses
 
 import pytest
 
@@ -41,22 +42,6 @@ def test_remove_invalid_json(input_data, expected_data):
     assert remove_invalid_json(input_data) == expected_data
 
 
-def _make_inputs(**overrides) -> PostgresInsertInputs:
-    config = {
-        "team_id": 1,
-        "data_interval_start": None,
-        "data_interval_end": "2023-04-25T14:30:00+00:00",
-        "database": "posthog",
-        "table_name": "events",
-        "host": "localhost",
-        "port": 5432,
-        "user": "posthog",
-        "password": "posthog",
-    }
-    config.update(overrides)
-    return PostgresInsertInputs(**config)
-
-
 @pytest.mark.parametrize(
     "overrides, accessor",
     [
@@ -68,7 +53,20 @@ def _make_inputs(**overrides) -> PostgresInsertInputs:
 )
 def test_missing_connection_inputs_raise_non_retryable_error(overrides, accessor):
     # These come from a misconfigured/absent integration, so they must fail fast rather than retry to an SLA breach.
-    inputs = _make_inputs(**overrides)
+    inputs = dataclasses.replace(
+        PostgresInsertInputs(
+            team_id=1,
+            data_interval_start=None,
+            data_interval_end="2023-04-25T14:30:00+00:00",
+            database="posthog",
+            table_name="events",
+            host="localhost",
+            port=5432,
+            user="posthog",
+            password="posthog",
+        ),
+        **overrides,
+    )
     with pytest.raises(PostgreSQLMissingRequiredInputsError):
         getattr(inputs, accessor)()
     assert PostgreSQLMissingRequiredInputsError.__name__ in NON_RETRYABLE_ERROR_TYPES
