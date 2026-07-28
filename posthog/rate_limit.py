@@ -1053,6 +1053,33 @@ class RestoreRedeemThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
+class SharePasswordThrottle(SimpleRateThrottle):
+    """
+    Rate limit share password submissions per shared link.
+
+    Deliberately not a PersonalApiKeyRateThrottle subclass: this must apply even when the
+    RATE_LIMIT_ENABLED instance setting is off. Keyed on the share link rather than the caller
+    so rotating source addresses doesn't hand out a fresh budget.
+    """
+
+    scope = "share_password"
+    rate = "10/minute"
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        # Only password submissions cost budget - every viewer of a link shares one bucket, so
+        # counting ordinary page loads would lock out a popular share.
+        if request.method != "POST":
+            return True
+
+        return super().allow_request(request, view)
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        # File extensions ("<token>.json") address the same share, so they share a bucket
+        access_token = (view.kwargs.get("access_token") or "").split(".")[0]
+        ident = hashlib.sha256(access_token.encode()).hexdigest() if access_token else self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 class CodeInviteThrottle(UserRateThrottle):
     scope = "code_invite"
     rate = "20000/hour"

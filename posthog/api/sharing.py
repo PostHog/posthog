@@ -41,6 +41,7 @@ from posthog.models import SessionRecording, SharePassword, SharingConfiguration
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.user import User
+from posthog.rate_limit import BurstRateThrottle, SharePasswordThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import (
     UserAccessControl,
@@ -832,6 +833,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
     # Only use sharing-specific authentication, ignore regular PostHog auth
     authentication_classes = [SharingPasswordProtectedAuthentication, SharingAccessTokenAuthentication]
     permission_classes = []
+    throttle_classes = [BurstRateThrottle, SustainedRateThrottle, SharePasswordThrottle]
     serializer_class = SharingConfigurationSerializer  # Required by DRF but not used in practice
 
     # Set by get_object() when the resolved resource is an ExportedAsset whose token carried a purpose claim.
@@ -1003,7 +1005,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             # Check if user is already authenticated via JWT token (Bearer or cookie)
             is_jwt_authenticated = isinstance(request.successful_authenticator, SharingPasswordProtectedAuthentication)
 
-            if request.method == "GET" and not is_jwt_authenticated:
+            # Anything that isn't a password submission needs the unlock page unless it already
+            # carries a valid share token - DRF routes HEAD through the same action as GET
+            if request.method != "POST" and not is_jwt_authenticated:
                 exported_data["type"] = "unlock"
 
                 settings_data = getattr(resource, "settings", {}) or {}
@@ -1024,7 +1028,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "add_og_tags": None,
                     },
                 )
-            elif request.method == "GET" and is_jwt_authenticated:
+            elif request.method != "POST":
                 # JWT authenticated (via cookie or Bearer) - render full app context
 
                 # Include the JWT token from the cookie so frontend can use it for API calls

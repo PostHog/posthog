@@ -177,6 +177,45 @@ class TestSharePasswordAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertIn("Incorrect password", response.json()["error"])
 
+    def test_repeated_wrong_passwords_are_throttled(self):
+        SharePassword.create_password(
+            sharing_configuration=self.sharing_config, created_by=self.user, raw_password="secure-test-password"
+        )
+
+        statuses = []
+        for attempt in range(25):
+            # Each guess comes from a different address, so the budget has to follow the share link
+            source_ip = f"10.0.0.{attempt}"
+            response = self.client.post(
+                f"/shared/{self.sharing_config.access_token}",
+                data=json.dumps({"password": f"wrong-password-{attempt}"}),
+                content_type="application/json",
+                REMOTE_ADDR=source_ip,
+                HTTP_X_FORWARDED_FOR=source_ip,
+            )
+            statuses.append(response.status_code)
+            if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+                break
+
+        self.assertEqual(statuses[0], status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(statuses[-1], status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @mock_exporter_template
+    def test_head_request_does_not_bypass_password_gate(self):
+        SharePassword.create_password(
+            sharing_configuration=self.sharing_config, created_by=self.user, raw_password="secure-test-password"
+        )
+
+        head_response = self.client.head(f"/shared/{self.sharing_config.access_token}")
+        unlock_page = self.client.get(f"/shared/{self.sharing_config.access_token}")
+
+        self.assertEqual(head_response.status_code, status.HTTP_200_OK)
+        # Django strips HEAD bodies, so compare against the unlock page an anonymous GET receives
+        self.assertEqual(head_response["Content-Length"], unlock_page["Content-Length"])
+        # Rendering the shared dashboard stamps last_accessed_at, so it stays unset while locked
+        self.dashboard.refresh_from_db()
+        self.assertIsNone(self.dashboard.last_accessed_at)
+
     @mock_exporter_template
     def test_jwt_token_invalidation_on_password_deletion(self):
         """Test that JWT tokens are invalidated when their associated password is deleted, but remain valid when other passwords are deleted."""
