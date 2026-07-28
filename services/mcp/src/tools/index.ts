@@ -1,8 +1,6 @@
 import { hasScopes } from '@/lib/api'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 
-// Agent platform (hand-written — CRUD is codegen in generated/agent_platform.ts)
-import resolveResource from './agentPlatform/resolveResource'
 // AI observability
 import getLLMCosts from './aiObservability/getLLMCosts'
 // Debug
@@ -101,9 +99,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Feedback
     'agent-feedback': submitFeedback,
-
-    // Agent platform (read-only playbook resolver — CRUD lives in generated/agent_platform.ts)
-    'agent-resolve-resource': resolveResource,
 
     // PostHog AI tools
     [EXECUTE_SQL_TOOL_NAME]: executeSql,
