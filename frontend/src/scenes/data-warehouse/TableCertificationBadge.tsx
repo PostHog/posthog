@@ -20,7 +20,7 @@ function certificationTooltip(certification: DatabaseSchemaTableCertification): 
             </span>
             {certification.notes ? <span>{certification.notes}</span> : null}
             {certification.certified_by ? (
-                <span className="text-muted">
+                <span className="text-secondary">
                     {label} by {certification.certified_by}
                     {certification.certified_at ? ` (${humanFriendlyDetailedTime(certification.certified_at)})` : ''}
                 </span>
