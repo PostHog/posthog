@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -277,7 +278,7 @@ impl StashHandler for RouterStashHandler {
         let leader_backend = Arc::clone(&self.leader_backend);
         let max_stash_wait = self.max_stash_wait;
         let drain_concurrency = self.drain_concurrency;
-        let total_drained = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let total_drained = Arc::new(AtomicU64::new(0));
         let counter = Arc::clone(&total_drained);
         let stash_table = self.leader_backend.stash_table();
 
@@ -301,12 +302,12 @@ impl StashHandler for RouterStashHandler {
                         batch,
                     )
                     .await;
-                    counter.fetch_add(batch_size, std::sync::atomic::Ordering::Relaxed);
+                    counter.fetch_add(batch_size, Ordering::Relaxed);
                 }
             })
             .await;
 
-        let total = total_drained.load(std::sync::atomic::Ordering::Relaxed);
+        let total = total_drained.load(Ordering::Relaxed);
         metrics::histogram!("personhog_router_stash_drain_batch_size").record(total as f64);
         let drain_ms = drain_start.elapsed().as_secs_f64() * 1000.0;
         metrics::histogram!("personhog_router_stash_drain_duration_ms").record(drain_ms);

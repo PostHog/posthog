@@ -22,9 +22,9 @@ use personhog_proto::personhog::types::v1::{
 use personhog_router::backend::{LeaderBackend, LeaderBackendConfig, StashTable};
 use personhog_router::config::RetryConfig;
 use personhog_router::stash_handler::RouterStashHandler;
-use tokio_util::sync::CancellationToken;
 use prost::Message;
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 use tonic::body::BoxBody;
 use tonic::Code;
 
@@ -261,7 +261,10 @@ async fn multiple_stashed_requests_drain_in_fifo() {
         assert!(!j.is_finished(), "all three should still be parked");
     }
 
-    handler.drain_stash(partition, "leader-new", CancellationToken::new()).await.unwrap();
+    handler
+        .drain_stash(partition, "leader-new", CancellationToken::new())
+        .await
+        .unwrap();
 
     // Collect responses in spawn order. The drain forwards in FIFO order,
     // so version increments must be monotonic relative to spawn order
@@ -373,7 +376,10 @@ async fn back_to_back_handoffs_use_fresh_queue() {
     let backend_a = Arc::clone(&backend);
     let pending_a = tokio::spawn(async move { forward(&backend_a, req_a).await });
     tokio::time::sleep(Duration::from_millis(20)).await;
-    handler.drain_stash(partition, "leader-a", CancellationToken::new()).await.unwrap();
+    handler
+        .drain_stash(partition, "leader-a", CancellationToken::new())
+        .await
+        .unwrap();
     let raw_a = pending_a.await.unwrap();
     decode_response::<UpdatePersonPropertiesResponse>(raw_a)
         .await
@@ -391,7 +397,10 @@ async fn back_to_back_handoffs_use_fresh_queue() {
         !pending_b.is_finished(),
         "second handoff's request must park, not forward"
     );
-    handler.drain_stash(partition, "leader-b", CancellationToken::new()).await.unwrap();
+    handler
+        .drain_stash(partition, "leader-b", CancellationToken::new())
+        .await
+        .unwrap();
     let raw_b = pending_b.await.unwrap();
     decode_response::<UpdatePersonPropertiesResponse>(raw_b)
         .await
@@ -501,7 +510,10 @@ async fn stash_wait_exceeded_returns_unavailable() {
 
     // Wait long enough that the stashed request is past its deadline.
     tokio::time::sleep(Duration::from_millis(100)).await;
-    handler.drain_stash(partition, "leader-new", CancellationToken::new()).await.unwrap();
+    handler
+        .drain_stash(partition, "leader-new", CancellationToken::new())
+        .await
+        .unwrap();
 
     let raw = pending.await.unwrap();
     let code = decode_response::<UpdatePersonPropertiesResponse>(raw)
@@ -545,7 +557,10 @@ async fn fenced_leader_during_drain_returns_unavailable() {
     let pending = tokio::spawn(async move { forward(&backend_for_call, req).await });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    handler.drain_stash(partition, "leader-new", CancellationToken::new()).await.unwrap();
+    handler
+        .drain_stash(partition, "leader-new", CancellationToken::new())
+        .await
+        .unwrap();
 
     let response = pending.await.unwrap();
     let code = decode_response::<UpdatePersonPropertiesResponse>(response)
@@ -589,7 +604,10 @@ async fn stashed_strong_read_observes_stashed_write() {
         "both must park"
     );
 
-    handler.drain_stash(partition, "leader-new", CancellationToken::new()).await.unwrap();
+    handler
+        .drain_stash(partition, "leader-new", CancellationToken::new())
+        .await
+        .unwrap();
 
     let write_resp = decode_response::<UpdatePersonPropertiesResponse>(write.await.unwrap())
         .await
@@ -627,7 +645,10 @@ async fn stashed_read_past_deadline_returns_unavailable() {
     let read = tokio::spawn(async move { forward_read(&backend_r, team_id, person_id).await });
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    handler.drain_stash(partition, "leader-new", CancellationToken::new()).await.unwrap();
+    handler
+        .drain_stash(partition, "leader-new", CancellationToken::new())
+        .await
+        .unwrap();
 
     let code = decode_response::<GetPersonResponse>(read.await.unwrap())
         .await
