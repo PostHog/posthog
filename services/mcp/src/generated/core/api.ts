@@ -884,4 +884,10 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })

@@ -172,6 +172,7 @@ import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/Pe
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
+import { SidebarItemsSetting, SidebarMyToolsSetting } from './user/SidebarSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -2018,6 +2019,29 @@ export const SETTINGS_MAP: SettingSection[] = [
                         to customize yourself outside of the app
                     </div>
                 ),
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-sidebar',
+        title: 'Sidebar',
+        settings: [
+            {
+                id: 'sidebar-items',
+                title: 'Navigation items',
+                description:
+                    'Choose which items appear in your sidebar. These preferences only apply to you. Settings always stays visible.',
+                component: <SidebarItemsSetting />,
+                keywords: ['sidebar', 'navigation', 'navbar', 'menu', 'hide', 'show', 'customize', 'starred'],
+            },
+            {
+                id: 'sidebar-my-tools',
+                title: 'My Tools',
+                description:
+                    'Choose which tools appear in the My Tools section of your sidebar. This selection applies to the current project.',
+                component: <SidebarMyToolsSetting />,
+                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'customize'],
             },
         ],
     },
