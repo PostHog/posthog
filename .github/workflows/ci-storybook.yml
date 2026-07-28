@@ -124,7 +124,7 @@ jobs:
 
             # The broad `products/**/*.{ts,tsx}` rule above matches all product code,
             # including product dirs that are their own Node services
-            # (products/agent_platform/services/**) — no stories, nothing in the bundle.
+            # (products/<product>/services/**) — no stories, nothing in the bundle.
             # Exclude those so a PR touching only them skips the visual-regression suite.
             # The excluded dirs are derived from pnpm-workspace.yaml (the product paths that
             # declare nested pnpm workspaces), not hardcoded — see bin/frontend-exclude-filter.

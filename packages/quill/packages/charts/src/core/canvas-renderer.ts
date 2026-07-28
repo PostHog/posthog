@@ -922,9 +922,19 @@ export function withVerticalClip(
     // Matches drawAxes' snapping: the axis line's 1px column starts at round(plotLeft), so trimming
     // there leaves the stroke flush against the axis line.
     const left = clipLeft ? Math.round(dimensions.plotLeft) : 0
+    const clipWidth = dimensions.width - left
+    // `useChartMargins` grows the left margin from measured label widths with a floor but no ceiling
+    // against the container, so a narrow chart with stacked y-axis gutters can reserve more than it
+    // has. That makes the rect negative, which canvas reads as a reversed rectangle sitting entirely
+    // off the right edge — clipping to it would discard the whole series layer while the DOM axis
+    // labels still render. Draw unclipped rather than invisibly. `!(> 0)` also bails on a NaN width.
+    if (!(clipWidth > 0)) {
+        draw()
+        return
+    }
     ctx.save()
     ctx.beginPath()
-    ctx.rect(left, dimensions.plotTop - pad, dimensions.width - left, dimensions.plotHeight + pad * 2)
+    ctx.rect(left, dimensions.plotTop - pad, clipWidth, dimensions.plotHeight + pad * 2)
     ctx.clip()
     try {
         draw()

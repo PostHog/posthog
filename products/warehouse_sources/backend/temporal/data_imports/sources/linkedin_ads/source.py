@@ -115,6 +115,18 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             "Integration matching query does not exist": "Your LinkedIn Ads connection is no longer available — it may have been disconnected. Please re-authorize the LinkedIn Ads integration.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `client.py`'s `_call_finder` already retries these in-process via tenacity (5 attempts,
+        # exponential backoff honoring Retry-After) before re-raising `LinkedinAdsRetryableError`. A
+        # 429/5xx/malformed-body that survives all 5 attempts is a transient LinkedIn/edge blip, not
+        # a bug — Temporal's activity retry recovers once the upstream issue clears, so keep it out
+        # of error tracking as noise. Match the stable message prefix LinkedIn's own status/body are
+        # appended to, not the volatile status code or body.
+        return {
+            "LinkedIn API error (retryable, ",
+            "LinkedIn API returned a malformed (non-JSON) response",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

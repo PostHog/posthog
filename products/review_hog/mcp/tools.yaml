@@ -1,0 +1,91 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: ReviewHog
+feature: review_hog
+url_prefix: /code_review
+ui_apps: {}
+tools:
+    review-hog-blind-spots-list:
+        operation: review_hog_blind_spots_list
+        enabled: false
+    review-hog-blind-spots-partial-update:
+        operation: review_hog_blind_spots_partial_update
+        enabled: false
+    review-hog-perspectives-list:
+        operation: review_hog_perspectives_list
+        enabled: false
+    review-hog-perspectives-partial-update:
+        operation: review_hog_perspectives_partial_update
+        enabled: false
+    review-hog-reviews-get:
+        operation: review_hog_reviews_retrieve
+        enabled: true
+        scopes:
+            - review_hog:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a ReviewHog review
+        description: >
+            Fetch one completed ReviewHog review by `id` (from `review-hog-reviews-list`), including the latest turn's
+            validated `findings` (each with file, line ranges, priority, and the suggested fix), the
+            `dismissed_findings` the validator dropped and why, and the `report_markdown` published to the PR. A first
+            review still in flight has no detail yet — poll `review-hog-reviews-list` until it completes.
+        feature_flag: review-hog
+    review-hog-reviews-list:
+        operation: review_hog_reviews_list
+        enabled: true
+        scopes:
+            - review_hog:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List ReviewHog reviews
+        description: >
+            List recent ReviewHog reviews on this project — use it to poll a review's status. Running reviews come
+            first, each with `in_progress: true` and a `progress` object (the in-flight turn's `review_stage` plus
+            `done`/`total` counters); completed reviews follow, newest first, with their finding counts by priority
+            (`must_fix_count`, `should_fix_count`, `consider_count`) and whether they were `published`. Each row's `id`
+            opens the full review via `review-hog-reviews-get`. Defaults to the requesting user's reviews; pass
+            `scope=everyone` for every review on the project, and `limit` to widen the page.
+        feature_flag: review-hog
+    review-hog-reviews-perspective-stats-retrieve:
+        operation: review_hog_reviews_perspective_stats_retrieve
+        enabled: false
+    review-hog-reviews-trigger:
+        operation: review_hog_reviews_trigger_create
+        enabled: true
+        scopes:
+            - review_hog:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Trigger a ReviewHog review
+        description: >
+            Start a ReviewHog review of a pull request and publish it back to the PR. Pass the PR as `pr_url` (e.g.
+            `https://github.com/PostHog/posthog/pull/123`); the repository must be accessible to the project's GitHub
+            App installation. Non-blocking: returns a `workflow_id` and `status` of `started` while the review runs. If
+            the PR's current commit already has a published review it returns `already_reviewed` without starting a run,
+            and triggering a PR whose review is already running joins the in-flight run. Poll progress with
+            `review-hog-reviews-list` and read the finished findings with `review-hog-reviews-get`.
+        feature_flag: review-hog
+    review-hog-settings-partial-update:
+        operation: review_hog_settings_partial_update
+        enabled: false
+    review-hog-settings-retrieve:
+        operation: review_hog_settings_retrieve
+        enabled: false
+    review-hog-validators-list:
+        operation: review_hog_validators_list
+        enabled: false
+    review-hog-validators-partial-update:
+        operation: review_hog_validators_partial_update
+        enabled: false
