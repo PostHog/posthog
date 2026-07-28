@@ -366,6 +366,7 @@ export interface installationProgressLogicValues {
     activeCloudRun: CloudRunHandle | null // activeCloudRunLogic
     dismissedSessionId: string | null // finishedLocalRunLogic
     isStalled: boolean // taskRunStreamLogic
+    lastActivityAt: number | null // taskRunStreamLogic
     progressSteps: TaskRunProgressStep[] // taskRunStreamLogic
     taskConnectionStatus: TaskRunConnectionStatus // taskRunStreamLogic
     taskRunState: TaskRunStreamState | null // taskRunStreamLogic
@@ -477,7 +478,13 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
     connect((props: InstallationProgressLogicProps) => ({
         values: [
             taskRunStreamLogic({ runId: props.runId ?? '', taskId: props.taskId ?? '' }),
-            ['taskRunState', 'progressSteps', 'connectionStatus as taskConnectionStatus', 'isStalled'],
+            [
+                'taskRunState',
+                'progressSteps',
+                'connectionStatus as taskConnectionStatus',
+                'isStalled',
+                'lastActivityAt',
+            ],
             wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
             ['latestSession', 'connectionStatus as sessionConnectionStatus'],
             finishedLocalRunLogic,
