@@ -3788,6 +3788,111 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         assert dwh_arms[0].select_from is not None
         self.assertIsNone(dwh_arms[0].select_from.sample)
 
+    @staticmethod
+    def _where_event_name_filters(expr: Optional[ast.Expr]) -> list[list[str]]:
+        """All `event IN (...)` name tuples anywhere under the expression, in traversal order."""
+        if expr is None:
+            return []
+        if (
+            isinstance(expr, ast.CompareOperation)
+            and expr.op == ast.CompareOperationOp.In
+            and isinstance(expr.left, ast.Field)
+            and expr.left.chain == ["event"]
+            and isinstance(expr.right, ast.Tuple)
+        ):
+            return [[e.value for e in expr.right.exprs if isinstance(e, ast.Constant)]]
+        if isinstance(expr, ast.And | ast.Or):
+            return [names for child in expr.exprs for names in TestRetention._where_event_name_filters(child)]
+        return []
+
+    @staticmethod
+    def _has_timestamp_bound(expr: Optional[ast.Expr]) -> bool:
+        if expr is None:
+            return False
+        if isinstance(expr, ast.CompareOperation) and isinstance(expr.left, ast.Field):
+            return expr.left.chain[-1] == "timestamp"
+        if isinstance(expr, ast.And | ast.Or):
+            return any(TestRetention._has_timestamp_bound(child) for child in expr.exprs)
+        return False
+
+    def test_dwh_variant_property_aggregation_arms_scan_only_their_own_entity(self):
+        # Each events arm of the UNION must narrow its WHERE to its own entity. With the combined
+        # filter on both arms, a SUM/AVG retention insight scans the whole filtered event set twice,
+        # which doubles the read bytes and adds enough GROUP BY state to OOM on large teams.
+        query = RetentionQuery(
+            dateRange={"date_to": _date(10, hour=6)},
+            retentionFilter={
+                "totalIntervals": 11,
+                "targetEntity": {"id": "purchase", "type": "events"},
+                "returningEntity": {"id": "$pageview", "type": "events"},
+                "aggregationType": "sum",
+                "aggregationProperty": "amount",
+            },
+        )
+        runner = RetentionQueryRunner(team=self.team, query=query)
+
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+
+        assert base_query.select_from is not None
+        union = base_query.select_from.table
+        assert isinstance(union, ast.SelectSetQuery)
+        arm_name_filters = [
+            self._where_event_name_filters(arm.where)
+            for arm in union.select_queries()
+            if isinstance(arm, ast.SelectQuery)
+        ]
+        self.assertEqual(arm_name_filters, [[["purchase"]], [["$pageview"]]])
+
+    @parameterized.expand(
+        [
+            ("first_time_specific_return", "retention_first_time", "$pageview", [["signed_up"]], [["$pageview"]]),
+            (
+                "first_ever_specific_return",
+                "retention_first_ever_occurrence",
+                "$pageview",
+                [["signed_up"]],
+                [["$pageview"]],
+            ),
+            # An all-events return entity has no name filter, so the branch must degrade to the
+            # window bound alone, not to an unbounded scan of the entire events table.
+            ("first_time_all_events_return", "retention_first_time", None, [["signed_up"]], []),
+        ]
+    )
+    def test_dwh_variant_first_time_single_scan_bounds_return_side_to_window(
+        self, _name, retention_type, returning_id, expected_start_names, expected_return_names
+    ):
+        # First-time modes can't bound the whole scan (the cohorting anchor needs the start entity's
+        # full history), so the WHERE must split per role: start entity unbounded, return entity
+        # bounded to the query window. A flat unbounded filter reads the return entity's entire
+        # history, which hits the read-bytes cap or an OOM for high-volume return events.
+        query = RetentionQuery(
+            dateRange={"date_to": _date(10, hour=6)},
+            retentionFilter={
+                "totalIntervals": 11,
+                "retentionType": retention_type,
+                "targetEntity": {"id": "signed_up", "type": "events"},
+                "returningEntity": {"id": returning_id, "type": "events"},
+            },
+        )
+        runner = RetentionQueryRunner(team=self.team, query=query)
+
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+
+        assert base_query.select_from is not None
+        assert isinstance(base_query.select_from.table, ast.Field)
+        self.assertEqual(base_query.select_from.table.chain, ["events"])
+
+        where = base_query.where
+        assert isinstance(where, ast.And)
+        role_split = next(expr for expr in where.exprs if isinstance(expr, ast.Or))
+        start_branch, return_branch = role_split.exprs
+        self.assertEqual(self._where_event_name_filters(start_branch), expected_start_names)
+        self.assertFalse(self._has_timestamp_bound(start_branch))
+        self.assertEqual(self._where_event_name_filters(return_branch), expected_return_names)
+        self.assertTrue(self._has_timestamp_bound(return_branch))
+
     def _create_sampling_parity_fixtures(self):
         for i in range(20):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"])

@@ -119,17 +119,12 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         if self.is_first_ever_occurrence:
             # First-ever buckets each actor by the breakdown value on their earliest START
-            # event, resolved here via argMinIf(..., start_entity_expr_no_props). The events
-            # return arm can only do that when it shares the events source with the start
-            # entity. When the start entity is a DWH table, start_entity_expr_no_props
-            # collapses to a truthy constant, so on the events return arm argMinIf would
-            # instead read the actor's earliest RETURN event's value. Degrade to the empty
-            # bucket — the start (DWH) arm already emits "", so the outer max() yields "".
-            if (
-                query_kind == "return"
-                and self.start_event.type == EntityType.DATA_WAREHOUSE
-                and self._breakdown_extract_targets_events_table()
-            ):
+            # event, resolved via argMinIf(..., start_entity_expr_no_props). Only the start
+            # arm sees the start entity's rows (its WHERE is scoped to that entity), so the
+            # return arm always degrades to the empty bucket and the outer max() lets the
+            # start arm's value win: '' is the floor because breakdown_extract_expr wraps
+            # every value in ifNull(toString(...), '').
+            if query_kind == "return":
                 return ast.Constant(value="")
             # Bucket each actor by the breakdown value on their earliest start event.
             return parse_expr(
@@ -349,7 +344,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         return ast.SelectQuery(
             select=select_fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(exprs=self._event_filters()),
+            where=ast.And(exprs=self._single_scan_filters()),
             group_by=[ast.Field(chain=["actor_id"])],
             having=ast.And(
                 exprs=[
@@ -374,6 +369,52 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 ]
             ),
         )
+
+    def _single_scan_filters(self) -> list[ast.Expr]:
+        if not (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):
+            return self._event_filters()
+
+        start_branch = self._first_time_role_branch(self.start_event, "start")
+        if start_branch is None:
+            # The start entity can't be narrowed (matches all events), so a per-role split can't
+            # shrink the scan below "everything since the beginning" anyway.
+            return self._event_filters()
+
+        # First-time modes can't bound the whole scan to the query window because the cohorting
+        # anchor needs the start entity's full history. But only the START side needs that: every
+        # return-side aggregate is window-conditioned. Filtering per role keeps the start entity
+        # unbounded while cutting the return entity to the window, instead of reading BOTH
+        # entities' full history (with an all-events return entity that was the entire events
+        # table). This is the single-scan equivalent of the legacy two-arm split.
+        filters = self.runner.events_where_clause(
+            self.is_first_occurrence_matching_filters, self.is_first_ever_occurrence, entities=[]
+        )
+        if self.runner.group_type_index is not None:
+            filters.append(self.runner._group_actor_filter())
+        filters.extend(self._cohort_breakdown_filters())
+
+        return_branch = self._first_time_role_branch(self.return_event, "return") or self.events_timestamp_filter()
+        filters.append(ast.Or(exprs=[start_branch, return_branch]))
+        return filters
+
+    def _first_time_role_branch(
+        self, entity: RetentionEntity, query_kind: Literal["start", "return"]
+    ) -> ast.Expr | None:
+        """Row filter for one role of the first-time single scan: the entity's own rows, bounded to
+        the query window on the return side. None when the entity matches all events and the branch
+        has no predicate to narrow by."""
+        exprs: list[ast.Expr] = []
+        event_name_filter = self.runner.event_name_filter([entity])
+        if event_name_filter is not None:
+            exprs.append(event_name_filter)
+        predicate = self._arm_scan_predicate(entity, query_kind)
+        if not (isinstance(predicate, ast.Constant) and predicate.value is True):
+            exprs.append(predicate)
+        if not exprs:
+            return None
+        if query_kind == "return":
+            exprs.append(self.events_timestamp_filter())
+        return ast.And(exprs=exprs) if len(exprs) > 1 else exprs[0]
 
     def _single_scan_start_event_timestamps_expr(self, timestamp_field: ast.Expr, entity_expr: ast.Expr) -> ast.Expr:
         # The recurring within-window set of start-interval timestamps, one pass over the source. Mirrors the
@@ -497,7 +538,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         table_name = entity.table_name if entity_is_dwh else "events"
         assert table_name
-        where_expr = None if entity_is_dwh else ast.And(exprs=self._event_filters())
+        where_expr = None if entity_is_dwh else ast.And(exprs=self._arm_where_filters(entity, query_kind))
 
         select_fields: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=actor_field),
@@ -1003,7 +1044,9 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         )
 
     def _event_filters(self) -> list[ast.Expr]:
-        event_filters = self.global_event_filters.copy()
+        return [*self.global_event_filters, *self._cohort_breakdown_filters()]
+
+    def _cohort_breakdown_filters(self) -> list[ast.Expr]:
         if (
             self.query.breakdownFilter
             and self.query.breakdownFilter.breakdowns
@@ -1013,15 +1056,36 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             cohort_id = self.query.breakdownFilter.breakdowns[0].property
             # Don't add cohort filter for "all users" (cohort_id = 0)
             if int(cohort_id) != ALL_USERS_COHORT_ID:
-                event_filters.append(
+                return [
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.InCohort,
                         left=ast.Field(chain=["person_id"]),
                         right=ast.Constant(value=int(cohort_id)),
                     )
-                )
+                ]
 
-        return event_filters
+        return []
+
+    def _arm_scan_predicate(self, entity: RetentionEntity, query_kind: Literal["start", "return"]) -> ast.Expr:
+        # First-ever anchors the start side against the property-stripped stream (its minIf pair needs
+        # rows that match the entity but not necessarily its property filters); every other role only
+        # ever aggregates rows matching the full entity.
+        if query_kind == "start" and self.is_first_ever_occurrence:
+            return self.entity_expr_no_props(entity)
+        return self.entity_expr_with_props(entity)
+
+    def _arm_where_filters(self, entity: RetentionEntity, query_kind: Literal["start", "return"]) -> list[ast.Expr]:
+        """WHERE for one events arm of the UNION variant, scoped to that arm's entity only: the
+        per-arm equivalent of _event_filters(), mirroring the legacy two-arm scan. Every aggregate an
+        arm computes conditions on its own entity (first-ever breakdown resolution lives on the start
+        arm only, see _dwh_breakdown_value_arm_expr), so the other entity's rows can never contribute
+        and scanning them would only inflate read bytes and GROUP BY state."""
+        filters = self.runner.arm_event_filters(entity, query_kind)
+        filters.extend(self._cohort_breakdown_filters())
+        predicate = self._arm_scan_predicate(entity, query_kind)
+        if not (isinstance(predicate, ast.Constant) and predicate.value is True):
+            filters.append(predicate)
+        return filters
 
     def _is_valid_start_interval_expr(self, start_event_timestamps_field: str = "start_event_timestamps") -> ast.Expr:
         start_event_timestamps = ast.Field(chain=[start_event_timestamps_field])
