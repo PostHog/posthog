@@ -509,6 +509,7 @@ jobs:
     # trusted on a draft (legacy graph impact, turbo-discover or selector failure,
     # a selector full-run signal), the draft skips the heavy matrices entirely —
     # the pre-selection draft behavior — and defers to the ready full run.
+    # hogli-lint: not-a-required-gate - selects draft coverage and emits no required check.
     select-tests:
         name: Select tests
         needs: [changes, turbo-discover]
@@ -3410,44 +3411,22 @@ jobs:
                           print(f"::error {loc}title={title}::{body}")
                   PY
 
-                  deterministic_failure=false
-                  failed=false
-
                   if [[ "${{ needs.repo-checks.outputs.deterministic_failure }}" == "true" ]]; then
                     echo "::error title=Repo checks failed deterministically::Open the repo checks job for the root failure. Backend CI cancelled downstream jobs to save runners; retrying will not fix this."
-                    deterministic_failure=true
                   fi
 
                   if [[ "${{ needs.check-openapi-types.outputs.deterministic_failure }}" == "true" ]]; then
                     echo "::error title=OpenAPI type checks failed deterministically::Open the OpenAPI type check job for the root failure. Backend CI cancelled downstream jobs to save runners; retrying will not fix this."
-                    deterministic_failure=true
                   fi
 
-                  # cancel_ok tolerates a bare 'cancelled' result (the optional snapshot commit job);
-                  # required jobs treat an unexpected cancel as a failure.
                   check_required_result() {
                     local label="$1"
                     local result="$2"
-                    local cancel_ok="${3:-false}"
 
-                    if [[ "$result" == "success" || "$result" == "skipped" ]]; then
-                      return
+                    if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+                      echo "::error::$label did not succeed (result: '$result')."
+                      exit 1
                     fi
-
-                    if [[ "$result" == "cancelled" ]]; then
-                      if [[ "$deterministic_failure" == "true" ]]; then
-                        echo "::notice::$label was cancelled after a deterministic failure."
-                        return
-                      fi
-                      if [[ "$cancel_ok" == "true" ]]; then
-                        return
-                      fi
-                      echo "::error::$label was cancelled or timed out."
-                    else
-                      echo "::error::$label failed with result '$result'."
-                    fi
-
-                    failed=true
                   }
 
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
@@ -3464,11 +3443,7 @@ jobs:
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product test matrix build" "${{ needs.build-product-test-matrix.result }}"
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
-                  check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}" true
-
-                  if [[ "$deterministic_failure" == "true" || "$failed" == "true" ]]; then
-                    exit 1
-                  fi
+                  check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}"
 
                   echo "All backend and product checks passed."
 

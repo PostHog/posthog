@@ -86,7 +86,7 @@ concurrency:
 ## Required-check gates
 
 The "gate" is the collate job that emits the required status check by reading `needs.*.result`.
-By convention its display name ends in `Pass` (`Django Tests Pass`, `Visual regression tests pass`), but `WF007` also finds gates structurally — `always()` plus a step that reads `needs.<dep>.result` — because the convention is not universally followed.
+By convention its display name ends in `Pass` (`Django Tests Pass`, `Visual regression tests pass`), but `WF007` also finds gates structurally when a step reads `needs.<dep>.result`, because the convention is not universally followed.
 A job that inspects results without gating anything opts out with `# hogli-lint: not-a-required-gate — <reason>` above the job key.
 Gates and the workers they inspect need **opposite** conditions:
 
@@ -94,6 +94,9 @@ Gates and the workers they inspect need **opposite** conditions:
 | ------- | ------------------ | ----------------------------------------------------------------------------- |
 | Gate    | `if: always()`     | It must run and emit an explicit verdict, even when everything upstream died. |
 | Workers | `if: !cancelled()` | So a superseded run actually stops instead of holding the concurrency slot.   |
+
+The gate condition must be exactly `always()`, with optional `${{ }}` wrapping.
+Adding another predicate can skip the required check, so `always() && <condition>` is rejected.
 
 `!cancelled()` is identical to `always()` on any run that is not cancelled, so failure-path reporting still works; only cancelled runs skip.
 Measured on a live superseded run ([evidence](https://github.com/PostHog/posthog/actions/runs/29765284128)): an `always()` worker dispatched and ran to completion _after_ the cancel, while the `!cancelled()` worker never started and reported `cancelled` (not `skipped`), so the gate still fails closed.
@@ -107,10 +110,11 @@ Four rules for the gate body:
    If a job's failure would only cascade into a downstream job being _skipped_, the gate reads that as a pass and you get a green check with zero tests run.
    Name the upstream job explicitly.
 3. **Legitimate skips must still pass.** A frontend-only PR skips backend jobs by design.
-4. **Every dependency's result must reach an allowlist test.**
-   One inline `if` per dependency is the clearest form, but a shared shell helper or an `env:` block is equally fine: `WF007` traces each result through assignments, `${!var}` indirection, and helper argument positions to the comparison it actually reaches.
-   What does not count is the allowlist words appearing without asserting anything, such as in a comment or an `echo`.
-   A result whose test `WF007` cannot follow is reported rather than assumed safe, so an unusual routing may need the tests moved inline.
+4. **Every dependency's result must reach a fail-closed allowlist guard.**
+   One inline `if` per dependency is the clearest form, but a shared shell helper or an `env:` block is equally fine: `WF007` traces each result through assignments, `${!var}` indirection, and helper argument positions within that step.
+   The guard must compare with `!=`, join multiple allowed values with `&&`, and unconditionally `exit 1` when entered.
+   Comparisons in another step, comments, logs, or branches that do not exit nonzero prove nothing and are rejected.
+   A result whose guard `WF007` cannot follow is reported rather than assumed safe, so an unusual routing may need the checks moved inline.
 
 `WF007` enforces 1, 4, and the `always()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
 The half of rule 2 it cannot check is whether you named the right jobs in `needs:` to begin with: "reporting job" and "coverage job" look identical to a linter, so that one is on you and the reviewer.

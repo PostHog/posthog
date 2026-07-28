@@ -931,8 +931,8 @@ TWO_BAD_BODY = MIXED_BODY.replace(
     if [[ "${{ needs.changes.outputs.thing }}" != "true" ]]; then""",
 )
 
-# ci-backend.yml / ci-mcp.yml route every result through one shell function, so
-# no literal sits next to `needs.<dep>.result`.
+# Some gates route every result through one shell function, so no guard sits
+# next to `needs.<dep>.result`.
 HELPER_BODY = """
     check() {
       if [[ "$2" != "success" && "$2" != "skipped" ]]; then
@@ -949,33 +949,51 @@ UNSAFE_HELPER_BODY = HELPER_BODY.replace(
 )
 
 # The positional is bound to a local before being tested, so the trace has to
-# follow the assignment as well as the call site to reach the comparison.
+# follow the assignment as well as the call site to reach the guard.
 LOCAL_ALIAS_HELPER_BODY = """
     check() {
       local result="$2"
-      if [[ "$result" == "success" || "$result" == "skipped" ]]; then
-        return
+      if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+        exit 1
       fi
-      exit 1
     }
     check "Changes" "${{ needs.changes.result }}"
     check "Build" "${{ needs.build.result }}"
 """
 
-# Quoted allowlist words that assert nothing. Scanning the step for the words
-# alone reads either one as proof the dependencies are gated, while the only
-# actual test still clears everything but `failure`.
+# Guard-shaped text in a comment or log line asserts nothing. The only executed
+# test in these fixtures still clears everything but `failure`.
 DECOY_COMMENT_BODY = UNSAFE_HELPER_BODY.replace(
     """    check() {""",
-    """    # cancelled counts as bad; only 'success' and 'skipped' may pass
-    check() {""",
+    """    check() {
+      # if [[ "$2" != "success" && "$2" != "skipped" ]]; then exit 1; fi""",
 )
 
 DECOY_ECHO_BODY = UNSAFE_HELPER_BODY.replace(
     """        exit 1""",
-    """        echo "expected 'success' or 'skipped'"
+    """        echo 'if [[ "$2" != "success" && "$2" != "skipped" ]]; then exit 1; fi'
         exit 1""",
 )
+
+NON_FAILING_ALLOWLIST_BODY = """
+    check() {
+      if [[ "$2" != "success" && "$2" != "skipped" ]]; then
+        echo "dependency did not succeed"
+      fi
+    }
+    check "Changes" "${{ needs.changes.result }}"
+    check "Build" "${{ needs.build.result }}"
+"""
+
+INVERTED_ALLOWLIST_BODY = """
+    check() {
+      if [[ "$2" == "success" ]]; then
+        exit 1
+      fi
+    }
+    check "Changes" "${{ needs.changes.result }}"
+    check "Build" "${{ needs.build.result }}"
+"""
 
 # Results that are only ever logged reach no comparison at all, which has to fail
 # closed: the absence of a test is not evidence of a safe one.
@@ -1003,7 +1021,7 @@ UNTESTED_DEPENDENCY_GATE = (
     .replace("needs: [changes, build]", "needs: [changes, build, lint]")
 )
 
-# ci-agents.yml maps results into env and loops over the variable names.
+# The env-loop form maps results into env and loops over the variable names.
 ENV_LOOP_GATE = """
     name: ci-thing
     on: pull_request
@@ -1030,13 +1048,58 @@ ENV_LOOP_GATE = """
               done
 """
 
+CROSS_STEP_ENV_GATE = """
+    name: ci-thing
+    on: pull_request
+    jobs:
+      build:
+        timeout-minutes: 5
+        steps:
+          - run: echo build
+      thing_tests:
+        name: Thing Tests Pass
+        needs: [build]
+        timeout-minutes: 5
+        if: always()
+        steps:
+          - name: Log outcome
+            env:
+              RESULT: ${{ needs.build.result }}
+            run: echo "$RESULT"
+          - name: Check unrelated value
+            env:
+              RESULT: success
+            run: |
+              if [[ "$RESULT" != "success" && "$RESULT" != "skipped" ]]; then
+                exit 1
+              fi
+"""
+
 
 # A gate whose display name doesn't end in "Pass", so only structural detection finds it.
-def _off_convention_gate(marker: str = "") -> str:
-    yaml_ = _gate(MIXED_BODY).replace("Thing Tests Pass", "Thing decision")
+def _off_convention_gate(marker: str = "", condition: str = "always()") -> str:
+    yaml_ = _gate(MIXED_BODY, condition=condition).replace("Thing Tests Pass", "Thing decision")
     if marker:
         yaml_ = yaml_.replace("      thing_tests:", f"      # {marker}\n      thing_tests:")
     return yaml_
+
+
+def _off_convention_env_gate() -> str:
+    return ENV_LOOP_GATE.replace("Thing Tests Pass", "Thing decision").replace(
+        'if [[ "$val" != "success" && "$val" != "skipped" ]]; then',
+        'if [[ "$val" == "failure" ]]; then',
+    )
+
+
+def _nested_allow_marker_gate() -> str:
+    return _off_convention_gate().replace(
+        "      changes:\n",
+        """      changes:
+        env:
+          # hogli-lint: not-a-required-gate - nested keys cannot exempt a job
+          thing_tests:
+""",
+    )
 
 
 class TestRequiredGateCheck:
@@ -1044,6 +1107,7 @@ class TestRequiredGateCheck:
         "content",
         [
             _gate(SAFE_BODY),
+            _gate(SAFE_BODY, condition="${{ always() }}"),
             _gate(HELPER_BODY),
             _gate(LOCAL_ALIAS_HELPER_BODY),
             _gate(COMMENTED_CALL_BODY),
@@ -1052,6 +1116,7 @@ class TestRequiredGateCheck:
         ],
         ids=[
             "inline-allowlist",
+            "wrapped-always",
             "shared-helper",
             "helper-via-local",
             "helper-call-with-trailing-comment",
@@ -1075,30 +1140,43 @@ class TestRequiredGateCheck:
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert sorted(i.message.split("'")[1] for i in issues) == expected_deps
 
-    def test_flags_gate_that_can_skip_itself(self, tmp_path: Path) -> None:
-        _write(tmp_path, "ci-thing.yml", _gate(SAFE_BODY, condition="${{ !cancelled() }}"))
+    @pytest.mark.parametrize(
+        "condition",
+        ["${{ !cancelled() }}", "${{ always() && false }}", "${{ !always() }}"],
+        ids=["cancelled-condition", "conditional-always", "negated-always"],
+    )
+    def test_flags_gate_that_can_skip_itself(self, tmp_path: Path, condition: str) -> None:
+        _write(tmp_path, "ci-thing.yml", _gate(SAFE_BODY, condition=condition))
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert len(issues) == 1
         assert "always()" in issues[0].message
 
-    # A helper testing only `== "failure"` gates nothing, so every dependency it
-    # handles is reported. The decoys spell the allowlist out in a comment and in a
-    # log line, neither of which may stand in for asserting it.
+    # Every fixture can exit zero for a cancelled dependency despite mentioning
+    # the expected statuses or guard shape.
     @pytest.mark.parametrize(
-        "body,expected",
+        "body",
         [
-            (UNSAFE_HELPER_BODY, "only compared against failure"),
-            (DECOY_COMMENT_BODY, "only compared against failure"),
-            (DECOY_ECHO_BODY, "only compared against failure"),
-            (LOGGED_ONLY_BODY, "never reaches"),
+            UNSAFE_HELPER_BODY,
+            DECOY_COMMENT_BODY,
+            DECOY_ECHO_BODY,
+            NON_FAILING_ALLOWLIST_BODY,
+            INVERTED_ALLOWLIST_BODY,
+            LOGGED_ONLY_BODY,
         ],
-        ids=["failure-only-helper", "allowlist-words-in-comment", "allowlist-words-in-echo", "results-only-logged"],
+        ids=[
+            "failure-only-helper",
+            "allowlist-guard-in-comment",
+            "allowlist-guard-in-echo",
+            "non-failing-allowlist",
+            "inverted-allowlist",
+            "results-only-logged",
+        ],
     )
-    def test_flags_gate_whose_results_reach_no_allowlist(self, tmp_path: Path, body: str, expected: str) -> None:
+    def test_flags_gate_whose_results_reach_no_fail_closed_guard(self, tmp_path: Path, body: str) -> None:
         _write(tmp_path, "ci-thing.yml", _gate(body))
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert sorted(i.message.split("'")[1] for i in issues) == ["build", "changes"]
-        assert all(expected in i.message for i in issues)
+        assert all("fail-closed guard" in i.message for i in issues)
 
     def test_flags_dependency_declared_in_needs_but_never_tested(self, tmp_path: Path) -> None:
         _write(tmp_path, "ci-thing.yml", UNTESTED_DEPENDENCY_GATE)
@@ -1132,6 +1210,22 @@ class TestRequiredGateCheck:
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert [i.message.split("'")[1] for i in issues] == ["changes"]
 
+    def test_finds_off_convention_gate_without_always(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", _off_convention_gate(condition="${{ !cancelled() }}"))
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert any("unconditional `if: always()`" in issue.message for issue in issues)
+        assert [issue.message.split("'")[1] for issue in issues if "dependency" in issue.message] == ["changes"]
+
+    def test_finds_env_routed_gate_not_named_pass(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", _off_convention_env_gate())
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert [issue.message.split("'")[1] for issue in issues] == ["build"]
+
+    def test_does_not_trace_step_env_into_another_step(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", CROSS_STEP_ENV_GATE)
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert [issue.message.split("'")[1] for issue in issues] == ["build"]
+
     @pytest.mark.parametrize(
         "marker,exempted",
         [
@@ -1143,6 +1237,11 @@ class TestRequiredGateCheck:
     def test_allow_marker_needs_a_reason_to_exempt(self, tmp_path: Path, marker: str, exempted: bool) -> None:
         _write(tmp_path, "ci-thing.yml", _off_convention_gate(marker))
         assert (RequiredGateCheck().run(_read_all(tmp_path)).issues == []) is exempted
+
+    def test_nested_allow_marker_does_not_exempt_job(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", _nested_allow_marker_gate())
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert [issue.message.split("'")[1] for issue in issues] == ["changes"]
 
 
 class TestLiveTreeSmoke:

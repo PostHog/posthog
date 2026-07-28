@@ -1043,6 +1043,7 @@ jobs:
                       echo "Skipping Playwright section — script not present on this checkout"
                   fi
 
+    # hogli-lint: not-a-required-gate - records telemetry and emits no required check.
     capture-run-time:
         name: Capture run time
         runs-on: ubuntu-latest

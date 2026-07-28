@@ -15,18 +15,19 @@ dependencies' ``needs.*.result``. Two properties keep it honest:
    takes its "nothing to test" exit — green, with zero tests run.
 
 Gates are found two ways, because the "name it ``… Pass``" convention is not
-universally followed: by that name, and structurally (``always()`` plus a step
-that reads ``needs.<dep>.result``). Jobs that inspect results without gating
-anything opt out with ``ALLOW_MARKER`` plus a reason.
+universally followed: by that name, and structurally when a step reads
+``needs.<dep>.result`` in its shell or environment. Detection is independent of
+the job condition so a gate missing ``always()`` cannot disappear from the rule.
+Jobs that inspect results without gating anything opt out with ``ALLOW_MARKER``
+plus a reason.
 
-Results reach their comparison directly (a literal beside ``needs.<dep>.result``)
-or indirectly, by way of a step ``env:`` block or a shared shell function. Both
-forms are judged the same way: each dependency's result is traced through
-assignments, ``${!var}`` indirection, and helper-call argument positions to the
-comparisons it actually reaches. A dependency that reaches no ``success``/
-``skipped`` comparison is reported. Anything weaker means trusting that those
-words appear *somewhere* in the step, which a comment or an ``echo`` satisfies
-without gating a thing.
+Results reach a fail-closed guard directly or indirectly, by way of a step
+``env:`` block or a shared shell function. Both forms are judged the same way:
+within each step, every dependency's result is traced through assignments,
+``${!var}`` indirection, and helper-call argument positions to a canonical guard.
+That guard must allowlist one or both safe states with ``!=`` comparisons joined
+by ``&&``, then unconditionally exit nonzero. This keeps comparisons in comments,
+logs, other steps, and non-failing branches from certifying a dependency.
 """
 
 from __future__ import annotations
@@ -37,15 +38,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..check import CheckResult, Issue, WorkflowCheck
-from ..model import Job, Workflow
+from ..model import Job, Step, Workflow
 
 ALLOW_MARKER = "hogli-lint: not-a-required-gate"
 
 GATE_NAME = re.compile(r"\bpass$", re.IGNORECASE)
-ALWAYS = re.compile(r"\balways\s*\(\s*\)")
+ALWAYS = re.compile(r"always\s*\(\s*\)")
 READS_RESULT = re.compile(r"needs\.(?P<dep>[A-Za-z0-9_\-]+)\.result")
-
-SAFE_LITERALS = frozenset({"success", "skipped"})
 
 # `foo() {` / `function foo() {`, whose body ends at the first `}` sitting at or
 # left of the definition's own indentation. Brace counting would be the general
@@ -53,11 +52,12 @@ SAFE_LITERALS = frozenset({"success", "skipped"})
 # conventional shell layout is the more reliable signal.
 FUNC_DEF = re.compile(r"^(?P<indent>[ \t]*)(?:function\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{\s*$")
 
-# One side of a `[[ … ]]` test: the operand, then the literal it is measured
-# against. Quote-agnostic, so `"$result" == "success"` and `[[ $r == success ]]`
-# read the same.
 OPERAND = r"""\$\{\{[^}]*\}\}|\$\{!?[A-Za-z_0-9]+\}|\$[A-Za-z_0-9]+"""
-COMPARISON = re.compile(rf"""(?P<operand>{OPERAND})["']?\s*(?:==|!=)\s*["']?(?P<literal>[A-Za-z_][A-Za-z_0-9]*)""")
+IF_TEST = re.compile(r"^\s*if\s+\[\[\s*(?P<condition>.*?)\s*\]\]\s*;\s*then\s*(?:#.*)?$")
+NOT_SAFE_STATUS = re.compile(rf"""["']?(?P<operand>{OPERAND})["']?\s*!=\s*["']?(?P<literal>success|skipped)["']?""")
+NONZERO_EXIT = re.compile(r"exit\s+[1-9][0-9]*\s*(?:#.*)?$")
+SIMPLE_LOG = re.compile(r"(?:echo|printf)\s+(?:\"[^\"]*\"|'[^']*')\s*$")
+HEREDOC = re.compile(r"<<-?\s*[\"']?(?P<delimiter>[A-Za-z_][A-Za-z0-9_]*)[\"']?")
 
 # `local result="$2"` / `val="${!var}"`, which is how a positional or an env value
 # picks up the name that the comparison further down actually tests.
@@ -81,38 +81,50 @@ class _Scope:
     body: str
 
 
-def _bash(job: Job) -> str:
-    return "\n".join(step.run for step in job.steps if step.run)
+def _env(block: object) -> dict[str, str]:
+    if not isinstance(block, dict):
+        return {}
+    return {name: value for name, value in block.items() if isinstance(name, str) and isinstance(value, str)}
 
 
-def _env_pairs(job: Job) -> Iterator[tuple[str, str]]:
-    for block in (job.raw.get("env"), *(step.raw.get("env") for step in job.steps)):
-        if isinstance(block, dict):
-            for name, value in block.items():
-                if isinstance(name, str) and isinstance(value, str):
-                    yield name, value
+def _effective_env(job: Job, step: Step) -> dict[str, str]:
+    return _env(job.raw.get("env")) | _env(step.raw.get("env"))
+
+
+def _result_sources(job: Job) -> Iterator[str]:
+    yield from _env(job.raw.get("env")).values()
+    for step in job.steps:
+        if step.run:
+            yield step.run
+        condition = step.raw.get("if")
+        if isinstance(condition, str):
+            yield condition
+        yield from _env(step.raw.get("env")).values()
 
 
 def _exempt_jobs(path: Path, job_names: frozenset[str]) -> frozenset[str]:
-    """Job ids carrying an allow marker, with a reason, in the comments above them.
-
-    Keyed off the parsed job names rather than indentation depth, so it doesn't
-    care how the file is formatted and can't be fooled by a nested mapping key.
-    """
+    """Job ids carrying an allow marker, with a reason, in the comments above them."""
     lines = path.read_text(encoding="utf-8").splitlines()
+    candidates: list[tuple[int, int, str]] = []
+    for index, line in enumerate(lines):
+        match = re.match(r"^(?P<indent>\s*)(?P<job>[A-Za-z0-9_\-]+):\s*$", line)
+        if match is not None and match.group("job") in job_names:
+            candidates.append((index, len(match.group("indent")), match.group("job")))
+    if not candidates:
+        return frozenset()
 
     exempt: set[str] = set()
-    for idx, line in enumerate(lines):
-        match = re.match(r"^\s*(?P<job>[A-Za-z0-9_\-]+):\s*$", line)
-        if match is None or match.group("job") not in job_names:
+    job_indent = min(indent for _, indent, _ in candidates)
+    for index, indent, job in candidates:
+        if indent != job_indent:
             continue
-        # Walk up through the contiguous comment block directly above the job key.
-        for above in reversed(lines[:idx]):
-            if not above.strip().startswith("#"):
+        for above in reversed(lines[:index]):
+            comment = re.match(r"^(?P<indent>\s*)#(?P<body>.*)$", above)
+            if comment is None or len(comment.group("indent")) != job_indent:
                 break
-            _, marker, reason = above.partition(ALLOW_MARKER)
+            _, marker, reason = comment.group("body").partition(ALLOW_MARKER)
             if marker and reason.strip(" -—:"):
-                exempt.add(match.group("job"))
+                exempt.add(job)
                 break
     return frozenset(exempt)
 
@@ -122,11 +134,38 @@ def _is_gate(job: Job) -> bool:
     display = name if isinstance(name, str) else job.name
     if GATE_NAME.search(display.strip()):
         return True
-    return bool(ALWAYS.search(str(job.raw.get("if") or "")) and READS_RESULT.search(_bash(job)))
+    return any(READS_RESULT.search(source) for source in _result_sources(job))
+
+
+def _uses_only_always(condition: object) -> bool:
+    if not isinstance(condition, str):
+        return False
+    normalized = condition.strip()
+    if normalized.startswith("${{") or normalized.endswith("}}"):
+        if not (normalized.startswith("${{") and normalized.endswith("}}")):
+            return False
+        normalized = normalized[3:-2].strip()
+    return ALWAYS.fullmatch(normalized) is not None
+
+
+def _without_heredocs(bash: str) -> str:
+    lines: list[str] = []
+    delimiter: str | None = None
+    for line in bash.splitlines():
+        if delimiter is not None:
+            if line.strip() == delimiter:
+                delimiter = None
+            lines.append("")
+            continue
+        lines.append(line)
+        match = HEREDOC.search(line)
+        if match is not None:
+            delimiter = match.group("delimiter")
+    return "\n".join(lines)
 
 
 def _scopes(bash: str) -> list[_Scope]:
-    lines = bash.splitlines()
+    lines = _without_heredocs(bash).splitlines()
     top: list[str] = []
     scopes: list[_Scope] = []
 
@@ -186,31 +225,60 @@ def _operands(scope: _Scope, token: str, loops: dict[str, set[str]]) -> list[str
     return [f"{scope.name}|{kind}:{name}"]
 
 
-def _trace(job: Job) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    """Resolve the gate's shell into (literals per operand, alias edges between operands).
+def _guard_operand(lines: list[str], index: int) -> str | None:
+    match = IF_TEST.match(lines[index])
+    if match is None:
+        return None
+
+    comparisons: list[re.Match[str]] = []
+    for term in re.split(r"\s*&&\s*", match.group("condition")):
+        comparison = NOT_SAFE_STATUS.fullmatch(term.strip())
+        if comparison is None:
+            return None
+        comparisons.append(comparison)
+
+    operands = {comparison.group("operand") for comparison in comparisons}
+    if len(operands) != 1:
+        return None
+
+    for body_line in lines[index + 1 :]:
+        stripped = body_line.strip()
+        if not stripped or stripped.startswith("#") or SIMPLE_LOG.fullmatch(stripped):
+            continue
+        if NONZERO_EXIT.fullmatch(stripped):
+            return operands.pop()
+        return None
+    return None
+
+
+def _trace_step(job: Job, step: Step) -> tuple[set[str], dict[str, set[str]]]:
+    """Resolve one shell step into guarded operands and alias edges.
 
     An edge ``a -> b`` means a result held by ``a`` also flows into ``b``, so a
-    comparison on ``b`` gates ``a``.
+    fail-closed guard on ``b`` gates ``a``. Steps stay isolated because their
+    shells and step-level environments do not persist into later steps.
     """
-    scopes = _scopes(_bash(job))
+    scopes = _scopes(step.run or "")
     functions = {scope.name for scope in scopes if scope.name}
 
-    literals: dict[str, set[str]] = {}
+    guarded: set[str] = set()
     edges: dict[str, set[str]] = {}
 
-    # A result routed through `env:` is named by that variable in the step body.
-    for name, value in _env_pairs(job):
+    for name, value in _effective_env(job, step).items():
         for source in _operands(_Scope("", ""), value, {}):
             edges.setdefault(source, set()).add(f"|var:{name}")
 
     for scope in scopes:
         loops = _loop_names(scope.body)
+        lines = scope.body.splitlines()
 
-        for match in COMPARISON.finditer(scope.body):
-            for operand in _operands(scope, match.group("operand"), loops):
-                literals.setdefault(operand, set()).add(match.group("literal"))
+        if step.raw.get("if") is None or _uses_only_always(step.raw.get("if")):
+            for index in range(len(lines)):
+                guard_operand = _guard_operand(lines, index)
+                if guard_operand is not None:
+                    guarded.update(_operands(scope, guard_operand, loops))
 
-        for line in scope.body.splitlines():
+        for line in lines:
             assignment = ASSIGNMENT.match(line)
             if assignment is not None:
                 target = f"{scope.name}|var:{assignment.group('target')}"
@@ -231,7 +299,7 @@ def _trace(job: Job) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
                 for source in _operands(scope, argument, loops):
                     edges.setdefault(source, set()).add(f"{name}|arg:{position}")
 
-    return literals, edges
+    return guarded, edges
 
 
 def _reachable(start: str, edges: dict[str, set[str]]) -> Iterable[str]:
@@ -257,32 +325,22 @@ def _dependencies(job: Job) -> set[str]:
     declared = job.raw.get("needs") or []
     declared = [declared] if isinstance(declared, str) else declared
     named = {dep for dep in declared if isinstance(dep, str)}
-    return named | set(READS_RESULT.findall(_bash(job)))
+    referenced = {dep for source in _result_sources(job) for dep in READS_RESULT.findall(source)}
+    return named | referenced
 
 
 def _problems(job: Job) -> Iterator[str]:
-    if not ALWAYS.search(str(job.raw.get("if") or "")):
-        yield "required-check gate must use `if: always()` so it always emits a verdict"
+    if not _uses_only_always(job.raw.get("if")):
+        yield "required-check gate must use unconditional `if: always()` so it always emits a verdict"
 
-    literals, edges = _trace(job)
-
+    step_traces = [_trace_step(job, step) for step in job.steps]
     for dep in sorted(_dependencies(job)):
-        compared: set[str] = set()
-        for operand in _reachable(f"needs:{dep}", edges):
-            compared |= literals.get(operand, set())
-
-        if compared & SAFE_LITERALS:
-            continue
-        if compared:
+        if not any(
+            any(operand in guarded for operand in _reachable(f"needs:{dep}", edges)) for guarded, edges in step_traces
+        ):
             yield (
-                f"dependency '{dep}' is only compared against {'/'.join(sorted(compared))}; "
-                f'a cancelled \'{dep}\' would pass. Test `!= "success" && != "skipped"` instead'
-            )
-        else:
-            yield (
-                f"dependency '{dep}' result never reaches a `success`/`skipped` comparison, so "
-                f"nothing blocks a cancelled '{dep}'. Test it inline, or pass it to a helper that "
-                f'tests `!= "success" && != "skipped"`'
+                f"dependency '{dep}' result never reaches a fail-closed guard, so nothing blocks a "
+                f'cancelled \'{dep}\'. Test `!= "success" && != "skipped"`, then exit nonzero'
             )
 
 
@@ -294,10 +352,10 @@ class RequiredGateCheck(WorkflowCheck):
     @property
     def fix_hint(self) -> str | None:
         return (
-            "Keep `if: always()` on the gate, and test every dependency as "
+            "Use only `if: always()` on the gate, and test every dependency as "
             '`!= "success" && != "skipped"` rather than `== "failure"`. Inline tests, an `env:` '
-            "block and a shared shell helper all work, so long as each result reaches such a "
-            "test. A job that reads results without gating anything opts out with "
+            "block and a shared shell helper all work, so long as the failing branch exits nonzero. "
+            "A job that reads results without gating anything opts out with "
             f"`# {ALLOW_MARKER} — <reason>`. See .agents/skills/authoring-ci-workflows/SKILL.md."
         )
 
