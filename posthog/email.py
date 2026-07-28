@@ -154,19 +154,20 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
 }
 
 
-def get_email_footer_context(
+def get_email_team_and_org_context(
     team: Optional["Team"] = None,
     organization: Optional["Organization"] = None,
 ) -> dict[str, str]:
     """
-    Context for the Customer.io transactional email footer: team_name, organization_name,
-    and customer_id (the billing customer). Absent values are omitted, so the footer
-    renders only what's present.
+    The team_name, organization_name, and customer_id (the billing customer) for a
+    transactional email. Spread this into template_context instead of setting those keys
+    directly: the Customer.io footer and several body templates read them, and this is the
+    only place they get sanitized, so a hand-set duplicate reintroduces the raw value.
 
-    Both names go through `sanitize_display_name` so a legacy name that's a URL can't render
-    as a link target. A rejected team_name is dropped, since the footer only renders what's
-    present. organization_name falls back to a placeholder instead, because email bodies
-    interpolate it mid-sentence.
+    Absent values are omitted so templates render only what's present. Both names go through
+    `sanitize_display_name` so a legacy name that is a URL cannot render as a link target.
+    A rejected team_name is dropped; organization_name falls back to a placeholder instead,
+    because email bodies interpolate it mid-sentence.
     """
     if organization is None and team is not None:
         organization = team.organization
@@ -175,7 +176,7 @@ def get_email_footer_context(
         team_name = sanitize_display_name(
             team.name,
             fallback="",
-            context={"helper": "get_email_footer_context", "field": "team_name"},
+            context={"helper": "get_email_team_and_org_context", "field": "team_name"},
         )
         if team_name:
             context["team_name"] = team_name
@@ -184,7 +185,7 @@ def get_email_footer_context(
             context["organization_name"] = sanitize_display_name(
                 organization.name,
                 fallback="your organization",
-                context={"helper": "get_email_footer_context", "field": "organization_name"},
+                context={"helper": "get_email_team_and_org_context", "field": "organization_name"},
             )
         if organization.customer_id:
             context["customer_id"] = organization.customer_id

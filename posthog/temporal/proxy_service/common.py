@@ -205,7 +205,7 @@ class SendProxyCreatedEmailInputs:
 @activity.defn
 def activity_send_proxy_created_email(inputs: SendProxyCreatedEmailInputs):
     """Send an email notification when a reverse proxy has been successfully provisioned."""
-    from posthog.email import EmailMessage, get_email_footer_context, is_email_available
+    from posthog.email import EmailMessage, get_email_team_and_org_context, is_email_available
 
     try:
         connection.connect()
@@ -228,7 +228,7 @@ def activity_send_proxy_created_email(inputs: SendProxyCreatedEmailInputs):
                 "user_name": user.first_name,
                 "domain": inputs.domain,
                 "settings_url": f"{settings.SITE_URL}/settings/organization-proxy",
-                **get_email_footer_context(organization=record.organization),
+                **get_email_team_and_org_context(organization=record.organization),
             },
             use_http=True,
         )

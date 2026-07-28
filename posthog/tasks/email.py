@@ -18,7 +18,7 @@ from prometheus_client import Counter, Histogram
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
-from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, get_email_footer_context, is_email_available
+from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, get_email_team_and_org_context, is_email_available
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
@@ -297,7 +297,7 @@ def send_invite(invite_id: str) -> None:
             "invitee_first_name": invitee_first_name,
             "invite_message": invite_message,
             "url": f"{settings.SITE_URL}/signup/{invite_id}",
-            **get_email_footer_context(organization=invite.organization),
+            **get_email_team_and_org_context(organization=invite.organization),
         },
         reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",
     )
@@ -389,7 +389,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
             "organization": organization,
             "invitee_first_name": invitee_first_name,
             "invitee_last_name": invitee_last_name,
-            **get_email_footer_context(organization=organization),
+            **get_email_team_and_org_context(organization=organization),
         },
     )
     for user in members_to_email:
@@ -972,7 +972,7 @@ def send_wizard_pr_ready_email(run_id: str) -> None:
         "task_id": str(context.task_id),
         "run_id": str(context.run_id),
         "site_url": settings.SITE_URL,
-        **get_email_footer_context(team=team),
+        **get_email_team_and_org_context(team=team),
     }
     message = EmailMessage(
         use_http=True,
@@ -1744,7 +1744,7 @@ def send_feature_flags_secure_api_key_exposed(team_id: int, mask_value: str, mor
             "more_info": more_info,
             "mask_value": mask_value,
             "url": f"{settings.SITE_URL}/project/{team.pk}/settings/project-feature-flags",
-            **get_email_footer_context(team=team),
+            **get_email_team_and_org_context(team=team),
         },
     )
     for membership in memberships_to_email:
@@ -1778,7 +1778,7 @@ def send_project_secret_api_key_exposed(
             "more_info": more_info,
             "mask_value": old_mask_value,
             "url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-secret-api-keys",
-            **get_email_footer_context(team=team),
+            **get_email_team_and_org_context(team=team),
         },
     )
     for membership in memberships_to_email:
@@ -1870,7 +1870,7 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
             "customer_email": customer_email,
             "first_message": first_message_content[:500] if first_message_content else "",
             "ticket_url": ticket_url,
-            **get_email_footer_context(team=team),
+            **get_email_team_and_org_context(team=team),
         },
     )
 
@@ -1903,7 +1903,7 @@ def send_conversation_restore_email(email: str, team_id: int, restore_url: str) 
         template_name="conversation_restore",
         template_context={
             "restore_url": restore_url,
-            **get_email_footer_context(team=team),
+            **get_email_team_and_org_context(team=team),
         },
     )
 
@@ -2273,7 +2273,7 @@ def send_integration_access_request(team_id: int, requesting_user_id: int, kind:
             "reason": sanitized_reason,
             "org_name": org_name,
             "connect_url": f"{settings.SITE_URL}/project/{team_id}/integrations/{kind}",
-            **get_email_footer_context(team=team),
+            **get_email_team_and_org_context(team=team),
         },
         reply_to=requester.email or "",
     )
@@ -2333,7 +2333,7 @@ def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int
             "requester_name": requester_name,
             "requester_email": requester.email or "",
             "posthog_ai_url": posthog_ai_url,
-            **get_email_footer_context(organization=organization),
+            **get_email_team_and_org_context(organization=organization),
         },
         reply_to=requester.email or "",
     )
