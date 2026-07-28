@@ -95,12 +95,22 @@ def _resolve_sandbox_backend() -> str:
     return provider if provider else "modal"
 
 
+FOUNDRY_AGENT_SCRIPT_PATH = "/tmp/foundry-agent-command.sh"
+
+
 def _run_as_agent_user(sandbox: Any, command: str, env: dict[str, str]) -> str:
     """Wrap ``command`` to run as the unprivileged ``FOUNDRY_AGENT_USER`` instead of the
     sandbox's default root — required for ``claude --dangerously-skip-permissions``, which
-    refuses to run as root regardless of sandboxing (see constants.py). ``su`` drops the
-    calling environment, so every env var is re-exported explicitly inside the switched-user
-    shell rather than relied upon to survive the switch.
+    refuses to run as root regardless of sandboxing (see constants.py).
+
+    ``command`` is an arbitrary, unquoted multi-line agent prompt (a real one is full of
+    apostrophes and its own nested quoting, e.g. a heredoc) — passing it through
+    ``shlex.quote()`` as an argument to ``su -c`` breaks exactly like it broke here: quoting
+    escapes every literal apostrophe in the prose indiscriminately, since a generic quoting
+    function can't tell a "structural" quote from a content one, corrupting the heredoc and
+    splitting the prompt into dozens of stray argv words. Writing it to a script file (the
+    same mechanism the foundry-event helper already uses) sidesteps quoting entirely — the
+    file's bytes are never re-parsed as shell syntax, they're just what ``sh`` reads.
     """
     sandbox.execute(
         f"id -u {shlex.quote(FOUNDRY_AGENT_USER)} >/dev/null 2>&1 || useradd -m -s /bin/sh {shlex.quote(FOUNDRY_AGENT_USER)}"
@@ -108,13 +118,18 @@ def _run_as_agent_user(sandbox: Any, command: str, env: dict[str, str]) -> str:
     sandbox.execute(
         f"chown -R {shlex.quote(FOUNDRY_AGENT_USER)}:{shlex.quote(FOUNDRY_AGENT_USER)} {shlex.quote(FOUNDRY_TARGET_REPO_PATH)}"
     )
-    env_prefix = "".join(f"export {name}={shlex.quote(value)}; " for name, value in env.items())
+    # su drops the calling environment, so every env var is re-exported explicitly — each is
+    # its own `export NAME=value` line, safely shlex-quoted on its own (not nested inside a
+    # larger quoted string), so this is fine even though `command` below isn't quoted at all.
+    env_prefix = "".join(f"export {name}={shlex.quote(value)}\n" for name, value in env.items())
     # A fresh user has no git identity; every build-loop node commits, so configure one
     # rather than making every reference prompt tell the agent to do it itself.
     git_identity = (
-        "git config --global user.email foundry-agent@posthog.com; git config --global user.name 'Foundry builder'; "
+        "git config --global user.email foundry-agent@posthog.com\ngit config --global user.name 'Foundry builder'\n"
     )
-    return f"su {shlex.quote(FOUNDRY_AGENT_USER)} -s /bin/sh -c {shlex.quote(env_prefix + git_identity + command)}"
+    script = f"#!/bin/sh\n{env_prefix}{git_identity}{command}\n"
+    sandbox.write_file(FOUNDRY_AGENT_SCRIPT_PATH, script.encode())
+    return f"su {shlex.quote(FOUNDRY_AGENT_USER)} -s /bin/sh {shlex.quote(FOUNDRY_AGENT_SCRIPT_PATH)}"
 
 
 def _parse_foundry_events(stdout: str) -> list[dict[str, Any]]:
@@ -199,6 +214,11 @@ def run_node_activity(input: RunNodeInput) -> RunNodeOutput:
             if input.install_claude_cli:
                 command = _run_as_agent_user(sandbox, command, input.env)
             result = sandbox.execute(command, timeout_seconds=input.command_timeout_seconds)
+            # A build-loop node's command is a real agent run, not a scripted demo — capture
+            # why it failed rather than leaving only a bare exit code to debug from.
+            if input.install_claude_cli and result.exit_code != 0:
+                tail = "\n".join((result.stdout + result.stderr).splitlines()[-20:])
+                notes.append(f"node command failed (exit {result.exit_code}): {tail[:500]}")
     finally:
         try:
             sandbox.destroy()

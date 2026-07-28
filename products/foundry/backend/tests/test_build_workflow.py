@@ -66,6 +66,7 @@ def make_fake_build_sandbox_class(
     class _FakeBuildSandbox:
         def __init__(self) -> None:
             self.id = f"fake-build-sandbox-{uuid.uuid4()}"
+            self._agent_script = ""
 
         @classmethod
         def create(cls, config: Any) -> "_FakeBuildSandbox":
@@ -78,9 +79,10 @@ def make_fake_build_sandbox_class(
                     exit_code=0 if target_clone_ok else 1, stderr="" if target_clone_ok else "clone failed"
                 )
             # npm install / user setup (id -u ... || useradd, chown) / git checkout: no
-            # scripted output needed, just succeed — the node's own command (matched by
-            # substring below, since it ends up wrapped in `su ... -c '...cd /repo && X'`
-            # once install_claude_cli triggers the non-root re-exec) is what matters.
+            # scripted output needed, just succeed. The node's own command no longer
+            # appears in the executed string at all once install_claude_cli triggers the
+            # non-root re-exec (it's written to a script file instead — see
+            # _run_as_agent_user's docstring for why); match against the captured script.
             if (
                 "npm install -g" in command
                 or "useradd" in command
@@ -88,12 +90,16 @@ def make_fake_build_sandbox_class(
                 or "git checkout" in command
             ):
                 return _FakeExecResult()
-            for node_command, stdout in stdout_by_node_command.items():
-                if node_command in command:
-                    return _FakeExecResult(stdout=stdout)
+            if command.startswith("su "):
+                for node_command, stdout in stdout_by_node_command.items():
+                    if node_command in self._agent_script:
+                        return _FakeExecResult(stdout=stdout)
+                return _FakeExecResult()
             return _FakeExecResult()
 
         def write_file(self, path: str, payload: bytes) -> _FakeExecResult:
+            if path == "/tmp/foundry-agent-command.sh":
+                self._agent_script = payload.decode()
             return _FakeExecResult()
 
         def destroy(self) -> None:
