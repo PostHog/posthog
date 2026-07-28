@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
+    NOT_A_CLICKHOUSE_HTTP_RESPONSE,
     ClickHouseConnectionError,
     _get_client,
     clickhouse_source,
@@ -88,6 +89,9 @@ ClickHouseErrors: dict[str, str] = {
     # host/port (wrong port, a proxy, or a native-protocol port). Same wording
     # as the sync-time non-retryable handling.
     "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+    # `_get_client` raises this when the host answers 2xx with a body that isn't a
+    # ClickHouse response (a proxy/LB page, or a different service on the host/port).
+    "did not return a valid clickhouse response": NOT_A_CLICKHOUSE_HTTP_RESPONSE,
     "returned response code 429": _TEMPORARILY_UNAVAILABLE,
     "returned response code 502": _TEMPORARILY_UNAVAILABLE,
     "returned response code 503": _TEMPORARILY_UNAVAILABLE,
@@ -226,6 +230,12 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # answers queries with 404, so retrying can't recover. We match only
             # 404, not transient gateway codes (502/503/504), which stay retryable.
             "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+            # `_get_client` wraps the driver's construction-time probe failure ("too many
+            # values to unpack") into this message when the host answers 2xx with a body that
+            # isn't a ClickHouse response. The endpoint isn't serving the ClickHouse HTTP
+            # interface, so retrying replays the identical failure. We match the stable phrase
+            # from the wrapped message, not the volatile per-request URL or host.
+            "did not return a valid ClickHouse response": NOT_A_CLICKHOUSE_HTTP_RESPONSE,
             # MEMORY_LIMIT_EXCEEDED — the source ClickHouse server (per-query
             # `max_memory_usage` budget or a server-wide OvercommitTracker kill)
             # ran out of memory running our extraction query. We already stream
