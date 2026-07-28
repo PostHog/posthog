@@ -290,8 +290,9 @@ impl StashHandler for RouterStashHandler {
 
         // Drop the cached gRPC client for the new owner so the first
         // post-handoff request opens a fresh connection. The old
-        // owner's client entry will simply age out — the routing table
-        // no longer points at it, so it's never reused.
+        // owner's entry stays in the cache unused — the routing table
+        // no longer points at it — and is reclaimed only if that
+        // address is ever resolved again; the cache has no eviction.
         self.leader_backend.clear_client_cache(new_owner);
 
         let mut completed_total: u64 = 0;

@@ -165,6 +165,24 @@ impl DrainLanes {
             lane.token.cancel();
         }
     }
+
+    /// Cancel every lane and await the drains' termination. Runs during
+    /// teardown, after the watch loop (the only source of new requests)
+    /// has stopped and before the router's lease is revoked: the lease
+    /// must outlive the last forward. Joining is quick — cancellation
+    /// stops each drain within one in-flight request — and joining the
+    /// newest handle per partition transitively joins its predecessors,
+    /// which each successor task awaits before starting.
+    async fn shutdown(&self) {
+        self.cancel.cancel();
+        let handles: Vec<JoinHandle<()>> = {
+            let mut lanes = self.lanes.lock().expect("drain lanes lock poisoned");
+            lanes.drain().map(|(_, lane)| lane.handle).collect()
+        };
+        for handle in handles {
+            drop(handle.await);
+        }
+    }
 }
 
 /// Configuration for the routing table.
@@ -389,12 +407,13 @@ impl RoutingTable {
             });
         }
 
-        // Drain lanes get their own token, cancelled in the teardown below:
-        // drains must wind down on any exit path — including an error
-        // teardown, where the caller's token was never cancelled — rather
-        // than outliving the run as orphans forwarding for a deregistered
-        // router.
-        let lanes_cancel = cancel.child_token();
+        // Drain lanes get their own token, torn down below: drains must
+        // wind down on any exit path — including an error teardown, where
+        // the caller's token was never cancelled — rather than outliving
+        // the run as orphans forwarding for a deregistered router. The
+        // handle is held here, not just inside the watch loop, so the
+        // teardown can join the lane tasks rather than merely signal them.
+        let lanes = Arc::new(DrainLanes::new(cancel.child_token()));
 
         {
             let store = Arc::clone(&self.store);
@@ -402,7 +421,7 @@ impl RoutingTable {
             let addresses = Arc::clone(&self.addresses);
             let handler = Arc::clone(&handler);
             let router_name = self.config.router_name.clone();
-            let lanes = Arc::new(DrainLanes::new(lanes_cancel.clone()));
+            let lanes = Arc::clone(&lanes);
             let last_progress = Arc::clone(&last_progress);
             let reconcile_interval = self.config.reconcile_interval;
             let reconcile_failure_budget = self.config.reconcile_failure_budget;
@@ -434,10 +453,19 @@ impl RoutingTable {
             }
         };
 
-        // Abort and await all remaining tasks for clean shutdown, and stop
-        // any in-flight drains at their next batch boundary.
+        // Abort and await all remaining tasks first — the watch loop is
+        // the only source of new drain requests, so once it is gone the
+        // lane set is final and can be joined.
         tasks.shutdown().await;
-        lanes_cancel.cancel();
+
+        // Cancel and JOIN every drain before touching the lease: the
+        // lease must outlive the last forward, so anything a drain
+        // delivered happened while this router was still a legitimately
+        // registered participant. Signalling without joining would let
+        // drains keep forwarding past deregistration, stretching the
+        // zombie-router window beyond the lease bound the protocol's
+        // residual analysis relies on.
+        lanes.shutdown().await;
 
         // Deregister so freeze quorums stop counting this router
         // immediately. Left to lease expiry, every handoff frozen in the
@@ -1025,6 +1053,30 @@ mod tests {
         lanes.request(handler, "r".into(), 0, "b".into());
         assert_eq!(rx.recv().await.unwrap(), "stop:a");
         assert_eq!(rx.recv().await.unwrap(), "start:b");
+    }
+
+    /// Teardown must JOIN drains, not merely signal them: `shutdown`
+    /// returns only after every lane task has observed cancellation and
+    /// exited, so the caller can revoke the router's lease knowing no
+    /// forward happens after it. Signalling without joining would leave
+    /// detached drains forwarding for a deregistered router.
+    #[tokio::test]
+    async fn shutdown_joins_running_drains_before_returning() {
+        let (lanes, handler, mut rx) = parking_lanes();
+
+        lanes.request(Arc::clone(&handler), "r".into(), 0, "a".into());
+        lanes.request(handler, "r".into(), 1, "b".into());
+        let starts = [rx.recv().await.unwrap(), rx.recv().await.unwrap()];
+        assert!(starts.contains(&"start:a".to_string()));
+        assert!(starts.contains(&"start:b".to_string()));
+
+        lanes.shutdown().await;
+
+        // Both drains exited before shutdown returned — their stop
+        // events must already be in the channel, no further waiting.
+        let mut stops = [rx.try_recv().unwrap(), rx.try_recv().unwrap()];
+        stops.sort();
+        assert_eq!(stops, ["stop:a".to_string(), "stop:b".to_string()]);
     }
 
     /// Observing a non-terminal handoff phase pauses the lane: the
