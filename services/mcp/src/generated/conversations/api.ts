@@ -24,7 +24,7 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.'
+            'Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `me` (the requesting user), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.'
         ),
     channel_detail: zod
         .enum([
@@ -57,6 +57,12 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('Comma-separated list of person `distinct_id`s to filter by (max 100).'),
+    emails: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated list of email addresses to filter by, matched case-insensitively against `email_from` (max 100). When combined with `distinct_ids`, tickets matching either the distinct_ids or the emails are returned (OR).'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod

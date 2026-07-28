@@ -692,6 +692,12 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         signal,
                     })
                     actions.setLogsAbortController(null)
+                    // A 2xx response with an empty body legitimately resolves to null (see
+                    // getJSONFromSuccessResponse in lib/api.ts) — treat it as a failure instead of
+                    // crashing on the first property access below.
+                    if (!response) {
+                        throw new Error('Logs query returned an empty response')
+                    }
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
                     actions.setMaxExportableLogs(response.maxExportableLogs)
@@ -738,6 +744,10 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         signal,
                     })
                     actions.setLogsAbortController(null)
+                    // See the matching guard in fetchLogs: an empty-body 2xx response resolves to null.
+                    if (!response) {
+                        throw new Error('Logs query returned an empty response')
+                    }
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
                     return [...values.logs, ...response.results]
@@ -960,7 +970,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
 
     subscriptions(({ actions }) => ({
         // Subscribe to the combined query view rather than the user-editable filterGroup
-        // so the query reruns when pinned filters change (e.g. team `logs_distinct_id_attribute_key`
+        // so the query reruns when pinned filters change (e.g. team `logs_distinct_id_attribute_keys`
         // resolves after mount), not just when the user edits filters.
         queryFilterGroup: (filterGroup: UniversalFiltersGroup, oldFilterGroup: UniversalFiltersGroup | undefined) => {
             if (shouldSkipFilterGroupChange(filterGroup, oldFilterGroup)) {

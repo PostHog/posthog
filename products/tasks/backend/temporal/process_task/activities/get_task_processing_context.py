@@ -139,6 +139,12 @@ class TaskProcessingContext:
         return value if isinstance(value, str) else None
 
     @property
+    def loop_trigger_id(self) -> str | None:
+        """Set alongside loop_id when a loop trigger fired this run."""
+        value = (self.state or {}).get("loop_trigger_id")
+        return value if isinstance(value, str) else None
+
+    @property
     def runtime_adapter(self) -> str | None:
         value = (self.state or {}).get("runtime_adapter")
         return value if isinstance(value, str) else None
@@ -157,6 +163,16 @@ class TaskProcessingContext:
     def reasoning_effort(self) -> str | None:
         value = (self.state or {}).get("reasoning_effort")
         return value if isinstance(value, str) else None
+
+    @property
+    def context_window(self) -> str | None:
+        value = (self.state or {}).get("context_window")
+        return value if isinstance(value, str) else None
+
+    @property
+    def fast_mode(self) -> bool | None:
+        value = (self.state or {}).get("fast_mode")
+        return value if isinstance(value, bool) else None
 
     @property
     def initial_permission_mode(self) -> str | None:
@@ -286,7 +302,7 @@ def _is_rtk_enabled(
 ) -> bool:
     """rtk compression is on by default. The kill-switch flag wins over everything —
     a fleet-wide disable must not be pinned back on by a per-run override — and
-    otherwise the per-run state override (the user's toggle in PostHog Code settings)
+    otherwise the per-run state override (the user's toggle in PostHog Desktop settings)
     applies. Fails open (enabled, override honored) on flag-service errors so the
     default posture is preserved."""
     try:

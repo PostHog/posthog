@@ -302,6 +302,19 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             "HTTP 403: Forbidden": "Snowflake refused the request with an HTTP 403 (forbidden). This usually means a network policy or firewall on your account is blocking PostHog's access, or your role's access to the data was revoked. Check your Snowflake network access rules and role grants, then resync.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        return {
+            # Snowflake connector error 290400 (ER_HTTP_GENERAL_ERROR + 400): downloading a query
+            # result chunk got HTTP 400, which the connector's own `is_retryable_http_code` already
+            # retries with backoff before re-raising the plain `BadRequest` once its download retry
+            # budget is exhausted (`result_batch.py::_download`). Unlike the persistent-403 case
+            # above, every Temporal-level retry of `get_rows` opens a fresh connection and re-executes
+            # the query from scratch, getting a brand new set of chunk URLs — a stale one from the
+            # previous attempt doesn't carry over. Self-recovering, so keep retrying instead of
+            # stopping the sync. The errno prefix is volatile, so we match the stable status text.
+            "HTTP 400: Bad Request",
+        }
+
     def reconcile_schema_metadata(
         self,
         source: "ExternalDataSource",

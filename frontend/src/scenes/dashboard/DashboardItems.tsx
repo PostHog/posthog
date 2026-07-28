@@ -85,7 +85,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dashboardStreaming,
         effectiveEditBarFilters,
         effectiveDashboardVariableOverrides,
-        temporaryBreakdownColors,
+        effectiveBreakdownColors,
         dataColorThemeId,
         canEditDashboard,
         dashboardWidgetsEnabled,
@@ -580,7 +580,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         filtersOverride={effectiveEditBarFilters}
                                         variablesOverride={effectiveDashboardVariableOverrides}
                                         // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
-                                        breakdownColorOverride={temporaryBreakdownColors}
+                                        breakdownColorOverride={effectiveBreakdownColors}
                                         dataColorThemeId={dataColorThemeId}
                                         surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
                                         showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}

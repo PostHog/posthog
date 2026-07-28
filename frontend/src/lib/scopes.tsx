@@ -37,7 +37,7 @@ export const API_SCOPES: APIScope[] = [
         key: 'agent_approvals',
         objectName: 'Agent approval',
         objectPlural: 'agent approvals',
-        info: 'Grants the ability to approve or reject queued agent tool-approval requests on behalf of the consenting user, including requests whose spec sets `allow_agent_approver: false` (human-only). Only grant this to OAuth clients that put a human in the loop at decide time, like the PostHog Code desktop app.',
+        info: 'Grants the ability to approve or reject queued agent tool-approval requests on behalf of the consenting user, including requests whose spec sets `allow_agent_approver: false` (human-only). Only grant this to OAuth clients that put a human in the loop at decide time, like the PostHog Desktop app.',
         disabledActions: ['read'],
     },
     { key: 'alert', objectName: 'Alert', objectPlural: 'alerts' },

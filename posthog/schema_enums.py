@@ -910,6 +910,7 @@ class DefaultChannelTypes(StrEnum):
     ORGANIC_SOCIAL = "Organic Social"
     ORGANIC_VIDEO = "Organic Video"
     ORGANIC_SHOPPING = "Organic Shopping"
+    AI = "AI"
     PUSH = "Push"
     SMS = "SMS"
     AUDIO = "Audio"
@@ -2431,6 +2432,11 @@ class ExternalDataSourceType(StrEnum):
     MELTWATER = "Meltwater"
     USER_COM = "UserCom"
     LATITUDE = "Latitude"
+    WORKATO = "Workato"
+    SIDE_SHIFT = "SideShift"
+    DUCK_LAKE = "DuckLake"
+    STARBURST = "Starburst"
+    EASYBILL = "Easybill"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2950,6 +2956,7 @@ class MarketingAnalyticsConstants(StrEnum):
 
 class MarketingAnalyticsDrillDownLevel(StrEnum):
     CHANNEL = "channel"
+    CHANNEL_SOURCE = "channel_source"
     SOURCE = "source"
     CAMPAIGN = "campaign"
     AD_GROUP = "ad_group"
@@ -3265,6 +3272,7 @@ class ProductIntentContext(StrEnum):
     SELECTED_CONNECTOR = "selected connector"
     SQL_EDITOR_EMPTY_STATE = "sql editor empty state"
     DATA_WAREHOUSE_SOURCES_TABLE = "data warehouse sources table"
+    MANAGED_WAREHOUSE_PROVISIONED = "managed warehouse provisioned"
     EXPERIMENT_CREATED = "experiment created"
     EXPERIMENT_ANALYZED = "experiment analyzed"
     EXPERIMENT_VIEW_RECORDINGS = "experiment view recordings"
@@ -3398,6 +3406,7 @@ class ProductKey(StrEnum):
     LLM_EVALUATIONS = "llm_evaluations"
     LLM_PROMPTS = "llm_prompts"
     LOGS = "logs"
+    MANAGED_WAREHOUSE = "managed_warehouse"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX = "max"
     MCP_ANALYTICS = "mcp_analytics"
@@ -3661,8 +3670,10 @@ class SlackIntegrationScopeInReview(StrEnum):
     CANVASES_WRITE = "canvases:write"
     CHANNELS_MANAGE = "channels:manage"
     COMMANDS = "commands"
+    FILES_READ = "files:read"
     FILES_WRITE = "files:write"
     IM_HISTORY = "im:history"
+    MPIM_HISTORY = "mpim:history"
     MPIM_READ = "mpim:read"
 
 
@@ -3999,6 +4010,14 @@ class WebStatsBreakdown(StrEnum):
     INITIAL_UTM_TERM = "InitialUTMTerm"
     INITIAL_UTM_CONTENT = "InitialUTMContent"
     INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN = "InitialUTMSourceMediumCampaign"
+    FIRST_PAGEVIEW_CHANNEL_TYPE = "FirstPageviewChannelType"
+    FIRST_PAGEVIEW_REFERRING_DOMAIN = "FirstPageviewReferringDomain"
+    FIRST_PAGEVIEW_UTM_SOURCE = "FirstPageviewUTMSource"
+    FIRST_PAGEVIEW_UTM_CAMPAIGN = "FirstPageviewUTMCampaign"
+    FIRST_PAGEVIEW_UTM_MEDIUM = "FirstPageviewUTMMedium"
+    FIRST_PAGEVIEW_UTM_TERM = "FirstPageviewUTMTerm"
+    FIRST_PAGEVIEW_UTM_CONTENT = "FirstPageviewUTMContent"
+    FIRST_PAGEVIEW_UTM_SOURCE_MEDIUM_CAMPAIGN = "FirstPageviewUTMSourceMediumCampaign"
     BROWSER = "Browser"
     OS = "OS"
     VIEWPORT = "Viewport"

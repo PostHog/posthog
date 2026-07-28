@@ -3004,6 +3004,14 @@ export enum WebStatsBreakdown {
     InitialUTMTerm = 'InitialUTMTerm',
     InitialUTMContent = 'InitialUTMContent',
     InitialUTMSourceMediumCampaign = 'InitialUTMSourceMediumCampaign',
+    FirstPageviewChannelType = 'FirstPageviewChannelType',
+    FirstPageviewReferringDomain = 'FirstPageviewReferringDomain',
+    FirstPageviewUTMSource = 'FirstPageviewUTMSource',
+    FirstPageviewUTMCampaign = 'FirstPageviewUTMCampaign',
+    FirstPageviewUTMMedium = 'FirstPageviewUTMMedium',
+    FirstPageviewUTMTerm = 'FirstPageviewUTMTerm',
+    FirstPageviewUTMContent = 'FirstPageviewUTMContent',
+    FirstPageviewUTMSourceMediumCampaign = 'FirstPageviewUTMSourceMediumCampaign',
     Browser = 'Browser',
     OS = 'OS',
     Viewport = 'Viewport',
@@ -5743,6 +5751,7 @@ export enum DefaultChannelTypes {
     OrganicSocial = 'Organic Social',
     OrganicVideo = 'Organic Video',
     OrganicShopping = 'Organic Shopping',
+    AI = 'AI',
     Push = 'Push',
     SMS = 'SMS',
     Audio = 'Audio',
@@ -6443,6 +6452,22 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
     conversion_goal_id: string
     conversion_goal_name: string
     schema_map: SchemaMap
+    /**
+     * Marks this goal as customer-defining: a conversion here means the person became a customer
+     * (e.g. a payment or subscription), not an intermediate step like a sign up. It gates
+     * customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted
+     * once per person via first_time_for_user) rather than every conversion. Defaults to false.
+     */
+    counts_as_customer?: boolean
+    /**
+     * Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a
+     * count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC.
+     * The amount itself comes from math_property, and its currency from
+     * math_property_revenue_currency, the same shape Revenue analytics uses for revenue events.
+     * Independent of counts_as_customer: a purchase is usually both, a trial signup neither.
+     * Defaults to false.
+     */
+    counts_as_revenue?: boolean
 }
 
 export enum AttributionMode {
@@ -6474,6 +6499,7 @@ export interface MarketingAnalyticsConfig {
 
 export enum MarketingAnalyticsDrillDownLevel {
     Channel = 'channel',
+    ChannelSource = 'channel_source',
     Source = 'source',
     Campaign = 'campaign',
     AdGroup = 'ad_group',
@@ -6539,6 +6565,12 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
             MarketingAnalyticsBaseColumns.Campaign,
             MarketingAnalyticsBaseColumns.Source,
         ],
+    },
+    [MarketingAnalyticsDrillDownLevel.ChannelSource]: {
+        // Channel is the grouping alias; Source survives as the second column so a channel's
+        // rows break down into the sources that make it up.
+        columnAlias: 'Channel',
+        excludedBaseColumns: [MarketingAnalyticsBaseColumns.Id, MarketingAnalyticsBaseColumns.Campaign],
     },
     [MarketingAnalyticsDrillDownLevel.Source]: {
         columnAlias: 'Source',
@@ -8074,6 +8106,11 @@ export const externalDataSources = [
     'Meltwater',
     'UserCom',
     'Latitude',
+    'Workato',
+    'SideShift',
+    'DuckLake',
+    'Starburst',
+    'Easybill',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -8606,6 +8643,7 @@ export enum ProductKey {
     LLM_EVALUATIONS = 'llm_evaluations',
     LLM_PROMPTS = 'llm_prompts',
     LOGS = 'logs',
+    MANAGED_WAREHOUSE = 'managed_warehouse',
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     MCP_ANALYTICS = 'mcp_analytics',
@@ -8649,6 +8687,9 @@ export enum ProductIntentContext {
     SELECTED_CONNECTOR = 'selected connector',
     SQL_EDITOR_EMPTY_STATE = 'sql editor empty state',
     DATA_WAREHOUSE_SOURCES_TABLE = 'data warehouse sources table',
+
+    // Managed Warehouse
+    MANAGED_WAREHOUSE_PROVISIONED = 'managed warehouse provisioned',
 
     // Experiments
     EXPERIMENT_CREATED = 'experiment created',
