@@ -228,6 +228,14 @@ class SignalReport(UUIDModel):
     title = models.TextField(null=True, blank=True)
     summary = models.TextField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
+    # The charts this report currently shows, each a `ReportChart` (see report_charts.py). Part of
+    # the report's content rather than its artefact log: a chart illustrates the summary, so it is
+    # replaced with the summary rather than accumulating versions beside it. `summary` places one
+    # with a `[label](chart:<chart_id>)` link; the rest render below the prose.
+    # `db_default` alongside `default`: a callable default is Python-only, so without it the column
+    # lands NOT NULL with no Postgres default and any insert from a pre-deploy worker — which omits
+    # the column it doesn't know about — fails until the rollout finishes.
+    charts = models.JSONField(default=list, db_default=[], blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -410,10 +418,13 @@ class SignalReport(UUIDModel):
         caller owns the write so it can batch this with other changes in one transaction.
         """
         updated_fields: set[str] = set()
-        if title is not None:
+        # Compared before assigning, so an idempotent re-send of the current text is a no-op. The REST
+        # PATCH path already compares this way, and a spurious "changed" here would cost a needless
+        # save, a misleading edit-history note, and a retracted embedding (see receivers.py).
+        if title is not None and title != self.title:
             self.title = title
             updated_fields.add("title")
-        if summary is not None:
+        if summary is not None and summary != self.summary:
             self.summary = summary
             updated_fields.add("summary")
         if updated_fields:

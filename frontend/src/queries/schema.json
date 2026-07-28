@@ -1559,6 +1559,10 @@
                     "description": "Replace null aggregation results with zero.",
                     "type": "boolean"
                 },
+                "showTotalRow": {
+                    "description": "Show a total summing all Y series. Applies to line, bar, and area charts.",
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "description": "Render each data point's value as a label directly on the series.",
                     "type": "boolean"
@@ -1658,10 +1662,6 @@
                         "type": "string"
                     },
                     "type": "array"
-                },
-                "showTotalRow": {
-                    "description": "Show a total row at the bottom of the table.",
-                    "type": "boolean"
                 },
                 "transpose": {
                     "description": "Transpose rows and columns.",
@@ -23919,7 +23919,12 @@
                 "Vturb",
                 "Meltwater",
                 "UserCom",
-                "Latitude"
+                "Latitude",
+                "Workato",
+                "SideShift",
+                "DuckLake",
+                "Starburst",
+                "Easybill"
             ],
             "type": "string"
         },
@@ -28708,6 +28713,10 @@
                 },
                 "orderBy": {
                     "$ref": "#/definitions/LogsOrderBy"
+                },
+                "personId": {
+                    "description": "Show logs for a given person",
+                    "type": "string"
                 },
                 "resourceFingerprint": {
                     "type": "string"
@@ -34789,6 +34798,7 @@
                 "selected connector",
                 "sql editor empty state",
                 "data warehouse sources table",
+                "managed warehouse provisioned",
                 "experiment created",
                 "experiment analyzed",
                 "experiment view recordings",
@@ -34937,6 +34947,7 @@
                 "comments",
                 "conversations",
                 "customer_analytics",
+                "data_catalog",
                 "data_warehouse",
                 "data_warehouse_saved_queries",
                 "early_access_features",
@@ -34957,6 +34968,7 @@
                 "llm_evaluations",
                 "llm_prompts",
                 "logs",
+                "managed_warehouse",
                 "marketing_analytics",
                 "max",
                 "mcp_analytics",
@@ -50619,6 +50631,14 @@
                 "InitialUTMTerm",
                 "InitialUTMContent",
                 "InitialUTMSourceMediumCampaign",
+                "FirstPageviewChannelType",
+                "FirstPageviewReferringDomain",
+                "FirstPageviewUTMSource",
+                "FirstPageviewUTMCampaign",
+                "FirstPageviewUTMMedium",
+                "FirstPageviewUTMTerm",
+                "FirstPageviewUTMContent",
+                "FirstPageviewUTMSourceMediumCampaign",
                 "Browser",
                 "OS",
                 "Viewport",

@@ -3010,6 +3010,14 @@ export enum WebStatsBreakdown {
     InitialUTMTerm = 'InitialUTMTerm',
     InitialUTMContent = 'InitialUTMContent',
     InitialUTMSourceMediumCampaign = 'InitialUTMSourceMediumCampaign',
+    FirstPageviewChannelType = 'FirstPageviewChannelType',
+    FirstPageviewReferringDomain = 'FirstPageviewReferringDomain',
+    FirstPageviewUTMSource = 'FirstPageviewUTMSource',
+    FirstPageviewUTMCampaign = 'FirstPageviewUTMCampaign',
+    FirstPageviewUTMMedium = 'FirstPageviewUTMMedium',
+    FirstPageviewUTMTerm = 'FirstPageviewUTMTerm',
+    FirstPageviewUTMContent = 'FirstPageviewUTMContent',
+    FirstPageviewUTMSourceMediumCampaign = 'FirstPageviewUTMSourceMediumCampaign',
     Browser = 'Browser',
     OS = 'OS',
     Viewport = 'Viewport',
@@ -3518,6 +3526,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     resourceFingerprint?: string
     /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
     excludeAttributes?: boolean
+    /** Show logs for a given person */
+    personId?: string
     /**
      * Custom column expressions evaluated per log row. Each entry is either a source-prefixed
      * shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar
@@ -8104,6 +8114,11 @@ export const externalDataSources = [
     'Meltwater',
     'UserCom',
     'Latitude',
+    'Workato',
+    'SideShift',
+    'DuckLake',
+    'Starburst',
+    'Easybill',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -8616,6 +8631,7 @@ export enum ProductKey {
     COMMENTS = 'comments',
     CONVERSATIONS = 'conversations',
     CUSTOMER_ANALYTICS = 'customer_analytics',
+    DATA_CATALOG = 'data_catalog',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
@@ -8636,6 +8652,7 @@ export enum ProductKey {
     LLM_EVALUATIONS = 'llm_evaluations',
     LLM_PROMPTS = 'llm_prompts',
     LOGS = 'logs',
+    MANAGED_WAREHOUSE = 'managed_warehouse',
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     MCP_ANALYTICS = 'mcp_analytics',
@@ -8679,6 +8696,9 @@ export enum ProductIntentContext {
     SELECTED_CONNECTOR = 'selected connector',
     SQL_EDITOR_EMPTY_STATE = 'sql editor empty state',
     DATA_WAREHOUSE_SOURCES_TABLE = 'data warehouse sources table',
+
+    // Managed Warehouse
+    MANAGED_WAREHOUSE_PROVISIONED = 'managed warehouse provisioned',
 
     // Experiments
     EXPERIMENT_CREATED = 'experiment created',
