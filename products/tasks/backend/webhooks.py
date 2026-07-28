@@ -1,6 +1,7 @@
 import hmac
 import uuid
 import hashlib
+import functools
 
 from django.db import transaction
 from django.db.models import Case, IntegerField, Value, When
@@ -451,10 +452,9 @@ def _sync_signal_report_reviewers_on_pr_open(task_id: uuid.UUID) -> None:
         .distinct()
     )
     for report_id, team_id in report_rows:
+        # partial (not a lambda) binds this iteration's values without a loop-variable closure.
         transaction.on_commit(
-            lambda report_id=report_id, team_id=team_id: sync_report_reviewers_to_github.delay(
-                report_id=str(report_id), team_id=team_id
-            )
+            functools.partial(sync_report_reviewers_to_github.delay, report_id=str(report_id), team_id=team_id)
         )
 
 
