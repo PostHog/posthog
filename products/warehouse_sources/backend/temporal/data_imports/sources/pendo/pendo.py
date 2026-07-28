@@ -118,6 +118,13 @@ def _iter_list_endpoint(
         resumable_source_manager.save_state(PendoResumeConfig(offset=offset))
 
 
+def _escape_filter_string(value: str) -> str:
+    # Pendo's filter grammar uses JS-style string literals. `last_id` comes from a row's sort
+    # field (e.g. visitorId, which a customer's own tracking code can set to an arbitrary
+    # string), so escape backslashes and quotes before splicing it into the filter expression.
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def _iter_aggregation(
     session: requests.Session,
     base_url: str,
@@ -138,7 +145,7 @@ def _iter_aggregation(
             {"sort": [sort_field]},
         ]
         if last_id is not None:
-            pipeline.append({"filter": f'{sort_field}>"{last_id}"'})
+            pipeline.append({"filter": f'{sort_field}>"{_escape_filter_string(last_id)}"'})
         pipeline.append({"limit": AGGREGATION_PAGE_SIZE})
 
         body = {

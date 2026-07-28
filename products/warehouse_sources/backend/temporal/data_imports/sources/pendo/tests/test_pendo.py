@@ -223,6 +223,18 @@ class TestGetRowsAggregation:
         pipeline = mock_session.return_value.request.call_args.kwargs["json"]["request"]["pipeline"]
         assert {"filter": 'visitorId>"9"'} in pipeline
 
+    @mock.patch(f"{PENDO_PATH}.make_tracked_session")
+    def test_escapes_quotes_in_the_filter_cursor(self, mock_session):
+        # visitorId is set by the customer's own tracking code, so a value containing a `"`
+        # must not be able to break out of the filter string literal and alter the expression.
+        mock_session.return_value.request.return_value = _resp({"results": []})
+        manager = _make_manager(PendoResumeConfig(last_id='ab"cd'))
+
+        list(get_rows("key", "us", "visitors", mock.MagicMock(), manager))
+
+        pipeline = mock_session.return_value.request.call_args.kwargs["json"]["request"]["pipeline"]
+        assert {"filter": 'visitorId>"ab\\"cd"'} in pipeline
+
 
 class TestPendoSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
