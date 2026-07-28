@@ -70,7 +70,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             type: 'string',
             label: 'Email address',
             description:
-                'Email address for enhanced conversions, used when no gclid is available. Sent SHA-256 hashed; leave blank to omit. Normalize (lowercase, trimmed) for best match rates.',
+                'Email address for enhanced conversions. Sent SHA-256 hashed; leave blank to omit. Normalize (lowercase, trimmed) for best match rates.',
             default: '{person.properties.email}',
             secret: false,
             required: false,
@@ -80,7 +80,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             type: 'string',
             label: 'Phone number',
             description:
-                'Phone number for enhanced conversions, used when no gclid is available. Sent SHA-256 hashed; leave blank to omit. Normalize to E.164 format (e.g. +14255551234) for best match rates.',
+                'Phone number for enhanced conversions. Sent SHA-256 hashed; leave blank to omit. Normalize to E.164 format (e.g. +14255551234) for best match rates.',
             default: '',
             secret: false,
             required: false,
