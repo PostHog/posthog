@@ -20,25 +20,30 @@ TEXT_COLUMNS = [
 # provisioning_issues_personal_api_key already has a Postgres default (it was added with
 # db_default), and the five rate-limit columns are nullable, so neither needs anything here.
 
+COLUMN_DEFAULTS = [(column, "false") for column in BOOLEAN_COLUMNS] + [(column, "''") for column in TEXT_COLUMNS]
 
-def _set_default(column: str, literal: str) -> migrations.RunSQL:
-    return migrations.RunSQL(
-        sql=f"""ALTER TABLE "posthog_oauthapplication" ALTER COLUMN "{column}" SET DEFAULT {literal};""",
-        reverse_sql=f"""ALTER TABLE "posthog_oauthapplication" ALTER COLUMN "{column}" DROP DEFAULT;""",
-    )
+SET_DEFAULTS_SQL = 'ALTER TABLE "posthog_oauthapplication" ' + ", ".join(
+    f'ALTER COLUMN "{column}" SET DEFAULT {literal}' for column, literal in COLUMN_DEFAULTS
+)
+DROP_DEFAULTS_SQL = 'ALTER TABLE "posthog_oauthapplication" ' + ", ".join(
+    f'ALTER COLUMN "{column}" DROP DEFAULT' for column, _ in COLUMN_DEFAULTS
+)
 
 
 class Migration(migrations.Migration):
     """Give Postgres defaults for the provisioning columns 1276 drops from the model state.
 
+    One ALTER carrying every SET DEFAULT clause rather than one statement per column. These are
+    catalog-only changes, but each still needs a brief ACCESS EXCLUSIVE lock, so batching takes
+    that lock once instead of eight times - and keeps the file to a single operation, which is
+    what the migration risk analyzer asks of one that would otherwise mix several.
+
     Alone in its own migration: RunSQL sharing a file with other operations holds its lock for
-    the whole file. These are catalog-only ALTERs on a small table, so they are cheap, but they
-    still take a brief ACCESS EXCLUSIVE lock each.
+    the whole file.
     """
 
     dependencies = [("posthog", "1274_backfill_oauth_provisioning_config")]
 
     operations = [
-        *[_set_default(column, "false") for column in BOOLEAN_COLUMNS],
-        *[_set_default(column, "''") for column in TEXT_COLUMNS],
+        migrations.RunSQL(sql=SET_DEFAULTS_SQL, reverse_sql=DROP_DEFAULTS_SQL),
     ]
