@@ -103,7 +103,17 @@ def resolve_snapshot_plan(schema: ExternalDataSchema, version: int | None = None
     return _resolve_pinned_snapshot_plan(uri, version)
 
 
-@lru_cache(maxsize=64)
+# A cached plan holds every live parquet path in the table, so its size scales
+# with table size, not with maxsize — this bounds entry *count*, not memory.
+# Keep it close to backfill.py's MAX_CONCURRENT_BACKFILLS_GLOBAL (5): that's
+# the real steady-state number of schemas actively BACKFILLING at once, so a
+# healthy fleet never evicts a live entry mid-backfill, while a much larger
+# maxsize would only pad how many large tables' path lists one pod can be
+# holding onto at once without bounding it in any way that tracks memory.
+_PINNED_SNAPSHOT_PLAN_CACHE_SIZE = 16
+
+
+@lru_cache(maxsize=_PINNED_SNAPSHOT_PLAN_CACHE_SIZE)
 def _resolve_pinned_snapshot_plan(uri: str, version: int) -> BackfillSnapshotPlan:
     """Cached for already-committed (pinned) versions only.
 
