@@ -1086,6 +1086,13 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
 
     file_system_surface = "desktop"
 
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = super().safely_get_queryset(queryset)
+        # `me` looks like a normal channel in the desktop file system, but it is
+        # the personal space. Keep each user's folder (and its CONTEXT.md)
+        # private even when project-level file-system access is otherwise shared.
+        return queryset.filter(~Q(type="folder", depth=1, path="me") | Q(created_by=self.request.user))
+
     def _allow_delete_without_ref(self, entry: FileSystem) -> bool:
         # Desktop canvases are `dashboard`-typed rows whose source lives in `meta`,
         # not a backing Dashboard, so they legitimately have no ref. Delete the bare
