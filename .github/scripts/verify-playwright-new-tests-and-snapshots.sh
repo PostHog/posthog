@@ -108,7 +108,13 @@ while IFS= read -r test_file; do
     # Can't analyze (no detectable tests, or no changed lines) → re-run the whole file.
     if ((total_file_tests == 0)) || ((${#changed_lines[@]} == 0)); then
         targets+=("$pw_file")
-        num_targeted_tests=$((num_targeted_tests + (total_file_tests > 0 ? total_file_tests : 1)))
+        # No arithmetic ternary here: it's valid bash, but semgrep's bash parser
+        # can't handle it and aborts the whole security scan on this file.
+        if ((total_file_tests > 0)); then
+            num_targeted_tests=$((num_targeted_tests + total_file_tests))
+        else
+            num_targeted_tests=$((num_targeted_tests + 1))
+        fi
         continue
     fi
 
