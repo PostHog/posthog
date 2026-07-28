@@ -6,6 +6,7 @@ import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -92,7 +93,17 @@ export function MetricsTab(): JSX.Element {
             key: 'name',
             dataIndex: 'name',
             render: (_, metric) => (
-                <LemonTableLink title={metric.display_name || metric.name} description={metric.description} />
+                <LemonTableLink
+                    title={metric.display_name || metric.name}
+                    // Render descriptions with images disabled so a stored image URL can't beacon other viewers.
+                    description={
+                        metric.description ? (
+                            <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings disableImages>
+                                {metric.description}
+                            </LemonMarkdown>
+                        ) : undefined
+                    }
+                />
             ),
             sorter: (a, b) => a.name.localeCompare(b.name),
         },
