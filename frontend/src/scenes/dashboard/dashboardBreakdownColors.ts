@@ -23,6 +23,13 @@ export type BreakdownColorConfig = {
 
 export type BreakdownValueAndType = Pick<BreakdownColorConfig, 'breakdownValue' | 'breakdownType'>
 
+/** A breakdown value as it appears on one tile, sized for auto-assignment ranking. */
+export type TileBreakdownValue = BreakdownValueAndType & {
+    /** Best-effort series size on the tile (aggregated value, else range total), so assignment
+     * can rank values the way a single insight orders its series. Missing means unranked. */
+    magnitude?: number
+}
+
 /** Label of the synthetic baseline row funnel insights contribute to the colors table. */
 export const FUNNEL_BASELINE_BREAKDOWN_LABEL = 'Baseline'
 
@@ -88,13 +95,25 @@ export function mergeBreakdownColorConfigs(...configLists: BreakdownColorConfig[
     return merged
 }
 
-function extractTileBreakdownValues(tile: DashboardTile<QueryBasedInsightModel>): BreakdownValueAndType[] {
+/** Reads the size of one result row across insight kinds: trends rows carry aggregated_value
+ * (total-value displays) or count (range total), retention rows carry the cohort size as the
+ * first interval's count. */
+function extractResultMagnitude(result: any): number {
+    for (const candidate of [result?.aggregated_value, result?.count, result?.values?.[0]?.count]) {
+        if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+            return candidate
+        }
+    }
+    return 0
+}
+
+function extractTileBreakdownValues(tile: DashboardTile<QueryBasedInsightModel>): TileBreakdownValue[] {
     if (!isInsightVizNode(tile.insight?.query)) {
         return []
     }
 
     const querySource = tile.insight?.query.source
-    let breakdownValues: (BreakdownValueAndType | null)[] = []
+    let breakdownValues: (TileBreakdownValue | null)[] = []
     if (isFunnelsQuery(querySource)) {
         const funnelVizType = querySource.funnelsFilter?.funnelVizType
         const isStepsViz = funnelVizType === undefined || funnelVizType === FunnelVizType.Steps
@@ -115,15 +134,21 @@ function extractTileBreakdownValues(tile: DashboardTile<QueryBasedInsightModel>)
         tile.insight?.result?.forEach((result: any) => {
             const key = getFunnelDatasetKey(result)
             const breakdownValue = normalizeBreakdownValue(JSON.parse(key)['breakdown_value'])
-            breakdownValues.push(breakdownValue == null ? null : { breakdownValue, breakdownType })
+            breakdownValues.push(
+                breakdownValue == null
+                    ? null
+                    : { breakdownValue, breakdownType, magnitude: extractResultMagnitude(result) }
+            )
         })
     } else if (isTrendsQuery(querySource)) {
         const breakdownType = querySource.breakdownFilter?.breakdown_type || 'event'
         breakdownValues =
-            tile.insight?.result?.map((result: any): BreakdownValueAndType | null => {
+            tile.insight?.result?.map((result: any): TileBreakdownValue | null => {
                 const key = getTrendDatasetKey(result)
                 const breakdownValue = normalizeBreakdownValue(JSON.parse(key)['breakdown_value'])
-                return breakdownValue == null ? null : { breakdownValue, breakdownType }
+                return breakdownValue == null
+                    ? null
+                    : { breakdownValue, breakdownType, magnitude: extractResultMagnitude(result) }
             }) || []
     } else if (isRetentionQuery(querySource) && hasBreakdownFilter(querySource.breakdownFilter)) {
         const breakdownType = querySource.breakdownFilter.breakdown_type || 'event'
@@ -131,16 +156,24 @@ function extractTileBreakdownValues(tile: DashboardTile<QueryBasedInsightModel>)
         // like trends/funnels have, because retention has no resultCustomizations whose
         // persisted keys the extraction would need to stay in sync with.
         breakdownValues =
-            tile.insight?.result?.map((result: any): BreakdownValueAndType | null => {
+            tile.insight?.result?.map((result: any): TileBreakdownValue | null => {
                 const breakdownValue = normalizeBreakdownValue(result.breakdown_value)
-                return breakdownValue == null ? null : { breakdownValue, breakdownType }
+                return breakdownValue == null
+                    ? null
+                    : { breakdownValue, breakdownType, magnitude: extractResultMagnitude(result) }
             }) || []
     }
 
     return breakdownValues
-        .filter((value): value is BreakdownValueAndType => value != null)
-        .reduce<BreakdownValueAndType[]>((acc, curr) => {
-            if (!acc.some((x) => x.breakdownValue === curr.breakdownValue && x.breakdownType === curr.breakdownType)) {
+        .filter((value): value is TileBreakdownValue => value != null)
+        .reduce<TileBreakdownValue[]>((acc, curr) => {
+            const existing = acc.find(
+                (x) => x.breakdownValue === curr.breakdownValue && x.breakdownType === curr.breakdownType
+            )
+            if (existing) {
+                // A value repeats across series or retention cohorts; its largest row is its size.
+                existing.magnitude = Math.max(existing.magnitude ?? 0, curr.magnitude ?? 0)
+            } else {
                 acc.push(curr)
             }
             return acc
@@ -152,7 +185,7 @@ function extractTileBreakdownValues(tile: DashboardTile<QueryBasedInsightModel>)
  * colors may collide, and how many tiles share a value decides whether it gets one at all. */
 export function extractBreakdownValuesByTile(
     insightTiles: DashboardTile<QueryBasedInsightModel>[] | null
-): BreakdownValueAndType[][] {
+): TileBreakdownValue[][] {
     if (insightTiles == null) {
         return []
     }
@@ -165,6 +198,7 @@ export function extractBreakdownValues(
 ): BreakdownValueAndType[] {
     return extractBreakdownValuesByTile(insightTiles)
         .flat()
+        .map(({ breakdownValue, breakdownType }): BreakdownValueAndType => ({ breakdownValue, breakdownType }))
         .reduce<BreakdownValueAndType[]>((acc, curr) => {
             if (!acc.some((x) => x.breakdownValue === curr.breakdownValue && x.breakdownType === curr.breakdownType)) {
                 acc.push(curr)
@@ -239,19 +273,22 @@ export function buildSharedBreakdownValueLookup(
  *
  * Stability comes from persistence, not from the algorithm: manual pins never move, and
  * persisted auto entries keep their slots unless two of them meet on one tile with the same
- * slot (a new tile landed, or the entry predates collision-aware assignment). Uncovered
- * shared values and collision-displaced auto entries are then assigned in deterministic
- * order: the lowest globally-unused slot while slots last, then a slot the value's own
- * tiles don't show yet, then the slot least used on those tiles. A duplicate color on two
- * different charts is invisible; on one chart it isn't, so exhaustion prefers cross-tile
- * reuse over within-tile reuse.
+ * slot (a new tile landed, or the entry predates collision-aware assignment); of such a
+ * pair, the smaller series moves, since the larger one is the more recognizable of the two.
+ * Uncovered shared values and displaced entries are then assigned as if their series formed
+ * one insight merged across every tile: ranked by size, largest first, because insights hand
+ * out position colors in size order, which keeps dashboard colors close to what each insight
+ * shows on its own. Ties fall back to a locale-independent value order. Each value takes the
+ * lowest globally-unused slot while slots last, then a slot its own tiles don't show yet,
+ * then the slot least used on those tiles: a duplicate color on two different charts is
+ * invisible, on one chart it isn't.
  *
  * Returns the full config list: existing entries in their original order (re-slotted ones
  * replaced in place, so an unchanged dashboard round-trips deep-equal for the save diff),
  * with new assignments appended.
  */
 export function applyAutoBreakdownColors(
-    tileBreakdownValues: BreakdownValueAndType[][],
+    tileBreakdownValues: TileBreakdownValue[][],
     existingConfigs: BreakdownColorConfig[],
     paletteSize: number = dataColorVars.length
 ): BreakdownColorConfig[] {
@@ -259,20 +296,27 @@ export function applyAutoBreakdownColors(
         return [...existingConfigs]
     }
 
-    const valueTiles = new Map<string, { value: BreakdownValueAndType; tiles: number[] }>()
+    const valueTiles = new Map<string, { value: BreakdownValueAndType; tiles: number[]; magnitude: number }>()
     tileBreakdownValues.forEach((values, tileIndex) => {
         for (const value of values) {
             const key = breakdownValueTileKey(value)
             const entry = valueTiles.get(key)
             if (entry) {
                 entry.tiles.push(tileIndex)
+                // The highest value across tiles ranks the series, mirroring how the value
+                // would place in a single insight containing its biggest series.
+                entry.magnitude = Math.max(entry.magnitude, value.magnitude ?? 0)
             } else {
-                valueTiles.set(key, { value, tiles: [tileIndex] })
+                valueTiles.set(key, { value, tiles: [tileIndex], magnitude: value.magnitude ?? 0 })
             }
         }
     })
     const tilesOf = (value: BreakdownValueAndType): number[] =>
         valueTiles.get(breakdownValueTileKey(value))?.tiles ?? []
+    const magnitudeOf = (value: BreakdownValueAndType): number =>
+        valueTiles.get(breakdownValueTileKey(value))?.magnitude ?? 0
+    const compareAssignmentRank = (a: BreakdownValueAndType, b: BreakdownValueAndType): number =>
+        magnitudeOf(b) - magnitudeOf(a) || compareAssignmentOrder(a, b)
 
     // Per-tile slot usage drives collision checks; global usage keeps distinct values on
     // distinct colors while free slots last.
@@ -299,10 +343,10 @@ export function applyAutoBreakdownColors(
         }
     }
 
-    // Walking persisted auto entries in assignment order means that of a colliding pair,
-    // the later-sorted value is the one that moves.
+    // Walking persisted auto entries in rank order means that of a colliding pair, the
+    // smaller series (or the later-sorted one, on ties) is the one that moves.
     const displaced: BreakdownValueAndType[] = []
-    for (const config of [...autoConfigs].sort(compareAssignmentOrder)) {
+    for (const config of [...autoConfigs].sort(compareAssignmentRank)) {
         const slot = presetTokenToSlot(config.colorToken, paletteSize)!
         const tiles = tilesOf(config)
         const collidesWithinTile = tiles.some((tile) => (tileSlotCounts[tile].get(slot) ?? 0) > 0)
@@ -324,7 +368,7 @@ export function applyAutoBreakdownColors(
 
     const allSlots = Array.from({ length: paletteSize }, (_, slot) => slot)
     const assignments = new Map<string, BreakdownColorConfig>()
-    for (const candidate of [...uncovered, ...displaced].sort(compareAssignmentOrder)) {
+    for (const candidate of [...uncovered, ...displaced].sort(compareAssignmentRank)) {
         const tiles = tilesOf(candidate)
         const usedOnOwnTiles = (slot: number): number =>
             tiles.reduce((sum, tile) => sum + (tileSlotCounts[tile].get(slot) ?? 0), 0)
@@ -363,13 +407,14 @@ export type TileFallbackSeries = {
 
 /** Position-based fallback tokens for the series of one tile that have no value override.
  *
- * Without dashboard colors, series get `preset-(position + 1)`: consecutive palette slots,
- * which are designed to look distinct next to each other. Value overrides break that
- * sequence, since they occupy slots scattered across the whole dashboard, so a
- * position-colored neighbor can land on the same slot as an override on the same chart.
- * Instead, non-overridden series fill the slots the tile's overrides do not use, in
- * position order, cycling through those free slots once they run out (a duplicate among
- * far-apart positions beats duplicating an override's color).
+ * Without dashboard colors, series get `preset-(position + 1)`. Value overrides occupy slots
+ * scattered across the whole dashboard, so a position-colored neighbor can land on the same
+ * slot as an override shown on the same chart. Non-overridden series therefore keep their own
+ * position slot whenever no override on this tile uses it, so the tile deviates from the
+ * standalone insight as little as possible; only the colliding series move, to the lowest
+ * slots the tile leaves unused. Once those run out, displaced series cycle through the
+ * non-override slots (a duplicate among far-apart positions beats duplicating an override's
+ * color).
  *
  * Returns an empty map when the tile has no overrides, so override-free tiles keep plain
  * position colors and render exactly as a standalone insight, and when overrides cover the
@@ -401,8 +446,24 @@ export function computeTileFallbackTokens(
     const positions = [...new Set(series.map((s) => s.position))]
         .filter((position) => !overriddenPositions.has(position))
         .sort((a, b) => a - b)
-    positions.forEach((position, index) => {
-        fallbackTokens.set(position, slotToPresetToken(freeSlots[index % freeSlots.length]))
+
+    const keptSlots = new Set<number>()
+    const displacedPositions: number[] = []
+    for (const position of positions) {
+        const naturalSlot = position % paletteSize
+        if (!usedSlots.has(naturalSlot) && !keptSlots.has(naturalSlot)) {
+            keptSlots.add(naturalSlot)
+            fallbackTokens.set(position, slotToPresetToken(naturalSlot))
+        } else {
+            displacedPositions.push(position)
+        }
+    }
+    // With every non-override slot kept by another series, a displaced series duplicating a
+    // kept slot still beats duplicating an override's color.
+    const remainingFree = freeSlots.filter((slot) => !keptSlots.has(slot))
+    const displacedPool = remainingFree.length > 0 ? remainingFree : freeSlots
+    displacedPositions.forEach((position, index) => {
+        fallbackTokens.set(position, slotToPresetToken(displacedPool[index % displacedPool.length]))
     })
     return fallbackTokens
 }

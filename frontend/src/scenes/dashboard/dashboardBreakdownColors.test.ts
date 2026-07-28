@@ -273,10 +273,39 @@ describe('dashboardBreakdownColors', () => {
 
             expect(extractBreakdownValuesByTile(tiles)).toEqual([
                 [
-                    { breakdownValue: 'Chrome', breakdownType: 'event' },
-                    { breakdownValue: 'Firefox', breakdownType: 'event' },
+                    { breakdownValue: 'Chrome', breakdownType: 'event', magnitude: 0 },
+                    { breakdownValue: 'Firefox', breakdownType: 'event', magnitude: 0 },
                 ],
-                [{ breakdownValue: 'Chrome', breakdownType: 'event' }],
+                [{ breakdownValue: 'Chrome', breakdownType: 'event', magnitude: 0 }],
+            ])
+        })
+
+        it('sizes values from their rows, preferring aggregated_value and keeping the largest across duplicates', () => {
+            const tiles = [
+                trendsTile([
+                    { action: { order: 0 }, breakdown_value: ['Chrome'], count: 120 },
+                    { action: { order: 1 }, breakdown_value: ['Chrome'], count: 80 },
+                    { action: { order: 0 }, breakdown_value: ['Firefox'], aggregated_value: 5, count: 999 },
+                ]),
+                // retention rows carry the cohort size as the first interval's count
+                createTestTile({
+                    result: [{ breakdown_value: 'Chrome', values: [{ count: 40 }, { count: 10 }] }],
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.RetentionQuery,
+                            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                        },
+                    } as InsightVizNode<InsightQueryNode>,
+                }),
+            ]
+
+            expect(extractBreakdownValuesByTile(tiles)).toEqual([
+                [
+                    { breakdownValue: 'Chrome', breakdownType: 'event', magnitude: 120 },
+                    { breakdownValue: 'Firefox', breakdownType: 'event', magnitude: 5 },
+                ],
+                [{ breakdownValue: 'Chrome', breakdownType: 'event', magnitude: 40 }],
             ])
         })
     })
@@ -295,6 +324,14 @@ describe('dashboardBreakdownColors', () => {
             breakdownValue: string,
             colorToken: BreakdownColorConfig['colorToken']
         ): BreakdownColorConfig => ({ breakdownValue, breakdownType: 'event', colorToken, source: 'auto' })
+        const sized = (
+            breakdownValue: string,
+            magnitude: number
+        ): { breakdownValue: string; breakdownType: 'event'; magnitude: number } => ({
+            breakdownValue,
+            breakdownType: 'event',
+            magnitude,
+        })
 
         it('assigns only values that appear on two or more tiles', () => {
             const result = applyAutoBreakdownColors([[value('Chrome'), value('Firefox')], [value('Chrome')]], [])
@@ -305,7 +342,7 @@ describe('dashboardBreakdownColors', () => {
             ])
         })
 
-        it('fills free slots in sorted order and appends after existing configs', () => {
+        it('fills free slots in value order when sizes tie, appending after existing configs', () => {
             const existing: BreakdownColorConfig[] = [
                 { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-3', source: 'manual' },
             ]
@@ -317,6 +354,46 @@ describe('dashboardBreakdownColors', () => {
                 { breakdownValue: 'Alibaba', breakdownType: 'event', colorToken: 'preset-1', source: 'auto' },
                 { breakdownValue: 'Google', breakdownType: 'event', colorToken: 'preset-2', source: 'auto' },
             ])
+        })
+
+        it('ranks shared values by series size, largest first, like one merged insight', () => {
+            const result = applyAutoBreakdownColors(
+                [
+                    [sized('Zebra', 100), sized('Apple', 5)],
+                    [sized('Zebra', 100), sized('Apple', 5)],
+                ],
+                []
+            )
+
+            // value order would put Apple first; size order matches the insights' own coloring
+            expect(result).toEqual([autoConfig('Zebra', 'preset-1'), autoConfig('Apple', 'preset-2')])
+        })
+
+        it('ranks by the highest size across tiles, not the first seen', () => {
+            const result = applyAutoBreakdownColors(
+                [
+                    [sized('Zeta', 10), sized('Alpha', 50)],
+                    [sized('Zeta', 200), sized('Alpha', 50)],
+                ],
+                []
+            )
+
+            expect(result).toEqual([autoConfig('Zeta', 'preset-1'), autoConfig('Alpha', 'preset-2')])
+        })
+
+        it('moves the smaller series when two persisted auto entries collide', () => {
+            const existing: BreakdownColorConfig[] = [autoConfig('Zeta', 'preset-1'), autoConfig('Alpha', 'preset-1')]
+
+            const result = applyAutoBreakdownColors(
+                [
+                    [sized('Zeta', 100), sized('Alpha', 5)],
+                    [sized('Zeta', 100), sized('Alpha', 5)],
+                ],
+                existing
+            )
+
+            // the larger series is the more recognizable one, so it keeps its color
+            expect(result).toEqual([autoConfig('Zeta', 'preset-1'), autoConfig('Alpha', 'preset-2')])
         })
 
         it('returns non-colliding configs unchanged, by reference, in their original order', () => {
@@ -468,22 +545,25 @@ describe('dashboardBreakdownColors', () => {
             expect(tokens.size).toBe(0)
         })
 
-        it('fills the slots the tile overrides do not use, in position order', () => {
+        it('keeps non-colliding series on their position colors and moves only the displaced one', () => {
             const tokens = computeTileFallbackTokens(
                 [
-                    { position: 0, overrideToken: null },
-                    { position: 1, overrideToken: 'preset-1' },
+                    { position: 0, overrideToken: 'preset-4' },
+                    { position: 1, overrideToken: null },
                     { position: 2, overrideToken: null },
-                    { position: 3, overrideToken: 'preset-4' },
+                    { position: 3, overrideToken: null },
                     { position: 4, overrideToken: null },
                 ],
                 15
             )
 
+            // the override occupies slot 3, so only the position-3 series moves, to the lowest
+            // slot the tile leaves unused; everyone else keeps their standalone insight color
             expect(tokens).toEqual(
                 new Map([
-                    [0, 'preset-2'],
+                    [1, 'preset-2'],
                     [2, 'preset-3'],
+                    [3, 'preset-1'],
                     [4, 'preset-5'],
                 ])
             )
