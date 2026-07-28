@@ -1,5 +1,6 @@
 import json
 import time
+from ipaddress import ip_address
 
 from unittest.mock import patch
 
@@ -70,7 +71,7 @@ class TestClientRegistration(ProvisioningTestBase):
         with (
             # example.com does not resolve, and the SSRF guard runs before the fetch, so
             # without this the metadata check would fail for a reason unrelated to the test.
-            patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None)),
+            patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")}),
             metadata_patch,
             patch(
                 "posthog.api.oauth.client_assertion.fetch_client_json_document",
@@ -133,10 +134,21 @@ class TestClientRegistration(ProvisioningTestBase):
         assert body["registered"] is True
         assert body["client_id"] == CIMD_URL
         assert body["token_endpoint_auth_method"] == "private_key_jwt"
-        assert body["capabilities"]["github_grants"] is True
+        # Signing assertions with a key it published itself proves only that it controls its
+        # own metadata document, which anyone can do, so it is not yet a partner PostHog
+        # vouched for.
+        assert body["capabilities"]["github_grants"] is False
         checks = {check["name"]: check for check in body["checks"]}
         assert checks["jwks"]["ok"] is True
         assert KID in checks["jwks"]["detail"]
+
+    def test_partner_registered_by_an_admin_can_use_github_grants(self):
+        self._make_partner(provisioning_partner_type="wizard")
+
+        res = self._register({"client_id": CIMD_URL})
+
+        assert res.status_code == 200, res.json()
+        assert res.json()["capabilities"]["github_grants"] is True
 
     def test_public_client_is_told_it_cannot_use_github_grants(self):
         self._make_partner(client_type=OAuthApplication.CLIENT_PUBLIC, jwks_uri=None)

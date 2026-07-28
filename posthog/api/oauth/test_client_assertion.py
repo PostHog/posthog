@@ -136,6 +136,7 @@ class TestClientAssertion(BaseTest):
             self._verify(assertion)
 
     def test_unsigned_assertion_is_rejected(self):
+        # nosemgrep: python.jwt.security.jwt-none-alg.jwt-python-none-alg (forging an alg=none token is the point: this asserts verify_client_assertion refuses it)
         assertion = jwt.encode(self._claims(), key="", algorithm="none")
         with self.assertRaises(ClientAssertionError):
             self._verify(assertion)

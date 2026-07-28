@@ -37,7 +37,8 @@ from posthog.models.oauth import (
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
 from posthog.scopes import filter_to_unprivileged_scopes
-from posthog.security.url_validation import is_url_allowed
+from posthog.security.pinned_requests import PinnedIPAdapter
+from posthog.security.url_validation import is_url_allowed, validate_url_and_pin_ips
 
 from .client_name import sanitize_client_name, validate_client_name
 
@@ -272,14 +273,32 @@ def fetch_client_json_document(
     CIMDFetchError for network and HTTP failures.
     """
     if require_identity_url_shape:
-        valid, error = validate_cimd_url(url, perform_dns_check=True)
+        valid, error = validate_cimd_url(url)
     else:
-        valid, error = validate_fetchable_https_url(url, perform_dns_check=True, what=what)
+        valid, error = validate_fetchable_https_url(url, what=what)
     if not valid:
         raise CIMDValidationError(error)
 
+    # The SSRF check resolves the host, and requests would resolve it a second time when
+    # it opens the connection. The client controls this URL and its DNS, so it can answer
+    # the first lookup with a public address and the second with an internal one. Pinning
+    # the connection to the addresses we actually validated closes that rebinding window;
+    # PinnedIPAdapter keeps the original hostname for SNI and certificate verification.
+    allowed, reason, pinned_ips = validate_url_and_pin_ips(url)
+    if not allowed:
+        raise CIMDValidationError(f"URL blocked: {reason}")
+
+    adapter = PinnedIPAdapter()
+    hostname = (urlparse(url).hostname or "").lower()
+    if pinned_ips:
+        adapter.pin(hostname, next(iter(pinned_ips)))
+
+    # Validation above rejects any non-HTTPS URL, so only the https adapter is mounted.
+    session = requests.Session()
+    session.mount("https://", adapter)
+
     try:
-        response = requests.get(
+        response = session.get(
             url,
             timeout=CIMD_FETCH_TIMEOUT_SECONDS,
             headers={
@@ -290,6 +309,7 @@ def fetch_client_json_document(
             allow_redirects=False,
         )
     except requests.RequestException as e:
+        session.close()
         raise CIMDFetchError(f"Failed to fetch {what}: {e}") from e
 
     try:
@@ -326,6 +346,7 @@ def fetch_client_json_document(
         body = b"".join(chunks)
     finally:
         response.close()
+        session.close()
 
     try:
         parsed = json.loads(body)

@@ -84,11 +84,16 @@ class ClientRegistrationView(ProvisioningAPIView):
                     "can_provision_resources": app.provisioning_can_provision_resources,
                 },
                 # Spelled out because "why can't I call github/grants" is the question this
-                # endpoint exists to answer, and the rule (confidential clients only) is not
-                # something a partner can infer from its own metadata document.
+                # endpoint exists to answer, and the rule (a confidential client that PostHog
+                # registered as a partner) is not something a partner can infer from its own
+                # metadata document.
                 "capabilities": {
                     "account_requests": app.provisioning_active and app.provisioning_can_create_accounts,
-                    "github_grants": app.requires_client_authentication and app.provisioning_can_create_accounts,
+                    "github_grants": (
+                        app.requires_client_authentication
+                        and bool(app.provisioning_partner_type)
+                        and app.provisioning_can_create_accounts
+                    ),
                 },
                 "checks": checks,
             }

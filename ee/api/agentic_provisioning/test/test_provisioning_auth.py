@@ -1,4 +1,5 @@
 import json
+from ipaddress import ip_address
 
 from unittest.mock import MagicMock, patch
 
@@ -442,14 +443,14 @@ def _cimd_mock_response(metadata: dict | None, status_code: int = 200):
     return resp
 
 
-@patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
+@patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
 class TestCimdProvisioningAutoRegistration(ProvisioningTestBase):
     def setUp(self):
         super().setUp()
         OAuthApplication.objects.filter(cimd_metadata_url=CIMD_PROV_URL).delete()
         real_cache.clear()
 
-    @patch("posthog.api.oauth.cimd.requests.get")
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_new_cimd_partner_succeeds_after_background_registration(self, mock_get, _url_mock):
         mock_get.return_value = _cimd_mock_response(_make_cimd_metadata())
 
@@ -479,7 +480,7 @@ class TestCimdProvisioningAutoRegistration(ProvisioningTestBase):
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
 
-    @patch("posthog.api.oauth.cimd.requests.get")
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_cimd_scope_ceiling_refreshes_on_agentic_auth_after_metadata_edit(self, mock_get, _url_mock):
         from posthog.api.oauth.cimd import _cache_key, register_cimd_provisioning_application_task
 

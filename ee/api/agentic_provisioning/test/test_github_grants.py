@@ -10,7 +10,7 @@ from posthog.models.oauth import OAuthApplication
 
 from ee.api.agentic_provisioning import github_grants
 from ee.api.agentic_provisioning.constants import GITHUB_GRANT_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, ProvisioningTestBase
 
 ACCESS_TOKEN = "gho_secret_user_token"
 
@@ -258,16 +258,17 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "grant_not_found"
 
-    def _create_other_partner(self) -> OAuthApplication:
+    def _create_other_partner(self, *, partner_type: str = "other_test_partner") -> OAuthApplication:
         return OAuthApplication.objects.create(
             name="Other Partner",
             client_id="other_partner_client_id",
-            client_secret="",
+            client_secret=TEST_PARTNER_CLIENT_SECRET,
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://other.example.com",
             algorithm="RS256",
             is_provisioning_partner=True,
+            provisioning_partner_type=partner_type,
             provisioning_active=True,
             provisioning_can_create_accounts=True,
         )
@@ -302,7 +303,6 @@ class TestGitHubGrants(ProvisioningTestBase):
         grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
         url = f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories"
         other_partner = self._create_other_partner()
-        other_bearer = self._request_bearer_token(partner=other_partner).json()["access_token"]
 
         def fake_github_request(method, request_url, **kwargs):
             if request_url.endswith("/user/installations"):
@@ -313,11 +313,24 @@ class TestGitHubGrants(ProvisioningTestBase):
             patch("ee.api.agentic_provisioning.throttling.GITHUB_GRANT_POLL_RATE_LIMIT_MAX", 1),
             patch("ee.api.agentic_provisioning.github_grants.github_request", side_effect=fake_github_request),
         ):
-            foreign = self._get_with_bearer(url, other_bearer)
+            foreign = self._get_api(url, HTTP_AUTHORIZATION=self._basic_auth_header(other_partner))
             owner = self._get_grants(url)
 
         assert foreign.status_code == 404
         assert owner.status_code == 200
+
+    def test_repositories_rejects_confidential_partner_without_a_partner_type(self):
+        # A CIMD client self-registers by publishing a metadata document and becomes
+        # confidential by declaring private_key_jwt, so authenticating cannot be the only
+        # gate here. provisioning_partner_type is admin-set and marks a vouched-for partner.
+        grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
+        unvouched = self._create_other_partner(partner_type="")
+        response = self._get_api(
+            f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories",
+            HTTP_AUTHORIZATION=self._basic_auth_header(unvouched),
+        )
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "forbidden"
 
     def test_repositories_github_failure_returns_502(self):
         grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")

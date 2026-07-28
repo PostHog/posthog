@@ -27,6 +27,11 @@ CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS = 3600
 CLIENT_REGISTRATION_RATE_LIMIT_PREFIX = "provisioning_client_registration:"
 CLIENT_REGISTRATION_RATE_LIMIT_MAX = 30
 CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS = 3600
+# Ceiling across every client_id one address checks, so registering a pile of clients does not
+# multiply the per-client budget into an unbounded number of synchronous outbound fetches.
+# Well above the per-client limit, since one address legitimately operating several partners
+# should still be able to spend a full budget on each.
+CLIENT_REGISTRATION_IP_RATE_LIMIT_MAX = 120
 
 PARTNER_RATE_LIMIT_PREFIX = "provisioning_partner_rate:"
 PARTNER_RATE_LIMIT_WINDOW_SECONDS = 3600

@@ -231,12 +231,20 @@ class ProvisioningBearerAuthentication(BaseAuthentication):
 
 
 def authenticate_confidential_partner(request: Request) -> OAuthApplication:
-    """Identify a provisioning partner, requiring proof-bearing auth.
+    """Identify a provisioning partner, requiring proof-bearing auth and an admin-registered
+    partner identity.
 
     Only confidential partners carry proof that the caller controls the partner. Public
     partners are identified solely by a ``client_id`` anyone can send, so they never qualify
     for these endpoints — they exchange GitHub OAuth codes and read back GitHub account
     metadata, which must sit behind a real partner trust boundary.
+
+    Authenticating is necessary but not sufficient. A CIMD client self-registers by publishing
+    a metadata document, and one that declares ``private_key_jwt`` becomes a confidential
+    client whose assertions it can sign with its own published key, so it would clear a
+    confidential-only gate without any PostHog involvement. ``provisioning_partner_type`` is
+    only ever set through the admin, which keeps these endpoints to partners a human vouched
+    for.
 
     Raises :class:`ProvisioningError` when no qualifying partner is identified.
     """
@@ -252,6 +260,8 @@ def authenticate_confidential_partner(request: Request) -> OAuthApplication:
         raise ProvisioningError("unauthorized", CLIENT_NOT_REGISTERED_MESSAGE, status=401)
     if not partner.requires_client_authentication:
         raise ProvisioningError("forbidden", "This endpoint requires a confidential partner", status=403)
+    if not partner.provisioning_partner_type:
+        raise ProvisioningError("forbidden", "This endpoint requires a registered provisioning partner", status=403)
     return partner
 
 

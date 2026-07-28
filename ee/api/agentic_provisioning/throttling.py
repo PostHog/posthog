@@ -47,6 +47,7 @@ from ee.api.agentic_provisioning.constants import (
     CIMD_DOMAIN_RATE_LIMIT_MAX,
     CIMD_DOMAIN_RATE_LIMIT_PREFIX,
     CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS,
+    CLIENT_REGISTRATION_IP_RATE_LIMIT_MAX,
     CLIENT_REGISTRATION_RATE_LIMIT_MAX,
     CLIENT_REGISTRATION_RATE_LIMIT_PREFIX,
     CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS,
@@ -258,9 +259,16 @@ class ClientRegistrationThrottle(BaseThrottle):
     :class:`CIMDRegistrationThrottle` this applies whether or not the client already exists:
     an already-registered partner re-running diagnostics is exactly the case that would
     otherwise fetch without limit.
+
+    Counted per client_id and per address. CIMDRegistrationThrottle only screens by IP and
+    domain while a client is new, so without the second counter a caller could register a
+    stack of client_ids and then spend a full per-client budget on each of them from one
+    address, turning the per-client cap into an arbitrarily large total.
     """
 
-    error_message: ClassVar[str] = "Too many registration checks for this client. Try again later."
+    # Not a ClassVar: the per-address refusal narrows the message on the instance, the same way
+    # CIMDRegistrationThrottle distinguishes its domain limit.
+    error_message: str = "Too many registration checks for this client. Try again later."
 
     def allow_request(self, request: Request, view: APIView) -> bool:
         client_id = request.data.get("client_id") or ""
@@ -268,9 +276,19 @@ class ClientRegistrationThrottle(BaseThrottle):
             return True
         window_index = int(time.time()) // CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS
         key = f"{CLIENT_REGISTRATION_RATE_LIMIT_PREFIX}{sha256(client_id.encode()).hexdigest()}:{window_index}"
-        return _fixed_window_count(key, CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS) <= (
-            CLIENT_REGISTRATION_RATE_LIMIT_MAX
-        )
+        if _fixed_window_count(key, CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS) > CLIENT_REGISTRATION_RATE_LIMIT_MAX:
+            return False
+
+        ident = self.get_ident(request)
+        if not ident:
+            return True
+        ip_key = f"{CLIENT_REGISTRATION_RATE_LIMIT_PREFIX}ip:{sha256(ident.encode()).hexdigest()}:{window_index}"
+        if _fixed_window_count(ip_key, CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS) > (
+            CLIENT_REGISTRATION_IP_RATE_LIMIT_MAX
+        ):
+            self.error_message = "Too many registration checks from this address. Try again later."
+            return False
+        return True
 
     def wait(self) -> int:
         return _window_retry_after(CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS)
