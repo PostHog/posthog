@@ -1,8 +1,7 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -10,10 +9,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { IntegrationType, OrganizationType } from '~/types'
 
 import { billingAlertsLogic } from './billingAlertsLogic'
+import { billingAlertRequestError, destinationKey } from './billingAlertUtils'
 import { billingAlertsDestinationsDeleteCreate } from './generated/api'
 import type {
     BillingAlertConfigurationApi,
-    BillingAlertCreateDestinationApi,
+    BillingAlertDestinationCreateDataApi,
     BillingAlertDestinationSummaryApi,
 } from './generated/api.schemas'
 
@@ -22,18 +22,11 @@ export type BillingAlertNotificationType = 'slack' | 'teams' | 'webhook'
 export interface PendingBillingAlertDestination {
     key: string
     label: string
-    payload: BillingAlertCreateDestinationApi
+    payload: BillingAlertDestinationCreateDataApi
 }
 
 export interface BillingAlertNotificationLogicProps {
     alert: BillingAlertConfigurationApi | null
-}
-
-function requestError(error: unknown): string {
-    if (error instanceof ApiError) {
-        return error.detail || 'Request failed.'
-    }
-    return error instanceof Error ? error.message : 'Request failed.'
 }
 
 export function isHttpsUrl(value: string): boolean {
@@ -65,7 +58,6 @@ export interface billingAlertNotificationLogicValues {
 }
 
 export interface billingAlertNotificationLogicActions {
-    loadIntegrationsSuccess: (integrations: IntegrationType[]) => { integrations: IntegrationType[] }
     setSelectedType: (selectedType: BillingAlertNotificationType) => { selectedType: BillingAlertNotificationType }
     setSelectedIntegrationId: (integrationId: number | null) => { integrationId: number | null }
     setSlackChannel: (slackChannel: string | null) => { slackChannel: string | null }
@@ -81,7 +73,7 @@ export interface billingAlertNotificationLogicActions {
         destination: BillingAlertDestinationSummaryApi
     }
     loadAlerts: () => void
-    editAlert: (alert: BillingAlertConfigurationApi) => { alert: BillingAlertConfigurationApi }
+    alertUpdated: (alert: BillingAlertConfigurationApi) => { alert: BillingAlertConfigurationApi }
 }
 
 export type billingAlertNotificationLogicType = MakeLogicType<
@@ -103,7 +95,7 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
             integrationsLogic,
             ['integrations'],
         ],
-        actions: [integrationsLogic, ['loadIntegrationsSuccess'], billingAlertsLogic, ['loadAlerts', 'editAlert']],
+        actions: [billingAlertsLogic, ['loadAlerts', 'alertUpdated']],
     }),
     actions({
         setSelectedType: (selectedType: BillingAlertNotificationType) => ({ selectedType }),
@@ -131,12 +123,11 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
             'slack' as BillingAlertNotificationType,
             { setSelectedType: (_, { selectedType }) => selectedType },
         ],
+        // null means "no explicit choice": selectedSlackIntegration falls back to the first workspace.
         selectedIntegrationId: [
             null as number | null,
             {
                 setSelectedIntegrationId: (_, { integrationId }) => integrationId,
-                loadIntegrationsSuccess: (state, { integrations }) =>
-                    state ?? integrations.find((integration) => integration.kind === 'slack')?.id ?? null,
             },
         ],
         slackChannel: [
@@ -169,7 +160,7 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
         selectedSlackIntegration: [
             (selectors) => [selectors.slackIntegrations, selectors.selectedIntegrationId],
             (integrations: IntegrationType[], integrationId: number | null): IntegrationType | undefined =>
-                integrations.find((integration) => integration.id === integrationId),
+                integrations.find((integration) => integration.id === integrationId) ?? integrations[0],
         ],
         executionTeamMismatch: [
             (selectors) => [(_, props) => props.alert, selectors.currentTeamId],
@@ -210,9 +201,6 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
                     }
                     return slackChannel ? undefined : 'Select a Slack channel.'
                 }
-                if (selectedType === 'teams') {
-                    return isHttpsUrl(webhookUrl) ? undefined : 'Enter a valid HTTPS webhook URL.'
-                }
                 return isHttpsUrl(webhookUrl) ? undefined : 'Enter a valid HTTPS webhook URL.'
             },
         ],
@@ -251,36 +239,27 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
             if (!values.currentOrganization?.id || !props.alert) {
                 return
             }
-            const destinationKey = `${destination.type}-${destination.hog_function_ids.join('-')}`
-            if (values.deletingDestinationKeys.has(destinationKey)) {
+            const key = destinationKey(destination)
+            if (values.deletingDestinationKeys.has(key)) {
                 return
             }
-            actions.setDestinationDeleting(destinationKey, true)
+            actions.setDestinationDeleting(key, true)
             try {
                 await billingAlertsDestinationsDeleteCreate(values.currentOrganization.id, props.alert.id, {
                     hog_function_ids: [...destination.hog_function_ids],
                 })
                 lemonToast.success('Destination removed.')
-                const destinations = props.alert.destinations.filter(
-                    (candidate) =>
-                        candidate.type !== destination.type ||
-                        candidate.hog_function_ids.join(',') !== destination.hog_function_ids.join(',')
-                )
-                actions.editAlert({
+                const destinations = props.alert.destinations.filter((candidate) => destinationKey(candidate) !== key)
+                actions.alertUpdated({
                     ...props.alert,
                     destinations,
                 })
                 actions.loadAlerts()
             } catch (error) {
-                lemonToast.error(requestError(error))
+                lemonToast.error(billingAlertRequestError(error))
             } finally {
-                actions.setDestinationDeleting(destinationKey, false)
+                actions.setDestinationDeleting(key, false)
             }
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (!values.selectedIntegrationId && values.slackIntegrations[0]) {
-            actions.setSelectedIntegrationId(values.slackIntegrations[0].id)
-        }
-    }),
 ])

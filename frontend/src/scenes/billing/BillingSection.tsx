@@ -35,14 +35,6 @@ const allTabs: { key: BillingSectionId; label: string }[] = [
     { key: 'alerts', label: 'Alerts' },
 ]
 
-export function shouldRedirectFromBillingAlerts(
-    pathname: string,
-    receivedFeatureFlags: boolean,
-    billingAlertsEnabled: boolean
-): boolean {
-    return pathname.includes('alerts') && receivedFeatureFlags && !billingAlertsEnabled
-}
-
 export function BillingSection(): JSX.Element {
     const { location, searchParams } = useValues(router)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
@@ -60,10 +52,11 @@ export function BillingSection(): JSX.Element {
             : 'overview'
 
     useEffect(() => {
-        if (shouldRedirectFromBillingAlerts(location.pathname, receivedFeatureFlags, billingAlertsEnabled)) {
+        // Wait for feature flags before redirecting an alerts deep link away.
+        if (alertsRequested && receivedFeatureFlags && !billingAlertsEnabled) {
             router.actions.replace(urls.organizationBillingSection('overview'))
         }
-    }, [billingAlertsEnabled, location.pathname, receivedFeatureFlags])
+    }, [alertsRequested, billingAlertsEnabled, receivedFeatureFlags])
 
     const handleTabChange = (key: BillingSectionId): void => {
         const newUrl = urls.organizationBillingSection(key)

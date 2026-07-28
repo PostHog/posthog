@@ -15,7 +15,7 @@ import {
     AlertEditorSection,
 } from 'products/alerts/frontend/components/AlertEditor'
 
-import { billingAlertFormLogic, BillingAlertFormLogicProps } from './billingAlertFormLogic'
+import { ADVANCED_OPTION_DEFAULTS, billingAlertFormLogic, BillingAlertFormLogicProps } from './billingAlertFormLogic'
 import { BillingAlertHistory } from './BillingAlertHistory'
 import { billingAlertNotificationLogic } from './billingAlertNotificationLogic'
 import { BillingAlertNotifications } from './BillingAlertNotifications'
@@ -40,9 +40,9 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
     const { closeEditor, checkNow } = useActions(billingAlertsLogic)
     const { checkingAlertId } = useValues(billingAlertsLogic)
     const enabledAdvancedOptionsCount =
-        Number(alertForm.minimumValue > 0) +
-        Number(alertForm.evaluationDelayHours !== 6) +
-        Number(alertForm.cooldownHours !== 24)
+        Number(alertForm.minimumValue > ADVANCED_OPTION_DEFAULTS.minimumValue) +
+        Number(alertForm.evaluationDelayHours !== ADVANCED_OPTION_DEFAULTS.evaluationDelayHours) +
+        Number(alertForm.cooldownHours !== ADVANCED_OPTION_DEFAULTS.cooldownHours)
 
     return (
         <Form

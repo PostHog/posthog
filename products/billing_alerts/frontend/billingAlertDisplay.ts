@@ -1,5 +1,6 @@
 import type {
     BillingAlertConfigurationApi,
+    BillingAlertEventApi,
     BillingAlertMetricEnumApi,
     NotificationDestinationTypeEnumApi,
 } from './generated/api.schemas'
@@ -59,6 +60,48 @@ export function stateTagType(alert: BillingAlertConfigurationApi): 'success' | '
         return 'warning'
     }
     return 'success'
+}
+
+export interface BillingAlertThresholdView {
+    /** Numeric threshold under the current configuration, or null when unparsable. */
+    thresholdValue: number | null
+    thresholdLabel: string
+    valueLabel: string
+    pickEventValue: (event: BillingAlertEventApi) => number | null
+    format: (value: number) => string
+}
+
+/** Single home for threshold-type dispatch: which event field to plot, how to label and format it. */
+export function thresholdView(alert: BillingAlertConfigurationApi): BillingAlertThresholdView {
+    const isRelative = alert.threshold_type === 'relative_increase'
+    const rawThreshold = Number(isRelative ? alert.threshold_percentage : alert.threshold_value)
+    return {
+        thresholdValue: Number.isFinite(rawThreshold) ? rawThreshold : null,
+        thresholdLabel: isRelative
+            ? `${rawThreshold}% increase`
+            : formatBillingValue(rawThreshold, alert.metric, alert.currency),
+        valueLabel: isRelative
+            ? 'Increase'
+            : alert.threshold_type === 'absolute_increase'
+              ? 'Increase over baseline'
+              : 'Spend',
+        pickEventValue: (event: BillingAlertEventApi): number | null => {
+            const value = isRelative
+                ? event.relative_delta_percentage
+                : alert.threshold_type === 'absolute_increase'
+                  ? event.absolute_delta
+                  : event.current_value
+            if (value === null || value === undefined) {
+                return null
+            }
+            const parsed = Number(value)
+            return Number.isFinite(parsed) ? parsed : null
+        },
+        format: (value: number): string =>
+            isRelative
+                ? `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`
+                : formatBillingValue(value, alert.metric, alert.currency),
+    }
 }
 
 export function destinationLabel(type: NotificationDestinationTypeEnumApi): string {

@@ -16,6 +16,11 @@ export interface AlertEvaluationHistoryPoint {
     label: string
     value: number
     firedAtTime?: boolean
+    /**
+     * Caller-computed classification against the CURRENT alert configuration.
+     * `undefined`: the chart infers from `thresholds`. `null`: unclassifiable (e.g. the point
+     * predates the current configuration revision), never flagged. `true`/`false`: explicit.
+     */
     wouldFireUnderCurrentConfiguration?: boolean | null
 }
 

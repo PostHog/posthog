@@ -9,7 +9,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import type { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 
-import { metricLabel, stateLabel, stateTagType, thresholdDescription } from './billingAlertDisplay'
+import { destinationLabel, metricLabel, stateLabel, stateTagType, thresholdDescription } from './billingAlertDisplay'
 import { billingAlertsLogic } from './billingAlertsLogic'
 import type { BillingAlertConfigurationApi } from './generated/api.schemas'
 
@@ -34,7 +34,7 @@ export function BillingAlertsList(): JSX.Element {
                     <div className="flex gap-1 flex-wrap">
                         {alert.destinations.map((destination) => (
                             <LemonTag key={destination.type} size="small">
-                                {destination.type === 'teams' ? 'Microsoft Teams' : destination.type}
+                                {destinationLabel(destination.type)}
                             </LemonTag>
                         ))}
                     </div>
@@ -61,7 +61,11 @@ export function BillingAlertsList(): JSX.Element {
                                 {
                                     label: 'Check now',
                                     icon: <IconPlay />,
-                                    disabledReason: checkingAlertId ? 'Another alert is checking.' : undefined,
+                                    disabledReason: checkingAlertId
+                                        ? checkingAlertId === alert.id
+                                            ? 'Check in progress.'
+                                            : 'Another alert is checking.'
+                                        : undefined,
                                     onClick: () => checkNow(alert),
                                 },
                                 {

@@ -3,12 +3,12 @@ import { loaders } from 'kea-loaders'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
-import { ApiError } from 'lib/api'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { OrganizationType } from '~/types'
 
+import { billingAlertRequestError, offsetFromPageLink } from './billingAlertUtils'
 import { billingAlertsCheckNowCreate, billingAlertsDestroy, billingAlertsList } from './generated/api'
 import type { BillingAlertConfigurationApi, PaginatedBillingAlertConfigurationListApi } from './generated/api.schemas'
 
@@ -17,18 +17,6 @@ const EMPTY_ALERTS_PAGE: PaginatedBillingAlertConfigurationListApi = {
     next: null,
     previous: null,
     results: [],
-}
-
-function offsetFromPageLink(link: string | null | undefined, fallback: number): number {
-    if (!link) {
-        return fallback
-    }
-    try {
-        const offset = Number(new URL(link, 'https://app.posthog.com').searchParams.get('offset'))
-        return Number.isSafeInteger(offset) && offset >= 0 ? offset : fallback
-    } catch {
-        return fallback
-    }
 }
 
 export function mergeUniqueAlerts(
@@ -63,13 +51,6 @@ export function openBillingAlertCheckNowConfirmation(onConfirm: () => void): voi
     })
 }
 
-function errorMessage(error: unknown): string {
-    if (error instanceof ApiError) {
-        return error.detail || 'Request failed.'
-    }
-    return error instanceof Error ? error.message : 'Request failed.'
-}
-
 export interface billingAlertsLogicValues {
     canAccessBilling: boolean
     currentOrganization: OrganizationType | null
@@ -95,6 +76,7 @@ export interface billingAlertsLogicActions {
     loadMoreAlertsFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
     createAlert: () => { value: true }
     editAlert: (alert: BillingAlertConfigurationApi) => { alert: BillingAlertConfigurationApi }
+    alertUpdated: (alert: BillingAlertConfigurationApi) => { alert: BillingAlertConfigurationApi }
     closeEditor: () => { value: true }
     checkNow: (alert: BillingAlertConfigurationApi) => { alert: BillingAlertConfigurationApi }
     runCheckNow: (alert: BillingAlertConfigurationApi) => { alert: BillingAlertConfigurationApi }
@@ -122,6 +104,7 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
     actions({
         createAlert: true,
         editAlert: (alert: BillingAlertConfigurationApi) => ({ alert }),
+        alertUpdated: (alert: BillingAlertConfigurationApi) => ({ alert }),
         closeEditor: true,
         checkNow: (alert: BillingAlertConfigurationApi) => ({ alert }),
         runCheckNow: (alert: BillingAlertConfigurationApi) => ({ alert }),
@@ -136,6 +119,7 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
             {
                 createAlert: () => null,
                 editAlert: (_, { alert }) => alert,
+                alertUpdated: (state, { alert }) => (state?.id === alert.id ? alert : state),
                 resetOrganizationState: () => null,
             },
         ],
@@ -201,10 +185,10 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadAlertsFailure: ({ error, errorObject }) => {
-            lemonToast.error(errorMessage(errorObject ?? error))
+            lemonToast.error(billingAlertRequestError(errorObject ?? error))
         },
         loadMoreAlertsFailure: ({ error, errorObject }) => {
-            lemonToast.error(errorMessage(errorObject ?? error))
+            lemonToast.error(billingAlertRequestError(errorObject ?? error))
         },
         loadCurrentOrganizationSuccess: () => {
             actions.resetOrganizationState()
@@ -230,7 +214,7 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
                 actions.loadAlerts()
             } catch (error) {
                 if (values.currentOrganization?.id === organizationId) {
-                    lemonToast.error(errorMessage(error))
+                    lemonToast.error(billingAlertRequestError(error))
                 }
             } finally {
                 if (values.currentOrganization?.id === organizationId && values.checkingAlertId === alert.id) {
@@ -254,7 +238,7 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
                 actions.loadAlerts()
             } catch (error) {
                 if (values.currentOrganization?.id === organizationId) {
-                    lemonToast.error(errorMessage(error))
+                    lemonToast.error(billingAlertRequestError(error))
                 }
             } finally {
                 if (values.currentOrganization?.id === organizationId) {
