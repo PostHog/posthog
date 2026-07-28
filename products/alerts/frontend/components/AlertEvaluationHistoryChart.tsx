@@ -16,6 +16,7 @@ export interface AlertEvaluationHistoryPoint {
     label: string
     value: number
     firedAtTime?: boolean
+    wouldFireUnderCurrentConfiguration?: boolean
 }
 
 export interface AlertEvaluationThreshold {
@@ -33,6 +34,7 @@ interface AlertEvaluationHistoryChartProps {
     evaluationNoun?: string
     tableAvailable?: boolean
     classifyUnusualWithoutThresholds?: boolean
+    formatValue?: (value: number) => string
 }
 
 function rollingMean(values: number[], window: number): number[] {
@@ -108,6 +110,7 @@ export function AlertEvaluationHistoryChart({
     evaluationNoun = 'check',
     tableAvailable = false,
     classifyUnusualWithoutThresholds = false,
+    formatValue = humanFriendlyNumber,
 }: AlertEvaluationHistoryChartProps): JSX.Element {
     const chartSeries = useMemo(
         () => ({
@@ -127,6 +130,9 @@ export function AlertEvaluationHistoryChart({
             return points.map((point) => {
                 if (point.firedAtTime) {
                     return 'historical'
+                }
+                if (point.wouldFireUnderCurrentConfiguration !== undefined) {
+                    return point.wouldFireUnderCurrentConfiguration ? 'currentOnly' : 'none'
                 }
                 return matchesThreshold(point.value, thresholds) ? 'currentOnly' : 'none'
             })
@@ -246,7 +252,7 @@ export function AlertEvaluationHistoryChart({
                                 } else if (classification === 'currentOnly') {
                                     suffix = ' (would trigger the alert now)'
                                 }
-                                return `${valueLabel}: ${humanFriendlyNumber(value)}${suffix}`
+                                return `${valueLabel}: ${formatValue(value)}${suffix}`
                             },
                         },
                     },
@@ -263,14 +269,21 @@ export function AlertEvaluationHistoryChart({
                         ticks: {
                             maxTicksLimit: 5,
                             font: { size: 10 },
-                            callback: (value: string | number) => humanFriendlyNumber(Number(value)),
+                            callback: (value: string | number) => formatValue(Number(value)),
                         },
                         grid: { color: 'rgba(0,0,0,0.06)' },
                     },
                 },
             },
         }),
-        deps: [chartSeries, valueLabel, thresholdAnnotations, pointClassifications, hasHistoricalFiringState],
+        deps: [
+            chartSeries,
+            valueLabel,
+            thresholdAnnotations,
+            pointClassifications,
+            hasHistoricalFiringState,
+            formatValue,
+        ],
     })
 
     const historicalCount = pointClassifications.filter((classification) => classification === 'historical').length

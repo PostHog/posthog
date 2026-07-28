@@ -9,3 +9,5 @@ Scheduled evaluation follows the shared alert delivery barrier: evaluate and pro
 Billing follows the Logs alerting pattern: billing owns its evaluation rules, persistence adapter, and lifecycle message definitions. The shared alerting infrastructure handles lifecycle decisions, scheduling, grouped destination persistence, and event delivery.
 
 The MCP server exposes atomic create and partial-update tools for billing alert configuration. They use the existing organization write scope and retain the API's organization Admin or Owner permission check.
+
+The Billing tab uses the shared alert editor, destination editor, advanced options, next-evaluation status, and evaluation-history chart from `products/alerts`. Billing supplies its own form, threshold labels, value formatting, API calls, and notification destination payloads.
