@@ -4385,6 +4385,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
                 "pending_external_followups": pending_external_followups,
                 "pending_external_followups_generation": 7,
+                "sandbox_gone": False,
             },
         )
 
@@ -4394,7 +4395,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # (which would mint a write-scoped wizard token into the sandbox), change rollout
         # decisions, change Modal resume snapshot metadata, repoint the run at another
         # team's Temporal workflow, or steer an orphan re-dispatch (workflow ID prefix / MCP
-        # scopes) via pending_dispatch. Non-protected keys still merge.
+        # scopes) via pending_dispatch. Nor can a caller stamp a workflow-owned terminal reason
+        # marker, which would make a genuine FAILED run read as a timeout and skip its Slack error
+        # card. Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -4424,6 +4427,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         }
                     ],
                     "pending_external_followups_generation": 999,
+                    "timed_out_inactivity": True,
+                    "timed_out_wall_clock": True,
+                    "sandbox_gone": True,
                     "scratch": "ok",
                 }
             },
@@ -4450,6 +4456,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert "timed_out_inactivity" not in run.state  # caller cannot forge a timeout reason
+        assert "timed_out_wall_clock" not in run.state
+        assert run.state["sandbox_gone"] is False
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -4470,6 +4479,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "pending_dispatch",
                     "pending_external_followups",
                     "pending_external_followups_generation",
+                    "sandbox_gone",
                     "scratch",
                 ],
             },
@@ -4489,6 +4499,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert run.state["sandbox_gone"] is False  # protected key survives removal
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
