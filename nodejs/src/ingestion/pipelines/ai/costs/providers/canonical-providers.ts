@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-27 11:02:35 UTC
+// Generated at: 2026-07-28 10:48:57 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -92,6 +92,7 @@ export type CanonicalProvider =
     | 'ionstream-bf16'
     | 'ionstream-fp4'
     | 'ionstream-fp8'
+    | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
     | 'meta'
@@ -102,6 +103,7 @@ export type CanonicalProvider =
     | 'modelrun-fp4'
     | 'moonshotai-highspeed'
     | 'moonshotai-int4'
+    | 'moonshotai-mxfp4'
     | 'morph'
     | 'morph-fp4'
     | 'nebius-base'
@@ -141,6 +143,7 @@ export type CanonicalProvider =
     | 'relace-bf16'
     | 'relace-fp8'
     | 'sail-research-fp8'
+    | 'sail-research-int4'
     | 'sakana'
     | 'sambanova'
     | 'sambanova-fp8'
@@ -155,7 +158,6 @@ export type CanonicalProvider =
     | 'streamlake-fp8'
     | 'tencent-fp8'
     | 'together'
-    | 'together-fp4'
     | 'together-fp8'
     | 'upstage'
     | 'venice'
