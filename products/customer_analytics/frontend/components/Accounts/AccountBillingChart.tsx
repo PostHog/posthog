@@ -14,26 +14,31 @@ import {
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import {
+    type BuildBarConfigArgs,
+    type ChartSeriesMeta,
+    buildBarChartConfig,
+    buildChartSeries,
+    buildComboChartConfig,
+    buildLineChartConfig,
+    canRenderTimeSeriesBarChart,
+    canRenderTimeSeriesComboChart,
+    capYSeriesData,
+} from 'lib/charts/timeSeriesChartAdapter'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { DataVisualizationNode, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
+import { AxisSeries, dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import {
+    ChartSettings,
+    DataVisualizationNode,
+    GoalLine,
+    HogQLVariable,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import {
-    type BillingChartProps,
-    type BillingSeriesMeta,
-    type BuildConfigArgs,
-    buildBillingBarChartConfig,
-    buildBillingComboChartConfig,
-    buildBillingLineChartConfig,
-    buildBillingSeries,
-    canRenderBillingBarChart,
-    canRenderBillingComboChart,
-    capBillingSeries,
-} from './accountBillingChartAdapter'
 import { AccountBillingLogicProps, accountBillingLogic } from './accountBillingLogic'
 import { AccountBillingSeriesToggle } from './AccountBillingSeriesToggle'
 
@@ -59,16 +64,26 @@ const handleChartError = (error: Error): void => {
     posthog.captureException(error, { scope: 'AccountBillingChart' })
 }
 
+/** The slice of a saved insight's chart definition the billing tabs render. Series breakdowns are
+ *  excluded upstream (`canRenderBillingChart`), so the y series are always plain axis columns. */
+interface BillingChartProps {
+    xData: AxisSeries<string> | null
+    yData: AxisSeries<number | null>[]
+    visualizationType: ChartDisplayType
+    chartSettings: ChartSettings
+    goalLines?: GoalLine[]
+}
+
 function chipItemsFromChartOwnSeries(
     yData: BillingChartProps['yData'],
     visualizationType: ChartDisplayType,
     theme: ChartTheme
 ): LegendItem[] {
-    return yData?.length ? legendItemsFromSeries(buildBillingSeries(yData, visualizationType), theme) : []
+    return yData?.length ? legendItemsFromSeries(buildChartSeries(yData, visualizationType), theme) : []
 }
 
 interface BillingChartModel<TConfig> {
-    series: Series<BillingSeriesMeta>[]
+    series: Series<ChartSeriesMeta>[]
     labels: string[]
     theme: ChartTheme
     config: TConfig
@@ -78,15 +93,17 @@ interface BillingChartModel<TConfig> {
  *  draw, so each renderer can bail without branching on half-built state. */
 function useBillingChartModel<TConfig extends object>(
     { xData, yData, visualizationType, chartSettings, goalLines }: BillingChartProps,
-    buildConfig: (args: BuildConfigArgs) => TConfig
+    buildConfig: (args: BuildBarConfigArgs) => TConfig
 ): BillingChartModel<TConfig> | null {
     const { timezone } = useValues(teamLogic)
     const theme = useChartTheme()
 
-    const series = useMemo(() => buildBillingSeries(yData, visualizationType), [yData, visualizationType])
+    const series = useMemo(() => buildChartSeries(yData, visualizationType), [yData, visualizationType])
     const config = useChartConfig(
         () =>
-            xData ? buildConfig({ xData, yData, visualizationType, chartSettings, timezone, goalLines }) : undefined,
+            xData
+                ? buildConfig({ xData, ySeriesData: yData, visualizationType, chartSettings, timezone, goalLines })
+                : undefined,
         [xData, yData, visualizationType, chartSettings, timezone, goalLines, buildConfig]
     )
 
@@ -103,10 +120,10 @@ function BillingChartByKind({
     chartProps: BillingChartProps
     hiddenKeys: string[]
 }): JSX.Element | null {
-    if (canRenderBillingComboChart(chartProps)) {
+    if (canRenderTimeSeriesComboChart(chartProps)) {
         return <BillingComboChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
     }
-    if (canRenderBillingBarChart(chartProps)) {
+    if (canRenderTimeSeriesBarChart(chartProps)) {
         return <BillingBarChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
     }
     return <BillingLineChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
@@ -120,12 +137,12 @@ function BillingLineChart({
     chartProps: BillingChartProps
     hiddenKeys: string[]
 }): JSX.Element | null {
-    const model = useBillingChartModel(chartProps, buildBillingLineChartConfig)
+    const model = useBillingChartModel(chartProps, buildLineChartConfig)
     if (!model) {
         return null
     }
     return (
-        <TimeSeriesLineChart<BillingSeriesMeta>
+        <TimeSeriesLineChart<ChartSeriesMeta>
             series={model.series}
             labels={model.labels}
             theme={model.theme}
@@ -142,12 +159,12 @@ function BillingBarChart({
     chartProps: BillingChartProps
     hiddenKeys: string[]
 }): JSX.Element | null {
-    const model = useBillingChartModel(chartProps, buildBillingBarChartConfig)
+    const model = useBillingChartModel(chartProps, buildBarChartConfig)
     if (!model) {
         return null
     }
     return (
-        <TimeSeriesBarChart<BillingSeriesMeta>
+        <TimeSeriesBarChart<ChartSeriesMeta>
             series={model.series}
             labels={model.labels}
             theme={model.theme}
@@ -164,12 +181,12 @@ function BillingComboChart({
     chartProps: BillingChartProps
     hiddenKeys: string[]
 }): JSX.Element | null {
-    const model = useBillingChartModel(chartProps, buildBillingComboChartConfig)
+    const model = useBillingChartModel(chartProps, buildComboChartConfig)
     if (!model) {
         return null
     }
     return (
-        <TimeSeriesComboChart<BillingSeriesMeta>
+        <TimeSeriesComboChart<ChartSeriesMeta>
             series={model.series}
             labels={model.labels}
             theme={model.theme}
@@ -183,8 +200,9 @@ function BillingComboChart({
  * Renders a saved billing insight's chart directly via @posthog/quill-charts instead of the
  * embedded DataVisualization, so Customer analytics owns the per-series show/hide chips without
  * touching shared data-viz code. `dataVisualizationLogic` is still reused read-only for fetch +
- * SQL-results→series parsing; the series and chart config are built locally (see
- * `accountBillingChartAdapter`) so the SQL insight chart stays scoped to SQL insights. Hidden
+ * SQL-results→series parsing; the series and chart config come from the shared adapter in
+ * `lib/charts/timeSeriesChartAdapter`, so the SQL insight chart module stays scoped to SQL
+ * insights without duplicating its rendering semantics here. Hidden
  * series go into quill's controlled `legend.hiddenKeys`: excluded from drawing and scales, the
  * rest rescale into the freed space.
  */
@@ -219,7 +237,7 @@ export function AccountBillingChart({
 
     const hiddenKeys = ephemeralHiddenSeriesKeysByShortId[shortId] ?? []
     // Capped here, once, so renderer dispatch, chart config, and legend chips all see the same series.
-    const cappedYData = useMemo(() => capBillingSeries(yData), [yData])
+    const cappedYData = useMemo(() => capYSeriesData(yData) ?? [], [yData])
     const chartProps: BillingChartProps = {
         xData,
         yData: cappedYData,

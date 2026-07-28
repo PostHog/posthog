@@ -1,4 +1,13 @@
+import type { ChartSettingsDisplay, ChartSettingsFormatting } from '~/queries/schema/schema-general'
+
 export type AxisFormat = 'number' | 'compact' | 'percent' | 'duration' | 'duration_ms' | 'date' | 'datetime' | 'none'
+
+/** Per-series display settings from a saved insight's chart config — the `AxisSeriesSettings`
+ *  shape data viz stores per y-axis column, reduced to what chart rendering reads. */
+export interface ChartSeriesSettings {
+    formatting?: ChartSettingsFormatting
+    display?: ChartSettingsDisplay
+}
 
 export interface ChartTheme {
     colors: string[]
