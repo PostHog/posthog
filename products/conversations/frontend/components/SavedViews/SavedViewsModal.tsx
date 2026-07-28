@@ -42,10 +42,12 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
         lines.push({
             label: 'Assignee',
             value: assigneeEntries.map((entry, index) => (
-                <span key={entry === 'unassigned' ? 'unassigned' : `${entry.type}:${entry.id}`}>
+                <span key={typeof entry === 'string' ? entry : `${entry.type}:${entry.id}`}>
                     {index > 0 ? ', ' : ''}
                     {entry === 'unassigned' ? (
                         'Unassigned'
+                    ) : entry === 'me' ? (
+                        'Me (current user)'
                     ) : (
                         <AssigneeResolver assignee={entry}>
                             {({ assignee }) => (
@@ -114,10 +116,10 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
 }
 
 export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
-    const { isModalOpen, sortedViews, viewsLoading, currentFilters, favoritingShortIds } = useValues(
+    const { isModalOpen, filteredViews, viewsLoading, currentFilters, favoritingShortIds, searchTerm } = useValues(
         ticketViewsLogic({ id })
     )
-    const { closeModal, openSaveModal, deleteView, loadView, updateView, toggleFavorite } = useActions(
+    const { closeModal, openSaveModal, deleteView, loadView, updateView, toggleFavorite, setSearchTerm } = useActions(
         ticketViewsLogic({ id })
     )
 
@@ -275,14 +277,23 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                     </div>
                 }
             >
-                <LemonTable
-                    columns={columns}
-                    dataSource={sortedViews}
-                    rowKey="id"
-                    loading={viewsLoading}
-                    emptyState="No saved views yet."
-                    size="small"
-                />
+                <div className="space-y-2">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search views"
+                        value={searchTerm}
+                        onChange={setSearchTerm}
+                        autoFocus
+                    />
+                    <LemonTable
+                        columns={columns}
+                        dataSource={filteredViews}
+                        rowKey="id"
+                        loading={viewsLoading}
+                        emptyState={searchTerm ? 'No matching views.' : 'No saved views yet.'}
+                        size="small"
+                    />
+                </div>
             </LemonModal>
             <SaveViewModal id={id} />
         </>

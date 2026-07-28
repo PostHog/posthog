@@ -130,6 +130,7 @@ SolarWinds Service Desk runs independent regional stacks that do not share data 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -146,7 +147,11 @@ SolarWinds Service Desk runs independent regional stacks that do not share data 
         return schemas
 
     def validate_credentials(
-        self, config: SolarwindsServiceDeskSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SolarwindsServiceDeskSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # At source-create only the token is probed (a 403 there can just mean the token's role
         # doesn't cover the probe resource); with a schema_name we probe that endpoint's own path.

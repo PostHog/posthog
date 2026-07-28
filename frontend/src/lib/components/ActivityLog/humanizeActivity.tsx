@@ -76,6 +76,8 @@ export type HumanizedActivityLogItem = {
     name?: string
     isSystem?: boolean
     wasImpersonated?: boolean
+    /** SDK or integration that triggered this action (from x-posthog-client header). */
+    client?: string | null
     description: Description
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     created_at: dayjs.Dayjs
@@ -123,6 +125,7 @@ export function humanize(
                     : impersonatedUserName,
                 isSystem: logItem.is_system,
                 wasImpersonated: logItem.was_impersonated,
+                client: logItem.client,
                 description,
                 extendedDescription,
                 created_at: dayjs(logItem.created_at),

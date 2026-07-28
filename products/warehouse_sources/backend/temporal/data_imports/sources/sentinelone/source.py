@@ -110,11 +110,16 @@ You can generate an API token in your management console under **My User > Actio
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: SentineloneSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SentineloneSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_sentinelone_credentials(config.console_url, config.api_token, schema_name, team_id)
 

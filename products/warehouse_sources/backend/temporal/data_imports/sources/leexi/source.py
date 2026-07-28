@@ -113,6 +113,7 @@ Grant these permission scopes so every table can sync:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
             ENDPOINTS,
@@ -124,7 +125,7 @@ Grant these permission scopes so every table can sync:
         )
 
     def validate_credentials(
-        self, config: LeexiSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: LeexiSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         probe_path = ENDPOINT_PROBE_PATHS.get(schema_name, "/users") if schema_name else "/users"
         status = probe_endpoint(config.api_key_id, config.api_key_secret, probe_path)
@@ -146,7 +147,7 @@ Grant these permission scopes so every table can sync:
         return False, "Could not connect to the Leexi API. Please try again."
 
     def get_endpoint_permissions(
-        self, config: LeexiSourceConfig, team_id: int, endpoints: list[str]
+        self, config: LeexiSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         status_by_path: dict[str, Optional[int]] = {}
         permissions: dict[str, str | None] = {}

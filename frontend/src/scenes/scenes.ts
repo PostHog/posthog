@@ -384,11 +384,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Homepage',
         layout: 'app-raw-no-header',
     },
-    [Scene.Quickstart]: {
-        projectBased: true,
-        name: 'Quickstart',
-        layout: 'app-container',
-    },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
         name: 'Data management',
@@ -456,11 +451,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.DashboardTemplateCopy]: {
         projectBased: true,
         name: 'Copy template to project',
-        layout: 'app-container',
-    },
-    [Scene.RevenueAnalytics]: {
-        projectBased: true,
-        name: 'Revenue analytics',
         layout: 'app-container',
     },
     [Scene.MarketingAnalytics]: {
@@ -735,6 +725,8 @@ export const redirects: Record<
     '/pipeline/transformations': urls.transformations(),
     '/pipeline/data-import': urls.sources(),
     '/project/settings': urls.settings('project'),
+    // The quickstart landing page is gone; keep old bookmarks and pinned tabs out of a 404
+    '/quickstart': urls.default(),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings/settings': () => urls.replaySettings(),
@@ -790,7 +782,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsLive()]: [Scene.WebAnalyticsLive, 'webAnalyticsLive'],
     [urls.webAnalyticsRecap()]: [Scene.WebAnalyticsRecap, 'webAnalyticsRecap'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
-    [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.marketingAnalyticsApp()]: [Scene.MarketingAnalytics, 'marketingAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.dataWarehouseManagedViewsets()]: [Scene.DataManagement, 'dataWarehouseManagedViewsets'],
@@ -859,7 +850,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.variables()]: [Scene.DataManagement, 'variables'],
     [urls.variableEdit(':id')]: [Scene.SqlVariableEdit, 'sqlVariableEdit'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
-    [urls.quickstart()]: [Scene.Quickstart, 'quickstart'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],

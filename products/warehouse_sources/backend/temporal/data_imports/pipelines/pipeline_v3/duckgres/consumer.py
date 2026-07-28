@@ -15,6 +15,7 @@ from prometheus_client import Gauge
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import DuckgresSinkSchemaState
+from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     MAX_ATTEMPTS,
@@ -124,6 +125,9 @@ class DuckgresBatchConsumerAdapter:
     # Lease ownership is token-based, so groups get their own connections and
     # the poll loop keeps claiming while groups run (no per-cycle barrier).
     per_group_connections: bool = True
+    # A skip means "already applied": the engine's succeeded record is what
+    # retires the batch (terminal retirement raises OwnershipLostError instead).
+    record_skip_as_success: bool = True
 
     def __init__(self, lease_ttl_seconds: int = LEASE_TTL_SECONDS) -> None:
         # TTL for verify_advisory_lock's boundary renewals (the consumer's
@@ -156,7 +160,10 @@ class DuckgresBatchConsumerAdapter:
         try:
             first_resolution = self._team_ids_fetched_at is None
             previous = self._team_ids
-            enablement = await sync_to_async(duckgres_sink_enablement, thread_sensitive=False)()
+            # database_sync_to_async_pool (not a bare sync_to_async) so a connection killed by
+            # the DB/proxy since the last refresh gets closed and reopened before this query,
+            # instead of surfacing as "the connection is closed" OperationalErrors.
+            enablement = await database_sync_to_async_pool(duckgres_sink_enablement)()
             self._team_ids = None if enablement is None else enablement.team_ids
             self._team_org_budgets = [] if enablement is None else enablement.team_org_budgets
             self._team_ids_fetched_at = now
@@ -325,6 +332,7 @@ class DuckgresBatchConsumerAdapter:
         attempt: int,
         error_response: dict[str, Any] | None = None,
         batch_created_at: datetime | None = None,  # delta-sink denormalization only; unused here
+        expected_state_changed_at: datetime | None = None,  # delta-sink recovery CAS only; unused here
     ) -> None:
         # Invariant: never write ANY status over a terminal 'failed' — statuses
         # are latest-row-wins, so an unconditional write would un-retire a batch
@@ -395,6 +403,17 @@ class DuckgresBatchConsumerAdapter:
             lease_ttl_seconds=lease_ttl_seconds,
         )
 
+    async def delete_expired_lease(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> None:
+        # Protocol conformance only: its sole caller is the base engine's recovery
+        # sweep, which never runs here — DuckgresBatchConsumer overrides _recovery_sweep.
+        return None
+
     async def get_stale_executing(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -459,6 +478,11 @@ class DuckgresBatchConsumerAdapter:
 
     def is_retryable_error(self, err: Exception) -> bool:
         return not isinstance(err, PermanentBatchApplyError)
+
+    def is_expected_user_error(self, err: Exception) -> bool:
+        # The duckgres sink applies already-validated Delta batches; it has no expected
+        # customer-actionable failures of its own to keep out of error tracking.
+        return False
 
 
 class DuckgresBatchConsumer(SharedBatchConsumer):

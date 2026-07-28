@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { IconChevronDown, IconRefresh } from '@posthog/icons'
@@ -14,11 +14,13 @@ import {
     LemonSelect,
     LemonTable,
     LemonTableColumns,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -95,10 +97,20 @@ function SupportTicketsBulkActions(): JSX.Element {
 
 export function SupportTicketsTable({ embedded = false }: SupportTicketsTableProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
-    const { tickets, ticketsLoading, currentPage, totalCount, sorting, selectedTicketIds } = useValues(logic)
-    const { setCurrentPage, setSorting, setSelectedTicketIds } = useActions(logic)
+    const {
+        tickets,
+        ticketsLoading,
+        currentPage,
+        totalCount,
+        sorting,
+        selectedTicketIds,
+        searchQuery,
+        hasActiveFilters,
+    } = useValues(logic)
+    const { setCurrentPage, setSorting, setSelectedTicketIds, clearFiltersKeepingSearch } = useActions(logic)
     const { visibleColumns } = useValues(ticketColumnsLogic)
     const { push } = useActions(router)
+    const { searchParams } = useValues(router)
     const { currentTeam } = useValues(teamLogic)
     const aiEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
@@ -168,10 +180,23 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         toggleRow,
     ])
 
+    const emptyState =
+        searchQuery && hasActiveFilters ? (
+            <div className="flex flex-col items-center gap-2 py-2">
+                <span>No tickets match your search with the current filters applied.</span>
+                <LemonButton type="secondary" size="small" onClick={() => clearFiltersKeepingSearch()}>
+                    Search again without filters
+                </LemonButton>
+            </div>
+        ) : (
+            'No tickets'
+        )
+
     return (
         <LemonTable<Ticket>
             dataSource={tickets}
             rowKey="id"
+            emptyState={emptyState}
             loading={ticketsLoading}
             // Keep rows clickable while a background refresh is in flight; the loading overlay
             // otherwise captures pointer events and blocks navigation on every reload.
@@ -192,7 +217,14 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                         : undefined,
             }}
             onRow={(ticket) => {
-                const ticketUrl = urls.supportTicketDetail(ticket.ticket_number)
+                // Carry the active filters / saved view (the list's query string) onto the
+                // ticket URL so the ticket's back arrow can return to this exact view. Skip it
+                // when embedded (e.g. the person side panel), where the host page's query
+                // string isn't the ticket filters.
+                const ticketUrl = combineUrl(
+                    urls.supportTicketDetail(ticket.ticket_number),
+                    embedded ? {} : searchParams
+                ).url
                 return {
                     onClick: (e: React.MouseEvent) => {
                         if (e.metaKey || e.ctrlKey) {
@@ -238,6 +270,8 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
         dateFrom,
         dateTo,
         ticketsLoading,
+        totalCount,
+        hasActiveFilters,
     } = useValues(logic)
     const {
         setSearchQuery,
@@ -268,6 +302,23 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                     size="small"
                     className="min-w-64"
                 />
+                <Tooltip
+                    title={
+                        hasActiveFilters || searchQuery
+                            ? 'Tickets matching the current filters, search, and view — not the total across all tickets'
+                            : 'Tickets in the current view'
+                    }
+                >
+                    {/* Count of tickets matching the current query, shown next to the search/filter
+                        controls so it reads as the filtered count rather than an all-time total.
+                        Hidden until the first load resolves; dims on subsequent background refreshes. */}
+                    <span
+                        className={clsx('text-secondary text-sm whitespace-nowrap', ticketsLoading && 'opacity-50')}
+                        aria-live="polite"
+                    >
+                        {ticketsLoading && totalCount === 0 ? null : pluralize(totalCount, 'ticket')}
+                    </span>
+                </Tooltip>
                 <DateFilter
                     dateFrom={dateFrom}
                     dateTo={dateTo}

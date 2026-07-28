@@ -12,6 +12,7 @@ import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
+import type { ProductSetupProbe } from 'lib/components/ProductEmptyState/setupProbes'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -33,7 +34,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
-import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
+import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -78,11 +79,6 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import type {
-    LLMPromptListApi,
-    LLMPromptResolveResponseApi,
-    LLMPromptVersionSummaryApi,
-} from 'products/ai_observability/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -115,6 +111,7 @@ export enum AvailableFeature {
     DATA_PIPELINES = 'data_pipelines',
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
     SESSION_REPLAY_DATA_RETENTION = 'session_replay_data_retention',
+    LOGS_RETENTION_30D = 'logs_retention_30d',
     CONSOLE_LOGS = 'console_logs',
     RECORDINGS_PERFORMANCE = 'recordings_performance',
     SESSION_REPLAY_NETWORK_PAYLOADS = 'session_replay_network_payloads',
@@ -286,15 +283,21 @@ export enum AccessControlResourceType {
     Action = 'action',
     CustomerAnalytics = 'customer_analytics',
     FeatureFlag = 'feature_flag',
+    Heatmap = 'heatmap',
     Insight = 'insight',
     Dashboard = 'dashboard',
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
+    Tagger = 'tagger',
+    LlmSkill = 'llm_skill',
+    AiObservabilityClusters = 'ai_observability_clusters',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
+    SharingConfiguration = 'sharing_configuration',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
+    McpAnalytics = 'mcp_analytics',
     Metrics = 'metrics',
     Endpoint = 'endpoint',
     Workflow = 'hog_flow',
@@ -312,6 +315,7 @@ export enum AccessControlResourceType {
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
     Tracing = 'tracing',
+    ReplayScanner = 'replay_scanner',
     Toolbar = 'toolbar',
 }
 
@@ -482,7 +486,6 @@ export interface InAppNotification {
     body: string
     read: boolean
     read_at: string | null
-    archivable: boolean
     resource_type: string | null
     resource_id: string
     target_type: string
@@ -572,6 +575,7 @@ export interface OrganizationType extends OrganizationBasicType {
     members_can_invite?: boolean
     members_can_create_projects?: boolean
     members_can_use_personal_api_keys: boolean
+    members_can_see_org_members?: boolean
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number
@@ -888,6 +892,8 @@ export interface TeamType extends TeamBasicType {
 
 export interface WorkflowsConfig {
     capture_workflows_engagement_events: boolean
+    // Optional so cached team objects from before this field shipped still typecheck.
+    email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
 }
 
 export interface ProductIntentType {
@@ -4424,6 +4430,14 @@ export enum EarlyAccessFeatureTabs {
     OptedOut = 'opted-out',
 }
 
+export type EarlyAccessFeatureAssigneeType = 'user' | 'role'
+
+/** Person or role an early access feature is assigned to. Defaults to the creator. */
+export interface EarlyAccessFeatureAssignee {
+    type: EarlyAccessFeatureAssigneeType
+    id: number | string
+}
+
 export interface EarlyAccessFeatureType {
     /** UUID */
     id: string
@@ -4436,6 +4450,9 @@ export interface EarlyAccessFeatureType {
     /** Custom JSON payload for the early access feature */
     payload?: Record<string, any>
     created_at: string
+    /** The user who created this feature. Null for features created before creator tracking was added. */
+    created_by?: UserBasicType | null
+    assignee?: EarlyAccessFeatureAssignee | null
     _create_in_folder?: string | null
     /** The effective access level the user has for this early access feature. */
     user_access_level?: AccessControlLevel
@@ -4924,7 +4941,7 @@ export interface Experiment {
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
-    /** Code task opened to remove the experiment's flag code, when requested on end/ship. */
+    /** Desktop task opened to remove the experiment's flag code, when requested on end/ship. */
     flag_cleanup_task_id?: string | null
     user_access_level: AccessControlLevel
 }
@@ -5496,8 +5513,10 @@ export enum SlackIntegrationScopeInReview {
     CANVASES_WRITE = 'canvases:write',
     CHANNELS_MANAGE = 'channels:manage',
     COMMANDS = 'commands',
+    FILES_READ = 'files:read',
     FILES_WRITE = 'files:write',
     IM_HISTORY = 'im:history',
+    MPIM_HISTORY = 'mpim:history',
     MPIM_READ = 'mpim:read',
 }
 
@@ -5561,6 +5580,7 @@ export interface SharingConfigurationType {
     password_required: boolean
     settings?: SharingConfigurationSettings
     share_passwords?: SharePasswordType[]
+    user_access_level?: AccessControlLevel
 }
 
 export enum ExporterFormat {
@@ -5740,11 +5760,13 @@ export const API_SCOPE_OBJECTS = [
     'link',
     'live_debugger',
     'llm_analytics',
+    'ai_observability_clusters',
     'llm_gateway',
     'llm_prompt',
     'llm_provider_key',
     'llm_skill',
     'logs',
+    'loop',
     'marketing_analytics',
     'mcp_analytics',
     'metrics',
@@ -5981,6 +6003,8 @@ export enum ActivityScope {
     ENDPOINT_VERSION = 'EndpointVersion',
     HEATMAP = 'Heatmap',
     USER = 'User',
+    LLM_PROMPT = 'LLMPrompt',
+    LLM_PROMPT_LABEL = 'LLMPromptLabel',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
@@ -6104,6 +6128,8 @@ export interface DataWarehouseSavedQuery {
     columns: DatabaseSchemaField[]
     last_run_at?: string
     sync_frequency?: string
+    /** True when the DAG's single schedule owns the cadence, so `sync_frequency` is not editable per view */
+    sync_frequency_managed_by_dag?: boolean
     status?: string
     managed_viewset_kind: DataWarehouseManagedViewsetKind | null
     folder_id?: string | null
@@ -6184,6 +6210,14 @@ export interface ExternalDataSourceCreatePayload {
     direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp'
     payload: Record<string, any>
+}
+
+/** Response of `POST warehouse_tables/upload_file` — the stored file a self-managed table is built from. */
+export interface WarehouseTableFileUpload {
+    upload_id: string
+    filename: string
+    file_format: string
+    size_bytes: number
 }
 
 export interface ExternalDataSourceConnectionMetadata {
@@ -6880,6 +6914,7 @@ export enum SDKKey {
     IOS = 'ios',
     JAVA = 'java',
     JS_WEB = 'javascript_web',
+    KMP = 'kmp',
     LARAVEL = 'laravel',
     LANGCHAIN = 'langchain',
     LANGGRAPH = 'langgraph',
@@ -6911,6 +6946,7 @@ export enum SDKKey {
     REACT_ROUTER = 'react_router',
     REMIX = 'remix',
     RETOOL = 'retool',
+    ROBLOX = 'roblox',
     RUBY = 'ruby',
     RUBY_ON_RAILS = 'ruby_on_rails',
     RUDDERSTACK = 'rudderstack',
@@ -6924,6 +6960,7 @@ export enum SDKKey {
     TRACELOOP = 'traceloop',
     TANSTACK_START = 'tanstack_start',
     TOGETHER_AI = 'together_ai',
+    UNITY = 'unity',
     VERCEL_AI = 'vercel_ai',
     VERCEL_AI_GATEWAY = 'vercel_ai_gateway',
     VITE = 'vite',
@@ -6949,6 +6986,7 @@ export enum SDKTag {
 }
 
 export type SDKInstructionsMap = Partial<Record<SDKKey, React.ComponentType>>
+export type SDKDocsLinkOverrides = Partial<Record<SDKKey, string>>
 export type SDKTagOverrides = Partial<Record<SDKKey, SDKTag[]>>
 
 export enum SidePanelTab {
@@ -7536,6 +7574,12 @@ export interface FeaturePreviewGateConfig {
     title: string
     description: string
     docsURL?: string
+    /**
+     * Support ticket target area for the "Request access" action. Set this for betas that aren't
+     * self-serve early-access features, so the gated state offers a way to request access instead
+     * of dead-ending on the feature previews page.
+     */
+    supportTargetArea?: string
 }
 
 export interface ProductManifest {
@@ -7549,6 +7593,12 @@ export interface ProductManifest {
     treeItemsProducts?: (FileSystemImport & { intents: ProductKey[]; category: ProductItemCategory })[] // Require `intents` and `category to be set for products
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
+    /**
+     * Boot-time setup-status probe for this product's empty state. Aggregated across
+     * manifests into `productSetupProbes` and answered by one combined event-count
+     * query at app boot (see `productSetupPreloadLogic`).
+     */
+    setupProbe?: ProductSetupProbe
 }
 
 export interface ProjectTreeRef {
@@ -7666,6 +7716,7 @@ export interface HeatmapScreenshotType {
     exception?: string
     error?: string // Added for error responses from content endpoint
     created_by?: UserBasicType | null
+    user_access_level?: AccessControlLevel
 }
 
 export type HeatmapScreenshotContentResponse =
@@ -7761,55 +7812,6 @@ export interface DatasetItem {
     updated_at: string
     created_at: string
     deleted: boolean
-}
-
-export interface LLMPrompt {
-    id: string
-    name: string
-    prompt: string
-    version: number
-    version_description?: string | null
-    created_by: UserBasicType
-    created_at: string
-    updated_at: string
-    deleted: boolean
-    is_latest: boolean
-    latest_version: number
-    version_count: number
-    first_version_created_at: string
-    /** All labels on the prompt with the version each points to. Only present on list responses. */
-    all_labels?: LLMPromptListApi['all_labels']
-}
-
-export interface LLMPromptPublic {
-    id: string
-    name: string
-    prompt: string
-    version: number
-    created_at: string
-    updated_at: string
-    deleted: boolean
-    is_latest: boolean
-    latest_version: number
-    version_count: number
-    first_version_created_at: string
-}
-
-export interface LLMPromptVersionSummary {
-    id: string
-    version: number
-    version_description?: string | null
-    created_by: UserBasicType
-    created_at: string
-    is_latest: boolean
-    labels?: LLMPromptVersionSummaryApi['labels']
-}
-
-export interface LLMPromptResolveResponse {
-    prompt: LLMPrompt
-    versions: LLMPromptVersionSummary[]
-    has_more: boolean
-    labels: LLMPromptResolveResponseApi['labels']
 }
 
 // Managed viewset

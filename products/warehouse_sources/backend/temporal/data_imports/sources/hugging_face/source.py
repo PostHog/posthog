@@ -115,6 +115,7 @@ Set **Username or organization** to the namespace whose models, datasets, and Sp
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The Hub has no server-side timestamp range filter (it silently ignores `since`), so every
         # endpoint is full refresh only (INCREMENTAL_FIELDS is empty). Repo metadata (likes,
@@ -122,7 +123,11 @@ Set **Username or organization** to the namespace whose models, datasets, and Sp
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: HuggingFaceSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HuggingFaceSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_hugging_face_credentials(config.api_token):
             return True, None

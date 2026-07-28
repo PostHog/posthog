@@ -107,6 +107,7 @@ Generate an HTTP password in your Gerrit account under **Settings > HTTP Credent
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -125,7 +126,11 @@ Generate an HTTP password in your Gerrit account under **Settings > HTTP Credent
         return schemas
 
     def validate_credentials(
-        self, config: GerritSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GerritSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_gerrit_credentials(
             host=config.host,

@@ -116,11 +116,16 @@ You can create an access token in your Workable account under **Settings > Integ
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: WorkableSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: WorkableSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Probe the specific schema's endpoint when given, otherwise a cheap `/jobs` probe.
         path = WORKABLE_ENDPOINTS[schema_name].path if schema_name in WORKABLE_ENDPOINTS else "/jobs"

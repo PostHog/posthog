@@ -86,6 +86,7 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
             ENDPOINTS,
@@ -98,7 +99,11 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
         )
 
     def validate_credentials(
-        self, config: WikipediaPageviewsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: WikipediaPageviewsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if config.start_date and _coerce_date(config.start_date) is None:
             return False, "Start date must be in YYYY-MM-DD format."

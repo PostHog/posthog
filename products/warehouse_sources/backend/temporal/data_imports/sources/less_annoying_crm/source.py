@@ -100,6 +100,7 @@ API keys can't be retrieved after creation, so store the key somewhere safe when
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -121,7 +122,11 @@ API keys can't be retrieved after creation, so store the key somewhere safe when
         return schemas
 
     def validate_credentials(
-        self, config: LessAnnoyingCRMSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LessAnnoyingCRMSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_less_annoying_crm_credentials(config.api_key):
             return True, None

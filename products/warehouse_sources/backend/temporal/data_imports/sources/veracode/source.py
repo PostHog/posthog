@@ -123,6 +123,7 @@ class VeracodeSource(ResumableSource[VeracodeSourceConfig, VeracodeResumeConfig]
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -142,7 +143,11 @@ class VeracodeSource(ResumableSource[VeracodeSourceConfig, VeracodeResumeConfig]
         return schemas
 
     def validate_credentials(
-        self, config: VeracodeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: VeracodeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         ok, status_code = validate_veracode_credentials(config.api_id, config.api_secret, config.region)
         if ok:

@@ -91,6 +91,7 @@ Create a personal OAuth2 token from the [Awin API settings](https://ui.awin.com/
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "reports_advertiser":
@@ -117,7 +118,7 @@ Create a personal OAuth2 token from the [Awin API settings](https://ui.awin.com/
         return schemas
 
     def validate_credentials(
-        self, config: AwinSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: AwinSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_awin_credentials(config.api_token):
             return True, None

@@ -27,6 +27,7 @@ export type OrganizationUpdatePayload = Partial<
         | 'members_can_invite'
         | 'members_can_create_projects'
         | 'members_can_use_personal_api_keys'
+        | 'members_can_see_org_members'
         | 'is_ai_data_processing_approved'
         | 'is_ai_training_opted_in'
         | 'default_experiment_stats_method'

@@ -85,13 +85,14 @@ Create a free API key (v3 auth) in your [TMDB account settings](https://www.them
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # TMDB v3 list endpoints expose no server-side updated-after filter, so every endpoint has
         # empty incremental fields and is full refresh only.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: TMDbSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: TMDbSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_tmdb_credentials(config.api_key)
 

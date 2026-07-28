@@ -101,6 +101,7 @@ Create a database token in Baserow under **Settings > Database tokens** and make
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # One schema per Baserow table the token can see. Rows expose no server-side
         # updated-since filter, so every table is full refresh only.
@@ -121,7 +122,7 @@ Create a database token in Baserow under **Settings > Database tokens** and make
         return schemas
 
     def get_endpoint_permissions(
-        self, config: BaserowSourceConfig, team_id: int, endpoints: list[str]
+        self, config: BaserowSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         # Database tokens have per-table read toggles, so surface unreadable tables in the
         # schema picker instead of failing the sync later.
@@ -138,7 +139,11 @@ Create a database token in Baserow under **Settings > Database tokens** and make
         return result
 
     def validate_credentials(
-        self, config: BaserowSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BaserowSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             base = normalize_base_url(config.base_url)

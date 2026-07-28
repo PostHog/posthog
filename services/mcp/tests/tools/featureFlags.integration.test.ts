@@ -231,6 +231,17 @@ describe('Feature flags', { concurrent: false }, () => {
             expect(flagData.id).toBe(createdFlag.id)
             expect(flagData.key).toBe(uniqueKey)
             expect(flagData._posthogUrl).toContain('/feature_flags/')
+            expect(flagData.found).toBe(true)
+        })
+
+        it('should return a non-error found:false result for a flag that does not exist', async () => {
+            const missingKey = generateUniqueKey('does-not-exist')
+
+            const result = await getByKeyTool.handler(context, { key: missingKey })
+            const flagData = parseToolResponse(result)
+
+            expect(flagData.found).toBe(false)
+            expect(flagData.key).toBe(missingKey)
         })
     })
 
