@@ -660,7 +660,7 @@ export const redirects: Record<
     '/batch_exports': urls.destinations(),
     // The scene lives at /code-review (hyphen); catch the old underscore variant, keeping the
     // ?review= / ?reviews_scope= deep links that PR status comments bake in
-    '/code_review': (_params, searchParams) => combineUrl(urls.codeReview(), searchParams).url,
+    '/code_review': (_params, searchParams, hashParams) => combineUrl(urls.codeReview(), searchParams, hashParams).url,
     '/comments': () => urls.comments(),
     '/dashboards': urls.dashboards(),
     '/data-management': urls.eventDefinitions(),
