@@ -765,9 +765,7 @@ export function MetricRowGroup({
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
-                            onDuplicateAsSingleUseMetricClick={
-                                onDuplicateAsSingleUseMetric ? () => onDuplicateAsSingleUseMetric() : undefined
-                            }
+                            onDuplicateAsSingleUseMetricClick={() => onDuplicateAsSingleUseMetric?.()}
                             onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                             onBreakdownChange={onBreakdownChange}
                         />
@@ -836,9 +834,7 @@ export function MetricRowGroup({
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
-                            onDuplicateAsSingleUseMetricClick={
-                                onDuplicateAsSingleUseMetric ? () => onDuplicateAsSingleUseMetric() : undefined
-                            }
+                            onDuplicateAsSingleUseMetricClick={() => onDuplicateAsSingleUseMetric?.()}
                             onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                             onBreakdownChange={onBreakdownChange}
                         />
@@ -944,9 +940,7 @@ export function MetricRowGroup({
                         isPrimaryMetric={!isSecondary}
                         experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
-                        onDuplicateAsSingleUseMetricClick={
-                            onDuplicateAsSingleUseMetric ? () => onDuplicateAsSingleUseMetric() : undefined
-                        }
+                        onDuplicateAsSingleUseMetricClick={() => onDuplicateAsSingleUseMetric?.()}
                         onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                         onBreakdownChange={onBreakdownChange}
                     />

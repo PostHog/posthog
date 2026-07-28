@@ -146,20 +146,32 @@ export const MetricHeader = ({
             LemonDialog.open({
                 title: 'Duplicate this shared metric?',
                 content: (
-                    <div className="text-sm text-secondary max-w-lg">
+                    <div className="text-sm text-secondary max-w-lg deprecated-space-y-2">
                         <p>
-                            We'll take you to the form to customize and save this metric. Your new version will appear
-                            in your shared metrics, ready to be added to your experiment.
+                            <b>As a single-use metric</b> adds an editable copy to this experiment only. Other
+                            experiments using the shared metric are unaffected.
+                        </p>
+                        <p>
+                            <b>As a shared metric</b> takes you to the form to customize and save a new shared metric,
+                            ready to be added to any experiment.
                         </p>
                     </div>
                 ),
-                primaryButton: {
-                    children: 'Duplicate metric',
+                primaryButton: onDuplicateAsSingleUseMetricClick
+                    ? {
+                          children: 'Duplicate as single-use metric',
+                          type: 'primary',
+                          size: 'small',
+                          onClick: () => onDuplicateAsSingleUseMetricClick(metric),
+                      }
+                    : undefined,
+                secondaryButton: {
+                    children: 'Duplicate as shared metric',
                     to: urls.experimentsSharedMetric(metric.sharedMetricId!, 'duplicate'),
-                    type: 'primary',
+                    type: 'secondary',
                     size: 'small',
                 },
-                secondaryButton: {
+                tertiaryButton: {
                     children: 'Cancel',
                     type: 'tertiary',
                     size: 'small',
@@ -256,15 +268,6 @@ export const MetricHeader = ({
                                                         handleDuplicate()
                                                     },
                                                 },
-                                                isSharedMetric &&
-                                                    onDuplicateAsSingleUseMetricClick && {
-                                                        label: 'Duplicate as single-use metric',
-                                                        icon: <IconCopy />,
-                                                        onClick: () => {
-                                                            closeMenu()
-                                                            onDuplicateAsSingleUseMetricClick(metric)
-                                                        },
-                                                    },
                                             ].filter(Boolean) as any,
                                         },
                                         onDeleteMetricClick && {

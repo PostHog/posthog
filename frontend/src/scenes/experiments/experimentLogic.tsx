@@ -2853,6 +2853,13 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.loadExperiment({ triggeredBy: 'config_change' })
         },
+        duplicateSharedMetricAsInlineMetric: ({ isSecondary, newUuid }) => {
+            // Listeners run after reducers, so the copy is only there if the shared metric was actually found
+            const metrics = (isSecondary ? values.experiment.metrics_secondary : values.experiment.metrics) || []
+            if (metrics.some((metric) => metric.uuid === newUuid)) {
+                lemonToast.success('Metric duplicated as a single-use metric')
+            }
+        },
         removeSharedMetricFromExperiment: async ({ sharedMetricId }) => {
             const sharedMetricsIds = values.experiment.saved_metrics
                 .filter((sharedMetric) => sharedMetric.saved_metric !== sharedMetricId)
