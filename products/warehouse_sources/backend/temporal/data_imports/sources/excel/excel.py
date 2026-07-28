@@ -34,10 +34,11 @@ ROW_CHUNK = 1000
 MAX_DECLARED_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
 
 # A second bomb shape hides inside the 50 MB cap: hundreds of thousands of tiny members, making every
-# later per-member step pay for them. A real workbook has a handful of parts per sheet plus the
-# shared-string/style/relationship files, so it stays in the low thousands even with many sheets.
-# Counting the parsed entries (never the forgeable EOCD total) is enough: the one-time stdlib parse is
-# linear in the 50 MB upload, and the cap keeps the bomb away from openpyxl and everything after it.
+# later per-member step pay for them — starting with the ZipInfo-per-member table zipfile builds just
+# to open the archive. A real workbook has a handful of parts per sheet plus the shared-string/style/
+# relationship files, so it stays in the low thousands even with many sheets. The cap is enforced
+# twice: from the EOCD declarations before ZipFile is constructed (see _reject_zip_member_bomb), then
+# on the parsed entries, which keeps the bomb away from openpyxl and everything after it.
 MAX_ZIP_MEMBERS = 10_000
 
 # One warehouse table per sheet: thousands of columns break the schema UI and ClickHouse long before
@@ -63,7 +64,38 @@ def _uploaded_workbook_bytes(team_id: int, upload_id: str, filename: str) -> byt
         ) from error
 
 
+def _reject_zip_member_bomb(data: bytes) -> None:
+    """Bound the ZipInfo-per-member table before ``ZipFile`` builds it, using only the EOCD record.
+
+    The EOCD fields are attacker-declared, but zipfile hard-caps its central-directory walk at the
+    declared directory size, so forging a field low starves the walk itself and forging it high fails
+    these checks — either way the parse stays small. The one honest escape is a ZIP64 EOCD locator,
+    which makes zipfile take the directory size from the ZIP64 record instead; ZIP64 is only ever
+    needed past ~65k members or 4 GiB, both far beyond the caps, so its presence is itself rejected.
+    A missing EOCD falls through to ``ZipFile``'s own BadZipFile handling.
+    """
+    end = len(data)
+    # The EOCD is 22 bytes plus an optional comment of up to 65,535 bytes, so it lives in the final
+    # ~64 KiB. Take the last occurrence, matching how zipfile locates it.
+    eocd = data.rfind(b"PK\x05\x06", max(0, end - (22 + 65535)))
+    if eocd == -1 or eocd + 22 > end:
+        return
+    declared_members = int.from_bytes(data[eocd + 10 : eocd + 12], "little")
+    declared_directory_bytes = int.from_bytes(data[eocd + 12 : eocd + 16], "little")
+    # 46 bytes is the minimum central-directory record; 200 gives real member paths ample room.
+    if (
+        (eocd >= 20 and data[eocd - 20 : eocd - 16] == b"PK\x06\x07")
+        or declared_members > MAX_ZIP_MEMBERS
+        or declared_directory_bytes > MAX_ZIP_MEMBERS * 200
+    ):
+        raise ExcelReadError(
+            "The workbook has too many internal parts to be a normal spreadsheet. Export the data to "
+            "CSV or Parquet and connect it as a self-managed source instead."
+        )
+
+
 def _open_workbook(data: bytes):
+    _reject_zip_member_bomb(data)
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             members = archive.infolist()

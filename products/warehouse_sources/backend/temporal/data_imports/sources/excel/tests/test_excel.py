@@ -153,12 +153,37 @@ class TestWorkbookBudgets(SimpleTestCase):
 
     def test_rejects_an_archive_with_too_many_members(self) -> None:
         # A workbook can hide hundreds of thousands of tiny ZIP members under the 50MB cap; the cap
-        # on parsed entries keeps such an archive away from openpyxl and every later per-member step.
+        # keeps such an archive away from openpyxl and every later per-member step.
         data = _workbook_bytes({"S1": [["a"], [1]]})
         with patch(f"{MODULE}.MAX_ZIP_MEMBERS", 1):
             with patch(f"{MODULE}.get_s3_client", return_value=_FakeS3(data)):
                 with self.assertRaises(ExcelReadError) as ctx:
                     list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
+        assert "too many internal parts" in str(ctx.exception)
+
+    def test_forging_the_member_count_low_does_not_bypass_the_cap(self) -> None:
+        # The EOCD entry count is attacker-declared; patching it below the cap must not slip a member
+        # bomb through — the declared directory size (which bounds zipfile's own walk) still gives the
+        # real scale away.
+        data = bytearray(_workbook_bytes({"S1": [["a"], [1]]}))
+        eocd = data.rfind(b"PK\x05\x06")
+        data[eocd + 10 : eocd + 12] = (1).to_bytes(2, "little")
+        with patch(f"{MODULE}.MAX_ZIP_MEMBERS", 1):
+            with patch(f"{MODULE}.get_s3_client", return_value=_FakeS3(bytes(data))):
+                with self.assertRaises(ExcelReadError) as ctx:
+                    list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
+        assert "too many internal parts" in str(ctx.exception)
+
+    def test_rejects_a_zip64_archive(self) -> None:
+        # A ZIP64 EOCD locator makes zipfile read the directory size from the ZIP64 record instead of
+        # the EOCD, sidestepping the declared-size gate. ZIP64 is only needed far past the member and
+        # size caps, so a workbook carrying one is rejected outright.
+        data = bytearray(_workbook_bytes({"S1": [["a"], [1]]}))
+        eocd = data.rfind(b"PK\x05\x06")
+        data[eocd:eocd] = b"PK\x06\x07" + bytes(16)
+        with patch(f"{MODULE}.get_s3_client", return_value=_FakeS3(bytes(data))):
+            with self.assertRaises(ExcelReadError) as ctx:
+                list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
         assert "too many internal parts" in str(ctx.exception)
 
     def test_rejects_a_sheet_with_too_many_columns(self) -> None:
