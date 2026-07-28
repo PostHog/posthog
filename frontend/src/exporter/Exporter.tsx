@@ -29,6 +29,7 @@ const LazyInsightScene = lazyWithRetry(() => import('./scenes/ExporterInsightSce
 const LazyNotebookScene = lazyWithRetry(() => import('./scenes/ExporterNotebookScene'))
 const LazyRecordingScene = lazyWithRetry(() => import('./scenes/ExporterRecordingScene'))
 const LazyInterviewScene = lazyWithRetry(() => import('./scenes/ExporterInterviewScene'))
+const LazyQueryScene = lazyWithRetry(() => import('./scenes/ExporterQueryScene'))
 
 function ExportedSceneSkeleton(): JSX.Element {
     return (
@@ -80,6 +81,8 @@ export function Exporter(props: ExportedData): JSX.Element {
         notebook,
         insights,
         inline_query_results: inlineQueryResults,
+        query,
+        query_results: queryResults,
         themes,
         accessToken,
         exportToken,
@@ -214,6 +217,10 @@ export function Exporter(props: ExportedData): JSX.Element {
                 ) : insight ? (
                     <Suspense fallback={<ExportedSceneSkeleton />}>
                         <LazyInsightScene insight={insight} themes={themes!} exportOptions={exportOptions} />
+                    </Suspense>
+                ) : query ? (
+                    <Suspense fallback={<ExportedSceneSkeleton />}>
+                        <LazyQueryScene query={query} queryResults={queryResults} themes={themes!} />
                     </Suspense>
                 ) : dashboard ? (
                     <Suspense fallback={<ExportedSceneSkeleton />}>

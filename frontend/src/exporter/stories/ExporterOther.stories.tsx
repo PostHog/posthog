@@ -8,6 +8,7 @@ import __dataTableHogQL from '../../mocks/fixtures/api/projects/team_id/insights
 import __lifecycle from '../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
 import __retention from '../../mocks/fixtures/api/projects/team_id/insights/retention.json'
 import __stickiness from '../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
+import __trendsTable from '../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
 import __userPaths from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
 import { Exporter } from '../Exporter'
 
@@ -89,5 +90,14 @@ export const SQLInsightNoResults: Story = {
             ...(__dataTableHogQL as any),
             result: null,
         },
+    },
+}
+
+/** Ad-hoc query image export (`export_context.source`) — a query rendered from inlined results, with no saved insight. */
+export const AdhocQueryExport: Story = {
+    args: {
+        type: ExportType.Image,
+        query: (__trendsTable as any).query,
+        query_results: { results: (__trendsTable as any).result },
     },
 }
