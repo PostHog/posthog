@@ -3,6 +3,7 @@ import { installMockEventSource, MockEventSource } from 'lib/wizard-sync/eventSo
 
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import {
     DEFAULT_POLLING_INTERVAL_SECS,
     jitteredIntervalMs,
@@ -17,13 +18,15 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { tasksActiveWizardRunRetrieve } from 'products/tasks/frontend/generated/api'
+import { tasksActiveWizardRunRetrieve, tasksRunsRetrieve } from 'products/tasks/frontend/generated/api'
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import {
     cloudRunCompletionReport,
     mergeProgressStep,
+    NO_STATE_STALL_MS,
+    parseStreamErrorMessage,
     parseTaskRunStreamMessage,
     TaskRunProgressStep,
     taskRunDetailToStreamState,
@@ -40,6 +43,7 @@ jest.mock('products/tasks/frontend/generated/api', () => ({
 }))
 
 const mockActiveWizardRun = tasksActiveWizardRunRetrieve as jest.Mock
+const mockRunRetrieve = tasksRunsRetrieve as jest.Mock
 
 function step(overrides: Partial<TaskRunProgressStep> = {}): TaskRunProgressStep {
     return {
@@ -290,6 +294,19 @@ describe('taskRunStreamLogic helpers', () => {
         })
     })
 
+    describe('parseStreamErrorMessage', () => {
+        // The browser dispatches transport failures under the same `error` name, so a payload that
+        // does not carry a message must not be mistaken for the server giving up on the stream.
+        it.each([
+            ['the server error payload', '{"error": "Stream not available"}', 'Stream not available'],
+            ['a payload without an error field', '{"type": "task_run_state"}', null],
+            ['a non-string error field', '{"error": 42}', null],
+            ['invalid JSON', 'not json', null],
+        ])('reads %s', (_name, rawData, expected) => {
+            expect(parseStreamErrorMessage(rawData)).toBe(expected)
+        })
+    })
+
     describe('taskRunPrUrl', () => {
         it('prefers the terminal output url over the pr progress step', () => {
             const state = runState({ output: { pr_url: 'https://x/pull/2' } })
@@ -413,6 +430,7 @@ describe('taskRunStreamLogic transport', () => {
             status: 'in_progress',
             started_at: RUN_STARTED_AT,
         })
+        mockRunRetrieve.mockReset()
         restoreEventSource = installMockEventSource()
         logic = taskRunStreamLogic({ taskId: 'task-1', runId: 'run-1' })
         logic.mount()
@@ -493,5 +511,97 @@ describe('taskRunStreamLogic transport', () => {
         mounted = false
         jest.advanceTimersByTime(SSE_RECONNECT_MAX_MS)
         expect(MockEventSource.instances).toHaveLength(1)
+    })
+
+    // The run-detail fallback resolves outside kea, so its dispatches land a few microtasks after
+    // the event that triggered it.
+    const flushFallback = async (): Promise<void> => {
+        for (let i = 0; i < 5; i++) {
+            await Promise.resolve()
+        }
+    }
+
+    const runDetail = (overrides: Record<string, unknown> = {}): TaskRunDetailDTOApi =>
+        ({
+            id: 'run-1',
+            status: 'in_progress',
+            stage: null,
+            output: null,
+            branch: null,
+            error_message: null,
+            updated_at: '2026-01-01T00:05:00Z',
+            completed_at: null,
+            ...overrides,
+        }) as unknown as TaskRunDetailDTOApi
+
+    it('settles a finished run from its detail when the server has no stream to serve', async () => {
+        mockRunRetrieve.mockResolvedValue(
+            runDetail({ status: 'completed', completed_at: '2026-01-01T00:06:00Z', output: { pr_url: 'https://x/1' } })
+        )
+        logic.actions.connect()
+        MockEventSource.last().emitOpen()
+        await expectLogic(logic).toDispatchActions(['connectionOpened'])
+
+        // A named `error` event carries a payload; a transport failure does not. Only the former
+        // means the server gave up waiting for the run's stream key.
+        MockEventSource.last().emitNamed('error', '{"error": "Stream not available"}')
+        await flushFallback()
+
+        expect(mockRunRetrieve).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'task-1', 'run-1')
+        expect(logic.values.taskRunState).toMatchObject({ status: 'completed' })
+        expect(logic.values.isComplete).toBe(true)
+        // Nothing more will ever be published for a finished run, so no retry is scheduled either.
+        jest.advanceTimersByTime(SSE_RECONNECT_MAX_MS)
+        expect(MockEventSource.instances).toHaveLength(1)
+    })
+
+    it('reconnects when the stream is unavailable but the run is still live', async () => {
+        mockRunRetrieve.mockResolvedValue(runDetail({ status: 'in_progress' }))
+        logic.actions.connect()
+        MockEventSource.last().emitNamed('error', '{"error": "Stream not available"}')
+        await flushFallback()
+
+        expect(logic.values.taskRunState).toMatchObject({ status: 'in_progress' })
+        jest.advanceTimersByTime(PAST_FIRST_RECONNECT_MS)
+        expect(MockEventSource.instances).toHaveLength(2)
+    })
+
+    it('marks the stream dead when the run detail is gone for good', async () => {
+        mockRunRetrieve.mockRejectedValue(new ApiError('not found', 404))
+        logic.actions.connect()
+        MockEventSource.last().emitNamed('error', '{"error": "Stream not available"}')
+        await flushFallback()
+
+        expect(logic.values.isStalled).toBe(true)
+        // A deleted or access-revoked run is not worth retrying.
+        jest.advanceTimersByTime(SSE_RECONNECT_MAX_MS)
+        expect(MockEventSource.instances).toHaveLength(1)
+    })
+
+    it('reports a stall when the stream delivers no state at all', async () => {
+        logic.actions.connect()
+        MockEventSource.last().emitOpen()
+        await expectLogic(logic).toDispatchActions(['connectionOpened'])
+
+        jest.advanceTimersByTime(NO_STATE_STALL_MS)
+        expect(logic.values.isStalled).toBe(true)
+    })
+
+    it('keeps the no-state stall through a scheduled reconnect', async () => {
+        // The regression: a reconnect clears isStalled, and a per-connect timer would be re-armed
+        // for another full window (or, armed once per lifetime, never re-armed at all), putting the
+        // surfaces back on the eternal spinner with no way out.
+        logic.actions.connect()
+        MockEventSource.last().emitOpen()
+        jest.advanceTimersByTime(NO_STATE_STALL_MS)
+        expect(logic.values.isStalled).toBe(true)
+
+        mockRunRetrieve.mockRejectedValue(new Error('network hiccup'))
+        MockEventSource.last().emitNamed('error', '{"error": "Stream not available"}')
+        await flushFallback()
+        jest.advanceTimersByTime(PAST_FIRST_RECONNECT_MS)
+
+        expect(MockEventSource.instances).toHaveLength(2)
+        expect(logic.values.isStalled).toBe(true)
     })
 })

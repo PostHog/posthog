@@ -551,6 +551,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         resume_hook: Optional[Any] = None,
         initial_paginator_state: Optional[dict[str, Any]] = None,
         data_selector_required: bool = False,
+        data_selector_empty_ok: bool = False,
         data_selector_malformed_retryable: bool = False,
     ):
         return iter(mock_data_response)
@@ -568,6 +569,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         resume_hook: Optional[Any] = None,
         initial_paginator_state: Optional[dict[str, Any]] = None,
         data_selector_required: bool = False,
+        data_selector_empty_ok: bool = False,
         data_selector_malformed_retryable: bool = False,
     ):
         # Yield each record as its own page so tests that probe chunking
