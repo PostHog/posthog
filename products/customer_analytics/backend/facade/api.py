@@ -24,7 +24,7 @@ from uuid import UUID
 from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, OuterRef, Prefetch, Q
+from django.db.models import CharField, Exists, OuterRef, Prefetch, Q
 from django.utils import timezone
 
 import structlog
@@ -83,10 +83,7 @@ from products.customer_analytics.backend.models import (
     SyncStatus,
     TargetType,
 )
-from products.customer_analytics.backend.models.account import (
-    AccountProperties as _ModelAccountProperties,
-    cap_to_field_length,
-)
+from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
 from products.customer_analytics.backend.tasks.tasks import send_announcement
 from products.notebooks.backend.facade import (
     api as notebooks,
@@ -1996,6 +1993,11 @@ class _Unset(Enum):
 _UNSET = _Unset.UNSET
 
 
+def _cap_to_field_length(field_name: str, value: str) -> str:
+    max_length = cast(CharField, Account._meta.get_field(field_name)).max_length
+    return value[:max_length]
+
+
 def update_account(
     account: Account,
     *,
@@ -2008,10 +2010,10 @@ def update_account(
     returns the model, so it must not be called across the product boundary."""
     update_fields: list[str] = []
     if not isinstance(name, _Unset):
-        account.name = cap_to_field_length("name", name)
+        account.name = _cap_to_field_length("name", name)
         update_fields.append("name")
     if not isinstance(external_id, _Unset):
-        account.external_id = cap_to_field_length("external_id", external_id) if external_id is not None else None
+        account.external_id = _cap_to_field_length("external_id", external_id) if external_id is not None else None
         update_fields.append("external_id")
     if not isinstance(properties, _Unset):
         account._properties = _ModelAccountProperties.from_input(properties).model_dump(mode="json", exclude_unset=True)
@@ -2041,8 +2043,8 @@ def create_account(
             account = Account.objects.unscoped().create(
                 team=team,
                 created_by=created_by,
-                name=cap_to_field_length("name", name),
-                external_id=cap_to_field_length("external_id", external_id) if external_id is not None else None,
+                name=_cap_to_field_length("name", name),
+                external_id=_cap_to_field_length("external_id", external_id) if external_id is not None else None,
                 _properties=validated.model_dump(mode="json", exclude_unset=True),
             )
             _set_tags(tags, account, actor=created_by)

@@ -10,7 +10,7 @@ from posthog.models.team import Team
 
 from products.conversations.backend.facade.api import SupportChannel, SupportSlackNotConfigured
 from products.customer_analytics.backend.models import Announcement, AnnouncementDelivery
-from products.customer_analytics.backend.test.factories import create_account
+from products.customer_analytics.backend.test.factories import create_account as create_account_row
 
 HELPER = "products.customer_analytics.backend.logic.announcements.list_support_bot_channels"
 
@@ -157,7 +157,7 @@ class TestAnnouncementAPI(APIBaseTest):
             SupportChannel(id="C1", name="zzz-internal", is_member=True),
             SupportChannel(id="C2", name="acme-shared", is_member=True),
         ]
-        create_account(team_id=self.team.pk, name="Acme", _properties={"slack_channel_id": "C2"})
+        create_account_row(team_id=self.team.pk, name="Acme", _properties={"slack_channel_id": "C2"})
 
         response = self.client.get(f"{self.base_url}channels/")
 

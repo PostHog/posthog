@@ -1,5 +1,3 @@
-from typing import cast
-
 from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -66,11 +64,6 @@ class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
     def properties(self, value: "dict | AccountProperties") -> None:
         validated = value if isinstance(value, AccountProperties) else AccountProperties.model_validate(value)
         self._properties = validated.model_dump(mode="json")
-
-
-def cap_to_field_length(field_name: str, value: str) -> str:
-    max_length = cast(models.CharField, Account._meta.get_field(field_name)).max_length
-    return value[:max_length]
 
 
 @receiver(pre_save, sender="customer_analytics.TeamCustomerAnalyticsConfig")
