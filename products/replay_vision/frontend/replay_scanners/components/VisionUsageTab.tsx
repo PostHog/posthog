@@ -25,15 +25,12 @@ const SPEND_CHART_INTERVAL_OPTIONS: { value: SpendChartInterval; label: string }
     { value: 'month', label: 'Monthly' },
 ]
 
-// Daily covers the current billing period (set at query time); the rest widen the window to fit the bucket size.
 const SPEND_CHART_DATE_FROM: Record<Exclude<SpendChartInterval, 'day'>, string> = {
     week: '-90d',
     month: '-365d',
 }
 
-// Spend is counted per model and priced in the formula rather than summing the `credits` event property:
-// events emitted before that property existed would otherwise read as zero spend. Pricing counts at current
-// rates matches how the table's totals are computed. Retired models missing from the price table are omitted.
+// Counted per model and priced in the formula: events predating the `credits` property would sum to zero.
 const SPEND_CHART_MODEL_PRICES = Object.entries(OBSERVATION_CREDITS_BY_MODEL)
 const SPEND_CHART_SERIES = SPEND_CHART_MODEL_PRICES.map(([model]) => ({
     kind: NodeKind.EventsNode as const,
@@ -67,8 +64,7 @@ export function VisionUsageTab(): JSX.Element {
     const zeroSpendCount = usageScanners.length - spenders.length
     const totalCredits = spenders.reduce((sum: number, s: ReplayScanner) => sum + s.credits_this_month, 0)
 
-    // Memoized so a re-render (e.g. quota arriving) can't churn the query and abort an in-flight load.
-    // `tags.productKey` is required for ClickHouse query tagging; without it the runner aborts.
+    // Memoized so re-renders can't churn the query; `tags.productKey` is required or the runner aborts.
     const spendChartQuery = useMemo<InsightVizNode>(
         () => ({
             kind: NodeKind.InsightVizNode,
@@ -77,7 +73,7 @@ export function VisionUsageTab(): JSX.Element {
                 series: SPEND_CHART_SERIES,
                 trendsFilter: {
                     display: ChartDisplayType.ActionsLineGraph,
-                    // 1 credit = $0.01; the /100 in the formula charts dollars to match the table.
+                    // The /100 charts dollars (1 credit = $0.01).
                     formulaNodes: [{ formula: SPEND_CHART_FORMULA, custom_name: 'Spend' }],
                     aggregationAxisPrefix: '$',
                 },

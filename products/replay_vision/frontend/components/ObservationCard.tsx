@@ -35,7 +35,7 @@ export function ObservationStatusTag({
         return <LemonTag type="success">Succeeded</LemonTag>
     }
     if (status === 'failed') {
-        // Raw exception text lives in `FailureDetail`; the tooltip carries the kind and what to do about it.
+        // Raw exception text lives in `FailureDetail`.
         const parsed = errorReason ? parseFailureReason(errorReason) : null
         const tooltip = parsed ? (
             <div className="flex flex-col gap-1">
@@ -150,7 +150,7 @@ export function ObservationPrimaryOutput({
     const config = configFromSnapshot(snapshot)
     const promptText = config?.prompt ?? null
     const prompt = showPrompt ? promptText : null
-    // The result is an answer to the scanner's prompt; when the prompt isn't printed inline, carry it in a tooltip.
+    // Tooltip carries the prompt only when it isn't printed inline.
     const promptTooltip = prompt ? null : promptText
     const summaryClass = expandSummary ? 'text-sm whitespace-pre-wrap' : compact ? 'text-sm truncate' : 'text-sm'
     const bodyClass = compact ? 'text-sm truncate' : 'text-sm'

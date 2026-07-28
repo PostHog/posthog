@@ -51,7 +51,7 @@ export function readTags(obs: ReplayObservationApi): string[] {
     return [...readFixedTags(obs), ...readFreeformTags(obs)]
 }
 
-/** One succeeded observation as clipboard text: a metadata line, then the result body with citations as plain timestamps. */
+/** One succeeded observation as clipboard text: a metadata line, then the result body. */
 export function observationClipboardText(obs: ReplayObservationApi): string | null {
     const output = readModelOutput(obs)
     if (!output || obs.status !== 'succeeded') {
