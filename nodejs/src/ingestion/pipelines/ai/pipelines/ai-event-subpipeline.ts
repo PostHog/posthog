@@ -1,4 +1,5 @@
 import { AsyncOutput, EVENTS_OUTPUT } from '~/common/outputs'
+import { createImmediateMergeFoldStep } from '~/ingestion/common/persons/person-merge-fold'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
@@ -31,90 +32,97 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
 ): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
     const { options, outputs, teamManager, groupTypeManager, hogTransformer, topHog } = config
 
-    return builder
-        .pipe(createNormalizeProcessPersonFlagStep())
-        .pipe(
-            topHog(createHogTransformEventStep(hogTransformer), [
-                sumOk(
-                    'transformations_run',
-                    (output) => ({ team_id: String(output.team.id) }),
-                    (output) => output.transformationsRun
-                ),
-                sumOk(
-                    'transformations_run_per_partition',
-                    (output, input) => ({
-                        team_id: String(output.team.id),
-                        partition: String(input.message.partition),
-                    }),
-                    (output) => output.transformationsRun
-                ),
-                sumResult(
-                    'events_dropped_by_transformation',
-                    (_result, input) => ({ team_id: String(input.team.id) }),
-                    (result) => (isDropResult(result) ? 1 : 0)
-                ),
-                sumResult(
-                    'events_dropped_by_transformation_per_partition',
-                    (_result, input) => ({
+    return (
+        builder
+            .pipe(createNormalizeProcessPersonFlagStep())
+            .pipe(
+                topHog(createHogTransformEventStep(hogTransformer), [
+                    sumOk(
+                        'transformations_run',
+                        (output) => ({ team_id: String(output.team.id) }),
+                        (output) => output.transformationsRun
+                    ),
+                    sumOk(
+                        'transformations_run_per_partition',
+                        (output, input) => ({
+                            team_id: String(output.team.id),
+                            partition: String(input.message.partition),
+                        }),
+                        (output) => output.transformationsRun
+                    ),
+                    sumResult(
+                        'events_dropped_by_transformation',
+                        (_result, input) => ({ team_id: String(input.team.id) }),
+                        (result) => (isDropResult(result) ? 1 : 0)
+                    ),
+                    sumResult(
+                        'events_dropped_by_transformation_per_partition',
+                        (_result, input) => ({
+                            team_id: String(input.team.id),
+                            partition: String(input.message.partition),
+                        }),
+                        (result) => (isDropResult(result) ? 1 : 0)
+                    ),
+                ]),
+                { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
+            )
+            .pipe(createNormalizeEventStep())
+            .pipe(createProcessAiEventStep())
+            .pipe(createProcessPersonlessStep(options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS), {
+                retry: { tries: 5, sleepMs: 100, name: 'process_personless' },
+            })
+            // AI events are never merge events, so there are no merges to fold in
+            // this branch: every event processes immediately. The branch itself is
+            // temporary and goes away once ingestion fully switches over to the
+            // dedicated AI pipeline.
+            .pipe(createImmediateMergeFoldStep())
+            .pipe(
+                topHog(createProcessPersonsStep(options, outputs), [
+                    timer('process_persons_time', (input) => ({
                         team_id: String(input.team.id),
-                        partition: String(input.message.partition),
+                        distinct_id: input.normalizedEvent.distinct_id,
+                    })),
+                ]),
+                { retry: { tries: 5, sleepMs: 100, name: 'process_persons' } }
+            )
+            .pipe(createPrepareEventStep())
+            .pipe(createProcessGroupsStep(teamManager, groupTypeManager, options), {
+                retry: { tries: 5, sleepMs: 100, name: 'process_groups' },
+            })
+            .pipe(createCreateEventStep(EVENTS_OUTPUT))
+            .pipe(createSplitAiEventsStep())
+            .pipe(
+                topHog(
+                    createEmitEventStep({
+                        outputs,
                     }),
-                    (result) => (isDropResult(result) ? 1 : 0)
+                    [
+                        sum(
+                            'emitted_events',
+                            (input) => ({ team_id: String(input.teamId) }),
+                            (input) => input.eventsToEmit.length
+                        ),
+                        sum(
+                            'emitted_events_per_distinct_id',
+                            (input) => ({
+                                team_id: String(input.teamId),
+                                distinct_id: input.eventsToEmit[0]?.event.distinct_id ?? '',
+                                partition: String(input.message.partition),
+                            }),
+                            (input) => input.eventsToEmit.length
+                        ),
+                        sum(
+                            'emitted_events_per_partition',
+                            (input) => ({
+                                team_id: String(input.teamId),
+                                partition: String(input.message.partition),
+                            }),
+                            (input) => input.eventsToEmit.length
+                        ),
+                    ]
                 ),
-            ]),
-            { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
-        )
-        .pipe(createNormalizeEventStep())
-        .pipe(createProcessAiEventStep())
-        .pipe(createProcessPersonlessStep(options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS), {
-            retry: { tries: 5, sleepMs: 100, name: 'process_personless' },
-        })
-        .pipe(
-            topHog(createProcessPersonsStep(options, outputs), [
-                timer('process_persons_time', (input) => ({
-                    team_id: String(input.team.id),
-                    distinct_id: input.normalizedEvent.distinct_id,
-                })),
-            ]),
-            { retry: { tries: 5, sleepMs: 100, name: 'process_persons' } }
-        )
-        .pipe(createPrepareEventStep())
-        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, options), {
-            retry: { tries: 5, sleepMs: 100, name: 'process_groups' },
-        })
-        .pipe(createCreateEventStep(EVENTS_OUTPUT))
-        .pipe(createSplitAiEventsStep())
-        .pipe(
-            topHog(
-                createEmitEventStep({
-                    outputs,
-                }),
-                [
-                    sum(
-                        'emitted_events',
-                        (input) => ({ team_id: String(input.teamId) }),
-                        (input) => input.eventsToEmit.length
-                    ),
-                    sum(
-                        'emitted_events_per_distinct_id',
-                        (input) => ({
-                            team_id: String(input.teamId),
-                            distinct_id: input.eventsToEmit[0]?.event.distinct_id ?? '',
-                            partition: String(input.message.partition),
-                        }),
-                        (input) => input.eventsToEmit.length
-                    ),
-                    sum(
-                        'emitted_events_per_partition',
-                        (input) => ({
-                            team_id: String(input.teamId),
-                            partition: String(input.message.partition),
-                        }),
-                        (input) => input.eventsToEmit.length
-                    ),
-                ]
-            ),
-            { retry: { tries: 5, sleepMs: 100, name: 'emit_event' } }
-        )
-        .pipe(createRecordIngestionLagStep())
+                { retry: { tries: 5, sleepMs: 100, name: 'emit_event' } }
+            )
+            .pipe(createRecordIngestionLagStep())
+    )
 }

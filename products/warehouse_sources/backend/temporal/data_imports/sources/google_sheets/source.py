@@ -75,6 +75,21 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             "Requested entity was not found": "Import failed: the Google Sheet or worksheet could not be found. It may have been deleted or moved, or is no longer shared with our service account. Please check the spreadsheet URL and its sharing settings.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_retry_on_transient_api_error` already retries these Sheets API responses in-process
+        # (see `_RETRYABLE_API_ERROR_CODES` in google_sheets.py) before re-raising once its attempt
+        # budget is exhausted. gspread's `APIError.__str__` embeds the HTTP status as a stable
+        # "[<code>]" substring — match on that rather than the message text, which Google can
+        # reword. Temporal then retries the whole activity, so the failure is transient and
+        # self-recovering.
+        return {
+            "APIError: [429]",
+            "APIError: [500]",
+            "APIError: [502]",
+            "APIError: [503]",
+            "APIError: [504]",
+        }
+
     def get_schemas(
         self,
         config: GoogleSheetsSourceConfig,

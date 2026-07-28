@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, cast
 
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
@@ -227,6 +228,14 @@ class SignalReport(UUIDModel):
     title = models.TextField(null=True, blank=True)
     summary = models.TextField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
+    # The charts this report currently shows, each a `ReportChart` (see report_charts.py). Part of
+    # the report's content rather than its artefact log: a chart illustrates the summary, so it is
+    # replaced with the summary rather than accumulating versions beside it. `summary` places one
+    # with a `[label](chart:<chart_id>)` link; the rest render below the prose.
+    # `db_default` alongside `default`: a callable default is Python-only, so without it the column
+    # lands NOT NULL with no Postgres default and any insert from a pre-deploy worker — which omits
+    # the column it doesn't know about — fails until the rollout finishes.
+    charts = models.JSONField(default=list, db_default=[], blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -409,10 +418,13 @@ class SignalReport(UUIDModel):
         caller owns the write so it can batch this with other changes in one transaction.
         """
         updated_fields: set[str] = set()
-        if title is not None:
+        # Compared before assigning, so an idempotent re-send of the current text is a no-op. The REST
+        # PATCH path already compares this way, and a spurious "changed" here would cost a needless
+        # save, a misleading edit-history note, and a retracted embedding (see receivers.py).
+        if title is not None and title != self.title:
             self.title = title
             updated_fields.add("title")
-        if summary is not None:
+        if summary is not None and summary != self.summary:
             self.summary = summary
             updated_fields.add("summary")
         if updated_fields:
@@ -1271,6 +1283,13 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         indexes = [
             models.Index(fields=["team", "skill_name"], name="signal_scout_run_skill_idx"),
+            # "which run authored this report?" is a jsonb containment lookup (`@>`) that
+            # `dismissal_notes` runs on the dismissal request path, batched into one OR'd query per
+            # request. Without these the planner can only seq-scan the team's runs, and this table
+            # grows about one row per scout per run interval with no pruning, so the scan would get
+            # slower for the life of the project.
+            GinIndex(fields=["emitted_report_ids"], name="signal_scout_run_emitted_idx"),
+            GinIndex(fields=["edited_report_ids"], name="signal_scout_run_edited_idx"),
         ]
 
 
@@ -1404,7 +1423,21 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     note could therefore already steer the fleet by editing its skills; notes add a cheaper
     channel, not new power. The run prompt additionally frames note content as advisory
     steering that never overrides the harness ground rules.
+
+    A second writer derives rows from elsewhere: judging an inbox report with a note also leaves
+    it here as a `REPORT_DISMISSAL` row (dismiss, snooze, or restore; not resolve, see
+    `dismissal_notes.py`). Dismissing needs only `task:write`, so that path re-checks the RBAC leg of this gate itself before
+    writing, against the canonical project whose scouts read the row. It does not re-check the
+    `llm_skill:write` key scope, because a dismissal's text already reaches run context
+    verbatim through the `dismissal_note` field on the inbox reports API that every scout is
+    told to read before emitting, so demanding the scope would drop feedback without closing a
+    path. `origin` keeps the two kinds apart so the run prompt can frame a derived row as one
+    reviewer's verdict on one report rather than as fleet-level steering.
     """
+
+    class Origin(models.TextChoices):
+        HUMAN = "human", "Left directly"
+        REPORT_DISMISSAL = "report_dismissal", "Derived from inbox dismissal feedback"
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
@@ -1434,6 +1467,11 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     # Optional TTL — expired notes drop out of the default list view, so time-boxed steering
     # ("watch checkout closely this week") retires itself without a delete.
     expires_at = models.DateTimeField(null=True, blank=True)
+    # How the row got here, surfaced to the run so a scout can weigh a reviewer's verdict on one
+    # report differently from a skill author's fleet steering (see the trust model above). Carries
+    # a `db_default` because the nodejs/rust test schema is built straight from model definitions
+    # with migrations disabled, where a Python-only `default` is invisible.
+    origin = models.CharField(max_length=32, choices=Origin, default=Origin.HUMAN, db_default=Origin.HUMAN)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

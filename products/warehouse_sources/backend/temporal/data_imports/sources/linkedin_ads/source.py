@@ -52,12 +52,14 @@ from .linkedin_ads import (
 
 # LinkedIn's Marketing API uses monthly date-based versioning (YYYYMM) sent as a request header.
 LINKEDIN_ADS_VERSION_202606 = "202606"
+LINKEDIN_ADS_VERSION_202607 = "202607"
 
 # Opaque source version label -> LinkedIn API version header. The legacy `v1` pin keeps sending the
 # header it always has (`API_VERSION`), so existing syncs are byte-for-byte unchanged.
 _API_HEADER_BY_VERSION = {
     UNVERSIONED_API_VERSION: API_VERSION,
     LINKEDIN_ADS_VERSION_202606: LINKEDIN_ADS_VERSION_202606,
+    LINKEDIN_ADS_VERSION_202607: LINKEDIN_ADS_VERSION_202607,
 }
 
 
@@ -65,8 +67,8 @@ _API_HEADER_BY_VERSION = {
 class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig], OAuthMixin):
     api_docs_url = "https://learn.microsoft.com/en-us/linkedin/marketing/versioning"
 
-    supported_versions = (UNVERSIONED_API_VERSION, LINKEDIN_ADS_VERSION_202606)
-    default_version = LINKEDIN_ADS_VERSION_202606
+    supported_versions = (UNVERSIONED_API_VERSION, LINKEDIN_ADS_VERSION_202606, LINKEDIN_ADS_VERSION_202607)
+    default_version = LINKEDIN_ADS_VERSION_202607
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -113,6 +115,18 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # user must re-authorize. Model-specific so we don't swallow unrelated `DoesNotExist`
             # errors from other models, which may be real bugs.
             "Integration matching query does not exist": "Your LinkedIn Ads connection is no longer available — it may have been disconnected. Please re-authorize the LinkedIn Ads integration.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `client.py`'s `_call_finder` already retries these in-process via tenacity (5 attempts,
+        # exponential backoff honoring Retry-After) before re-raising `LinkedinAdsRetryableError`. A
+        # 429/5xx/malformed-body that survives all 5 attempts is a transient LinkedIn/edge blip, not
+        # a bug — Temporal's activity retry recovers once the upstream issue clears, so keep it out
+        # of error tracking as noise. Match the stable message prefix LinkedIn's own status/body are
+        # appended to, not the volatile status code or body.
+        return {
+            "LinkedIn API error (retryable, ",
+            "LinkedIn API returned a malformed (non-JSON) response",
         }
 
     @property

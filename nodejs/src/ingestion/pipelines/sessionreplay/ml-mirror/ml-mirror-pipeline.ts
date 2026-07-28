@@ -35,6 +35,7 @@ export interface MlMirrorImageScrubProducer {
     outputs: IngestionOutputs<MlImageScrubOutput>
     /** The ML pseudonym HMAC key (also used by the block-metadata sink), for the per-team ref prefix. */
     pseudonymSecret: string | Buffer
+    producedRefCacheMax: number
 }
 
 export function createMlMirrorReplayPipeline(
@@ -153,7 +154,10 @@ export function createMlMirrorReplayPipeline(
                                                     )
                                                     const withImagesProduced = imageScrub
                                                         ? parsed.pipe(
-                                                              createProduceCollectedImagesStep(imageScrub.outputs)
+                                                              createProduceCollectedImagesStep(
+                                                                  imageScrub.outputs,
+                                                                  imageScrub.producedRefCacheMax
+                                                              )
                                                           )
                                                         : parsed
                                                     return withImagesProduced.pipe(

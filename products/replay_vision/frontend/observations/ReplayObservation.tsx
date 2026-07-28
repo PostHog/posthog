@@ -407,6 +407,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     observation={observation}
                                     showPrompt={false}
                                     onSeek={seekEmbeddedPlayer}
+                                    copyable
                                 />
                             </LabeledRow>
                             {observation.completed_at && (
@@ -456,7 +457,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     <CardHeader icon={<IconInfo />} title="Observation details" />
                     <div className="flex flex-col gap-3 text-sm">
                         <LabeledRow label="Status">
-                            <ObservationStatusTag status={observation.status} />
+                            <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
                         </LabeledRow>
                         {result && typeof result.confidence === 'number' && (
                             <LabeledRow label="Confidence">

@@ -49,7 +49,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import AccessControlPermission, APIScopePermission
+from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.temporal.common.client import sync_connect
 
@@ -58,9 +58,11 @@ from products.signals.backend.models import (
     SignalReport,
     SignalScoutConfig,
     SignalScoutEmission,
+    SignalScoutNote,
     SignalScoutRun,
 )
 from products.signals.backend.quota import is_team_signals_quota_limited
+from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import (
     enabled_scout_count,
@@ -135,6 +137,7 @@ from products.signals.backend.scout_harness.tools.notes import (
 )
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
 from products.signals.backend.scout_harness.tools.report import (
+    ReportChartInput,
     ReportEvidence,
     ReviewerInput,
     edit_report_sync,
@@ -209,6 +212,33 @@ def _caller_carries_scout_internal_scope(request: Request) -> bool:
     else:
         return False
     return "signal_scout_internal:write" in scopes
+
+
+def _may_read_reports(request: Request, canonical_team: Team) -> bool:
+    """Whether this caller could read the inbox reports a `report_dismissal` note quotes.
+
+    Those notes carry a report's id, title, and the reviewer's dismissal text, all of which the
+    reports API gates on the `task` scope object. The notes surface rides `signal_scout` instead,
+    so both of that API's legs are re-checked here or a caller reads report content it cannot
+    reach canonically. Mirrors the `signal_scout:read` + `task:read` pair on `emission_reports`.
+
+    Both legs matter independently. A token carries API scopes, and one without task read is
+    refused. Every caller, token or session, must also clear the `task` RBAC bar on the canonical
+    team, because an admin can grant a member scout access while withholding task access, and a
+    session caller carries no scopes for the first leg to inspect.
+
+    Scopes come from `get_authenticator_scopes` rather than a local isinstance ladder: this
+    viewset also admits ID-JAG tokens, and a ladder that misses an authenticator returns no
+    scopes, which reads as "session caller" and skips the first leg entirely.
+    """
+    scopes = get_authenticator_scopes(request.successful_authenticator)
+    if scopes is not None and not ("*" in scopes or "task:read" in scopes or "task:write" in scopes):
+        return False
+
+    user = request.user
+    if not isinstance(user, User):
+        return False
+    return UserAccessControl(user=user, team=canonical_team).check_access_level_for_resource("task", "viewer")
 
 
 class Conflict(exceptions.APIException):
@@ -308,6 +338,25 @@ def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
     free. Mirrors the canonicalization in `TeamAndOrgViewSetMixin.initial`.
     """
     return view.team.parent_team_id or view.team_id
+
+
+def _to_report_charts(entries: list[dict] | None) -> list[ReportChartInput] | None:
+    """Map validated `charts` entries to `ReportChartInput`s for the report tools. Content validation
+    lives in `ReportChart`, which the tools build from these; this only crosses the DRF boundary so a
+    malformed chart still surfaces as an invalid-report error. Empty/None yields None ("no charts")."""
+    if not entries:
+        return None
+    return [
+        ReportChartInput(
+            chart_id=entry["chart_id"],
+            title=entry["title"],
+            query=entry["query"],
+            caption=entry.get("caption") or None,
+            # Narrowed by the serializer's choices; the cast only crosses the untyped DRF dict.
+            size=cast("ChartSize | None", entry.get("size") or None),
+        )
+        for entry in entries
+    ]
 
 
 def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | None:
@@ -895,6 +944,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 priority=data.get("priority"),
                 priority_explanation=data.get("priority_explanation"),
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
+                charts=_to_report_charts(data.get("charts")),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -950,6 +1000,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 summary=data.get("summary"),
                 append_note=data.get("append_note"),
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
+                charts=_to_report_charts(data.get("charts")),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -960,6 +1011,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "updated_fields": result.updated_fields,
                     "note_appended": result.note_appended,
                     "reviewers_set": result.reviewers_set,
+                    "charts_set": result.charts_set,
                 }
             ).data,
             status=status.HTTP_200_OK,
@@ -1210,6 +1262,11 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             date_to=validated.get("date_to"),
             limit=validated.get("limit") or DEFAULT_NOTES_LIST_LIMIT,
             content_max_chars=validated.get("content_max_chars"),
+            exclude_origins=(
+                ()
+                if _may_read_reports(request, self.team.parent_team or self.team)
+                else (SignalScoutNote.Origin.REPORT_DISMISSAL,)
+            ),
         )
         return Response(ScoutNoteSerializer([row.as_dict() for row in rows], many=True).data)
 
