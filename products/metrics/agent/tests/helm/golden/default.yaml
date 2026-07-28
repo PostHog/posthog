@@ -149,7 +149,7 @@ metadata:
         app.kubernetes.io/managed-by: Helm
 spec:
     # A single replica by design: multiple replicas would scrape every target
-    # multiple times and double-count all metrics.
+    # multiple times and double-count all metrics. Scale with shards instead.
     replicas: 1
     selector:
         matchLabels:

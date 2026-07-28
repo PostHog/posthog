@@ -43,6 +43,22 @@ entrypoint's full-override escape hatch). The API key is referenced as
 ${env:POSTHOG_API_KEY} and resolved by the collector from the pod env,
 so it never appears in the ConfigMap.
 */}}
+{{/*
+Hashmod pair appended to every generated scrape job when shards > 1: each
+pod keeps only targets hashing to its SHARD_INDEX (exported by the image
+entrypoint from the StatefulSet pod ordinal). Runs last so it hashes the
+final __address__, after the annotation port rewrite.
+*/}}
+{{- define "posthog-metrics-agent.shardRelabel" -}}
+- source_labels: [__address__]
+  modulus: {{ int .Values.shards }}
+  target_label: __tmp_shard
+  action: hashmod
+- source_labels: [__tmp_shard]
+  regex: '${env:SHARD_INDEX}'
+  action: keep
+{{- end }}
+
 {{- define "posthog-metrics-agent.collectorConfig" -}}
 {{- if and (not .Values.scrape.annotationDiscovery) (not .Values.scrape.staticTargets) (not .Values.scrape.extraScrapeConfigs) }}
 {{- fail "at least one of scrape.annotationDiscovery, scrape.staticTargets or scrape.extraScrapeConfigs must be set" }}
@@ -77,6 +93,9 @@ receivers:
                       - source_labels: [__meta_kubernetes_pod_name]
                         action: replace
                         target_label: pod
+{{- if gt (int .Values.shards) 1 }}
+{{- include "posthog-metrics-agent.shardRelabel" . | nindent 22 }}
+{{- end }}
 {{- end }}
 {{- if .Values.scrape.staticTargets }}
                 - job_name: static-targets
@@ -85,6 +104,10 @@ receivers:
                   scrape_protocols: [OpenMetricsText1.0.0, OpenMetricsText0.0.1, PrometheusText0.0.4]
                   static_configs:
                       - targets: [{{ range $i, $t := .Values.scrape.staticTargets }}{{ if $i }}, {{ end }}'{{ $t }}'{{ end }}]
+{{- if gt (int .Values.shards) 1 }}
+                  relabel_configs:
+{{- include "posthog-metrics-agent.shardRelabel" . | nindent 22 }}
+{{- end }}
 {{- end }}
 {{- with .Values.scrape.extraScrapeConfigs }}
 {{ tpl . $ | indent 16 }}

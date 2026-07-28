@@ -72,6 +72,22 @@ run_render debug POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 POSTHOG_DEBUG=
 new_case_dir
 run_render quoted-target POSTHOG_API_KEY=phc_test "SCRAPE_TARGETS=app's-host:9090"
 
+# Sharding: SHARD_COUNT/SHARD_INDEX partition targets via hashmod so N agents
+# split the target set with no coordination, no duplicates, and no gaps.
+new_case_dir
+run_render sharded POSTHOG_API_KEY=phc_test SCRAPE_TARGETS='app:9090, worker:9091' SHARD_COUNT=4 SHARD_INDEX=2
+
+# The shard index falls back to the trailing ordinal of the hostname
+# (StatefulSet pods are named <name>-<ordinal>).
+new_case_dir
+run_render sharded-hostname POSTHOG_API_KEY=phc_test SCRAPE_TARGETS='app:9090, worker:9091' SHARD_COUNT=4 HOSTNAME=posthog-metrics-agent-3
+
+new_case_dir
+expect_failure shard-index-out-of-range 'SHARD_INDEX must be less than SHARD_COUNT' POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 SHARD_COUNT=2 SHARD_INDEX=2
+
+new_case_dir
+expect_failure shard-index-underivable 'SHARD_INDEX' POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 SHARD_COUNT=2 HOSTNAME=nodigits
+
 # A mounted scrape_configs.yaml replaces the env-generated job verbatim
 # (re-indented under the receiver), and SCRAPE_TARGETS is not required.
 new_case_dir

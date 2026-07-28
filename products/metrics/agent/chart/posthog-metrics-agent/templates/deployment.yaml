@@ -1,13 +1,26 @@
+{{- $sharded := gt (int .Values.shards) 1 }}
 apiVersion: apps/v1
+{{- if $sharded }}
+kind: StatefulSet
+{{- else }}
 kind: Deployment
+{{- end }}
 metadata:
     name: {{ include "posthog-metrics-agent.fullname" . }}
     labels:
         {{- include "posthog-metrics-agent.labels" . | nindent 8 }}
 spec:
+    {{- if $sharded }}
+    # Shards partition the target set by address hash (each pod's ordinal is
+    # its SHARD_INDEX), so every target is scraped by exactly one pod.
+    replicas: {{ int .Values.shards }}
+    serviceName: {{ include "posthog-metrics-agent.fullname" . }}-headless
+    podManagementPolicy: Parallel
+    {{- else }}
     # A single replica by design: multiple replicas would scrape every target
-    # multiple times and double-count all metrics.
+    # multiple times and double-count all metrics. Scale with shards instead.
     replicas: 1
+    {{- end }}
     selector:
         matchLabels:
             {{- include "posthog-metrics-agent.selectorLabels" . | nindent 12 }}
@@ -40,6 +53,12 @@ spec:
                             secretKeyRef:
                                 name: {{ include "posthog-metrics-agent.secretName" . }}
                                 key: posthog-api-key
+                      {{- if $sharded }}
+                      # The entrypoint derives SHARD_INDEX from the pod ordinal
+                      # and exports it for the ${env:SHARD_INDEX} keep regex.
+                      - name: SHARD_COUNT
+                        value: {{ int .Values.shards | quote }}
+                      {{- end }}
                   volumeMounts:
                       - name: config
                         mountPath: /etc/posthog/config.yaml

@@ -13,6 +13,12 @@ posthog:
     # Takes precedence over apiKey.
     existingSecret: ''
 
+# Number of agent instances. 1 runs a single Deployment. Above 1 the chart
+# runs a StatefulSet fleet that partitions scrape targets by address hash, so
+# each target is scraped by exactly one shard. Scale this for large clusters
+# instead of replicas, which would double-count every target.
+shards: 1
+
 scrape:
     interval: 15s
     # Scrape pods annotated with prometheus.io/scrape: "true"
@@ -21,6 +27,8 @@ scrape:
     # Extra fixed host:port targets, e.g. ['my-svc:9090'].
     staticTargets: []
     # Raw Prometheus scrape_configs YAML (a list) appended verbatim.
+    # With shards > 1, add the hashmod relabel pair to each job here too
+    # (see templates/_helpers.tpl) or every shard will scrape it.
     extraScrapeConfigs: ''
 
 resources:

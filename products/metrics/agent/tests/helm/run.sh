@@ -104,6 +104,28 @@ assert_contains sa-name-required 'serviceAccount.name is required' "$out"
 out=$(render --set posthog.apiKey=phc_test --set posthog.host=https://eu.i.posthog.com)
 assert_contains eu-host 'https://eu.i.posthog.com/i/v1/metrics' "$out"
 
+# --- default: single instance, no sharding machinery ---
+out=$(render --set posthog.apiKey=phc_test)
+assert_contains default-is-deployment 'kind: Deployment' "$out"
+assert_not_contains default-no-statefulset 'kind: StatefulSet' "$out"
+assert_not_contains default-no-hashmod 'action: hashmod' "$out"
+
+# --- shards > 1: StatefulSet fleet partitioning targets via hashmod ---
+out=$(render --set posthog.apiKey=phc_test --set shards=3)
+assert_contains sharded-statefulset 'kind: StatefulSet' "$out"
+assert_not_contains sharded-no-deployment 'kind: Deployment' "$out"
+assert_contains sharded-replicas 'replicas: 3' "$out"
+assert_contains sharded-headless-service 'clusterIP: None' "$out"
+assert_contains sharded-modulus 'modulus: 3' "$out"
+assert_contains sharded-index-env "regex: '\${env:SHARD_INDEX}'" "$out"
+assert_contains sharded-hashmod 'action: hashmod' "$out"
+assert_contains sharded-count-env 'name: SHARD_COUNT' "$out"
+# Every chart-generated scrape job must be sharded, or a job would be
+# scraped by all shards (extraScrapeConfigs are verbatim: sharding those
+# is the author's responsibility, called out in values.yaml).
+static=$(render --set posthog.apiKey=phc_test --set shards=3 -f values/static-targets.yaml)
+assert_contains sharded-static-job-hashmod 'action: hashmod' "$static"
+
 # --- golden drift guard for the fully default render ---
 # Blank lines are stripped before comparing: helm 3 and 4 disagree on
 # blank-line placement between documents, and that isn't drift we care about.
