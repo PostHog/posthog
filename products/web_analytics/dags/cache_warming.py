@@ -658,6 +658,26 @@ def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConf
     seen_lock = threading.Lock()
 
     def _warm_one(query_info: dict) -> str:
+        # One line per shape, every outcome — deliberately verbose (~a line per
+        # selected shape per run). Warm passes have repeatedly been slow for
+        # reasons aggregate counters couldn't attribute (bucket identity churn,
+        # deep-range rebuilds); per-shape logs make the composition greppable.
+        started = time.monotonic()
+        outcome = _warm_one_inner(query_info)
+        query_json = query_info.get("query_json") or {}
+        logger.info(
+            "web_analytics_warming_shape",
+            outcome=outcome,
+            seconds=round(time.monotonic() - started, 2),
+            team_id=query_info.get("team_id"),
+            kind=query_json.get("kind"),
+            breakdown_by=query_json.get("breakdownBy"),
+            date_from=(query_json.get("dateRange") or {}).get("date_from"),
+            normalized_query_hash=query_info.get("normalized_query_hash"),
+        )
+        return outcome
+
+    def _warm_one_inner(query_info: dict) -> str:
         team = teams.get(query_info["team_id"])
         if team is None:
             return "team_missing"
