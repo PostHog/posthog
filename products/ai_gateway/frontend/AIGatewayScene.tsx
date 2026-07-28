@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ComponentType } from 'react'
 
-import * as roboHogPng from '@posthog/brand/hoggies/png/robo-hog'
+import * as robotPng from '@posthog/brand/hoggies/png/robot'
 import { LemonSegmentedButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -26,7 +26,7 @@ import { aiGatewayLogic, EndpointProvider, EndpointTab } from './aiGatewayLogic'
 import { GatewayBalanceCard, GatewayTopUpModal } from './GatewayTopUp'
 import { ModelBreakdownTable, SpendChart, UsageMetrics } from './gatewayUsage'
 
-const HedgehogRoboHog = pngHoggie(roboHogPng)
+const HedgehogRobot = pngHoggie(robotPng)
 
 const AI_GATEWAY_DESCRIPTION =
     'One endpoint for every major LLM, billed at cost — no markup on tokens. Point your app at the gateway and ' +
@@ -100,7 +100,7 @@ export function AIGatewayScene(): JSX.Element {
 function GatewayIntro(): JSX.Element {
     return (
         <div className="border-2 border-dashed border-primary w-full p-6 rounded flex items-center gap-6">
-            <HedgehogRoboHog className="w-32 hidden md:block shrink-0" />
+            <HedgehogRobot className="w-32 hidden md:block shrink-0" />
             <div className="flex-shrink">
                 <h3 className="m-0">No gateway usage yet</h3>
                 <p className="ml-0 mt-1 mb-0 text-secondary">{AI_GATEWAY_DESCRIPTION}</p>
