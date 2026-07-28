@@ -76424,7 +76424,10 @@ export namespace Schemas {
 
     export type HogFlowsListParams = {
     created_at?: string;
-    created_by?: number;
+    /**
+     * Filter to workflows created by the user with this uuid.
+     */
+    created_by?: string;
     id?: string;
     /**
      * Number of results to return per page.
@@ -76434,6 +76437,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Case-insensitive search across workflow name and description.
+     */
+    search?: string;
     /**
      * * `draft` - Draft
      * * `active` - Active
