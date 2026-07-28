@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
 
-import { IconRefresh, IconRewindPlay, IconSparkles } from '@posthog/icons'
+import { IconCopy, IconRefresh, IconRewindPlay, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
@@ -19,7 +20,7 @@ import {
     scannerTypeLabel,
 } from '../replay_scanners/types'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
-import { parseCitedSegments } from '../utils/citations'
+import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
 import { ObservationProgressBar } from './ObservationProgressBar'
 
 export function ObservationStatusTag({
@@ -121,6 +122,7 @@ export function ObservationPrimaryOutput({
     showPrompt = true,
     onSeek,
     expandSummary = false,
+    copyable = false,
 }: {
     observation: ReplayObservationApi
     compact?: boolean
@@ -129,6 +131,8 @@ export function ObservationPrimaryOutput({
     onSeek?: (timestampMs: number) => void
     /** When true (dock/detail), summarizer body wraps in full; when false (table), single-line truncate. */
     expandSummary?: boolean
+    /** Shows a copy button on summarizer output: the clipboard gets the title plus the summary with citations as plain timestamps. */
+    copyable?: boolean
 }): JSX.Element | null {
     const snapshot = observation.scanner_snapshot
     const result = readResult(observation)
@@ -168,9 +172,31 @@ export function ObservationPrimaryOutput({
     if (scannerType === 'summarizer') {
         const title = typeof result.title === 'string' ? result.title : null
         const summary = typeof result.summary === 'string' ? result.summary : null
+        const showCopy = copyable && summary !== null
         return (
             <div className="flex flex-col gap-1">
-                {title && <span className="font-semibold text-sm">{title}</span>}
+                {(title || showCopy) && (
+                    <div className="flex items-start justify-between gap-2">
+                        {title && <span className="font-semibold text-sm">{title}</span>}
+                        {showCopy && (
+                            <LemonButton
+                                size="xsmall"
+                                icon={<IconCopy />}
+                                tooltip="Copy summary"
+                                className="ml-auto -my-1"
+                                onClick={() =>
+                                    void copyToClipboard(
+                                        [title, citedTextToPlainText(summary, result.summary_segments)]
+                                            .filter(Boolean)
+                                            .join('\n\n'),
+                                        'summary'
+                                    )
+                                }
+                                data-attr="vision-copy-summary"
+                            />
+                        )}
+                    </div>
+                )}
                 {summary && (
                     <span className={summaryClass}>
                         <CitedText text={summary} segments={result.summary_segments} onSeek={onSeek} />
@@ -412,7 +438,7 @@ export function ObservationDockCard({
             )}
 
             {observation.status === 'succeeded' && snapshot && result && (
-                <ObservationPrimaryOutput observation={observation} compact onSeek={onSeek} expandSummary />
+                <ObservationPrimaryOutput observation={observation} compact onSeek={onSeek} expandSummary copyable />
             )}
 
             {(observation.status === 'pending' || observation.status === 'running') && (
