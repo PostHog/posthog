@@ -54,6 +54,33 @@ describe('signalTeamConfigLogic', () => {
         ])
     })
 
+    it('keeps the draft available when adding an override fails', async () => {
+        const serverConfig: SignalTeamConfig = {
+            id: 'cfg-1',
+            autostart_enabled: true,
+            default_autostart_priority: 'P4',
+            autostart_base_branches: {},
+        }
+        useMocks({
+            get: { '/api/projects/:team_id/signals/config/': () => [200, serverConfig] },
+            post: { '/api/projects/:team_id/signals/config/': () => [500, { detail: 'Failed to save' }] },
+        })
+        initKeaTests()
+        logic = signalTeamConfigLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setDraftBaseBranchRepo('acme/api')
+        logic.actions.setDraftBaseBranchBranch('develop')
+        logic.actions.addBaseBranchOverride()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.draftBaseBranchRepo).toBe('acme/api')
+        expect(logic.values.draftBaseBranchBranch).toBe('develop')
+        expect(logic.values.teamConfigUpdating).toBe(false)
+        expect(logic.values.baseBranchOverrides).toEqual([])
+    })
+
     it.each([
         ['repo without a slash', 'acmeweb', 'develop'],
         ['repo with an empty half', 'acme/', 'develop'],
@@ -122,6 +149,7 @@ describe('signalTeamConfigLogic', () => {
         logic.actions.updateBaseBranchOverride('acme/web', 'release-two')
 
         await waitFor(() => expect(postBodies).toHaveLength(1))
+        expect(logic.values.teamConfigUpdating).toBe(true)
         resolveFirstUpdate?.()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -129,6 +157,7 @@ describe('signalTeamConfigLogic', () => {
             { autostart_base_branches: { 'acme/web': 'release-one' } },
             { autostart_base_branches: { 'acme/web': 'release-two' } },
         ])
+        expect(logic.values.teamConfigUpdating).toBe(false)
     })
 
     it('does not persist an update to the branch already stored', async () => {

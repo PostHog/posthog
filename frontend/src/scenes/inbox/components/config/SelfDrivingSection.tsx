@@ -33,7 +33,7 @@ const THRESHOLD_SEGMENTS = PRIORITY_THRESHOLD_OPTIONS.map(({ value }) => ({
 }))
 
 function BaseBranchOverrideRows(): JSX.Element | null {
-    const { baseBranchOverrides } = useValues(signalTeamConfigLogic)
+    const { baseBranchOverrides, teamConfigUpdating } = useValues(signalTeamConfigLogic)
     const { updateBaseBranchOverride, removeBaseBranchOverride } = useActions(signalTeamConfigLogic)
     const { getIntegrationsByKind } = useValues(integrationsLogic)
     const githubIntegrations = getIntegrationsByKind(['github'])
@@ -59,6 +59,7 @@ function BaseBranchOverrideRows(): JSX.Element | null {
                                 repo={repo}
                                 value={branch}
                                 allowCustomValues={false}
+                                disabled={teamConfigUpdating}
                                 onChange={(next) => {
                                     if (next) {
                                         updateBaseBranchOverride(repo, next)
@@ -71,6 +72,7 @@ function BaseBranchOverrideRows(): JSX.Element | null {
                         <Button
                             variant="outline"
                             size="sm"
+                            loading={teamConfigUpdating}
                             aria-label={`Remove base branch override for ${repo}`}
                             onClick={() => removeBaseBranchOverride(repo)}
                         >
@@ -84,8 +86,13 @@ function BaseBranchOverrideRows(): JSX.Element | null {
 }
 
 function BaseBranchOverridePicker({ integrationIds }: { integrationIds: number[] }): JSX.Element {
-    const { draftBaseBranchIntegrationId, draftBaseBranchRepo, draftBaseBranchBranch, canAddBaseBranchOverride } =
-        useValues(signalTeamConfigLogic)
+    const {
+        draftBaseBranchIntegrationId,
+        draftBaseBranchRepo,
+        draftBaseBranchBranch,
+        canAddBaseBranchOverride,
+        teamConfigUpdating,
+    } = useValues(signalTeamConfigLogic)
     const { setDraftBaseBranchIntegrationId, setDraftBaseBranchRepo, setDraftBaseBranchBranch, addBaseBranchOverride } =
         useActions(signalTeamConfigLogic)
     const { getIntegrationsByKind } = useValues(integrationsLogic)
@@ -99,7 +106,12 @@ function BaseBranchOverridePicker({ integrationIds }: { integrationIds: number[]
                 <DropdownMenu>
                     <DropdownMenuTrigger
                         render={
-                            <Button variant="outline" size="sm" aria-label="GitHub organization">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                aria-label="GitHub organization"
+                                disabled={teamConfigUpdating}
+                            >
                                 <span className="min-w-0 truncate">
                                     {githubIntegrations.find((integration) => integration.id === integrationId)
                                         ?.display_name ?? 'GitHub'}
@@ -123,6 +135,7 @@ function BaseBranchOverridePicker({ integrationIds }: { integrationIds: number[]
                 <GitHubRepositoryCombobox
                     integrationId={integrationId}
                     value={draftBaseBranchRepo}
+                    disabled={teamConfigUpdating}
                     onChange={(repo) => setDraftBaseBranchRepo(repo ?? '')}
                     placeholder="Repository"
                 />
@@ -132,6 +145,7 @@ function BaseBranchOverridePicker({ integrationIds }: { integrationIds: number[]
                         repo={draftBaseBranchRepo}
                         value={draftBaseBranchBranch}
                         allowCustomValues={false}
+                        disabled={teamConfigUpdating}
                         onChange={(branch) => setDraftBaseBranchBranch(branch ?? '')}
                     />
                 ) : null}
@@ -140,6 +154,7 @@ function BaseBranchOverridePicker({ integrationIds }: { integrationIds: number[]
                 variant="outline"
                 size="sm"
                 disabled={!canAddBaseBranchOverride}
+                loading={teamConfigUpdating}
                 aria-label="Add base branch override"
                 onClick={() => addBaseBranchOverride()}
             >
@@ -182,7 +197,7 @@ function BaseBranchOverrides(): JSX.Element {
  * threshold) that can't live inside that card's single button/link wrapper.
  */
 export function SelfDrivingSection(): JSX.Element {
-    const { teamConfig, teamConfigLoading, autostartEnabled, defaultAutostartPriority } =
+    const { teamConfig, teamConfigLoading, teamConfigUpdating, autostartEnabled, defaultAutostartPriority } =
         useValues(signalTeamConfigLogic)
     const { patchTeamConfig } = useActions(signalTeamConfigLogic)
 
@@ -201,6 +216,7 @@ export function SelfDrivingSection(): JSX.Element {
                         <span className="text-[13px] font-semibold text-default">PR generation</span>
                         <LemonSwitch
                             checked={autostartEnabled}
+                            loading={teamConfigUpdating}
                             onChange={(enabled) => patchTeamConfig({ autostart_enabled: enabled })}
                             aria-label="Generate PRs for actionable reports automatically"
                         />
@@ -218,6 +234,7 @@ export function SelfDrivingSection(): JSX.Element {
                                 size="xsmall"
                                 value={defaultAutostartPriority}
                                 options={THRESHOLD_SEGMENTS}
+                                disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
                                 onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
                             />
                         </div>

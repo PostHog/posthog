@@ -51,7 +51,7 @@ export function GitHubBranchCombobox({
     allowCustomValues = true,
 }: GitHubBranchComboboxProps): JSX.Element {
     const logic = githubBranchSearchLogic({ integrationId, repo })
-    const { branches, defaultBranch, loading, hasMore, searchQuery } = useValues(logic)
+    const { branches, defaultBranch, loading, hasMore, searchQuery, error } = useValues(logic)
     const { setSearchQuery, loadMore, refresh } = useActions(logic)
 
     const triggerRef = useRef<HTMLButtonElement>(null)
@@ -139,7 +139,9 @@ export function GitHubBranchCombobox({
                         <TooltipContent>Refresh branches</TooltipContent>
                     </Tooltip>
                 </div>
-                <ComboboxEmpty>{showInlineLoadingState ? 'Loading branches...' : 'No branches found.'}</ComboboxEmpty>
+                <ComboboxEmpty>
+                    {showInlineLoadingState ? 'Loading branches...' : error ? error : 'No branches found.'}
+                </ComboboxEmpty>
                 <ComboboxList>
                     {(item: string) =>
                         item.startsWith(CREATE_BRANCH_PREFIX) ? (
