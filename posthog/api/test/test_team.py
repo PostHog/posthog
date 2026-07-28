@@ -65,6 +65,8 @@ def team_api_test_factory():
             results = starting_log_response.json()["results"]
             for item in results:
                 item.pop("id", None)
+                for envelope_key in ("is_system", "was_impersonated", "client"):
+                    item.pop(envelope_key, None)
             assert results == expected
 
         def _assert_organization_activity_log(self, expected: list[dict]) -> None:
@@ -73,6 +75,8 @@ def team_api_test_factory():
             results = starting_log_response.json()["results"]
             for item in results:
                 item.pop("id", None)
+                for envelope_key in ("is_system", "was_impersonated", "client"):
+                    item.pop(envelope_key, None)
             assert results == expected
 
         def _assert_activity_log_is_empty(self) -> None:
@@ -1249,6 +1253,29 @@ def team_api_test_factory():
                     team=self.team,
                 )
 
+        def test_concurrent_team_patches_do_not_clobber_each_other(self) -> None:
+            # Simulates two racing PATCHes: the second request loaded the team before the
+            # first one committed. With a full-row save, the second write reverts the first
+            # request's onboarding-completion fields; with update_fields it must not.
+            stale_team = Team.objects.get(pk=self.team.pk)
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"completed_snippet_onboarding": True, "has_completed_onboarding_for": {"product_analytics": True}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+            with patch.object(Project, "passthrough_team", property(lambda _self: stale_team)):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/",
+                    {"session_recording_opt_in": True},
+                )
+            assert response.status_code == status.HTTP_200_OK
+
+            self.team.refresh_from_db()
+            assert self.team.completed_snippet_onboarding is True
+            assert self.team.has_completed_onboarding_for == {"product_analytics": True}
+            assert self.team.session_recording_opt_in is True
+
         @patch("posthog.api.project.report_user_action")
         @patch("posthog.api.team.report_user_action")
         def test_can_complete_product_onboarding(
@@ -1688,7 +1715,15 @@ def team_api_test_factory():
             response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
             assert response.status_code == status.HTTP_403_FORBIDDEN
 
+        def _grant_logs_retention_features(self, *features: AvailableFeature) -> None:
+            self.organization.available_product_features = [
+                {"key": feature.value, "name": feature.value.replace("_", " ")} for feature in features
+            ]
+            self.organization.save()
+
         def test_logs_settings_retention_24_hour_restriction(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+
             # Set initial retention - first update doesn't set retention_last_updated
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
@@ -1711,7 +1746,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-01T12:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 90}},
+                    {"logs_settings": {"retention_days": 30}},
                 )
                 assert response.status_code == status.HTTP_400_BAD_REQUEST
                 assert "24 hours" in response.json()["detail"]
@@ -1720,12 +1755,12 @@ def team_api_test_factory():
             with freeze_time("2025-01-02T00:00:01Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 90}},
+                    {"logs_settings": {"retention_days": 30}},
                 )
                 assert response.status_code == status.HTTP_200_OK
 
         def test_logs_settings_retention_invalid_values_rejected(self):
-            for invalid_days in [7, 15, 20, 45, 100]:
+            for invalid_days in [7, 15, 20, 45, 90, 100]:
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {"logs_settings": {"retention_days": invalid_days}},
@@ -1735,7 +1770,40 @@ def team_api_test_factory():
                 )
                 assert "retention_days must be one of" in response.json()["detail"]
 
+        def test_logs_settings_retention_requires_matching_feature(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 30}},
+            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert "30 days" in response.json()["detail"]
+
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 30}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+        def test_logs_settings_retention_downgrade_allowed_after_feature_removed(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 30}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+            self._grant_logs_retention_features()
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 14}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
         def test_logs_settings_non_retention_changes_not_restricted(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+
             # Set initial retention
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
@@ -3164,9 +3232,13 @@ _MEMBER_SAFE_TEAM_CONFIG_FIELDS_FOR_PROJECTS: list[tuple[str, Any, str]] = [
 # `@field_access_control`; with access controls enabled that governs it instead (see
 # test_web_analytics_editor_can_write_app_urls_with_access_control), but without it the
 # blanket project-admin gate still applies here.
+# `name` (the project/environment rename) is admin-only in the settings UI (TeamDisplayName
+# is gated behind useRestrictedArea(Admin)); a MEMBER must not rename via the API. It stays
+# member-settable at creation time — see test_member_can_create_project_when_org_allows.
 _UNANNOTATED_SENSITIVE_FIELDS: list[tuple[str, Any, str]] = [
     ("is_demo", True, "is_demo"),
     ("app_urls", ["https://evil.example.com"], "app_urls"),
+    ("name", "Renamed by member", "name"),
 ]
 
 

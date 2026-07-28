@@ -14,6 +14,7 @@ analysis rather than number formatting.
 """
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Literal, overload
 
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
@@ -24,6 +25,17 @@ from posthog.temporal.ai_observability.eval_reports.targets import GENERATION_TA
 # over quantity, merge related findings rather than fragmenting.
 MAX_REPORT_SECTIONS = 6
 MIN_REPORT_SECTIONS = 1
+
+
+class EvalReportGenerationStatus(StrEnum):
+    COMPLETED = "completed"
+    METRICS_UNAVAILABLE = "metrics_unavailable"
+
+
+METRICS_UNAVAILABLE_MESSAGE = (
+    "Metrics could not be calculated for this period because evaluation data was temporarily unavailable. "
+    "This does not mean that no evaluations ran."
+)
 
 
 def normalize_result_counts(output_type: str, counts: dict[str, int] | None) -> dict[str, int]:
@@ -278,7 +290,14 @@ def normalize_report_content_payload(data: dict) -> dict:
     """Upgrade a stored report at the read/write boundary without mutating it."""
     normalized = dict(data)
     metrics = data.get("metrics")
-    if isinstance(metrics, dict):
+    try:
+        status = EvalReportGenerationStatus(data.get("generation_status", ""))
+    except ValueError:
+        status = EvalReportGenerationStatus.COMPLETED
+    normalized["generation_status"] = status.value
+    if status == EvalReportGenerationStatus.METRICS_UNAVAILABLE:
+        normalized["metrics"] = None
+    elif isinstance(metrics, dict):
         normalized["metrics"] = normalize_metrics_payload(metrics)
     return normalized
 
@@ -291,10 +310,13 @@ class EvalReportContent:
     title: str = ""
     sections: list[ReportSection] = field(default_factory=list)
     citations: list[Citation] = field(default_factory=list)
-    metrics: EvalReportMetrics = field(default_factory=EvalReportMetrics)
+    metrics: EvalReportMetrics | None = field(default_factory=EvalReportMetrics)
+    generation_status: EvalReportGenerationStatus = EvalReportGenerationStatus.COMPLETED
 
     def __post_init__(self) -> None:
         self.evaluation_target = resolve_evaluation_target(self.evaluation_target)
+        if self.generation_status == EvalReportGenerationStatus.METRICS_UNAVAILABLE:
+            self.metrics = None
 
     def to_dict(self) -> dict:
         return {
@@ -302,15 +324,24 @@ class EvalReportContent:
             "title": self.title,
             "sections": [s.to_dict() for s in self.sections],
             "citations": [c.to_dict() for c in self.citations],
-            "metrics": self.metrics.to_dict(),
+            "metrics": self.metrics.to_dict() if self.metrics is not None else None,
+            "generation_status": self.generation_status.value,
         }
 
     @staticmethod
     def from_dict(data: dict) -> "EvalReportContent":
+        normalized = normalize_report_content_payload(data)
+        generation_status = EvalReportGenerationStatus(normalized["generation_status"])
+        metrics = normalized.get("metrics")
         return EvalReportContent(
-            evaluation_target=data.get("evaluation_target", GENERATION_TARGET),
-            title=data.get("title", ""),
-            sections=[ReportSection.from_dict(s) for s in data.get("sections", [])],
-            citations=[Citation.from_dict(c) for c in data.get("citations", [])],
-            metrics=EvalReportMetrics.from_dict(data.get("metrics", {})),
+            evaluation_target=normalized.get("evaluation_target", GENERATION_TARGET),
+            title=normalized.get("title", ""),
+            sections=[ReportSection.from_dict(s) for s in normalized.get("sections", [])],
+            citations=[Citation.from_dict(c) for c in normalized.get("citations", [])],
+            metrics=(
+                None
+                if generation_status == EvalReportGenerationStatus.METRICS_UNAVAILABLE
+                else EvalReportMetrics.from_dict(metrics if isinstance(metrics, dict) else {})
+            ),
+            generation_status=generation_status,
         )

@@ -387,7 +387,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                                 <span className="tabular-nums">
                                     {formatCredits(scanner.estimated_monthly_credits)}{' '}
                                     <span className="text-muted">
-                                        ({(scanner.estimated_monthly_observations ?? 0).toLocaleString()} observations)
+                                        · {(scanner.estimated_monthly_observations ?? 0).toLocaleString()} observations
                                     </span>
                                 </span>
                             ) : (
@@ -396,13 +396,6 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                         </LabeledRow>
                         <LabeledRow label="Total observations">
                             <span className="tabular-nums">{observationStats.total.toLocaleString()}</span>
-                        </LabeledRow>
-                        <LabeledRow label="Success rate">
-                            {observationStats.successRate != null ? (
-                                <span className="tabular-nums">{observationStats.successRate}%</span>
-                            ) : (
-                                <span className="text-muted">—</span>
-                            )}
                         </LabeledRow>
                         <LabeledRow label="Outcomes">
                             <span className="text-sm">

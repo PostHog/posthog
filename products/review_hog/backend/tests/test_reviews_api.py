@@ -5,6 +5,9 @@ from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
+from social_django.models import UserSocialAuth
+
 from posthog.models import Team, User
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
@@ -148,6 +151,25 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert rows[0]["published"] is False
         assert "perspective_selection" not in rows[0]  # detail-only payload — the list stays lean
 
+    def test_mine_scope_includes_reviews_of_prs_i_authored(self) -> None:
+        # The incident this guards: a review a teammate triggers on your PR lands under THEIR
+        # acting_user, so without the author_login match it never reaches your "For you" tab — the
+        # findings are effectively invisible to you. The match rides the viewer's linked GitHub
+        # login (case-insensitively); without a linked login the old acting-user-only behavior holds.
+        other = User.objects.create_and_join(self.organization, "other-author-scope@posthog.com", None)
+        self._report(pr_number=1, acting_user=other, author_login="OctoCat")
+        self._report(pr_number=2, acting_user=other, author_login="someone-else")
+        self._report(pr_number=3, acting_user=self.user)
+
+        # No linked GitHub identity: only reviews where I'm the acting user.
+        assert {r["pr_number"] for r in self.client.get(self.url).json()["results"]} == {3}
+
+        # Linked identity (stored casing differs from the stamped login): authored PRs join the
+        # scope — for the list AND the perspective_stats aggregation, which share the filter.
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-1", extra_data={"login": "octocat"})
+        assert {r["pr_number"] for r in self.client.get(self.url).json()["results"]} == {1, 3}
+        assert self.client.get(f"{self.url}perspective_stats/").json()["report_count"] == 2
+
     def test_list_scope_everyone_covers_the_whole_project(self) -> None:
         # The "Entire project" switch: everyone-scope must include teammates' reviews but never
         # another team's (tenant isolation), and a bad scope value must 400 — proving the params
@@ -163,6 +185,25 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert res.status_code == 200
         assert {r["pr_number"] for r in res.json()["results"]} == {1, 2}
         assert self.client.get(self.url, {"scope": "nonsense"}).status_code == 400
+
+    @parameterized.expand(
+        [
+            ("review_hog_read_allowed", ["review_hog:read"], 200),
+            ("unrelated_scope_denied", ["insight:read"], 403),
+        ]
+    )
+    def test_list_api_key_scope_is_review_hog(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        # The list/get/trigger endpoints carry the `review_hog` scope so the MCP tools reach them with a
+        # personal API key or OAuth token — a revert to INTERNAL would reject the read-scoped key here and
+        # take the MCP review tools down with it.
+        self._report(pr_number=1, acting_user=self.user)
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        res = self.client.get(self.url)
+
+        assert res.status_code == expected_status
 
     def test_list_limit_grows_the_page_and_has_more_flags_the_rest(self) -> None:
         # "Show more" grows `limit` instead of offset-paging. has_more must flip false exactly when
@@ -321,8 +362,12 @@ class TestRecentReviewsAPI(APIBaseTest):
 
     def test_retrieve_splits_findings_and_returns_the_published_body(self) -> None:
         # The drawer's contract: valid findings (most urgent first, validator override applied),
-        # dismissed ones separately, unjudged ones in neither, and the published body verbatim.
-        report = self._report(pr_number=7, acting_user=self.user, report_markdown="## Review body")
+        # dismissed ones separately, unjudged ones in neither, the published body verbatim, and the
+        # run's stored threshold (what the drawer buckets by — the viewer's setting is only a
+        # fallback for pre-column rows).
+        report = self._report(
+            pr_number=7, acting_user=self.user, report_markdown="## Review body", run_urgency_threshold="should_fix"
+        )
         self._finding(report, "1-low", priority=IssuePriority.CONSIDER)
         self._finding(report, "1-high", priority=IssuePriority.MUST_FIX, adjusted=IssuePriority.SHOULD_FIX)
         self._finding(report, "1-noise", priority=IssuePriority.SHOULD_FIX, is_valid=False)
@@ -333,6 +378,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert res.status_code == 200
         detail = res.json()
         assert detail["report_markdown"] == "## Review body"
+        assert detail["run_urgency_threshold"] == "should_fix"
         assert [f["title"] for f in detail["findings"]] == ["title 1-high", "title 1-low"]
         high = detail["findings"][0]
         assert (high["effective_priority"], high["reviewer_priority"]) == ("should_fix", "must_fix")

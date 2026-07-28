@@ -19,6 +19,7 @@ export const INBOX_EVENTS = {
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_ACTION: 'Inbox report action',
     REPORT_FEEDBACK: 'Inbox report feedback',
+    REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
     SOURCE_CONNECTED: 'Signal source connected',
     SOURCE_INTEREST: 'signals source interest',
 } as const
@@ -26,7 +27,7 @@ export const INBOX_EVENTS = {
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
 
 /** Action surface an `Inbox report action` fired from. */
-export type InboxReportActionSurface = 'detail_pane' | 'list_row' | 'bulk_bar'
+export type InboxReportActionSurface = 'detail_pane' | 'detail_footer' | 'list_row' | 'bulk_bar'
 
 /** How a report detail was opened. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'unknown'
@@ -34,7 +35,7 @@ export type InboxReportOpenMethod = 'click' | 'deeplink' | 'unknown'
 /** How a report detail was closed. */
 export type InboxReportCloseMethod = 'next_report' | 'deselected' | 'unmount'
 
-/** Sentiment captured by the report feedback button. */
+/** Sentiment captured by the report feedback thumbs. */
 export type InboxReportFeedbackSentiment = 'positive' | 'negative'
 
 /**
@@ -231,14 +232,15 @@ export function captureInboxReportAction(params: {
 }
 
 /**
- * Free-form feedback on a single report, fired from the detail pane's feedback button. Unlike a
- * dismiss, this is feedback-only: the report stays in the inbox. Carries the thumbs sentiment plus
- * the optional note text so we can read what people actually think of a report (and its PR).
+ * Feedback on a single report, fired from the thumbs at the end of the report body. Unlike a
+ * dismiss, this is feedback-only: the report stays in the inbox. The sentiment is the label the
+ * ranking work trains against, so it carries the same report classification as the impression and
+ * open events. `note` is optional — the thumbs submit on one click, with no note.
  */
 export function captureInboxReportFeedback(params: {
     report: SignalReport
     sentiment: InboxReportFeedbackSentiment
-    note: string
+    note?: string
     surface: InboxReportActionSurface
 }): void {
     captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK, {
@@ -246,6 +248,27 @@ export function captureInboxReportFeedback(params: {
         sentiment: params.sentiment,
         has_pr: !!params.report.implementation_pr_url,
         ...(params.note ? { note: params.note } : {}),
+        surface: params.surface,
+    })
+}
+
+/**
+ * Optional free-text note, offered only once a rating is already recorded. It rides on its own
+ * event rather than re-firing {@link captureInboxReportFeedback} so sentiment stays exactly one
+ * event per rating; join back to the rating on `report_id`. Carries `sentiment` too so a note can
+ * be read without that join.
+ */
+export function captureInboxReportFeedbackNote(params: {
+    report: SignalReport
+    sentiment: InboxReportFeedbackSentiment
+    note: string
+    surface: InboxReportActionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK_NOTE, {
+        ...baseReportProperties(params.report),
+        sentiment: params.sentiment,
+        has_pr: !!params.report.implementation_pr_url,
+        note: params.note,
         surface: params.surface,
     })
 }
