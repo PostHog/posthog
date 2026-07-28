@@ -4,7 +4,7 @@ import api from 'lib/api'
 
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { Experiment, FilterLogicalOperator } from '~/types'
+import { Experiment, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { getViewRecordingFiltersForVariant } from '../utils'
 import { RETENTION_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
@@ -165,18 +165,53 @@ describe('experimentReplayTabLogic', () => {
         ])
     })
 
-    it('flags a server-side exposure event as unlinkable, so the tab can explain the empty list', async () => {
+    it('falls back to the flag-value property filter when the default exposure event is server-side', async () => {
         seenTogetherSpy.mockResolvedValue({ $feature_flag_called: false })
         // Distinct id: both this logic and the linkability lookup are keyed by experiment id.
         const serverSide = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 43 } as Experiment })
         serverSide.mount()
 
-        await expectLogic(serverSide).toFinishAllListeners().toMatchValues({ exposureUnlinkable: true })
+        await expectLogic(serverSide)
+            .toFinishAllListeners()
+            .toMatchValues({ exposureUnlinkable: false, usingExposureFallback: true })
+        expect(serverSide.values.recordingsFilters.filter_group.values).toEqual([
+            {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        key: '$feature/my-flag',
+                        type: PropertyFilterType.Event,
+                        value: ['control', 'test'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+        ])
+        serverSide.unmount()
+    })
+
+    it('flags a server-side custom exposure event as unlinkable, so the tab can explain the empty list', async () => {
+        seenTogetherSpy.mockResolvedValue({ signed_up: false })
+        const customExposure = {
+            ...EXPERIMENT,
+            id: 44,
+            exposure_criteria: {
+                exposure_config: { kind: NodeKind.ExperimentEventExposureConfig, event: 'signed_up', properties: [] },
+            },
+        } as unknown as Experiment
+        const serverSide = experimentReplayTabLogic({ experiment: customExposure })
+        serverSide.mount()
+
+        await expectLogic(serverSide)
+            .toFinishAllListeners()
+            .toMatchValues({ exposureUnlinkable: true, usingExposureFallback: false })
         serverSide.unmount()
     })
 
     it('keeps the list when the exposure event is session-linkable', async () => {
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ exposureUnlinkable: false })
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ exposureUnlinkable: false, usingExposureFallback: false })
     })
 
     it('ANDs each selected metric filter onto the exposure filter, and ignores unknown metric uuids', async () => {

@@ -34943,6 +34943,7 @@
                 "comments",
                 "conversations",
                 "customer_analytics",
+                "data_catalog",
                 "data_warehouse",
                 "data_warehouse_saved_queries",
                 "early_access_features",
