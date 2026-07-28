@@ -238,6 +238,7 @@ export interface QueryTab {
     insight?: QueryBasedInsightModel
     response?: Record<string, any>
     draft?: DataWarehouseSavedQueryDraft
+    metricName?: string
 }
 
 export type SqlEditorSource = 'insight' | 'endpoint' | 'view' | 'metric'
@@ -739,10 +740,12 @@ export interface sqlEditorLogicActions {
         query?: string,
         view?: DataWarehouseSavedQuery,
         insight?: QueryBasedInsightModel,
-        draft?: DataWarehouseSavedQueryDraft
+        draft?: DataWarehouseSavedQueryDraft,
+        metricName?: string
     ) => {
         draft: DataWarehouseSavedQueryDraft | undefined
         insight: QueryBasedInsightModel<Node<Record<string, any>>> | undefined
+        metricName: string | undefined
         query: string | undefined
         view: DataWarehouseSavedQuery | undefined
     }
@@ -1049,6 +1052,7 @@ export interface sqlEditorLogicMeta {
             queryInput: string | null
         ) => string | null | undefined
         editingView: (activeTab: QueryTab | null) => DataWarehouseSavedQuery | undefined
+        editingMetricName: (activeTab: QueryTab | null) => string | null
         changesToSave: (editingView: DataWarehouseSavedQuery | undefined, queryInput: string | null) => boolean
         exportContext: (sourceQuery: DataVisualizationNode) => ExportContext
         selectedConnectionId: (sourceQuery: DataVisualizationNode) => string | undefined
@@ -1156,12 +1160,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             query?: string,
             view?: DataWarehouseSavedQuery,
             insight?: QueryBasedInsightModel,
-            draft?: DataWarehouseSavedQueryDraft
+            draft?: DataWarehouseSavedQueryDraft,
+            metricName?: string
         ) => ({
             query,
             view,
             insight,
             draft,
+            metricName,
         }),
         updateTab: (tab: QueryTab) => ({ tab }),
 
@@ -1431,12 +1437,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             'insight' as SqlEditorSource,
             {
                 setEditorSource: (_, { source }) => source,
-            },
-        ],
-        editingMetricName: [
-            null as string | null,
-            {
-                setEditingMetricName: (_, { metricName }) => metricName,
             },
         ],
         dashboardId: [
@@ -1723,7 +1723,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             editInsight: ({ query, insight }) => {
                 actions.createTab(query, undefined, insight)
             },
-            createTab: async ({ query = '', view, insight, draft }) => {
+            createTab: async ({ query = '', view, insight, draft, metricName }) => {
                 // Use tabId to ensure each browser tab has its own unique Monaco model
                 const tabName = insight ? (insight.name ?? NEW_QUERY) : draft?.name || view?.name || NEW_QUERY
                 const tabDescription = insight?.description ?? ''
@@ -1758,6 +1758,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         description: tabDescription,
                         sourceQuery: insightVisualizationQuery,
                         draft: draft,
+                        metricName,
                     })
                 }
                 if (insightVisualizationQuery) {
@@ -2533,6 +2534,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     lemonToast.error(error.detail || 'Failed to update metric')
                 }
             },
+            setEditingMetricName: ({ metricName }) => {
+                if (values.activeTab) {
+                    actions.updateTab({ ...values.activeTab, metricName: metricName ?? undefined })
+                }
+            },
             setEditingInsightName: ({ name }) => {
                 if (values.activeTab) {
                     actions.updateTab({ ...values.activeTab, name })
@@ -2933,6 +2939,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return activeTab?.view
             },
         ],
+        editingMetricName: [
+            (s) => [s.activeTab],
+            (activeTab: QueryTab | null) => {
+                return activeTab?.metricName ?? null
+            },
+        ],
         changesToSave: [
             (s) => [s.editingView, s.queryInput],
             (editingView: DataWarehouseSavedQuery | undefined, queryInput: string | null) => {
@@ -3075,7 +3087,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ) {
                 actions.setEditorSource(searchParams.source)
             }
-            actions.setEditingMetricName(searchParams.edit_metric ?? null)
             if (searchParams.dashboard) {
                 const parsed = parseInt(searchParams.dashboard, 10)
                 if (!isNaN(parsed)) {
@@ -3325,7 +3336,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             ? toDataVisualizationNode(searchParams.open_query)
                             : undefined
                     if (openQueryNode) {
-                        actions.createTab(openQueryNode.source.query || '')
+                        actions.createTab(
+                            openQueryNode.source.query || '',
+                            undefined,
+                            undefined,
+                            undefined,
+                            searchParams.edit_metric
+                        )
                         actions.setSourceQuery(hasFiltersHashParam ? applyFiltersFromUrl(openQueryNode) : openQueryNode)
                         if (!outputTabFromUrl) {
                             actions.setActiveTab(OutputTab.Visualization)
@@ -3336,7 +3353,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         // kea-router also decodes numeric/JSON-shaped values; a non-node object is a
                         // malformed URL, so fall back to an empty query rather than "[object Object]"
                         actions.createTab(
-                            typeof searchParams.open_query === 'object' ? '' : String(searchParams.open_query)
+                            typeof searchParams.open_query === 'object' ? '' : String(searchParams.open_query),
+                            undefined,
+                            undefined,
+                            undefined,
+                            searchParams.edit_metric
                         )
                     }
                     tabAdded = true
