@@ -622,10 +622,13 @@ class HogFlowActionSerializer(serializers.Serializer):
     config = HogFlowActionConfigField(
         help_text=(
             "Type-specific config keyed by action type. "
-            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. "
+            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and "
+            "manual triggers also require template_id: 'template-source-webhook', and tracking_pixel "
+            "requires template_id: 'template-source-webhook-pixel'. "
             "filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], "
             "actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, "
-            "type: event|person|group}. "
+            "type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} "
+            "to reference a cohort. "
             "function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable "
             "hog templating ({person.x}, {event.x}); flat strings won't interpolate. "
             "function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open "
@@ -1755,8 +1758,8 @@ class HogFlowInvocationSerializer(serializers.Serializer):
         default=False,
         write_only=True,
         help_text=(
-            "Test the workflow's staged draft instead of its live config. Requires an open draft; "
-            "can't be combined with an explicit configuration override."
+            "Test the workflow's staged draft instead of its live config. Set this only when workflows-get "
+            "returns a non-null 'draft'; it can't be combined with an explicit configuration override."
         ),
     )
 
@@ -3199,7 +3202,20 @@ class HogFlowViewSet(
     # this fans out the payload for every workflow listed.
     WORKFLOW_REPUTATION_HISTORY_DAYS = 7
 
-    @extend_schema(responses={200: TeamEmailReputationResponseSerializer})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                str,
+                OpenApiParameter.QUERY,
+                description=(
+                    "Case-insensitive workflow name filter. Applied before the worst-50 cap, so it "
+                    "finds workflows the unfiltered response cuts off."
+                ),
+            )
+        ],
+        responses={200: TeamEmailReputationResponseSerializer},
+    )
     @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[], url_path="reputation")
     def team_reputation(self, request: Request, **kwargs) -> Response:
         """
@@ -3235,6 +3251,11 @@ class HogFlowViewSet(
             .order_by("hog_flow_id", "evaluated_at")
             .select_related("hog_flow")
         )
+        # Server-side by necessity: the response is capped to the worst 50 workflows, so filtering
+        # client-side could never find a healthy workflow beyond the cap.
+        search = (request.query_params.get("search") or "").strip()
+        if search:
+            workflow_rows = workflow_rows.filter(hog_flow__name__icontains=search)
         history_by_flow: dict[uuid_mod.UUID, list[EmailReputationSnapshot]] = {}
         for row in workflow_rows:
             if row.hog_flow_id is None:  # can't happen (hog_flow__isnull=False); narrows the nullable FK for mypy

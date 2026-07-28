@@ -410,10 +410,13 @@ class SignalReport(UUIDModel):
         caller owns the write so it can batch this with other changes in one transaction.
         """
         updated_fields: set[str] = set()
-        if title is not None:
+        # Compared before assigning, so an idempotent re-send of the current text is a no-op. The REST
+        # PATCH path already compares this way, and a spurious "changed" here would cost a needless
+        # save, a misleading edit-history note, and a retracted embedding (see receivers.py).
+        if title is not None and title != self.title:
             self.title = title
             updated_fields.add("title")
-        if summary is not None:
+        if summary is not None and summary != self.summary:
             self.summary = summary
             updated_fields.add("summary")
         if updated_fields:
