@@ -62,16 +62,17 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         sustained_limit_usd=10000.0,
         sustained_window_seconds=2592000,
     ),
-    # Deliberately far below DEFAULT_USER_COST_LIMIT, which is what this product would fall back to.
-    # The route's server-credential marker proves a token was minted server-side, not that it belongs
-    # to a wizard run, so any sandbox token satisfies it (INTERNAL_SCOPES in posthog/temporal/oauth.py
-    # grants the marker to every task run). A setup wizard pass costs cents, so a per-user ceiling this
-    # low leaves real onboarding untouched while keeping the unbilled bucket a rounding error if the
-    # marker is ever the only thing standing in the way.
+    # Nobody is billed for onboarding (credit_bucket=None), so this bounds blast radius rather than
+    # spend: the route's server-credential marker proves a token was minted server-side, not that it
+    # belongs to a wizard run, and INTERNAL_SCOPES in posthog/temporal/oauth.py grants that marker to
+    # every task run. Sized to stay clear of real onboarding rather than to be tight, since cutting a
+    # user off mid-setup is worse than the unbilled spend: half of DEFAULT_USER_COST_LIMIT, and well
+    # under the comparable agentic product (background_agents, $500/week burst). Staff bypass this
+    # entirely via is_usage_unlimited, so internal runs are never capped by it.
     "onboarding": UserCostLimit(
-        burst_limit_usd=20.0,
+        burst_limit_usd=50.0,
         burst_window_seconds=86400,
-        sustained_limit_usd=50.0,
+        sustained_limit_usd=500.0,
         sustained_window_seconds=2592000,
     ),
 }
