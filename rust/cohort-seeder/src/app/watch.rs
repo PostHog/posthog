@@ -14,7 +14,7 @@
 //! decision logic is tested with fakes — the rdkafka consumer follows proven prior art and gets no
 //! broker integration test.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -139,11 +139,44 @@ impl RunWatch {
     }
 }
 
+/// What the stream has read since coverage was last folded into the watched runs. Held once for the
+/// whole task rather than advanced into every run per record: the membership topic is high-volume and
+/// the watched-run set has no upper bound, so per-record work must not scale with it.
+#[derive(Default)]
+struct StreamCoverage(BTreeMap<MembershipPartition, NextOffset>);
+
+impl StreamCoverage {
+    fn advance(&mut self, partition: MembershipPartition, next: NextOffset) {
+        let slot = self.0.entry(partition).or_insert(next);
+        if next > *slot {
+            *slot = next;
+        }
+    }
+
+    /// Raise a run's tracked partitions to what the stream has read. [`WatchPositions::advance`] drops
+    /// partitions the run never captured, which is what keeps a run from claiming one it never read
+    /// from the beginning.
+    fn raise(&self, positions: &mut WatchPositions) {
+        for (&partition, &next) in &self.0 {
+            positions.advance(partition, next);
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    fn clear(&mut self) {
+        self.0.clear();
+    }
+}
+
 /// The fold/flush state machine, driven by the runner loop but callable directly in tests.
 struct WatchState<S, F> {
     stream: S,
     flush: F,
     persist_max_batch: u64,
+    stream_coverage: StreamCoverage,
     /// Heartbeat between per-run persists. `None` in tests, which drive the state machine directly.
     heartbeat: Option<Handle>,
     runs: HashMap<RunId, RunWatch>,
@@ -170,6 +203,7 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
             stream,
             flush,
             persist_max_batch,
+            stream_coverage: StreamCoverage::default(),
             heartbeat,
             runs: HashMap::new(),
             messages_since_flush: 0,
@@ -188,9 +222,8 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
         if self.seek_pending {
             return;
         }
-        for run in self.runs.values_mut() {
-            run.positions.advance(item.partition, item.next_offset);
-        }
+        self.stream_coverage
+            .advance(item.partition, item.next_offset);
         self.positions_advanced = true;
         self.messages_since_flush += 1;
         if let Some(marker) = item.marker {
@@ -210,6 +243,19 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
         self.messages_since_flush >= self.persist_max_batch || self.completion_pending
     }
 
+    /// Fold the stream's reads into every watched run and reset. Every reader of `positions` calls
+    /// this first, and it must run before a run joins the set — a run may only ever claim offsets the
+    /// stream read while it was already watched.
+    fn materialize_coverage(&mut self) {
+        if self.stream_coverage.is_empty() {
+            return;
+        }
+        for run in self.runs.values_mut() {
+            self.stream_coverage.raise(&mut run.positions);
+        }
+        self.stream_coverage.clear();
+    }
+
     /// Reconcile the watched-run set with a fresh directive snapshot, then re-seek if the set changed.
     /// A run removed from the set (it left `reconciling`) is flushed once and dropped; a run whose
     /// epoch changed (a re-dispatch) is rebuilt from the fresh directive.
@@ -220,6 +266,9 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
     /// watched runs; re-reading is safe because bit folds and position advances are idempotent.
     /// Steady-state republishes (same runs, same epochs) never re-seek.
     async fn apply_directives(&mut self, directives: &WatchDirectives) {
+        // Before the set changes, so a run inserted below starts at its dispatch position rather than
+        // inheriting reads the stream made before its ledger existed.
+        self.materialize_coverage();
         let incoming: HashSet<RunId> = directives.runs.iter().map(|d| d.run_id).collect();
         let removed: Vec<RunId> = self
             .runs
@@ -272,6 +321,7 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
     /// Seek the stream to the minimum start across all watched runs. A truncated start drops every
     /// run whose coverage sits below the log's low watermark and retries with the raised floor.
     async fn reassign(&mut self) {
+        self.materialize_coverage();
         loop {
             if self.runs.is_empty() {
                 // Stays owed until it lands, like the seek below: nothing else revisits an
@@ -346,6 +396,7 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
 
     /// Flush every watched run's dirty bits and the current positions, then reset the flush accounting.
     async fn flush(&mut self) {
+        self.materialize_coverage();
         let run_ids: Vec<RunId> = self.runs.keys().copied().collect();
         let mut all_persisted = true;
         for run_id in run_ids {
@@ -773,6 +824,58 @@ mod tests {
             state.flush.calls().len(),
             1,
             "the next flush retries without waiting for new traffic"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_run_joining_late_does_not_inherit_earlier_reads() {
+        // Coverage is folded in from one shared stream position, so the fold has to land before a run
+        // joins. A run that inherited reads made before its ledger existed could settle without ever
+        // having seen its own markers.
+        let early = run(1);
+        let late = run(2);
+        let mut state = make_state(FakeFlush::default(), 10_000);
+        state
+            .apply_directives(&WatchDirectives {
+                runs: vec![directive(early, 100, start_at(0, 0), &[10])],
+            })
+            .await;
+
+        for offset in 1..=100 {
+            state.ingest(WatchItem {
+                partition: MembershipPartition::new(0),
+                next_offset: NextOffset::from_high_watermark(offset),
+                marker: None,
+            });
+        }
+
+        state
+            .apply_directives(&WatchDirectives {
+                runs: vec![
+                    directive(early, 100, start_at(0, 0), &[10]),
+                    directive(late, 100, start_at(0, 50), &[11]),
+                ],
+            })
+            .await;
+        state.flush().await;
+
+        let calls = state.flush.calls();
+        let persisted = |run_id| {
+            calls
+                .iter()
+                .filter(|call| call.run_id == run_id)
+                .next_back()
+                .and_then(|call| call.positions.get(MembershipPartition::new(0)))
+        };
+        assert_eq!(
+            persisted(early),
+            Some(NextOffset::from_high_watermark(100)),
+            "the run watched throughout keeps every read the stream made"
+        );
+        assert_eq!(
+            persisted(late),
+            Some(NextOffset::from_high_watermark(50)),
+            "a run that joined after those reads stays at its dispatch start"
         );
     }
 
