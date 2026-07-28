@@ -34,8 +34,8 @@ import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsReputation } from './Workflows/Reputation/WorkflowsReputation'
-import { workflowsReputationLogic } from './Workflows/Reputation/workflowsReputationLogic'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
+import { workflowsEmailSuspensionLogic } from './workflowsEmailSuspensionLogic'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs', 'suppression', 'reputation'] as const
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
@@ -143,7 +143,7 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
-    const { emailSendingSuspended } = useValues(workflowsReputationLogic)
+    const { emailSendingSuspended, emailSendingSuspensionReason } = useValues(workflowsEmailSuspensionLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
@@ -328,15 +328,14 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             />
             {emailSendingSuspended && (
                 <LemonBanner type="error" data-attr="workflows-email-suspended-banner">
-                    Email sending is suspended for this project because bounce or spam complaint rates crossed critical
-                    thresholds. Workflow emails are not being delivered.{' '}
+                    Email sending is suspended for this project. Workflow emails are not being delivered.
+                    {emailSendingSuspensionReason ? <> Reason: {emailSendingSuspensionReason}</> : null}{' '}
                     {emailReputationEnabled && (
                         <>
-                            Review the <Link to={urls.workflows('reputation')}>Reputation tab</Link>, clean up your
-                            recipient lists, and{' '}
+                            Review the <Link to={urls.workflows('reputation')}>Reputation tab</Link>
+                            {' and '}
                         </>
                     )}
-                    {!emailReputationEnabled && <>Clean up your recipient lists and </>}
                     contact support to get sending re-enabled.
                 </LemonBanner>
             )}

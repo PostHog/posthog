@@ -1033,6 +1033,21 @@ export interface PatchedHogFlowScheduleApi {
     readonly updated_at?: string
 }
 
+/**
+ * Cheap suspension-only read for the persistent scene-wide banner — no reputation computation.
+ */
+export interface EmailSendingSuspensionStatusApi {
+    /** True while workflow email sending is suspended for this project to protect deliverability. */
+    readonly email_sending_suspended: boolean
+    /**
+     * When email sending was suspended; null while sending is enabled.
+     * @nullable
+     */
+    readonly email_sending_suspended_at: string | null
+    /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
+    readonly email_sending_suspension_reason: string
+}
+
 export interface WorkflowStatsRowApi {
     /** The workflow these counts are for. */
     workflow_id: string
@@ -1141,6 +1156,8 @@ export interface TeamEmailReputationResponseApi {
      * @nullable
      */
     readonly email_sending_suspended_at: string | null
+    /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
+    readonly email_sending_suspension_reason: string
 }
 
 /**

@@ -36,6 +36,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
+from posthog.models.scoping import with_team_scope
 from posthog.models.utils import UUIDT
 from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
@@ -601,6 +602,7 @@ def _get_members_with_project_access(team: Team) -> list[OrganizationMembership]
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
 def send_email_sending_suspended(team_id: int, reason: str, suspended_at: str) -> None:
     """
     Tell a team's members that staff suspended workflow email sending for their project.
@@ -628,6 +630,7 @@ def send_email_sending_suspended(team_id: int, reason: str, suspended_at: str) -
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
 def send_email_sending_unsuspended(team_id: int, unsuspended_at: str) -> None:
     if not is_email_available(with_absolute_urls=True):
         return

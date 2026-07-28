@@ -47,6 +47,7 @@ class TestEmailReputationAPI(APIBaseTest):
             "workflows": [],
             "email_sending_suspended": False,
             "email_sending_suspended_at": None,
+            "email_sending_suspension_reason": "",
         }
 
     def test_reputation_endpoint_reports_email_sending_suspension(self):
@@ -64,6 +65,7 @@ class TestEmailReputationAPI(APIBaseTest):
         data = response.json()
         assert data["email_sending_suspended"] is True
         assert data["email_sending_suspended_at"] == suspended_at.isoformat().replace("+00:00", "Z")
+        assert data["email_sending_suspension_reason"] == "critical bounce rate"
 
     def test_reputation_endpoint_search_filters_before_the_cap(self):
         # A healthy workflow pushed past the worst-50 cap must still be findable by name
@@ -150,4 +152,5 @@ class TestEmailReputationAPI(APIBaseTest):
             "workflows": [],
             "email_sending_suspended": False,
             "email_sending_suspended_at": None,
+            "email_sending_suspension_reason": "",
         }

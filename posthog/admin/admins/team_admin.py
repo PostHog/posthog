@@ -734,25 +734,40 @@ class TeamAdmin(admin.ModelAdmin):
             }
             return render(request, "admin/posthog/team/suspend_email_sending_form.html", context)
 
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
         reason = request.POST.get("reason", "").strip()
         if not reason:
             messages.error(request, "Reason is required")
             return redirect(suspend_url)
 
-        config = get_or_create_team_extension(team, TeamWorkflowsConfig)
-        if config.email_sending_suspended_at is not None:
+        # Row-lock the config while checking + flipping so two concurrent submits (retried POST,
+        # two open admin tabs) can't both pass the idempotency check and both dispatch the
+        # customer email + notification. Side effects stay outside the atomic block.
+        get_or_create_team_extension(team, TeamWorkflowsConfig)
+        with transaction.atomic():
+            config = TeamWorkflowsConfig.objects.select_for_update().get(team_id=team.pk)
+            if config.email_sending_suspended_at is not None:
+                already_suspended_at = config.email_sending_suspended_at
+                suspended_at = None
+            else:
+                already_suspended_at = None
+                suspended_at = timezone.now()
+                config.email_sending_suspended_at = suspended_at
+                config.email_sending_suspension_reason = reason
+                config.save(update_fields=["email_sending_suspended_at", "email_sending_suspension_reason"])
+
+        if already_suspended_at is not None:
             self.message_user(
                 request,
                 f"Email sending for team '{team.name}' was already suspended "
-                f"(since {config.email_sending_suspended_at.isoformat()}).",
+                f"(since {already_suspended_at.isoformat()}).",
                 level=messages.INFO,
             )
             return redirect(team_url)
 
-        suspended_at = timezone.now()
-        config.email_sending_suspended_at = suspended_at
-        config.email_sending_suspension_reason = reason
-        config.save(update_fields=["email_sending_suspended_at", "email_sending_suspension_reason"])
+        assert suspended_at is not None
         logger.info(
             "admin_suspend_email_sending",
             team_id=team.id,
@@ -760,8 +775,21 @@ class TeamAdmin(admin.ModelAdmin):
             triggered_by=request.user.email,
         )
         self._log_email_suspension_activity(request, team, "email_sending_suspended", reason)
-        send_email_sending_suspended.delay(team_id=team.id, reason=reason, suspended_at=suspended_at.isoformat())
-        self._notify_email_suspension_changed(team, suspended=True, reason=reason)
+        # Best-effort side effects: the state flip has already committed, and the idempotency
+        # guard would silently skip a retry. Log the failure and let the admin know rather than
+        # 500-ing on a broker/DB hiccup and stranding the state without a customer notification.
+        try:
+            send_email_sending_suspended.delay(team_id=team.id, reason=reason, suspended_at=suspended_at.isoformat())
+            self._notify_email_suspension_changed(team, suspended=True, reason=reason)
+        except Exception:
+            logger.exception("admin_suspend_email_sending_notify_failed", team_id=team.id)
+            self.message_user(
+                request,
+                f"Suspended team '{team.name}', but sending the customer email/notification failed. "
+                "Check logs and follow up manually.",
+                level=messages.ERROR,
+            )
+            return redirect(team_url)
         self.message_user(
             request,
             f"Suspended workflow email sending for team '{team.name}'. "
@@ -771,28 +799,51 @@ class TeamAdmin(admin.ModelAdmin):
         return redirect(team_url)
 
     def unsuspend_email_sending_view(self, request, object_id):
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
         team = Team.objects.get(pk=object_id)
         if not self.has_change_permission(request, team):
             raise PermissionDenied
 
         team_url = reverse("admin:posthog_team_change", args=[object_id])
-        config = TeamWorkflowsConfig.objects.filter(team_id=team.pk).first()
-        if not config or config.email_sending_suspended_at is None:
+        # Symmetric to suspend: lock the row, re-check, flip inside the transaction so racing
+        # submits can't both fire the re-enable side effects.
+        with transaction.atomic():
+            config = TeamWorkflowsConfig.objects.select_for_update().filter(team_id=team.pk).first()
+            if not config or config.email_sending_suspended_at is None:
+                was_suspended = False
+                unsuspended_at = None
+            else:
+                was_suspended = True
+                unsuspended_at = timezone.now()
+                config.email_sending_suspended_at = None
+                config.email_sending_suspension_reason = ""
+                config.save(update_fields=["email_sending_suspended_at", "email_sending_suspension_reason"])
+
+        if not was_suspended:
             self.message_user(request, f"Email sending for team '{team.name}' is not suspended.", level=messages.INFO)
             return redirect(team_url)
 
-        unsuspended_at = timezone.now()
-        config.email_sending_suspended_at = None
-        config.email_sending_suspension_reason = ""
-        config.save(update_fields=["email_sending_suspended_at", "email_sending_suspension_reason"])
+        assert unsuspended_at is not None
         logger.info(
             "admin_unsuspend_email_sending",
             team_id=team.id,
             triggered_by=request.user.email,
         )
         self._log_email_suspension_activity(request, team, "email_sending_unsuspended", "")
-        send_email_sending_unsuspended.delay(team_id=team.id, unsuspended_at=unsuspended_at.isoformat())
-        self._notify_email_suspension_changed(team, suspended=False, reason="")
+        try:
+            send_email_sending_unsuspended.delay(team_id=team.id, unsuspended_at=unsuspended_at.isoformat())
+            self._notify_email_suspension_changed(team, suspended=False, reason="")
+        except Exception:
+            logger.exception("admin_unsuspend_email_sending_notify_failed", team_id=team.id)
+            self.message_user(
+                request,
+                f"Re-enabled sending for team '{team.name}', but the customer email/notification failed. "
+                "Check logs and follow up manually.",
+                level=messages.ERROR,
+            )
+            return redirect(team_url)
         self.message_user(
             request,
             f"Re-enabled workflow email sending for team '{team.name}'. The team has been notified.",
