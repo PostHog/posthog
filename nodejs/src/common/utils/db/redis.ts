@@ -11,6 +11,19 @@ import { captureException } from '../posthog'
 const REDIS_ERROR_COUNTER_LIMIT = 10
 
 /**
+ * ioredis error codes for transient connection/DNS problems that self-recover on reconnect.
+ * With `maxRetriesPerRequest: -1` a short blip (e.g. a `getaddrinfo ENOTFOUND` DNS hiccup)
+ * emits a burst of these before recovering, so we log them but hold off on reporting until
+ * the error counter shows Redis is genuinely unreachable.
+ */
+const TRANSIENT_REDIS_ERROR_CODES = new Set(['ENOTFOUND', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN'])
+
+function isTransientConnectionError(error: unknown): boolean {
+    const code = (error as { code?: unknown } | null)?.code
+    return typeof code === 'string' && TRANSIENT_REDIS_ERROR_CODES.has(code)
+}
+
+/**
  * Configuration for a Redis connection.
  * Consumers should build this config inline where they create Redis connections,
  * rather than relying on centralized builder functions.
@@ -98,14 +111,28 @@ export async function createRedisClient(
         maxRetriesPerRequest: -1,
     })
     let errorCounter = 0
+    let killing = false
     const redisHost = getRedisHost(url, options)
     const connectionId = connectionName ? `[${connectionName}] ` : ''
     const creationStack = new Error().stack
     redis
         .on('error', (error) => {
+            // Once we've decided to quit, stop re-reporting and re-signalling on every
+            // subsequent reconnect error while the process winds down — otherwise a single
+            // outage produces a storm of identical captured exceptions.
+            if (killing) {
+                return
+            }
             errorCounter++
-            captureException(error)
-            if (errorCounter > REDIS_ERROR_COUNTER_LIMIT) {
+            const overLimit = errorCounter > REDIS_ERROR_COUNTER_LIMIT
+            // Expected transient connection/DNS errors self-recover on reconnect. Capturing each
+            // one turns a short blip into a storm of identical exceptions, so below the limit we
+            // only log them — a genuinely-down Redis still surfaces once the counter crosses it.
+            if (overLimit || !isTransientConnectionError(error)) {
+                captureException(error)
+            }
+            if (overLimit) {
+                killing = true
                 logger.error(
                     '😡',
                     `${connectionId}Redis error encountered! host: ${redisHost} Enough of this, I quit!`,
