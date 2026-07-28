@@ -87,6 +87,12 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class AnomalyDirection(StrEnum):
+    BOTH = "both"
+    UP = "up"
+    DOWN = "down"
+
+
 class ApprovalDecisionStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"

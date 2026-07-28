@@ -28,7 +28,7 @@ class BasePyODDetector(BaseDetector):
 
     # -- public API -----------------------------------------------------------
 
-    def detect(self, data: np.ndarray) -> DetectionResult:
+    def _detect(self, data: np.ndarray) -> DetectionResult:
         if not self._validate_data(data, min_length=self.MIN_SAMPLES):
             return DetectionResult(is_anomaly=False)
 
@@ -63,7 +63,7 @@ class BasePyODDetector(BaseDetector):
             metadata={"raw_score": float(model.decision_function(last_point)[0])},
         )
 
-    def detect_batch(self, data: np.ndarray) -> DetectionResult:
+    def _detect_batch(self, data: np.ndarray) -> DetectionResult:
         if not self._validate_data(data, min_length=self.MIN_SAMPLES):
             return DetectionResult(is_anomaly=False)
 

@@ -912,6 +912,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     posthog.capture('alert simulation run', {
                         success: true,
                         detector_type: detectorConfig?.type ?? null,
+                        detector_direction: detectorConfig ? (detectorConfig.direction ?? 'both') : null,
                         ensemble_operator: detectorConfig?.type === 'ensemble' ? detectorConfig.operator : null,
                         date_from:
                             values.simulationDateFrom ??
@@ -958,6 +959,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 posthog.capture('alert simulation run', {
                     success: false,
                     detector_type: detectorConfig?.type ?? null,
+                    detector_direction: detectorConfig ? (detectorConfig.direction ?? 'both') : null,
                     ensemble_operator: detectorConfig?.type === 'ensemble' ? detectorConfig.operator : null,
                     date_from:
                         values.simulationDateFrom ?? getDefaultSimulationRange(values.alertForm.calculation_interval),

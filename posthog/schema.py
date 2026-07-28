@@ -22,6 +22,7 @@ from posthog.schema_enums import (
     AlertCalculationInterval as AlertCalculationInterval,
     AlertConditionType as AlertConditionType,
     AlertState as AlertState,
+    AnomalyDirection as AnomalyDirection,
     ApprovalDecisionStatus as ApprovalDecisionStatus,
     ArtifactContentType as ArtifactContentType,
     ArtifactSource as ArtifactSource,
@@ -6954,6 +6955,14 @@ class ThresholdDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    direction: AnomalyDirection | None = Field(
+        default=None,
+        description=(
+            "Which side of the baseline an anomaly has to be on to fire the alert."
+            " Defaults to `both`. Redundant here since the bounds already pick a side,"
+            " but accepted so every detector honors one contract"
+        ),
+    )
     lower_bound: float | None = Field(default=None, description="Lower bound - values below this are anomalies")
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"
@@ -7973,6 +7982,10 @@ class WebVitalsPathBreakdownResult(BaseModel):
 class ZScoreDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    direction: AnomalyDirection | None = Field(
+        default=None,
+        description=("Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"),
     )
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"
@@ -9641,6 +9654,10 @@ class BreakdownItem(BaseModel):
 class COPODDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    direction: AnomalyDirection | None = Field(
+        default=None,
+        description=("Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"),
     )
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"
@@ -14815,6 +14832,10 @@ class ECODDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    direction: AnomalyDirection | None = Field(
+        default=None,
+        description=("Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"),
+    )
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"
     )
@@ -15865,6 +15886,10 @@ class HBOSDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    direction: AnomalyDirection | None = Field(
+        default=None,
+        description=("Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"),
+    )
     n_bins: int | None = Field(default=None, description="Number of histogram bins (default: 10)")
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"
@@ -15963,6 +15988,10 @@ class IQRDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    direction: AnomalyDirection | None = Field(
+        default=None,
+        description=("Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"),
+    )
     multiplier: float | None = Field(
         default=None,
         description=("IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)"),
@@ -15997,6 +16026,10 @@ class IsolationForestDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    direction: AnomalyDirection | None = Field(
+        default=None,
+        description=("Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"),
+    )
     n_estimators: int | None = Field(default=None, description="Number of trees in the forest (default: 100)")
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"
@@ -16014,6 +16047,10 @@ class IsolationForestDetectorConfig(BaseModel):
 class KNNDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    direction: AnomalyDirection | None = Field(
+        default=None,
+        description=("Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"),
     )
     method: Method | None = Field(
         default=None,
@@ -16036,6 +16073,10 @@ class KNNDetectorConfig(BaseModel):
 class LOFDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    direction: AnomalyDirection | None = Field(
+        default=None,
+        description=("Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"),
     )
     n_neighbors: int | None = Field(default=None, description="Number of neighbors for LOF (default: 20)")
     preprocessing: PreprocessingConfig | None = Field(
@@ -16289,6 +16330,10 @@ class LogsQueryResponse(BaseModel):
 class MADDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    direction: AnomalyDirection | None = Field(
+        default=None,
+        description=("Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"),
     )
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"
@@ -17192,6 +17237,10 @@ class OCSVMDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    direction: AnomalyDirection | None = Field(
+        default=None,
+        description=("Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"),
+    )
     kernel: str | None = Field(default=None, description='SVM kernel type (default: "rbf")')
     nu: float | None = Field(
         default=None,
@@ -17213,6 +17262,10 @@ class OCSVMDetectorConfig(BaseModel):
 class PCADetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    direction: AnomalyDirection | None = Field(
+        default=None,
+        description=("Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"),
     )
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"
@@ -23092,6 +23145,10 @@ class EnsembleDetectorConfig(BaseModel):
             Field(discriminator="type"),
         ]
     ] = Field(..., description="Sub-detector configurations (minimum 2)")
+    direction: AnomalyDirection | None = Field(
+        default=None,
+        description=("Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"),
+    )
     operator: EnsembleOperator = Field(..., description="How to combine sub-detector results")
     type: Literal["ensemble"] = "ensemble"
 

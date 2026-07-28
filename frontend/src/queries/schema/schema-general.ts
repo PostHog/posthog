@@ -5417,6 +5417,16 @@ export enum DetectorType {
     PCA = 'pca',
 }
 
+/** Which side of the baseline a deviation has to fall on for the alert to fire */
+export enum AnomalyDirection {
+    /** Fire on any deviation, up or down */
+    BOTH = 'both',
+    /** Fire only when the value sits above its baseline */
+    UP = 'up',
+    /** Fire only when the value sits below its baseline */
+    DOWN = 'down',
+}
+
 /** Preprocessing transforms applied to the time series before detection */
 export interface PreprocessingConfig {
     /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
@@ -5433,6 +5443,8 @@ export interface ZScoreDetectorConfig {
     threshold?: number
     /** Rolling window size for calculating mean/std (default: 30) */
     window?: integer
+    /** Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both` */
+    direction?: AnomalyDirection
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -5443,6 +5455,8 @@ export interface MADDetectorConfig {
     threshold?: number
     /** Rolling window size for calculating median/MAD (default: 30) */
     window?: integer
+    /** Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both` */
+    direction?: AnomalyDirection
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -5453,6 +5467,8 @@ export interface IQRDetectorConfig {
     multiplier?: number
     /** Rolling window size for calculating quartiles (default: 30) */
     window?: integer
+    /** Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both` */
+    direction?: AnomalyDirection
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -5463,6 +5479,9 @@ export interface ThresholdDetectorConfig {
     upper_bound?: number
     /** Lower bound - values below this are anomalies */
     lower_bound?: number
+    /** Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`.
+     * Redundant here since the bounds already pick a side, but accepted so every detector honors one contract */
+    direction?: AnomalyDirection
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -5473,6 +5492,8 @@ export interface ECODDetectorConfig {
     threshold?: number
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both` */
+    direction?: AnomalyDirection
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -5483,6 +5504,8 @@ export interface COPODDetectorConfig {
     threshold?: number
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both` */
+    direction?: AnomalyDirection
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -5495,6 +5518,8 @@ export interface IsolationForestDetectorConfig {
     n_estimators?: integer
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both` */
+    direction?: AnomalyDirection
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -5509,6 +5534,8 @@ export interface KNNDetectorConfig {
     method?: 'largest' | 'mean' | 'median'
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both` */
+    direction?: AnomalyDirection
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -5521,6 +5548,8 @@ export interface HBOSDetectorConfig {
     n_bins?: integer
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both` */
+    direction?: AnomalyDirection
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -5533,6 +5562,8 @@ export interface LOFDetectorConfig {
     n_neighbors?: integer
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both` */
+    direction?: AnomalyDirection
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -5547,6 +5578,8 @@ export interface OCSVMDetectorConfig {
     nu?: number
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both` */
+    direction?: AnomalyDirection
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -5557,6 +5590,8 @@ export interface PCADetectorConfig {
     threshold?: number
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both` */
+    direction?: AnomalyDirection
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -5588,6 +5623,8 @@ export interface EnsembleDetectorConfig {
     type: 'ensemble'
     /** How to combine sub-detector results */
     operator: EnsembleOperator
+    /** Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both` */
+    direction?: AnomalyDirection
     /** Sub-detector configurations (minimum 2) */
     detectors: SingleDetectorConfig[]
 }

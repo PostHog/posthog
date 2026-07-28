@@ -820,6 +820,11 @@
             "required": ["results"],
             "type": "object"
         },
+        "AnomalyDirection": {
+            "description": "Which side of the baseline a deviation has to fall on for the alert to fire",
+            "enum": ["both", "up", "down"],
+            "type": "string"
+        },
         "AnyAssistantGeneratedQuery": {
             "anyOf": [
                 {
@@ -5394,6 +5399,10 @@
         "COPODDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/AnomalyDirection",
+                    "description": "Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"
+                },
                 "preprocessing": {
                     "$ref": "#/definitions/PreprocessingConfig",
                     "description": "Preprocessing transforms applied before detection"
@@ -18088,6 +18097,10 @@
         "ECODDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/AnomalyDirection",
+                    "description": "Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"
+                },
                 "preprocessing": {
                     "$ref": "#/definitions/PreprocessingConfig",
                     "description": "Preprocessing transforms applied before detection"
@@ -18820,6 +18833,10 @@
                         "$ref": "#/definitions/SingleDetectorConfig"
                     },
                     "type": "array"
+                },
+                "direction": {
+                    "$ref": "#/definitions/AnomalyDirection",
+                    "description": "Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"
                 },
                 "operator": {
                     "$ref": "#/definitions/EnsembleOperator",
@@ -25794,6 +25811,10 @@
         "HBOSDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/AnomalyDirection",
+                    "description": "Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"
+                },
                 "n_bins": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of histogram bins (default: 10)"
@@ -26614,6 +26635,10 @@
         "IQRDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/AnomalyDirection",
+                    "description": "Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"
+                },
                 "multiplier": {
                     "description": "IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)",
                     "type": "number"
@@ -27560,6 +27585,10 @@
         "IsolationForestDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/AnomalyDirection",
+                    "description": "Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"
+                },
                 "n_estimators": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of trees in the forest (default: 100)"
@@ -27587,6 +27616,10 @@
         "KNNDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/AnomalyDirection",
+                    "description": "Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"
+                },
                 "method": {
                     "description": "Distance method: 'largest', 'mean', 'median' (default: 'largest')",
                     "enum": ["largest", "mean", "median"],
@@ -27787,6 +27820,10 @@
         "LOFDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/AnomalyDirection",
+                    "description": "Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"
+                },
                 "n_neighbors": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of neighbors for LOF (default: 20)"
@@ -28837,6 +28874,10 @@
         "MADDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/AnomalyDirection",
+                    "description": "Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"
+                },
                 "preprocessing": {
                     "$ref": "#/definitions/PreprocessingConfig",
                     "description": "Preprocessing transforms applied before detection"
@@ -34118,6 +34159,10 @@
         "OCSVMDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/AnomalyDirection",
+                    "description": "Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"
+                },
                 "kernel": {
                     "description": "SVM kernel type (default: \"rbf\")",
                     "type": "string"
@@ -34149,6 +34194,10 @@
         "PCADetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/AnomalyDirection",
+                    "description": "Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"
+                },
                 "preprocessing": {
                     "$ref": "#/definitions/PreprocessingConfig",
                     "description": "Preprocessing transforms applied before detection"
@@ -47263,6 +47312,10 @@
         "ThresholdDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/AnomalyDirection",
+                    "description": "Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`. Redundant here since the bounds already pick a side, but accepted so every detector honors one contract"
+                },
                 "lower_bound": {
                     "description": "Lower bound - values below this are anomalies",
                     "type": "number"
@@ -51335,6 +51388,10 @@
         "ZScoreDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/AnomalyDirection",
+                    "description": "Which side of the baseline an anomaly has to be on to fire the alert. Defaults to `both`"
+                },
                 "preprocessing": {
                     "$ref": "#/definitions/PreprocessingConfig",
                     "description": "Preprocessing transforms applied before detection"

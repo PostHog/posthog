@@ -1,4 +1,10 @@
-import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+import {
+    AlertCalculationInterval,
+    AlertConditionType,
+    AnomalyDirection,
+    DetectorConfig,
+    InsightThresholdType,
+} from '~/queries/schema/schema-general'
 
 import { intervalDropdownPhrase } from 'products/alerts/frontend/components/editAlertModalUtils'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
@@ -84,8 +90,15 @@ export function formatThresholdSummary(
     }
 }
 
-function detectorSummary(): string {
-    return 'an anomaly'
+function detectorSummary(detectorConfig: DetectorConfig): string {
+    switch (detectorConfig.direction) {
+        case AnomalyDirection.UP:
+            return 'an anomaly above baseline'
+        case AnomalyDirection.DOWN:
+            return 'an anomaly below baseline'
+        default:
+            return 'an anomaly'
+    }
 }
 
 /** Build a one-line human summary of what an alert does. Pure (no React) so it can feed a header
@@ -96,11 +109,11 @@ export function buildAlertSummary(
     subscribedCount: number,
     destinationCount = 0
 ): AlertSummaryParts {
-    const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
+    const detectorConfig = alertForm.detector_config
 
     let fires = ''
-    if (alertMode === 'detector') {
-        fires = detectorSummary()
+    if (detectorConfig) {
+        fires = detectorSummary(detectorConfig)
     } else {
         const bounds = alertForm.threshold?.configuration?.bounds
         fires = formatThresholdSummary(

@@ -5,6 +5,8 @@ import pytest
 import numpy as np
 from parameterized import parameterized
 
+from posthog.schema import AnomalyDirection
+
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 from posthog.tasks.alerts.detectors.base import DetectionResult
 from posthog.tasks.alerts.detectors.ensemble import EnsembleDetector
@@ -30,6 +32,11 @@ BATCH_DATA = np.array([10, 10, 10, 10, 10, 10, 100, 10, 10, 10, 10, 10, -50])
 # Use a very extreme spike (1000) so even conservative detectors like OCSVM flag it
 PYOD_ANOMALY_DATA = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 9, 10, 1000])
 PYOD_NORMAL_DATA = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 9, 10, 11])
+# ANOMALY_DATA / PYOD_ANOMALY_DATA mirrored downwards, for the direction gate
+DOWNWARD_ANOMALY_DATA = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, -80])
+PYOD_DOWNWARD_ANOMALY_DATA = np.array(
+    [10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 9, 10, -1000]
+)
 
 # All PyOD-based detectors share the same fit/predict_proba interface
 # All PyOD detectors for shared interface tests (scores, batch, metadata, insufficient data)
@@ -664,3 +671,63 @@ class TestRealisticScoreBehavior:
             f"Ensemble OR fired on stable data (score={result.score:.4f}, "
             f"sub_results={result.metadata.get('sub_results')})"
         )
+
+
+def _directional(config: dict[str, Any], direction: str | None) -> dict[str, Any]:
+    return config if direction is None else {**config, "direction": direction}
+
+
+ZSCORE_CONFIG = {"type": "zscore", "threshold": 0.9, "window": 10}
+MAD_CONFIG = {"type": "mad", "threshold": 0.9, "window": 10}
+IQR_CONFIG = {"type": "iqr", "threshold": 0.9, "multiplier": 1.5, "window": 10}
+ECOD_CONFIG = {"type": "ecod", "threshold": 0.5}
+ENSEMBLE_OR_CONFIG = {"type": "ensemble", "operator": "or", "detectors": [ZSCORE_CONFIG, MAD_CONFIG]}
+
+
+class TestDirectionGate:
+    @parameterized.expand(
+        [
+            (f"{name}_{label}_{direction or 'default'}", config, data, direction, expected)
+            for name, config, up_data, down_data in [
+                ("zscore", ZSCORE_CONFIG, ANOMALY_DATA, DOWNWARD_ANOMALY_DATA),
+                ("mad", MAD_CONFIG, ANOMALY_DATA, DOWNWARD_ANOMALY_DATA),
+                ("iqr", IQR_CONFIG, ANOMALY_DATA, DOWNWARD_ANOMALY_DATA),
+                ("ecod", ECOD_CONFIG, PYOD_ANOMALY_DATA, PYOD_DOWNWARD_ANOMALY_DATA),
+                ("ensemble", ENSEMBLE_OR_CONFIG, ANOMALY_DATA, DOWNWARD_ANOMALY_DATA),
+            ]
+            for label, data, expected_direction in [("spike", up_data, "up"), ("dip", down_data, "down")]
+            for direction, expected in [
+                (None, True),
+                ("both", True),
+                (expected_direction, True),
+                ("down" if expected_direction == "up" else "up", False),
+            ]
+        ]
+    )
+    def test_only_fires_when_the_deviation_matches(
+        self, _name: str, config: dict[str, Any], data: Any, direction: str | None, expected_anomaly: bool
+    ) -> None:
+        result = get_detector(_directional(config, direction)).detect(data)
+        assert result.is_anomaly == expected_anomaly
+        assert result.triggered_indices == ([len(data) - 1] if expected_anomaly else [])
+
+    @parameterized.expand([("up", False), ("down", True), ("both", True)])
+    def test_direction_reads_the_raw_value_not_the_differenced_one(self, direction: str, expected: bool) -> None:
+        # Still far below its baseline, but recovering — so the first-order diff the detector
+        # scores is a large *positive* delta.
+        recovering = np.array([100, 100, 100, 100, 100, 100, 100, 100, 20, 20, 60])
+        config = {"type": "zscore", "threshold": 0.5, "window": 10, "preprocessing": {"diffs_n": 1}}
+
+        result = get_detector(_directional(config, direction)).detect(recovering)
+        assert result.is_anomaly == expected
+        assert result.direction == AnomalyDirection.DOWN
+
+    @parameterized.expand([("up", [6]), ("down", [12]), ("both", [6, 12])])
+    def test_detect_batch_gates_each_point_and_keeps_scores(self, direction: str, expected: list[int]) -> None:
+        config = {"type": "zscore", "threshold": 0.9, "window": 5}
+
+        result = get_detector(_directional(config, direction)).detect_batch(BATCH_DATA)
+        assert result.triggered_indices == expected
+        # Gating decides whether to notify; it must not rewrite the scores the preview chart draws.
+        ungated = get_detector(config).detect_batch(BATCH_DATA)
+        assert result.all_scores == ungated.all_scores

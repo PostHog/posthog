@@ -58,6 +58,7 @@ def derive_detector_event_fields(detector_config: dict | None) -> dict:
     return {
         "alert_mode": "detector" if detector_type else "threshold",
         "detector_type": detector_type,
+        "detector_direction": (detector_config.get("direction") or "both") if detector_type else None,
         "ensemble_operator": detector_config.get("operator") if detector_type == "ensemble" else None,
     }
 

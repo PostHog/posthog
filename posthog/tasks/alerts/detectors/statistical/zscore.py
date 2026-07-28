@@ -39,7 +39,7 @@ class ZScoreDetector(BaseDetector):
         window: int - Rolling window size (default: 30)
     """
 
-    def detect(self, data: np.ndarray) -> DetectionResult:
+    def _detect(self, data: np.ndarray) -> DetectionResult:
         """Check if the most recent point is an anomaly based on z-score."""
         threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         window = self.config.get("window", 30)
@@ -84,7 +84,7 @@ class ZScoreDetector(BaseDetector):
             },
         )
 
-    def detect_batch(self, data: np.ndarray) -> DetectionResult:
+    def _detect_batch(self, data: np.ndarray) -> DetectionResult:
         """Check all points for z-score anomalies."""
         threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         window = self.config.get("window", 30)

@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from posthog.schema import TrendsAlertConfig, TrendsQuery
+from posthog.schema import AnomalyDirection, TrendsAlertConfig, TrendsQuery
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -116,12 +116,22 @@ def _triggered_dates(series: ComparableSeries, triggered_indices: list[int]) -> 
     return [date for i in triggered_indices if i < len(series.points) and (date := series.points[i].date) is not None]
 
 
+_DIRECTION_LABELS = {AnomalyDirection.UP: " above baseline", AnomalyDirection.DOWN: " below baseline"}
+
+
 def _anomaly_breach(
-    label: str, current_value: float, score: float | None, detector_type_str: str, suffix: str = ""
+    label: str,
+    current_value: float,
+    score: float | None,
+    detector_type_str: str,
+    suffix: str = "",
+    direction: AnomalyDirection | None = None,
 ) -> str:
     score_str = f" (anomaly probability: {score:.0%})" if score is not None else ""
+    direction_str = _DIRECTION_LABELS.get(direction, "") if direction else ""
     return (
-        f"Anomaly detected in {label}: value {current_value:.2f}{score_str} using {detector_type_str} detector{suffix}"
+        f"Anomaly detected in {label}: value {current_value:.2f}{direction_str}{score_str} "
+        f"using {detector_type_str} detector{suffix}"
     )
 
 
@@ -155,7 +165,11 @@ def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, 
                 current_value = float(data[-1])
                 return AlertEvaluationResult(
                     value=current_value,
-                    breaches=[_anomaly_breach(s.label, current_value, detection.score, detector_type_str)],
+                    breaches=[
+                        _anomaly_breach(
+                            s.label, current_value, detection.score, detector_type_str, direction=detection.direction
+                        )
+                    ],
                     anomaly_scores=detection.all_scores or None,
                     triggered_points=detection.triggered_indices or None,
                     triggered_dates=_triggered_dates(s, detection.triggered_indices or []) or None,
@@ -177,7 +191,11 @@ def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, 
             if sub_results:
                 parts = [_format_sub_detector(sr) for sr in sub_results]
                 suffix = f" | sub-detectors: {', '.join(parts)}"
-        breaches.append(_anomaly_breach(s.label, current_value, detection.score, detector_type_str, suffix))
+        breaches.append(
+            _anomaly_breach(
+                s.label, current_value, detection.score, detector_type_str, suffix, direction=detection.direction
+            )
+        )
 
     return AlertEvaluationResult(
         value=float(data[-1]) if len(data) > 0 else None,

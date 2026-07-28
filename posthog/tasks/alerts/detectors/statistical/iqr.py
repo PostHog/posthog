@@ -52,7 +52,7 @@ class IQRDetector(BaseDetector):
         window: int - Rolling window size (default: 30)
     """
 
-    def detect(self, data: np.ndarray) -> DetectionResult:
+    def _detect(self, data: np.ndarray) -> DetectionResult:
         threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         multiplier = self.config.get("multiplier", 1.5)
         window = self.config.get("window", 30)
@@ -104,7 +104,7 @@ class IQRDetector(BaseDetector):
             },
         )
 
-    def detect_batch(self, data: np.ndarray) -> DetectionResult:
+    def _detect_batch(self, data: np.ndarray) -> DetectionResult:
         threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         multiplier = self.config.get("multiplier", 1.5)
         window = self.config.get("window", 30)

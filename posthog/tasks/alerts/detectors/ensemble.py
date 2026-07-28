@@ -14,6 +14,8 @@ class EnsembleDetector(BaseDetector):
     Config:
         operator: 'and' | 'or' - How to combine results
         detectors: list[dict] - Sub-detector configurations (minimum 2)
+        direction: 'both' | 'up' | 'down' - Gates the combined result; sub-detectors can also
+            gate themselves via their own ``direction``
     """
 
     def __init__(self, config: dict[str, Any]):
@@ -29,7 +31,12 @@ class EnsembleDetector(BaseDetector):
         self.operator = operator
         self.sub_detectors = [get_detector(cfg) for cfg in detector_configs]
 
-    def detect(self, data: np.ndarray) -> DetectionResult:
+    @property
+    def baseline_window(self) -> int:
+        """Widest sub-detector window, so direction is read off the same span they score over."""
+        return max((d.baseline_window for d in self.sub_detectors), default=self.DEFAULT_BASELINE_WINDOW)
+
+    def _detect(self, data: np.ndarray) -> DetectionResult:
         results = [d.detect(data) for d in self.sub_detectors]
 
         if self.operator == "and":
@@ -72,7 +79,7 @@ class EnsembleDetector(BaseDetector):
             },
         )
 
-    def detect_batch(self, data: np.ndarray) -> DetectionResult:
+    def _detect_batch(self, data: np.ndarray) -> DetectionResult:
         results = [d.detect_batch(data) for d in self.sub_detectors]
 
         if self.operator == "and":

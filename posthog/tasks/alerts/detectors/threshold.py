@@ -19,7 +19,7 @@ class ThresholdDetector(BaseDetector):
         lower_bound: float | None - Values below this are anomalies
     """
 
-    def detect(self, data: np.ndarray) -> DetectionResult:
+    def _detect(self, data: np.ndarray) -> DetectionResult:
         """Check if the latest point breaches thresholds."""
         if not self._validate_data(data, min_length=1):
             return DetectionResult(is_anomaly=False)
@@ -46,7 +46,7 @@ class ThresholdDetector(BaseDetector):
             metadata={"lower_bound": lower, "upper_bound": upper, "value": float(value)},
         )
 
-    def detect_batch(self, data: np.ndarray) -> DetectionResult:
+    def _detect_batch(self, data: np.ndarray) -> DetectionResult:
         """Check all points against thresholds."""
         if not self._validate_data(data, min_length=1):
             return DetectionResult(is_anomaly=False)

@@ -26,7 +26,7 @@ class MADDetector(BaseDetector):
         window: int - Rolling window size (default: 30)
     """
 
-    def detect(self, data: np.ndarray) -> DetectionResult:
+    def _detect(self, data: np.ndarray) -> DetectionResult:
         threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         window = self.config.get("window", 30)
 
@@ -61,7 +61,7 @@ class MADDetector(BaseDetector):
             },
         )
 
-    def detect_batch(self, data: np.ndarray) -> DetectionResult:
+    def _detect_batch(self, data: np.ndarray) -> DetectionResult:
         threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         window = self.config.get("window", 30)
 

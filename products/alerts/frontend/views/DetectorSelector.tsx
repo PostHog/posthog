@@ -5,6 +5,7 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
 import {
     AlertCalculationInterval,
+    AnomalyDirection,
     COPODDetectorConfig,
     DetectorConfig,
     DetectorType,
@@ -204,6 +205,67 @@ function getSelectedType(value: DetectorConfig | null): string {
     return value.type
 }
 
+/** The threshold detector's bounds already pick a side, so we don't offer it a second knob. */
+function supportsDirection(type: string): boolean {
+    return type !== 'threshold'
+}
+
+function getDirection(config: DetectorConfig | null): AnomalyDirection {
+    if (!config || !supportsDirection(config.type)) {
+        return AnomalyDirection.BOTH
+    }
+    return config.direction ?? AnomalyDirection.BOTH
+}
+
+/** Keep the chosen direction when swapping detector types — it's a separate decision from the algorithm. */
+function withCarriedDirection(config: DetectorConfig, direction: AnomalyDirection): DetectorConfig {
+    if (direction === AnomalyDirection.BOTH || !supportsDirection(config.type)) {
+        return config
+    }
+    return { ...config, direction }
+}
+
+function DirectionInput({
+    value,
+    onChange,
+}: {
+    value: AnomalyDirection
+    onChange: (direction: AnomalyDirection) => void
+}): JSX.Element {
+    return (
+        <div>
+            <Label
+                text="Alert on"
+                tooltip="Which side of the baseline an anomaly has to be on to notify you. Anomalies on the other side are still scored, but they don't fire the alert."
+            />
+            <LemonSegmentedButton
+                data-attr="alertForm-detector-direction"
+                value={value}
+                onChange={(direction) => onChange(direction as AnomalyDirection)}
+                options={[
+                    {
+                        value: AnomalyDirection.BOTH,
+                        label: 'Both',
+                        tooltip: 'Alert on any anomaly, up or down',
+                    },
+                    {
+                        value: AnomalyDirection.UP,
+                        label: 'Above baseline',
+                        tooltip: 'Alert only when the value is unusually high',
+                    },
+                    {
+                        value: AnomalyDirection.DOWN,
+                        label: 'Below baseline',
+                        tooltip: 'Alert only when the value is unusually low',
+                    },
+                ]}
+                size="small"
+                fullWidth
+            />
+        </div>
+    )
+}
+
 export function DetectorSelector({ value, onChange, calculationInterval }: DetectorSelectorProps): JSX.Element {
     const selectedType = getSelectedType(value)
     const defaultWindow = getDefaultWindow(calculationInterval)
@@ -215,13 +277,15 @@ export function DetectorSelector({ value, onChange, calculationInterval }: Detec
             return
         }
 
+        const direction = getDirection(value)
+
         if (type === 'ensemble') {
-            onChange(getDefaultEnsemble(defaultWindow))
+            onChange(withCarriedDirection(getDefaultEnsemble(defaultWindow), direction))
             return
         }
 
         const defaultConfig = defaultConfigs[type]
-        onChange(defaultConfig ?? null)
+        onChange(defaultConfig ? withCarriedDirection(defaultConfig, direction) : null)
     }
 
     return (
@@ -307,6 +371,7 @@ function EnsembleConfig({
 
     return (
         <div className="space-y-4">
+            <DirectionInput value={getDirection(config)} onChange={(direction) => onChange({ ...config, direction })} />
             <div>
                 <Label
                     text="Combine with"
@@ -358,6 +423,7 @@ function EnsembleConfig({
                         config={detector}
                         onChange={(updated) => handleDetectorChange(index, updated)}
                         calculationInterval={calculationInterval}
+                        showDirection={false}
                     />
                 </div>
             ))}
@@ -379,13 +445,22 @@ function SingleDetectorConfigSection({
     config,
     onChange,
     calculationInterval,
+    showDirection = true,
 }: {
     config: SingleDetectorConfig
     onChange: (config: SingleDetectorConfig) => void
     calculationInterval?: AlertCalculationInterval
+    /** Off for ensemble sub-detectors — the ensemble gates the combined result instead. */
+    showDirection?: boolean
 }): JSX.Element {
     return (
-        <div>
+        <div className="space-y-3">
+            {showDirection && supportsDirection(config.type) && (
+                <DirectionInput
+                    value={getDirection(config)}
+                    onChange={(direction) => onChange({ ...config, direction })}
+                />
+            )}
             {(config.type === 'zscore' || config.type === 'mad') && (
                 <div className="grid grid-cols-2 gap-3">
                     <AnomalyThresholdInput
