@@ -162,6 +162,16 @@ class TestDatadogSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is DatadogResumeConfig
 
+    def test_version_metadata_declares_v2_default_and_deprecates_v1(self) -> None:
+        # The repin migration and the in-product deprecation banner both key off this metadata;
+        # the registry invariant test only checks generic invariants, not v1-deprecated / v2-default.
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.default_version == "v2"
+
+        deprecated = {d.version: d for d in self.source.deprecated_versions}
+        assert set(deprecated) == {"v1"}
+        assert deprecated["v1"].sunset_at is None
+
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.datadog.source.datadog_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = _make_inputs(schema_name="monitors", team_id=99, job_id="job-xyz")
