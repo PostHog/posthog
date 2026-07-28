@@ -16,7 +16,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { appendExceptionToMessage, supportLogic, warnIfMessageTooLong } from 'lib/components/Support/supportLogic'
-import { getSupportResponseTime } from 'lib/components/Support/supportResponseTimes'
+import { getSupportResponseTime } from 'lib/components/Support/supportResponseTime'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -393,15 +393,13 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 supportPlans: BillingPlanType[],
                 billingPlan: BillingPlan | null,
                 currentOrganization: OrganizationType | null
-            ): string | null => {
-                const responseTime = getSupportResponseTime(
+            ): string | null =>
+                getSupportResponseTime({
                     billing,
-                    supportPlans,
                     billingPlan,
-                    currentOrganization?.id
-                )?.trim()
-                return responseTime && /^\d/.test(responseTime) ? responseTime : null
-            },
+                    supportPlans,
+                    organizationId: currentOrganization?.id,
+                }),
         ],
     }),
     listeners(({ actions, values, cache }) => ({
