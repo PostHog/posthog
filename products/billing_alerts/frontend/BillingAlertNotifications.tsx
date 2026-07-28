@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { urls } from 'scenes/urls'
 
 import {
     AlertNotificationDestinationEditor,
@@ -50,14 +49,6 @@ export function BillingAlertNotifications(props: BillingAlertNotificationLogicPr
             title: destinationLabel(destination.type),
             detail: 'Firing, resolved, errored, and auto-disabled notifications',
             tags: [{ label: 'Active', type: 'success' }],
-            viewAction: destination.hog_function_ids[0]
-                ? {
-                      kind: 'icon',
-                      url: urls.hogFunction(destination.hog_function_ids[0]),
-                      tooltip: 'Open destination',
-                      targetBlank: true,
-                  }
-                : undefined,
             onDelete: () => deleteDestination(destination),
             deleting: deletingDestinationKeys.has(`${destination.type}-${destination.hog_function_ids.join('-')}`),
         })

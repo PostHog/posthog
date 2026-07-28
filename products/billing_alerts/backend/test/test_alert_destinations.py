@@ -7,7 +7,7 @@ from rest_framework import status
 
 from posthog.models.organization import OrganizationMembership
 
-from products.billing_alerts.backend.alert_destinations import BILLING_ALERT_EVENT_IDS
+from products.billing_alerts.backend.alert_destinations import BILLING_ALERT_EVENT_IDS, EVENT_KIND_CONFIG
 from products.billing_alerts.backend.models import BillingAlertConfiguration
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -171,6 +171,10 @@ class TestBillingAlertDestinations(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert BillingAlertConfiguration.objects.filter(name="Atomic rollback").exists() is False
         assert HogFunction.objects.filter(name__contains="Atomic rollback").exists() is False
+
+    def test_destination_links_use_the_organization_root_url_from_the_event(self) -> None:
+        assert all(config.primary_action_url == "{event.properties.alert_url}" for config in EVENT_KIND_CONFIG.values())
+        assert all("project.url}/organization" not in str(config) for config in EVENT_KIND_CONFIG.values())
 
     def test_create_destination_rejects_duplicate_type(self) -> None:
         self._sync_webhook_template()

@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { IntegrationType, OrganizationType } from '~/types'
 
 import { billingAlertsLogic } from './billingAlertsLogic'
-import { billingAlertsDestinationsCreate, billingAlertsDestinationsDeleteCreate } from './generated/api'
+import { billingAlertsDestinationsDeleteCreate } from './generated/api'
 import type {
     BillingAlertConfigurationApi,
     BillingAlertCreateDestinationApi,
@@ -36,48 +36,16 @@ function requestError(error: unknown): string {
     return error instanceof Error ? error.message : 'Request failed.'
 }
 
-function isHttpsUrl(value: string): boolean {
+export function isHttpsUrl(value: string): boolean {
     const trimmed = value.trim()
-    return Boolean(trimmed && URL.canParse(trimmed) && new URL(trimmed).protocol === 'https:')
-}
-
-function isMicrosoftTeamsWebhook(value: string): boolean {
-    if (!isHttpsUrl(value)) {
+    if (!trimmed) {
         return false
     }
-    const url = new URL(value.trim())
-    const hostname = url.hostname
-    const path = url.pathname
-    if (hostname.endsWith('.logic.azure.com')) {
-        return path.startsWith('/workflows/') && path.includes('/triggers/manual/paths/invoke')
+    try {
+        return new URL(trimmed).protocol === 'https:'
+    } catch {
+        return false
     }
-    if (hostname.endsWith('.webhook.office.com')) {
-        return path.startsWith('/webhookb2/') && path.includes('/IncomingWebhook/')
-    }
-    if (hostname.endsWith('.powerautomate.com') || hostname.endsWith('.flow.microsoft.com')) {
-        return Boolean(path.replaceAll('/', ''))
-    }
-    return hostname.endsWith('.environment.api.powerplatform.com')
-        ? path.startsWith('/powerautomate/automations/direct/') && path.includes('/workflows/')
-        : false
-}
-
-export async function createPendingBillingDestinations(
-    organizationId: string,
-    alertId: string,
-    destinations: PendingBillingAlertDestination[]
-): Promise<{ createdKeys: string[]; error?: unknown }> {
-    const createdKeys: string[] = []
-    let firstError: unknown
-    for (const destination of destinations) {
-        try {
-            await billingAlertsDestinationsCreate(organizationId, alertId, destination.payload)
-            createdKeys.push(destination.key)
-        } catch (error) {
-            firstError ??= error
-        }
-    }
-    return { createdKeys, error: firstError }
 }
 
 export interface billingAlertNotificationLogicValues {
@@ -243,9 +211,7 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
                     return slackChannel ? undefined : 'Select a Slack channel.'
                 }
                 if (selectedType === 'teams') {
-                    return isMicrosoftTeamsWebhook(webhookUrl)
-                        ? undefined
-                        : 'Enter a supported Microsoft Teams webhook URL.'
+                    return isHttpsUrl(webhookUrl) ? undefined : 'Enter a valid HTTPS webhook URL.'
                 }
                 return isHttpsUrl(webhookUrl) ? undefined : 'Enter a valid HTTPS webhook URL.'
             },

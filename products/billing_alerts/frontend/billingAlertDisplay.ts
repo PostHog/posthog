@@ -39,7 +39,10 @@ export function thresholdDescription(alert: BillingAlertConfigurationApi): strin
 }
 
 export function stateLabel(alert: BillingAlertConfigurationApi): string {
-    if (!alert.enabled && alert.state !== 'broken') {
+    if (alert.state === 'broken') {
+        return 'Auto-disabled'
+    }
+    if (!alert.enabled) {
         return 'Paused'
     }
     return alert.state.replaceAll('_', ' ')

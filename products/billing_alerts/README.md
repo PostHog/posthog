@@ -10,4 +10,6 @@ Billing follows the Logs alerting pattern: billing owns its evaluation rules, pe
 
 The MCP server exposes atomic create and partial-update tools for billing alert configuration. They use the existing organization write scope and retain the API's organization Admin or Owner permission check.
 
+Billing alerts evaluate one UTC billing date every 24 hours. Alert configuration and destination changes are committed atomically through the generated billing API, while the shared alerting backend owns destination persistence and delivery.
+
 The Billing tab uses the shared alert editor, destination editor, advanced options, next-evaluation status, and evaluation-history chart from `products/alerts`. Billing supplies its own form, threshold labels, value formatting, API calls, and notification destination payloads.
