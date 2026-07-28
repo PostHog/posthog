@@ -73,6 +73,12 @@ export interface WizardTaskDTOApi {
     status: WizardTaskDTOStatusEnumApi
 }
 
+export interface WizardSessionUserDTOApi {
+    id: number
+    first_name: string
+    email: string
+}
+
 /**
  * @nullable
  */
@@ -82,15 +88,6 @@ export type WizardSessionDTOApiEventPlan = { [key: string]: unknown } | null
  * @nullable
  */
 export type WizardSessionDTOApiError = { [key: string]: unknown } | null
-
-/**
- * The person who ran the wizard, for surfaces that attribute a run to its initiator.
- */
-export interface WizardSessionUserDTOApi {
-    id: number
-    first_name: string
-    email: string
-}
 
 /**
  * Output: serialises a WizardSessionDTO returned by the facade.
@@ -110,7 +107,7 @@ export interface WizardSessionDTOApi {
     /** @nullable */
     error: WizardSessionDTOApiError
     /** The user who initiated this wizard run (null for runs created before attribution existed). Lets the UI name whose run it is. */
-    created_by?: WizardSessionUserDTOApi | null
+    created_by: WizardSessionUserDTOApi | null
     created_at: string
     updated_at: string
     is_stale: boolean
