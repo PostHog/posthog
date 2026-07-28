@@ -462,12 +462,12 @@ pub struct Config {
     //
     // The emitter runs in the v1 analytics handler but its destination has
     // always been read from the v0 `KAFKA_*` block. Retiring that block would
-    // silently fall these back to their envconfig defaults — an empty topic and
-    // TLS off — which is wrong in every environment, so the emitter owns its own
+    // silently fall these back to their envconfig defaults (an empty topic and
+    // TLS off), which is wrong in every environment, so the emitter owns its own
     // names here. Setting them in charts makes the fallback dead config. TLS is
-    // separate from `kafka_hosts` on purpose: pointing the emitter at a cluster
-    // with a different TLS requirement than the main one otherwise fails the
-    // producer's startup metadata fetch, which disables it for the pod's life.
+    // separate from `kafka_hosts` because pointing the emitter at a cluster whose
+    // TLS requirement differs from the main one otherwise fails the producer's
+    // startup metadata fetch, which disables it for the pod's life.
     pub capture_ingestion_warnings_kafka_topic: Option<String>,
     pub capture_ingestion_warnings_kafka_hosts: Option<String>,
     pub capture_ingestion_warnings_kafka_tls: Option<bool>,
