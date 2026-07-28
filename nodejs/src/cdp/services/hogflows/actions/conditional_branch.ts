@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { HogFlowAction, HogFlowWakePlan } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { execHog } from '~/cdp/utils/hog-exec'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 
 import { findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
@@ -74,6 +75,7 @@ export class ConditionalBranchHandler implements ActionHandler {
                           // compiled filter; otherwise the wait relies on its events / the timeout.
                           conditions: isEvaluableCondition(action.config.condition) ? [action.config.condition] : [],
                           delay_duration: action.config.max_wait_duration,
+                          wake_plan: action.config.wake_plan,
                       },
                   }
         )
@@ -132,13 +134,10 @@ export async function checkConditions(
     }
 
     if (action.config.delay_duration) {
-        // Re-park on the 10-minute cap so the condition is re-checked by polling. The subscription
-        // matcher also wakes the job early on a matching signal, but polling is kept as the backstop
-        // for now; removing it is a follow-up once the matcher streams are proven in production.
         const scheduledAt = calculatedScheduledAt(
             action.config.delay_duration,
             invocation.state.currentAction?.startedAtTimestamp,
-            DEFAULT_WAIT_DURATION_SECONDS
+            await parkCapSeconds(invocation, action.config.wake_plan)
         )
 
         if (scheduledAt) {
@@ -148,4 +147,89 @@ export async function checkConditions(
         }
     }
     return {}
+}
+
+// A wait whose timers reference data that hasn't arrived yet (a person property written by an
+// earlier step lands via ingestion, not synchronously) re-checks on this instead of sleeping to the
+// deadline. Short because it only has to outlast ingestion lag, and it stops as soon as a timer
+// resolves.
+const UNRESOLVED_TIMER_RETRY_SECONDS = 5 * 60
+
+/**
+ * How long this wait may sleep before its condition is re-checked.
+ *
+ * `undefined` means "no cap": park straight to the step's own deadline, because every way the
+ * condition can become true arrives on a stream the matcher watches. Anything else is a re-check
+ * interval, and each case is chosen so no wait ever sleeps longer than it does today:
+ *
+ *  - a resolvable clock threshold parks to that exact instant (the win: one wake, on time);
+ *  - timers present but unresolvable park briefly and retry, since the inputs are still landing;
+ *  - a plan we couldn't derive keeps the legacy polling cap, unchanged.
+ */
+async function parkCapSeconds(
+    invocation: CyclotronJobInvocationHogFlow,
+    wakePlan: HogFlowWakePlan | null | undefined
+): Promise<number | undefined> {
+    // No plan means the flow predates wake-plan derivation (or has no condition to derive one
+    // from), so we can't prove stream coverage — keep polling it.
+    if (!wakePlan || wakePlan.unsupported_reason) {
+        return DEFAULT_WAIT_DURATION_SECONDS
+    }
+
+    const timers = wakePlan.timers ?? []
+    if (timers.length === 0) {
+        // Analyzed and clock-free: only a message can satisfy it, and the matcher delivers those.
+        return undefined
+    }
+
+    const earliest = await earliestFutureTimer(invocation, timers)
+    if (earliest === null) {
+        return UNRESOLVED_TIMER_RETRY_SECONDS
+    }
+
+    // Round up so we never wake a hair early and re-park for the remaining fraction of a second.
+    return Math.max(1, Math.ceil(earliest.diff(DateTime.utc()).as('seconds')))
+}
+
+/**
+ * Evaluate each timer against the invocation's current globals and return the soonest instant still
+ * ahead of us, or null when none resolves to one.
+ *
+ * Earliest rather than latest on purpose: waking early is free (the condition is re-checked and the
+ * job re-parks), while waking late means sleeping through the moment the condition flipped.
+ */
+async function earliestFutureTimer(invocation: CyclotronJobInvocationHogFlow, timers: any[]): Promise<DateTime | null> {
+    const globals = { event: invocation.state?.event, person: invocation.person }
+    const now = DateTime.utc()
+    let earliest: DateTime | null = null
+
+    for (const timer of timers) {
+        let instant: DateTime | null = null
+        try {
+            const result = (await execHog(timer, { globals, timeout: 50 })).execResult?.result
+            instant = toDateTime(result)
+        } catch {
+            // A timer that throws tells us nothing about when to wake; treat it as unresolved so the
+            // caller retries rather than trusting a deadline it can't justify.
+            instant = null
+        }
+
+        if (instant && instant > now && (!earliest || instant < earliest)) {
+            earliest = instant
+        }
+    }
+
+    return earliest
+}
+
+/** Coerce a timer's result into a DateTime. HogVM returns HogDateTime for date functions. */
+function toDateTime(result: unknown): DateTime | null {
+    if (result && typeof result === 'object' && '__hogDateTime__' in result) {
+        const dt = (result as unknown as { dt: unknown }).dt
+        return typeof dt === 'number' ? DateTime.fromSeconds(dt, { zone: 'utc' }) : null
+    }
+    if (typeof result === 'number') {
+        return DateTime.fromSeconds(result, { zone: 'utc' })
+    }
+    return null
 }

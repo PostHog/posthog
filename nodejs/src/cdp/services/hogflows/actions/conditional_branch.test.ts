@@ -280,6 +280,192 @@ describe('action.conditional_branch', () => {
             expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 10 }))
         })
 
+        describe('wake plan scheduling', () => {
+            // Reads person.properties.due_at and returns it as a unix timestamp, mirroring the shape
+            // the save-time analyzer emits for `now() >= <person date>`.
+            const dueAtTimer = ['_H', 1, 32, 'due_at', 32, 'properties', 32, 'person', 1, 3, 2, 'toUnixTimestamp', 1]
+
+            it('parks to the timer instant instead of the polling cap', async () => {
+                // The whole point of the wake plan: a clock-based wait sleeps once, to the moment its
+                // condition flips, rather than waking every 10 minutes to ask. Regression this catches
+                // is the cap winning over a resolvable timer, which silently restores polling.
+                waitAction.config.max_wait_duration = '30d'
+                waitAction.config.wake_plan = { streams: ['person'], timers: [dueAtTimer] }
+                waitInvocation.person = {
+                    properties: { due_at: DateTime.utc().plus({ days: 6 }).toISO() },
+                } as any
+
+                const result = await handler.execute({
+                    invocation: waitInvocation,
+                    action: waitAction,
+                    result: createInvocationResult(waitInvocation),
+                })
+
+                expect(result.scheduledAt!.toISO()).toEqual(DateTime.utc().plus({ days: 6 }).toISO())
+            })
+
+            it('never sleeps past the step deadline even when the timer is later', async () => {
+                // A timer beyond max_wait must not extend the wait: the deadline is a hard ceiling, and
+                // overshooting it would strand the run instead of letting it take the timeout branch.
+                waitAction.config.max_wait_duration = '1h'
+                waitAction.config.wake_plan = { streams: ['person'], timers: [dueAtTimer] }
+                waitInvocation.person = {
+                    properties: { due_at: DateTime.utc().plus({ days: 6 }).toISO() },
+                } as any
+
+                const result = await handler.execute({
+                    invocation: waitInvocation,
+                    action: waitAction,
+                    result: createInvocationResult(waitInvocation),
+                })
+
+                expect(result.scheduledAt).toEqual(DateTime.utc().plus({ hours: 1 }))
+            })
+
+            it('retries shortly when a timer cannot resolve yet', async () => {
+                // The production flow writes the date it waits on in the preceding step, and that write
+                // lands via ingestion — so the timer is unresolvable on first park. It must retry soon,
+                // never sleep to the deadline, or the wake is lost for the whole max_wait.
+                waitAction.config.max_wait_duration = '30d'
+                waitAction.config.wake_plan = { streams: ['person'], timers: [dueAtTimer] }
+                waitInvocation.person = { properties: {} } as any
+
+                const result = await handler.execute({
+                    invocation: waitInvocation,
+                    action: waitAction,
+                    result: createInvocationResult(waitInvocation),
+                })
+
+                expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 5 }))
+            })
+
+            it('parks to the deadline when the condition has no clock dependence', async () => {
+                // Analyzed and clock-free: only a message can satisfy it, and the matcher delivers
+                // those, so there is nothing for a re-check to discover.
+                waitAction.config.max_wait_duration = '30d'
+                waitAction.config.wake_plan = { streams: ['person'], timers: [] }
+
+                const result = await handler.execute({
+                    invocation: waitInvocation,
+                    action: waitAction,
+                    result: createInvocationResult(waitInvocation),
+                })
+
+                expect(result.scheduledAt).toEqual(DateTime.utc().plus({ days: 30 }))
+            })
+
+            // Verbatim analyzer output for the two live prod-eu conditions that depend on the poll
+            // today, dumped from analyze_wait_condition. Hand-written bytecode would only prove the
+            // executor works on bytecode we invented; these prove the actual Python-to-TypeScript
+            // chain lands on the right instant for the flows we're about to change.
+            it.each([
+                [
+                    'team 84676 trial reminder (offset from a second person property)',
+                    [
+                        '_H',
+                        1,
+                        33,
+                        86400,
+                        32,
+                        'trial_reminder_days',
+                        32,
+                        'properties',
+                        32,
+                        'person',
+                        1,
+                        3,
+                        2,
+                        'toInt',
+                        1,
+                        33,
+                        1,
+                        2,
+                        'coalesce',
+                        2,
+                        8,
+                        32,
+                        'trial_expiration_at',
+                        32,
+                        'properties',
+                        32,
+                        'person',
+                        1,
+                        3,
+                        2,
+                        'toDateTime',
+                        1,
+                        2,
+                        'toUnixTimestamp',
+                        1,
+                        7,
+                        2,
+                        'fromUnixTimestamp',
+                        1,
+                    ],
+                    { trial_expiration_at: '2025-01-08T00:00:00Z', trial_reminder_days: '3' },
+                    { days: 4 },
+                ],
+                [
+                    'team 23252 coupon (14 days since last seen)',
+                    [
+                        '_H',
+                        1,
+                        32,
+                        'day',
+                        33,
+                        14,
+                        32,
+                        'last_seen_at',
+                        32,
+                        'properties',
+                        32,
+                        'person',
+                        1,
+                        3,
+                        2,
+                        'toDateTime',
+                        1,
+                        2,
+                        'dateAdd',
+                        3,
+                    ],
+                    { last_seen_at: '2025-01-01T00:00:00Z' },
+                    { days: 14 },
+                ],
+            ])('schedules %s from real analyzer output', async (_name, timer, properties, expected) => {
+                waitAction.config.max_wait_duration = '30d'
+                waitAction.config.wake_plan = { streams: ['person'], timers: [timer] }
+                waitInvocation.person = { properties } as any
+
+                const result = await handler.execute({
+                    invocation: waitInvocation,
+                    action: waitAction,
+                    result: createInvocationResult(waitInvocation),
+                })
+
+                expect(result.scheduledAt!.toISO()).toEqual(DateTime.utc().plus(expected).toISO())
+            })
+
+            it('keeps the polling cap when the plan could not be derived', async () => {
+                // Fail closed: an unsupported plan means we could not prove how this wait gets woken,
+                // so it must behave exactly as it does today rather than trusting a deadline.
+                waitAction.config.max_wait_duration = '30d'
+                waitAction.config.wake_plan = {
+                    streams: [],
+                    timers: [],
+                    unsupported_reason: 'clock reference in unsupported position',
+                }
+
+                const result = await handler.execute({
+                    invocation: waitInvocation,
+                    action: waitAction,
+                    result: createInvocationResult(waitInvocation),
+                })
+
+                expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 10 }))
+            })
+        })
+
         it('marks the wait as re-parked when its condition does not match', async () => {
             // The default condition does not match, so the wait re-parks and records that it has
             // polled at least once — without counting a poll-only advance.
